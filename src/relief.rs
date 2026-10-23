@@ -17,21 +17,31 @@ use bevy::math::{Vec2, Vec3};
 
 /// Nombre de hauteurs d'eau mémorisées le long de l'axe d'un lit.
 pub const CHANNEL_LEVELS: usize = 7;
-/// Le sol au bord de l'eau dépasse un peu la surface (bord net) ; au-delà, la berge remonte
-/// avec cette pente jusqu'à rejoindre le terrain.
-const WATER_LIP: f32 = 0.2;
-const BANK_SLOPE: f32 = 0.8;
+/// Au bord de l'eau, le sol reste un peu sous la surface sur une petite largeur (le bord de
+/// l'eau, droit et net, se voit sans que le maillage du sol ne le crénelle) ; au-delà, la berge
+/// remonte jusqu'au terrain, de plus en plus raide.
+const WATER_EDGE: f32 = -0.4;
+const SHELF: f32 = 1.6;
+const BANK_SLOPE: f32 = 0.9;
+const BANK_STEEPEN_AFTER: f32 = 6.0;
+const BANK_STEEPEN: f32 = 0.6;
+/// Portée d'un lit au-delà de sa demi-largeur (au-delà, il ne touche plus le terrain).
+const CHANNEL_REACH: f32 = 12.0;
+/// Largeur de la bande de terre humide au-delà du replat.
+const BANK_TINT_WIDTH: f32 = 5.0;
+/// Raccord arrondi entre la berge taillée et le terrain.
+const BANK_BLEND: f32 = 1.5;
 
 /// Lit d'un cours d'eau (coordonnées monde 2D) : segment `a`–`b` (un disque si a = b), demi-
 /// largeur de l'eau `hw`, hauteur de l'eau le long de l'axe (`levels`, de a à b) et profondeur
-/// du lit sous l'eau (`bed`). Le sol est taillé à la forme du lit : fond sous l'eau, bord juste
-/// au-dessus de l'eau, puis berge en pente jusqu'au terrain. L'eau repose ainsi toujours dans
-/// son lit, quelle que soit la pente du terrain autour.
+/// du lit sous l'eau (`bed`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Channel {
     pub a: Vec2,
     pub b: Vec2,
     pub hw: f32,
+    /// Demi-largeur au bout `b` (évasement d'une embouchure).
+    pub hw_end: f32,
     pub levels: [f32; CHANNEL_LEVELS],
     pub bed: f32,
 }
@@ -49,39 +59,111 @@ impl Channel {
         self.a + (self.b - self.a) * self.param(p)
     }
 
-    /// Hauteur de l'eau en face de `p` (interpolée le long de l'axe).
-    pub fn water(&self, p: Vec2) -> f32 {
+    fn is_disc(&self) -> bool {
+        self.a.distance_squared(self.b) < 1e-6
+    }
+
+    fn reach(&self) -> f32 {
+        self.hw.max(self.hw_end) + SHELF + CHANNEL_REACH
+    }
+
+    /// Demi-largeur à la position `t` (0 à 1) le long de l'axe.
+    fn half_width(&self, t: f32) -> f32 {
+        self.hw + (self.hw_end - self.hw) * t
+    }
+
+    /// Hauteur de l'eau sur l'axe, en face de `p`.
+    fn axis_water(&self, p: Vec2) -> f32 {
         let x = self.param(p) * (CHANNEL_LEVELS - 1) as f32;
         let k = (x.floor() as usize).min(CHANNEL_LEVELS - 2);
         let f = x - k as f32;
         self.levels[k] * (1.0 - f) + self.levels[k + 1] * f
     }
 
-    /// Hauteur du sol taillé par le lit en `p` (sans limite : le terrain plus bas l'emporte).
-    pub fn cut(&self, p: Vec2) -> f32 {
-        let d = p.distance(self.nearest(p));
-        let w = self.water(p);
-        let half = 0.5 * self.hw;
+    /// Profil du lit à la distance `d` de l'axe (demi-largeur `hw` à cet endroit), par rapport à
+    /// la surface de l'eau.
+    fn profile(&self, d: f32, hw: f32) -> f32 {
+        let half = 0.5 * hw;
         if d <= half {
-            w - self.bed
-        } else if d <= self.hw {
-            w - self.bed + (self.bed + WATER_LIP) * smoothstep((d - half) / half)
+            -self.bed
+        } else if d <= hw {
+            -self.bed + (self.bed + WATER_EDGE) * smoothstep((d - half) / half)
         } else {
-            w + WATER_LIP + (d - self.hw) * BANK_SLOPE
+            let out = (d - hw - SHELF).max(0.0);
+            WATER_EDGE + out * BANK_SLOPE + (out - BANK_STEEPEN_AFTER).max(0.0).powi(2) * BANK_STEEPEN
         }
     }
+}
 
-    /// Le lit peut-il toucher le point `p` (au-delà, la berge a rejoint tout terrain raisonnable) ?
-    fn reaches(&self, p: Vec2) -> bool {
-        p.distance(self.nearest(p)) < self.hw + 40.0
-    }
+/// Surface de l'eau en `p` : mélange des hauteurs des axes proches, pondérées par la proximité
+/// (poids nul au-delà de la portée d'un lit). Une seule fonction du point pour la surface de
+/// l'eau et pour le lit : pas de marche entre deux tronçons, une case et sa voisine, ni au
+/// centre d'un fleuve qui tourne. Les disques (coins, centre d'un fleuve, petits lacs) ne
+/// comptent que s'il n'y a pas de tronçon à portée.
+pub fn water_surface(channels: &[Channel], p: Vec2) -> Option<f32> {
+    let blend = |discs: bool| {
+        let (mut sw, mut sh) = (0.0f32, 0.0f32);
+        for c in channels.iter().filter(|c| c.is_disc() == discs) {
+            let d = p.distance(c.nearest(p));
+            let r = c.reach();
+            if d < r {
+                let w = (1.0 - d / r).powi(4);
+                sw += w;
+                sh += w * c.axis_water(p);
+            }
+        }
+        (sw > 1e-6).then(|| sh / sw)
+    };
+    blend(false).or_else(|| blend(true))
+}
+
+/// Minimum adouci (raccord arrondi de largeur `k`).
+fn smooth_min(a: f32, b: f32, k: f32) -> f32 {
+    let h = (0.5 + 0.5 * (b - a) / k).clamp(0.0, 1.0);
+    b + (a - b) * h - k * h * (1.0 - h)
 }
 
 /// Hauteur du sol en `p` une fois les lits taillés dans le terrain (`terrain`), et part de berge
 /// (0 à 1 : terre remuée, pour la couleur).
 pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
-    let h = channels.iter().filter(|c| c.reaches(p)).map(|c| c.cut(p)).fold(terrain, f32::min);
-    (h, smoothstep((terrain - h) / 1.5))
+    // Un seul passage : forme du lit (le plus profond) et surface de l'eau (mélange pondéré,
+    // tronçons d'abord, disques à défaut)
+    let mut shape = f32::MAX;
+    let mut bank = 0.0f32;
+    let (mut sw, mut sh, mut dw, mut dh) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    for c in channels {
+        let t = c.param(p);
+        let d = p.distance(c.a + (c.b - c.a) * t);
+        let r = c.reach();
+        if d >= r {
+            continue;
+        }
+        let hw = c.half_width(t);
+        shape = shape.min(c.profile(d, hw));
+        // Terre humide : selon la distance au bord de l'eau (variation douce, sans dents de scie)
+        bank = bank.max(1.0 - smoothstep((d - hw) / (SHELF + BANK_TINT_WIDTH)));
+        let w = (1.0 - d / r).powi(4);
+        let x = t * (CHANNEL_LEVELS - 1) as f32;
+        let k = (x.floor() as usize).min(CHANNEL_LEVELS - 2);
+        let level = c.levels[k] + (c.levels[k + 1] - c.levels[k]) * (x - k as f32);
+        if c.is_disc() {
+            dw += w;
+            dh += w * level;
+        } else {
+            sw += w;
+            sh += w * level;
+        }
+    }
+    let water = if sw > 1e-6 {
+        sh / sw
+    } else if dw > 1e-6 {
+        dh / dw
+    } else {
+        return (terrain, 0.0);
+    };
+    let h = smooth_min(terrain, water + shape, BANK_BLEND);
+    // Berge entaillée (gorge) : terre aussi, selon la profondeur de l'entaille
+    (h, bank.max(smoothstep((terrain - h) / 4.0)))
 }
 
 /// Rayon (fraction de l'apothème) du plateau central plat.
@@ -89,7 +171,7 @@ pub const FLAT_RADIUS: f32 = 0.45;
 /// Début de la descente vers une plage (fraction de l'apothème) : pente longue.
 const SHORE_START: f32 = 0.35;
 /// Subdivisions de chaque arête dans le maillage.
-const EDGE_STEPS: usize = 4;
+const EDGE_STEPS: usize = 8;
 /// Assombrissement du bord des cases (séparation discrète entre cases).
 const EDGE_SHADE: f32 = 0.84;
 /// Anneaux du maillage (fractions de l'apothème) ; les deux derniers intervalles forment
@@ -101,7 +183,7 @@ const FINE_RINGS: [f32; 11] = [0.15, 0.3, FLAT_RADIUS, 0.55, 0.62, 0.7, 0.78, 0.
 const FINE_EDGE_STEPS: usize = 8;
 /// Couleur des berges (terre humide, linéaire) et part maximale dans la couleur du sol.
 const BANK_MUD: Vec3 = Vec3::new(0.30, 0.23, 0.13);
-const BANK_TINT: f32 = 0.55;
+const BANK_TINT: f32 = 0.45;
 
 const APOTHEM: f32 = HEX_SIZE * 0.866_025_4;
 
@@ -416,11 +498,6 @@ fn distance_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
 }
 
 impl HexTop {
-    /// Pente locale (norme du gradient) au point `local`.
-    fn slope(&self, local: Vec2) -> f32 {
-        self.gradient(local).length()
-    }
-
     /// Gradient du sol, mesuré juste à l'intérieur de la case (au bord, la pente est la même
     /// des deux côtés : les deux cases calculent donc la même normale).
     fn gradient(&self, local: Vec2) -> Vec2 {
@@ -432,6 +509,7 @@ impl HexTop {
     }
 
     /// Normale du sol en 3D (repère du monde : x, hauteur, −y).
+    #[cfg(test)]
     fn normal(&self, local: Vec2) -> Vec3 {
         let g = self.gradient(local);
         Vec3::new(-g.x, 1.0, g.y).normalize()
@@ -443,7 +521,7 @@ impl HexTop {
 /// devient abrupte (falaises) ; bord de case légèrement assombri. Les cours d'eau proches
 /// (`channels`, ceux de la case et de ses voisines : une arête est creusée pareil des deux côtés)
 /// creusent leur lit, bordé de berges de terre humide ; le maillage est alors plus fin.
-pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel], skirt: bool) -> MeshData {
+pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, sides: Option<&[Vec3; 6]>, channels: &[Channel], skirt: bool) -> MeshData {
     let (cx, cy) = hex.to_world();
     let origin = Vec2::new(cx, cy);
     let world = |p: Vec2, y: f32| Vec3::new(cx + p.x, y, -(cy + p.y));
@@ -459,20 +537,39 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel], skir
         if fine { carve(channels, origin + q, terrain) } else { (terrain, 0.0) }
     };
     let height = |q: Vec2| dig(q).0;
-    let normal = |q: Vec2| {
-        if !fine {
-            return top.normal(q);
-        }
-        // Gradient du terrain (mesuré comme `HexTop::gradient`) corrigé du creusement
-        let e = 0.4;
-        let cut = |v: Vec2| top.sample(v) - dig(v).0;
-        let dd = |v: Vec2| cut(q + v) - cut(q - v);
-        let g = top.gradient(q) - Vec2::new(dd(Vec2::X * e), dd(Vec2::Y * e)) / (2.0 * e);
+    // Normale : gradient du terrain (`g`, mesuré comme `HexTop::gradient`), corrigé du creusement
+    // là où le sol est entaillé
+    let normal = |q: Vec2, g: Vec2, bank: f32| {
+        let g = if bank > 0.0 {
+            // (écart assez large pour lisser les angles du profil du lit)
+            let e = 1.0;
+            let cut = |v: Vec2| top.sample(v) - dig(v).0;
+            let dd = |v: Vec2| cut(q + v) - cut(q - v);
+            g - Vec2::new(dd(Vec2::X * e), dd(Vec2::Y * e)) / (2.0 * e)
+        } else {
+            g
+        };
         Vec3::new(-g.x, 1.0, g.y).normalize()
     };
-    let shade = |q: Vec2, y: f32, edge: bool| {
-        let mut c = color;
-        let bank = dig(q).1;
+    // Couleur du sol : celle de la case, ou (case de fleuve) celle de la voisine de chaque côté,
+    // les berges prolongeant ainsi les cases voisines
+    let base = |q: Vec2| {
+        let Some(sides) = sides else { return color };
+        let len = q.length();
+        if len < 1e-3 {
+            return color;
+        }
+        let (mut sum, mut total) = (Vec3::ZERO, 0.0f32);
+        for (d, &c) in sides.iter().enumerate() {
+            let w = (q / len).dot(Vec2::from_angle((60.0 * d as f32).to_radians())).max(0.0).powi(6);
+            sum += c * w;
+            total += w;
+        }
+        let around = if total > 0.0 { sum / total } else { color };
+        color.lerp(around, smoothstep((len / APOTHEM - 0.2) / 0.5))
+    };
+    let shade = |q: Vec2, y: f32, bank: f32, slope: f32, edge: bool| {
+        let mut c = base(q);
         if bank > 0.0 {
             c = c.lerp(BANK_MUD, BANK_TINT * bank);
         }
@@ -490,7 +587,7 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel], skir
             c = c.lerp(SAND, sand);
         }
         let (d, _) = sector(q.y.atan2(q.x).to_degrees());
-        c = c.lerp(rock_color(y), rock_weight(top.slope(q)));
+        c = c.lerp(rock_color(y), rock_weight(slope));
         // Liseré clair au sommet d'une falaise
         let s = q.dot(Vec2::from_angle((60.0 * d as f32).to_radians())) / APOTHEM;
         if top.cliff_top(d) && s > 0.85 {
@@ -503,14 +600,17 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel], skir
     let border = boundary_points(if fine { FINE_EDGE_STEPS } else { EDGE_STEPS });
     let rings: &[f32] = if fine { &FINE_RINGS } else { &RINGS };
     let n = border.len() as u32;
-    let center = mesh.vertex(world(Vec2::ZERO, height(Vec2::ZERO)), normal(Vec2::ZERO), shade(Vec2::ZERO, height(Vec2::ZERO), false));
+    let vertex = |mesh: &mut MeshData, q: Vec2, edge: bool| {
+        let (y, bank) = dig(q);
+        let g = top.gradient(q);
+        mesh.vertex(world(q, y), normal(q, g, bank), shade(q, y, bank, g.length(), edge))
+    };
+    let center = vertex(&mut mesh, Vec2::ZERO, false);
     let mut ring_start = Vec::new();
     for &r in rings {
         ring_start.push(mesh.positions.len() as u32);
         for &(p, _) in &border {
-            let q = p * r;
-            let y = height(q);
-            mesh.vertex(world(q, y), normal(q), shade(q, y, r >= 1.0));
+            vertex(&mut mesh, p * r, r >= 1.0);
         }
     }
     // Plateau central en éventail, puis bandes entre anneaux (sens trigonométrique vu du dessus)
@@ -657,9 +757,9 @@ mod tests {
         let a = Hex::new(0, 0);
         let b = a + DIRECTIONS[0];
         let ((ax, ay), (bx, by)) = a.edge_corners(0);
-        let ch = [Channel { a: Vec2::new(ax, ay), b: Vec2::new(bx, by), hw: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0 }];
+        let ch = [Channel { a: Vec2::new(ax, ay), b: Vec2::new(bx, by), hw: 3.0, hw_end: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0 }];
         let flat = compute_top(a, |_| 10.0, |_, _| Link::Gentle, |_| false);
-        let (ma, mb) = (build_hex(a, &flat, Vec3::ONE, &ch, false), build_hex(b, &flat, Vec3::ONE, &ch, false));
+        let (ma, mb) = (build_hex(a, &flat, Vec3::ONE, None, &ch, false), build_hex(b, &flat, Vec3::ONE, None, &ch, false));
         let mid = Vec3::new((ax + bx) / 2.0, 0.0, -(ay + by) / 2.0);
         let at = |m: &MeshData| {
             m.positions.iter().map(|p| Vec3::from_array(*p)).filter(|p| (p.x - mid.x).abs() < 0.01 && (p.z - mid.z).abs() < 0.01).map(|p| p.y).next()
@@ -669,7 +769,7 @@ mod tests {
         let (cx, _) = a.to_world();
         let center = ma.positions.iter().find(|p| (p[0] - cx).abs() < 0.01 && p[2].abs() < 0.01).unwrap();
         assert_eq!(center[1], 10.0, "le centre de la case n'est pas touché");
-        assert!(ma.positions.len() > build_hex(a, &flat, Vec3::ONE, &[], false).positions.len(), "maillage plus fin");
+        assert!(ma.positions.len() > build_hex(a, &flat, Vec3::ONE, None, &[], false).positions.len(), "maillage plus fin");
     }
 
     #[test]
@@ -730,8 +830,8 @@ mod tests {
         // La case haute porte une paroi rocheuse ; la case basse n'a pas de roche
         let rocky = |m: &MeshData| m.colors.iter().filter(|c| (c[0] - ROCK.x).abs() < 0.12 && c[1] < c[0]).count();
         let green = Vec3::new(0.1, 0.5, 0.1);
-        assert!(rocky(&build_hex(b, high, green, &[], false)) >= 24, "paroi de falaise en roche");
-        assert_eq!(rocky(&build_hex(a, top, green, &[], false)), 0);
+        assert!(rocky(&build_hex(b, high, green, None, &[], false)) >= 24, "paroi de falaise en roche");
+        assert_eq!(rocky(&build_hex(a, top, green, None, &[], false)), 0);
     }
 
     #[test]
@@ -746,7 +846,7 @@ mod tests {
             edge_slopes: [0.0; 6],
             wall_bottoms: [0.0; 6],
         };
-        let ground = build_hex(Hex::new(0, 0), &top, Vec3::ONE, &[], false);
+        let ground = build_hex(Hex::new(0, 0), &top, Vec3::ONE, None, &[], false);
         let normal = |m: &MeshData, t: usize| {
             let p = |k: usize| Vec3::from_array(m.positions[m.indices[t * 3 + k] as usize]);
             (p(1) - p(0)).cross(p(2) - p(0))
@@ -756,7 +856,7 @@ mod tests {
         }
         // Paroi d'une arête non liée : tournée vers l'extérieur
         let walled = HexTop { links: [Link::Gentle, Link::None, Link::Gentle, Link::Gentle, Link::Gentle, Link::Gentle], ..top };
-        let ground = build_hex(Hex::new(0, 0), &walled, Vec3::ONE, &[], false);
+        let ground = build_hex(Hex::new(0, 0), &walled, Vec3::ONE, None, &[], false);
         let last = ground.indices.len() / 3 - 1;
         let out = Vec3::new(60f32.to_radians().cos(), 0.0, -60f32.to_radians().sin());
         assert!(normal(&ground, last).dot(out) > 0.0, "paroi tournée vers l'intérieur");
@@ -812,5 +912,31 @@ mod tests {
         assert!(top_x.corners[1] > 20.0, "le coin du plateau reste en hauteur : {}", top_x.corners[1]);
         // Coin partagé avec la plage voisine (coin 5 de L : X et W y sont ses voisines 4 et 5)
         assert_eq!(top_x.corners[1], top_l.corners[5], "même hauteur des deux côtés, pas de trou");
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn cout_des_cases() {
+        let a = Hex::new(0, 0);
+        let flat = compute_top(a, |h| 10.0 + (h.q * 3 + h.r * 5) as f32, |_, _| Link::Gentle, |_| false);
+        let ((ax, ay), (bx, by)) = a.edge_corners(0);
+        let mut ch = Vec::new();
+        for k in 0..10 {
+            let o = Vec2::new(k as f32 * 3.0, 0.0);
+            ch.push(Channel { a: Vec2::new(ax, ay) + o, b: Vec2::new(bx, by) + o, hw: 3.0, hw_end: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0 });
+        }
+        let t = std::time::Instant::now();
+        for _ in 0..200 { std::hint::black_box(compute_top(a, |h| 10.0 + (h.q * 3 + h.r * 5) as f32, |_, _| Link::Gentle, |_| false)); }
+        println!("compute_top : {:.3} ms", t.elapsed().as_secs_f64() * 1000.0 / 200.0);
+        let t = std::time::Instant::now();
+        for _ in 0..200 { std::hint::black_box(build_hex(a, &flat, Vec3::ONE, None, &[], false)); }
+        println!("case simple : {:.3} ms", t.elapsed().as_secs_f64() * 1000.0 / 200.0);
+        let t = std::time::Instant::now();
+        for _ in 0..50 { std::hint::black_box(build_hex(a, &flat, Vec3::ONE, None, &ch, false)); }
+        println!("case fine (10 lits) : {:.3} ms", t.elapsed().as_secs_f64() * 1000.0 / 50.0);
     }
 }

@@ -733,18 +733,49 @@ impl WorldMap {
             self.tiles[i] = Terrain::Lake;
             self.hills[i] = false;
         }
-        // Niveau d'un lac : celui de sa surface, sans dépasser ses rives
-        for &i in &lakes {
-            let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
-            let shore = hex
-                .neighbors()
+        // Niveau d'un lac : celui de sa surface, sans dépasser ses rives ; le même pour toutes les
+        // cases d'eau qui se touchent (une seule surface plane)
+        let hex_of = |i: usize| Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
+        let mut done = vec![false; n];
+        for &start in &lakes {
+            if done[start] {
+                continue;
+            }
+            let mut group = vec![start];
+            done[start] = true;
+            let mut k = 0;
+            while k < group.len() {
+                let i = group[k];
+                k += 1;
+                for nb in hex_of(i).neighbors() {
+                    if let Some(j) = self.index(nb)
+                        && self.tiles[j] == Terrain::Lake
+                        && !done[j]
+                    {
+                        done[j] = true;
+                        group.push(j);
+                    }
+                }
+            }
+            let level = group
                 .iter()
-                .filter_map(|&nb| self.index(nb))
-                .filter(|&j| !self.tiles[j].is_water())
-                .map(|j| self.levels[j])
+                .map(|&i| {
+                    let shore = hex_of(i)
+                        .neighbors()
+                        .iter()
+                        .filter_map(|&nb| self.index(nb))
+                        .filter(|&j| !self.tiles[j].is_water())
+                        .map(|j| self.levels[j])
+                        .min()
+                        .unwrap_or(MAX_LEVEL);
+                    level_of_meters(hydro.lake_surface[i]).min(shore)
+                })
                 .min()
-                .unwrap_or(MAX_LEVEL);
-            self.levels[i] = level_of_meters(hydro.lake_surface[i]).min(shore).max(1);
+                .unwrap_or(1)
+                .max(1);
+            for &i in &group {
+                self.levels[i] = level;
+            }
         }
         for i in 0..n {
             if hydro.fleuve[i] {
@@ -944,6 +975,12 @@ mod apercu {
             }
             if m.get(h) == Some(Terrain::Lake) {
                 assert!(m.level(h).unwrap() >= 1);
+                // Deux cases de lac voisines : même niveau (une seule surface)
+                for nb in h.neighbors() {
+                    if m.get(nb) == Some(Terrain::Lake) {
+                        assert_eq!(m.level(nb), m.level(h));
+                    }
+                }
             }
         }
     }

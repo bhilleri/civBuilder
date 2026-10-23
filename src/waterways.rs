@@ -12,6 +12,8 @@ use bevy::math::Vec2;
 
 /// Demi-largeur de la bande d'eau d'un fleuve (unités monde ; l'arête mesure `HEX_SIZE`).
 pub const FLEUVE_HALF_WIDTH: f32 = HEX_SIZE * 0.46;
+/// Demi-largeur d'un fleuve à son embouchure : toute l'arête.
+const ESTUARY_HALF_WIDTH: f32 = HEX_SIZE * 0.5;
 /// Petit lac : décalage depuis le centre (le centre reste libre pour les unités) et rayons.
 const SMALL_LAKE_AT: Vec2 = Vec2::new(10.0, 12.0);
 const SMALL_LAKE_RADII: Vec2 = Vec2::new(8.5, 5.5);
@@ -55,6 +57,8 @@ pub struct WaterAxis {
     pub a: Vec2,
     pub b: Vec2,
     pub hw: f32,
+    /// Demi-largeur au bout `b` (un fleuve s'évase en arrivant dans un lac ou la mer).
+    pub hw_end: f32,
     pub kind: WaterKind,
     pub also: Option<Hex>,
     pub inflow: bool,
@@ -97,29 +101,31 @@ impl WaterShape {
         self.tris.iter().filter(move |t| own || t.also.is_some_and(&explored))
     }
 
-    /// Lits visibles (mêmes règles que les triangles).
-    pub fn visible_channels<'a>(&'a self, hex: Hex, explored: impl Fn(Hex) -> bool + 'a) -> impl Iterator<Item = &'a WaterAxis> + 'a {
-        let own = explored(hex);
-        self.channels.iter().filter(move |c| own || c.also.is_some_and(&explored))
-    }
-
     fn tri(&mut self, pts: [Vec2; 3], kind: WaterKind) {
         let channel = self.channels.len() - 1;
         self.tris.push(WaterTri { pts, kind, also: self.also, channel });
     }
 
     /// Enregistre le lit d'un tronçon.
-    fn channel(&mut self, a: Vec2, b: Vec2, hw: f32, kind: WaterKind) {
-        self.channels.push(WaterAxis { a, b, hw, kind, also: self.also, inflow: self.inflow });
+    fn channel(&mut self, a: Vec2, b: Vec2, hw: f32, hw_end: f32, kind: WaterKind) {
+        self.channels.push(WaterAxis { a, b, hw, hw_end, kind, also: self.also, inflow: self.inflow });
     }
 
     /// Bande droite de `a` à `b` (demi-largeur `hw`), découpée en `STEPS` tronçons.
     fn band(&mut self, a: Vec2, b: Vec2, hw: f32, kind: WaterKind) {
-        self.channel(a, b, hw, kind);
-        let n = (b - a).perp().normalize_or_zero() * hw;
+        self.flared_band(a, b, hw, hw, kind);
+    }
+
+    /// Bande de `a` à `b` dont la demi-largeur passe de `hw` à `hw_end`.
+    fn flared_band(&mut self, a: Vec2, b: Vec2, hw: f32, hw_end: f32, kind: WaterKind) {
+        self.channel(a, b, hw, hw_end, kind);
+        let n = (b - a).perp().normalize_or_zero();
         // Les bandes larges sont aussi découpées en travers (elles épousent mieux le relief)
-        let across = if hw > 6.0 { 4 } else { 1 };
-        let at = |k: usize, j: usize| a.lerp(b, k as f32 / STEPS as f32) + n * (2.0 * j as f32 / across as f32 - 1.0);
+        let across = if hw.max(hw_end) > 6.0 { 4 } else { 1 };
+        let at = |k: usize, j: usize| {
+            let t = k as f32 / STEPS as f32;
+            a.lerp(b, t) + n * (hw + (hw_end - hw) * t) * (2.0 * j as f32 / across as f32 - 1.0)
+        };
         for k in 0..STEPS {
             for j in 0..across {
                 self.tri([at(k, j), at(k + 1, j), at(k + 1, j + 1)], kind);
@@ -133,7 +139,7 @@ impl WaterShape {
         const SIDES: usize = 12;
         // Lit : segment le long du grand axe (une ellipse en largeur, un disque si r.x = r.y)
         let half = Vec2::X * (r.x - r.y).max(0.0);
-        self.channel(c - half, c + half, r.y, kind);
+        self.channel(c - half, c + half, r.y, r.y, kind);
         let at = |k: usize| {
             let a = std::f32::consts::TAU * k as f32 / SIDES as f32;
             c + Vec2::new(a.cos() * r.x, a.sin() * r.y)
@@ -186,7 +192,10 @@ pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
                 let mid = (Vec2::new(ax, ay) + Vec2::new(bx, by)) / 2.0;
                 // Léger débord sur la case voisine : pas de liseré entre deux tronçons
                 let mid = mid + (mid - c).normalize_or_zero() * 0.6;
-                shape.band(c, mid, FLEUVE_HALF_WIDTH, WaterKind::Fleuve);
+                // Embouchure (mer, lac) : le fleuve s'évase jusqu'à occuper toute l'arête
+                let mouth = map.get(hex + DIRECTIONS[d]).is_some_and(|t| t.is_water());
+                let end = if mouth { ESTUARY_HALF_WIDTH } else { FLEUVE_HALF_WIDTH };
+                shape.flared_band(c, mid, FLEUVE_HALF_WIDTH, end, WaterKind::Fleuve);
             }
         }
         // Affluents (rivières d'arête) qui arrivent à un coin : ils rejoignent le fleuve
