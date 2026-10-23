@@ -1,0 +1,1026 @@
+//! Affichage : cases de la carte, brouillard, unités, villes, frontières (gizmos).
+
+use crate::game::{City, Fog, GameMap, HexPos, Selection, ShownFog, Territory, Unit};
+use crate::pathfinding::reachable;
+use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
+use crate::hostile::{Blocked, Camp, EnemyZoc, Hostile, Occupancy, Village};
+use crate::input::{HoverPath, OrderPath};
+use crate::map::KnownMap;
+use crate::map::{LevelEdge, MAX_LEVEL, Terrain};
+use bevy::asset::RenderAssetUsages;
+use bevy::mesh::PrimitiveTopology;
+use crate::rules::UnitKind;
+use crate::waterways::{WaterKind, WaterShape, hex_water};
+use bevy::prelude::*;
+use std::collections::{HashMap, HashSet};
+
+const Z_TILE: f32 = 0.0;
+const Z_HILLS: f32 = 0.3;
+const Z_WATER: f32 = 0.4;
+const Z_SLOPE: f32 = 0.5;
+const Z_REACH: f32 = 1.0;
+const Z_CITY: f32 = 2.0;
+const Z_SITE: f32 = 2.5;
+const Z_UNIT: f32 = 3.0;
+const Z_LABEL: f32 = 5.0;
+
+const PLAYER_COLOR: Color = Color::srgb(0.20, 0.45, 0.95);
+const HOSTILE_COLOR: Color = Color::srgb(0.78, 0.17, 0.15);
+const BORDER_COLOR: Color = Color::srgb(0.45, 0.70, 1.0);
+
+#[derive(Component)]
+pub struct Tile(pub Hex);
+
+/// Surbrillance d'une case atteignable ce tour-ci par l'unité sélectionnée.
+#[derive(Component)]
+struct ReachOverlay;
+
+/// Zone de déplacement du tour : cases atteignables + case de l'unité.
+#[derive(Resource, Default)]
+pub struct ReachArea {
+    pub cells: HashSet<Hex>,
+    /// Ennemis visibles attaquables ce tour-ci par l'unité sélectionnée.
+    pub attackable: Vec<Hex>,
+}
+
+/// Barre de PV sous un jeton d'unité (fond et remplissage).
+#[derive(Component)]
+struct HpBar;
+#[derive(Component)]
+struct HpFill;
+
+const HP_BAR_WIDTH: f32 = 26.0;
+const ATTACK_RING: Color = Color::srgb(1.0, 0.25, 0.2);
+
+/// Groupe de gizmos dédié au contour de la zone de déplacement (trait plus épais).
+#[derive(Default, Reflect, GizmoConfigGroup)]
+struct ReachGizmos;
+
+const REACH_OUTLINE: Color = Color::srgb(1.0, 0.97, 0.75);
+
+/// Pastille « nombre de tours » affichée sur le chemin prévisualisé.
+#[derive(Component)]
+struct TurnLabel;
+
+/// Pièces du symbole d'une ville : remparts hexagonaux, tours d'angle, toits et donjon.
+struct CityKit2d {
+    outer: Handle<Mesh>,
+    wall: Handle<Mesh>,
+    inner: Handle<Mesh>,
+    tower_outline: Handle<Mesh>,
+    tower: Handle<Mesh>,
+    roof: Handle<Mesh>,
+    keep_outline: Handle<Mesh>,
+    keep: Handle<Mesh>,
+    stone: Handle<ColorMaterial>,
+    paving: Handle<ColorMaterial>,
+    tiles: Handle<ColorMaterial>,
+}
+
+/// Pièces des villages (huttes autour d'un feu) et des camps hostiles (tentes dans une palissade).
+struct SiteKit2d {
+    ground: Handle<Mesh>,
+    ground_outline: Handle<Mesh>,
+    hut_outline: Handle<Mesh>,
+    hut: Handle<Mesh>,
+    hut_top: Handle<Mesh>,
+    stake: Handle<Mesh>,
+    tent_outline: Handle<Mesh>,
+    tent: Handle<Mesh>,
+    tent_seam: Handle<Mesh>,
+    fire: Handle<Mesh>,
+    fire_core: Handle<Mesh>,
+    straw: Handle<ColorMaterial>,
+    straw_dark: Handle<ColorMaterial>,
+    camp_ground: Handle<ColorMaterial>,
+    wood: Handle<ColorMaterial>,
+    tent_red: Handle<ColorMaterial>,
+    fire_color: Handle<ColorMaterial>,
+    fire_core_color: Handle<ColorMaterial>,
+}
+
+/// Matériaux partagés (une instance par terrain, version claire et version « hors de vue »).
+#[derive(Resource)]
+struct Palette {
+    /// Par terrain et par niveau d'altitude.
+    terrain: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
+    terrain_dim: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
+    /// Carte topographique, par terrain et niveau.
+    topo: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
+    topo_dim: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
+    /// Carte du climat : teintes de précipitations, puis eau profonde et eau côtière.
+    climate: Vec<Handle<ColorMaterial>>,
+    climate_dim: Vec<Handle<ColorMaterial>>,
+    unexplored: Handle<ColorMaterial>,
+    unit: Handle<ColorMaterial>,
+    hostile_unit: Handle<ColorMaterial>,
+    hp_bg: Handle<ColorMaterial>,
+    hp_good: Handle<ColorMaterial>,
+    hp_mid: Handle<ColorMaterial>,
+    hp_low: Handle<ColorMaterial>,
+    hp_mesh: Handle<Mesh>,
+    sites: SiteKit2d,
+    outline: Handle<ColorMaterial>,
+    city: CityKit2d,
+    unit_mesh: Handle<Mesh>,
+    outline_mesh: Handle<Mesh>,
+    label_mesh: Handle<Mesh>,
+    label_bg: Handle<ColorMaterial>,
+    order_label_bg: Handle<ColorMaterial>,
+    reach: Handle<ColorMaterial>,
+    tile_mesh: Handle<Mesh>,
+    icons: HashMap<UnitKind, Handle<Image>>,
+}
+
+/// Carte affichée : normale (terrains), topographique (relief : couleur par niveau d'altitude)
+/// ou climatique (précipitations et vents dominants).
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MapLayer {
+    #[default]
+    Normal,
+    Relief,
+    Climate,
+}
+
+impl MapLayer {
+    pub const ALL: [MapLayer; 3] = [MapLayer::Normal, MapLayer::Relief, MapLayer::Climate];
+
+    /// Carte suivante (touche T).
+    pub fn next(self) -> MapLayer {
+        let i = MapLayer::ALL.iter().position(|&l| l == self).unwrap_or(0);
+        MapLayer::ALL[(i + 1) % MapLayer::ALL.len()]
+    }
+
+    /// Les cartes thématiques masquent la végétation 3D, pour lire les couleurs.
+    pub fn thematic(self) -> bool {
+        self != MapLayer::Normal
+    }
+}
+
+/// Carte du climat : couleur selon les précipitations annuelles (mm), du plus sec au plus arrosé.
+pub const CLIMATE_STOPS: [(f32, (f32, f32, f32)); 5] = [
+    (0.0, (0.80, 0.62, 0.38)),
+    (250.0, (0.88, 0.80, 0.50)),
+    (500.0, (0.58, 0.76, 0.40)),
+    (1_000.0, (0.26, 0.60, 0.42)),
+    (2_000.0, (0.18, 0.42, 0.66)),
+];
+pub const CLIMATE_OCEAN: (f32, f32, f32) = (0.09, 0.12, 0.20);
+pub const CLIMATE_COAST: (f32, f32, f32) = (0.13, 0.18, 0.28);
+/// Nombre de teintes de la carte du climat en 2D.
+const CLIMATE_SHADES: usize = 16;
+const WIND_ARROW: Color = Color::srgba(1.0, 1.0, 1.0, 0.8);
+
+/// Position (0 à 1) de précipitations annuelles (mm) sur l'échelle de couleurs.
+fn rain_position(mm: f32) -> f32 {
+    let last = CLIMATE_STOPS.len() - 1;
+    let k = CLIMATE_STOPS.iter().position(|s| s.0 >= mm).unwrap_or(last).max(1);
+    let (a, b) = (CLIMATE_STOPS[k - 1].0, CLIMATE_STOPS[k].0);
+    let t = ((mm - a) / (b - a)).clamp(0.0, 1.0);
+    (k as f32 - 1.0 + t) / last as f32
+}
+
+/// Couleur à une position (0 à 1) de l'échelle.
+fn scale_color(position: f32) -> (f32, f32, f32) {
+    let last = CLIMATE_STOPS.len() - 1;
+    let x = position.clamp(0.0, 1.0) * last as f32;
+    let k = (x.floor() as usize).min(last - 1);
+    let t = x - k as f32;
+    let (ca, cb) = (CLIMATE_STOPS[k].1, CLIMATE_STOPS[k + 1].1);
+    (ca.0 + (cb.0 - ca.0) * t, ca.1 + (cb.1 - ca.1) * t, ca.2 + (cb.2 - ca.2) * t)
+}
+
+/// Couleur de la carte du climat pour des précipitations annuelles (mm).
+pub fn rain_color(mm: f32) -> (f32, f32, f32) {
+    scale_color(rain_position(mm))
+}
+
+/// Couleur d'une case sur la carte du climat.
+pub fn climate_color(t: Terrain, rain: f32) -> (f32, f32, f32) {
+    match t {
+        Terrain::Ocean => CLIMATE_OCEAN,
+        Terrain::Coast | Terrain::Lake => CLIMATE_COAST,
+        _ => rain_color(rain),
+    }
+}
+
+fn climate_shade(mm: f32) -> usize {
+    ((rain_position(mm) * CLIMATE_SHADES as f32) as usize).min(CLIMATE_SHADES - 1)
+}
+
+/// Cases portant une flèche de vent (une sur six environ, en quinconce).
+pub fn wind_arrow_site(hex: Hex) -> bool {
+    let (col, row) = hex.to_offset();
+    row % 2 == 0 && (col + row / 2) % 3 == 0
+}
+
+/// Flèche de vent d'une case : départ et arrivée (coordonnées monde 2D), ou rien en l'absence de vent.
+pub fn wind_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2)> {
+    let (wx, wy) = map.wind(hex)?;
+    let speed = wx.hypot(wy);
+    if speed < 0.05 {
+        return None;
+    }
+    let (x, y) = hex.to_world();
+    let half = HEX_SIZE * (0.35 + 0.45 * speed.min(1.2)) / 2.0;
+    let d = Vec2::new(wx, wy) / speed * half;
+    Some((Vec2::new(x, y) - d, Vec2::new(x, y) + d))
+}
+
+/// Couleurs de la carte topographique (sRGB) : eau, niveaux 1 à 6, sommets.
+pub const TOPO_OCEAN: (f32, f32, f32) = (0.12, 0.25, 0.50);
+pub const TOPO_COAST: (f32, f32, f32) = (0.35, 0.56, 0.80);
+pub const TOPO_LEVELS: [(f32, f32, f32); 6] = [
+    (0.30, 0.58, 0.32),
+    (0.56, 0.73, 0.38),
+    (0.84, 0.81, 0.46),
+    (0.86, 0.63, 0.34),
+    (0.69, 0.46, 0.29),
+    (0.56, 0.44, 0.38),
+];
+pub const TOPO_SUMMIT: (f32, f32, f32) = (0.93, 0.93, 0.96);
+
+/// Couleur topographique d'une case.
+pub fn topo_color(t: Terrain, level: u8) -> (f32, f32, f32) {
+    match t {
+        Terrain::Ocean => TOPO_OCEAN,
+        Terrain::Coast | Terrain::Lake => TOPO_COAST,
+        Terrain::Mountains => TOPO_SUMMIT,
+        _ => TOPO_LEVELS[(level.clamp(1, MAX_LEVEL) - 1) as usize],
+    }
+}
+
+/// Teinte selon l'altitude : plus sombre en bas (littoral), plus claire en haut (massif).
+pub fn level_tint((r, g, b): (f32, f32, f32), level: u8) -> (f32, f32, f32) {
+    if level == 0 {
+        return (r, g, b);
+    }
+    let f = (f32::from(level) - 3.5) / 2.5; // −1 (niveau 1) à +1 (niveau 6)
+    let shade = |c: f32| if f < 0.0 { c * (1.0 + 0.22 * f) } else { c + (1.0 - c) * 0.24 * f };
+    (shade(r), shade(g), shade(b))
+}
+
+/// Ruptures de pente, dessinées en un seul maillage à couleurs par sommet (reconstruit quand le
+/// brouillard change ; une arête n'apparaît que si ses deux cases sont explorées) :
+/// - descente praticable (1 ou 2 niveaux) : léger reflet sur la case haute, ombre en dégradé
+///   sur la case basse, plus marquée pour 2 niveaux ;
+/// - falaise : ombre profonde, arête sombre et dents de hachure tournées vers le bas.
+#[derive(Resource)]
+struct SlopeOverlay {
+    edges: Vec<LevelEdge>,
+    mesh: Handle<Mesh>,
+}
+
+/// Construit le maillage des ruptures de pente.
+#[derive(Default)]
+struct SlopeMeshBuilder {
+    positions: Vec<[f32; 3]>,
+    colors: Vec<[f32; 4]>,
+}
+
+impl SlopeMeshBuilder {
+    fn tri(&mut self, pts: [(Vec2, [f32; 4]); 3]) {
+        for (p, c) in pts {
+            self.positions.push([p.x, p.y, 0.0]);
+            self.colors.push(c);
+        }
+    }
+
+    /// Bande entre l'arête (a, b) et sa version rapprochée du centre `c` (fraction `k`),
+    /// couleur `edge` sur l'arête, fondue vers `inner`.
+    fn band(&mut self, a: Vec2, b: Vec2, c: Vec2, k: f32, edge: [f32; 4], inner: [f32; 4]) {
+        let (a2, b2) = (a + (c - a) * k, b + (c - b) * k);
+        self.tri([(a, edge), (b, edge), (b2, inner)]);
+        self.tri([(a, edge), (b2, inner), (a2, inner)]);
+    }
+
+    fn add(&mut self, e: &LevelEdge) {
+        let (a, b) = e.high.edge_corners(e.dir);
+        let (a, b) = (Vec2::new(a.0, a.1), Vec2::new(b.0, b.1));
+        let center = |h: Hex| {
+            let (x, y) = h.to_world();
+            Vec2::new(x, y)
+        };
+        let (high, low) = (center(e.high), center(e.low()));
+        let black = |alpha: f32| [0.0, 0.0, 0.0, alpha];
+        let white = |alpha: f32| [1.0, 1.0, 1.0, alpha];
+        if !e.is_cliff() {
+            let (depth, alpha) = if e.diff >= 2 { (0.34, 0.42) } else { (0.24, 0.26) };
+            self.band(a, b, high, 0.12, white(0.16), white(0.0));
+            self.band(a, b, low, depth, black(alpha), black(0.0));
+            return;
+        }
+        let dark = [0.06, 0.045, 0.035, 0.95];
+        self.band(a, b, low, 0.45, black(0.55), black(0.0));
+        // Arête sombre (légèrement débordante côté bas)
+        let inward = (low - (a + b) / 2.0).normalize() * 2.6;
+        self.tri([(a, dark), (b, dark), (b + inward, dark)]);
+        self.tri([(a, dark), (b + inward, dark), (a + inward, dark)]);
+        // Dents de hachure pointées vers le bas de la falaise
+        const TEETH: usize = 5;
+        for i in 0..TEETH {
+            let t0 = (i as f32 + 0.2) / TEETH as f32;
+            let t1 = (i as f32 + 0.8) / TEETH as f32;
+            let (p0, p1) = (a.lerp(b, t0), a.lerp(b, t1));
+            let apex = (p0 + p1) / 2.0 + (low - (a + b) / 2.0).normalize() * 8.0;
+            self.tri([(p0, dark), (p1, dark), (apex, dark)]);
+        }
+    }
+
+    fn build(mut self) -> Mesh {
+        if self.positions.is_empty() {
+            // Maillage vide interdit : un triangle dégénéré invisible
+            self.tri([(Vec2::ZERO, [0.0; 4]), (Vec2::ZERO, [0.0; 4]), (Vec2::ZERO, [0.0; 4])]);
+        }
+        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
+    }
+}
+
+fn setup_slope_overlay(
+    mut commands: Commands,
+    map: Res<GameMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(SlopeMeshBuilder::default().build());
+    // Matériau blanc : la couleur vient des sommets
+    let material = materials.add(ColorMaterial { alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..ColorMaterial::from_color(Color::WHITE) });
+    commands.spawn((Mesh2d(mesh.clone()), MeshMaterial2d(material), Transform::from_xyz(0.0, 0.0, Z_SLOPE)));
+    commands.insert_resource(SlopeOverlay { edges: map.0.level_edges(), mesh });
+}
+
+fn update_slope_overlay(fog: Res<ShownFog>, overlay: Res<SlopeOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
+    if !fog.is_changed() {
+        return;
+    }
+    let mut builder = SlopeMeshBuilder::default();
+    for e in overlay.edges.iter().filter(|e| fog.explored.contains(&e.high) && fog.explored.contains(&e.low())) {
+        builder.add(e);
+    }
+    if let Some(mut mesh) = meshes.get_mut(&overlay.mesh) {
+        *mesh = builder.build();
+    }
+}
+
+/// Cours d'eau en 2D (rivières, fleuves, petits lacs) : un seul maillage à couleurs par sommet,
+/// reconstruit quand le brouillard change.
+#[derive(Resource)]
+struct WaterOverlay {
+    shapes: Vec<(Hex, WaterShape)>,
+    mesh: Handle<Mesh>,
+}
+
+/// Couleurs (sRGB) de l'eau douce en 2D.
+const RIVER_2D: Color = Color::srgb(0.20, 0.45, 0.80);
+const FLEUVE_2D: Color = Color::srgb(0.18, 0.40, 0.72);
+const SMALL_LAKE_2D: Color = Color::srgb(0.24, 0.50, 0.78);
+
+fn setup_water_overlay(
+    mut commands: Commands,
+    map: Res<GameMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let shapes: Vec<(Hex, WaterShape)> =
+        map.0.hexes().map(|h| (h, hex_water(&map.0, h))).filter(|(_, s)| !s.is_empty()).collect();
+    let mesh = meshes.add(SlopeMeshBuilder::default().build());
+    let material = materials.add(ColorMaterial::from_color(Color::WHITE));
+    commands.spawn((Mesh2d(mesh.clone()), MeshMaterial2d(material), Transform::from_xyz(0.0, 0.0, Z_WATER)));
+    commands.insert_resource(WaterOverlay { shapes, mesh });
+}
+
+fn update_water_overlay(fog: Res<ShownFog>, overlay: Res<WaterOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
+    if !fog.is_changed() {
+        return;
+    }
+    let color = |kind: WaterKind, lit: bool| {
+        let c = match kind {
+            WaterKind::River => RIVER_2D,
+            WaterKind::Fleuve => FLEUVE_2D,
+            WaterKind::Lake => SMALL_LAKE_2D,
+        }
+        .to_linear();
+        // Hors de vue : assombri comme les cases
+        let k = if lit { 1.0 } else { 0.5 };
+        [c.red * k, c.green * k, c.blue * k * 1.1, 1.0]
+    };
+    let mut builder = SlopeMeshBuilder::default();
+    let explored = |h: Hex| fog.explored.contains(&h);
+    for (hex, shape) in &overlay.shapes {
+        let lit = fog.visible.contains(hex);
+        for t in shape.visible(*hex, explored) {
+            let c = color(t.kind, lit || t.also.is_some_and(|o| fog.visible.contains(&o)));
+            builder.tri([(t.pts[0], c), (t.pts[1], c), (t.pts[2], c)]);
+        }
+    }
+    if let Some(mut mesh) = meshes.get_mut(&overlay.mesh) {
+        *mesh = builder.build();
+    }
+}
+
+pub struct RenderPlugin;
+
+impl Plugin for RenderPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ReachArea>()
+            .init_resource::<MapLayer>()
+            .init_gizmo_group::<ReachGizmos>()
+            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_slope_overlay, setup_water_overlay))
+            .add_systems(
+            Update,
+            (
+                add_unit_visuals,
+                add_city_visuals,
+                add_site_visuals,
+                update_entity_visibility,
+                update_hp_bars,
+                sync_transforms,
+                update_tile_fog,
+                update_turn_labels,
+                update_reach_overlay,
+                draw_reach_outline.after(update_reach_overlay),
+                draw_overlays,
+                draw_wind_2d,
+                update_slope_overlay,
+                update_water_overlay,
+            ),
+        );
+    }
+}
+
+pub fn hex_translation(hex: Hex, z: f32) -> Vec3 {
+    let (x, y) = hex.to_world();
+    Vec3::new(x, y, z)
+}
+
+fn setup_map_visuals(
+    mut commands: Commands,
+    map: Res<GameMap>,
+    assets: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mut mat = |c: Color| materials.add(ColorMaterial::from_color(c));
+    let mut terrain = HashMap::new();
+    let mut terrain_dim = HashMap::new();
+    let mut topo = HashMap::new();
+    let mut topo_dim = HashMap::new();
+    for t in Terrain::ALL {
+        for level in 0..=MAX_LEVEL {
+            // L'eau d'un lac garde sa couleur à toute altitude
+            let (r, g, b) = level_tint(t.color(), if t.is_water() { 0 } else { level });
+            terrain.insert((t, level), mat(Color::srgb(r, g, b)));
+            terrain_dim.insert((t, level), mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)));
+            let (r, g, b) = topo_color(t, level);
+            topo.insert((t, level), mat(Color::srgb(r, g, b)));
+            topo_dim.insert((t, level), mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)));
+        }
+    }
+    let mut climate = Vec::new();
+    let mut climate_dim = Vec::new();
+    let shades = (0..CLIMATE_SHADES).map(|i| scale_color((i as f32 + 0.5) / CLIMATE_SHADES as f32));
+    for (r, g, b) in shades.chain([CLIMATE_OCEAN, CLIMATE_COAST]) {
+        climate.push(mat(Color::srgb(r, g, b)));
+        climate_dim.push(mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)));
+    }
+    // Hexagone à peine plus petit que la case : la grille reste discrète.
+    let tile_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.99, 6));
+    let palette = Palette {
+        tile_mesh: tile_mesh.clone(),
+        terrain,
+        terrain_dim,
+        topo,
+        topo_dim,
+        climate,
+        climate_dim,
+        unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
+        unit: mat(PLAYER_COLOR),
+        hostile_unit: mat(HOSTILE_COLOR),
+        hp_bg: mat(Color::srgb(0.05, 0.05, 0.07)),
+        hp_good: mat(Color::srgb(0.30, 0.85, 0.35)),
+        hp_mid: mat(Color::srgb(0.95, 0.75, 0.20)),
+        hp_low: mat(Color::srgb(0.95, 0.25, 0.20)),
+        hp_mesh: meshes.add(Rectangle::new(1.0, 1.0)),
+        sites: SiteKit2d {
+            ground: meshes.add(Circle::new(22.0)),
+            ground_outline: meshes.add(Circle::new(23.5)),
+            hut_outline: meshes.add(Circle::new(7.5)),
+            hut: meshes.add(Circle::new(6.0)),
+            hut_top: meshes.add(Circle::new(1.8)),
+            stake: meshes.add(Circle::new(2.3)),
+            tent_outline: meshes.add(Triangle2d::new(Vec2::new(0.0, 9.0), Vec2::new(-8.0, -6.0), Vec2::new(8.0, -6.0))),
+            tent: meshes.add(Triangle2d::new(Vec2::new(0.0, 7.2), Vec2::new(-6.4, -4.9), Vec2::new(6.4, -4.9))),
+            tent_seam: meshes.add(Rectangle::new(1.0, 11.0)),
+            fire: meshes.add(Circle::new(3.8)),
+            fire_core: meshes.add(Circle::new(1.8)),
+            straw: mat(Color::srgb(0.86, 0.72, 0.40)),
+            straw_dark: mat(Color::srgb(0.52, 0.40, 0.20)),
+            camp_ground: mat(Color::srgb(0.24, 0.18, 0.13)),
+            wood: mat(Color::srgb(0.50, 0.34, 0.19)),
+            tent_red: mat(Color::srgb(0.72, 0.16, 0.12)),
+            fire_color: mat(Color::srgb(1.0, 0.50, 0.10)),
+            fire_core_color: mat(Color::srgb(1.0, 0.88, 0.45)),
+        },
+        outline: mat(Color::srgb(0.05, 0.05, 0.08)),
+        city: CityKit2d {
+            outer: meshes.add(RegularPolygon::new(HEX_SIZE * 0.9, 6)),
+            wall: meshes.add(RegularPolygon::new(HEX_SIZE * 0.84, 6)),
+            inner: meshes.add(RegularPolygon::new(HEX_SIZE * 0.7, 6)),
+            tower_outline: meshes.add(Circle::new(5.5)),
+            tower: meshes.add(Circle::new(4.0)),
+            roof: meshes.add(Rectangle::new(5.0, 5.0)),
+            keep_outline: meshes.add(Circle::new(10.5)),
+            keep: meshes.add(Circle::new(9.0)),
+            stone: mat(Color::srgb(0.66, 0.62, 0.55)),
+            paving: mat(Color::srgb(0.30, 0.28, 0.26)),
+            tiles: mat(Color::srgb(0.68, 0.33, 0.22)),
+        },
+        label_bg: mat(Color::srgba(0.05, 0.05, 0.08, 0.9)),
+        order_label_bg: mat(Color::srgb(0.16, 0.42, 0.78)),
+        reach: mat(Color::srgba(1.0, 0.97, 0.75, 0.16)),
+        unit_mesh: meshes.add(Circle::new(14.0)),
+        outline_mesh: meshes.add(Circle::new(16.5)),
+        label_mesh: meshes.add(Circle::new(9.5)),
+        icons: UnitKind::ALL.into_iter().map(|kind| (kind, assets.load(kind.icon()))).collect(),
+    };
+
+    // Collines : petit motif de trois bosses (côté éclairé et ombre) sur la couleur du terrain
+    let bump = meshes.add(CircularSector::new(7.5, std::f32::consts::FRAC_PI_2));
+    let bump_light = materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.24)));
+    let bump_dark = materials.add(ColorMaterial::from_color(Color::srgba(0.0, 0.0, 0.0, 0.32)));
+    for hex in map.0.hexes() {
+        commands.spawn((
+            Tile(hex),
+            Mesh2d(tile_mesh.clone()),
+            MeshMaterial2d(palette.unexplored.clone()),
+            Transform::from_translation(hex_translation(hex, Z_TILE)),
+        ));
+        if map.0.hills(hex) {
+            for (dx, dy, k) in [(-9.0, -4.0, 1.0), (8.0, -6.0, 0.85), (0.0, 8.0, 0.8)] {
+                let at = hex_translation(hex, Z_HILLS) + Vec3::new(dx, dy, 0.0);
+                for (material, shift) in [(&bump_dark, Vec3::new(1.5, -1.0, 0.0)), (&bump_light, Vec3::Z * 0.01)] {
+                    commands.spawn((
+                        HillMark(hex),
+                        Mesh2d(bump.clone()),
+                        MeshMaterial2d(material.clone()),
+                        Transform::from_translation(at + shift).with_scale(Vec3::splat(k)),
+                        Visibility::Hidden,
+                    ));
+                }
+            }
+        }
+    }
+    commands.insert_resource(palette);
+    commands.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.03)));
+}
+
+/// Motif de collines d'une case (visible une fois la case explorée).
+#[derive(Component)]
+struct HillMark(Hex);
+
+fn update_tile_fog(
+    fog: Res<ShownFog>,
+    map: Res<GameMap>,
+    palette: Res<Palette>,
+    mut tiles: Query<(&Tile, &mut MeshMaterial2d<ColorMaterial>)>,
+    mut marks: Query<(&HillMark, &mut Visibility)>,
+    layer: Res<MapLayer>,
+) {
+    if !fog.is_changed() && !layer.is_changed() {
+        return;
+    }
+    let (lit, dim) = match *layer {
+        MapLayer::Normal | MapLayer::Climate => (&palette.terrain, &palette.terrain_dim),
+        MapLayer::Relief => (&palette.topo, &palette.topo_dim),
+    };
+    let climate_index = |hex: Hex| match map.0.get(hex) {
+        Some(Terrain::Ocean) => CLIMATE_SHADES,
+        Some(Terrain::Coast | Terrain::Lake) => CLIMATE_SHADES + 1,
+        _ => climate_shade(map.0.rain(hex).unwrap_or(500.0)),
+    };
+    for (mark, mut vis) in &mut marks {
+        let wanted = if fog.explored.contains(&mark.0) { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != wanted {
+            *vis = wanted;
+        }
+    }
+    for (tile, mut material) in &mut tiles {
+        let key = (map.0.get(tile.0).unwrap(), map.0.level(tile.0).unwrap_or(0));
+        let climate = *layer == MapLayer::Climate;
+        let wanted = if fog.visible.contains(&tile.0) {
+            if climate { &palette.climate[climate_index(tile.0)] } else { &lit[&key] }
+        } else if fog.explored.contains(&tile.0) {
+            if climate { &palette.climate_dim[climate_index(tile.0)] } else { &dim[&key] }
+        } else {
+            &palette.unexplored
+        };
+        if material.0 != *wanted {
+            material.0 = wanted.clone();
+        }
+    }
+}
+
+fn add_unit_visuals(
+    mut commands: Commands,
+    palette: Res<Palette>,
+    units: Query<(Entity, &Unit, &HexPos, Has<Hostile>), Added<Unit>>,
+) {
+    for (entity, unit, pos, hostile) in &units {
+        let color = if hostile { &palette.hostile_unit } else { &palette.unit };
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(palette.outline_mesh.clone()),
+                MeshMaterial2d(palette.outline.clone()),
+                Transform::from_translation(hex_translation(pos.0, Z_UNIT)),
+                // Les hostiles n'apparaissent que lorsqu'ils sont à portée de vue
+                if hostile { Visibility::Hidden } else { Visibility::Inherited },
+            ))
+            .with_children(|p| {
+                p.spawn((
+                    Mesh2d(palette.unit_mesh.clone()),
+                    MeshMaterial2d(color.clone()),
+                    Transform::from_xyz(0.0, 0.0, 0.01),
+                ));
+                p.spawn((
+                    Sprite {
+                        image: palette.icons[&unit.0.kind].clone(),
+                        custom_size: Some(Vec2::splat(21.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, 0.02),
+                ));
+                // Barre de PV (masquée tant que l'unité est en pleine santé)
+                p.spawn((
+                    HpBar,
+                    Mesh2d(palette.hp_mesh.clone()),
+                    MeshMaterial2d(palette.hp_bg.clone()),
+                    Transform::from_xyz(0.0, -20.0, 0.03).with_scale(Vec3::new(HP_BAR_WIDTH + 2.0, 6.0, 1.0)),
+                    Visibility::Hidden,
+                ));
+                p.spawn((
+                    HpFill,
+                    Mesh2d(palette.hp_mesh.clone()),
+                    MeshMaterial2d(palette.hp_good.clone()),
+                    Transform::from_xyz(0.0, -20.0, 0.04).with_scale(Vec3::new(HP_BAR_WIDTH, 4.0, 1.0)),
+                    Visibility::Hidden,
+                ));
+            });
+    }
+}
+
+/// Met à jour les barres de PV des unités dont l'état a changé.
+fn update_hp_bars(
+    palette: Res<Palette>,
+    units: Query<(&Unit, &Children), Changed<Unit>>,
+    mut bars: Query<&mut Visibility, (With<HpBar>, Without<HpFill>)>,
+    mut fills: Query<(&mut Transform, &mut MeshMaterial2d<ColorMaterial>, &mut Visibility), With<HpFill>>,
+) {
+    for (unit, children) in &units {
+        let hp = unit.0.hp.clamp(0, crate::rules::MAX_HP);
+        let wounded = hp < crate::rules::MAX_HP;
+        let shown = if wounded { Visibility::Inherited } else { Visibility::Hidden };
+        for child in children.iter() {
+            if let Ok(mut vis) = bars.get_mut(child) {
+                *vis = shown;
+            }
+            if let Ok((mut transform, mut material, mut vis)) = fills.get_mut(child) {
+                *vis = shown;
+                let ratio = hp as f32 / crate::rules::MAX_HP as f32;
+                transform.scale.x = HP_BAR_WIDTH * ratio;
+                transform.translation.x = -HP_BAR_WIDTH * (1.0 - ratio) / 2.0;
+                let wanted = if ratio > 0.6 {
+                    &palette.hp_good
+                } else if ratio > 0.3 {
+                    &palette.hp_mid
+                } else {
+                    &palette.hp_low
+                };
+                if material.0 != *wanted {
+                    material.0 = wanted.clone();
+                }
+            }
+        }
+    }
+}
+
+/// Villages et camps vus de dessus, cachés tant que la case n'est pas explorée :
+/// village = huttes de paille autour d'un feu ; camp hostile = tentes rouges dans une palissade.
+fn add_site_visuals(
+    mut commands: Commands,
+    palette: Res<Palette>,
+    sites: Query<(Entity, &HexPos, Has<Camp>), Or<(Added<Village>, Added<Camp>)>>,
+) {
+    let k = &palette.sites;
+    let part = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, x: f32, y: f32, z: f32| {
+        (Mesh2d(mesh.clone()), MeshMaterial2d(material.clone()), Transform::from_xyz(x, y, z))
+    };
+    let polar = |deg: f32, r: f32| {
+        let (sin, cos) = deg.to_radians().sin_cos();
+        (cos * r, sin * r)
+    };
+    for (entity, pos, is_camp) in &sites {
+        let mut site = commands.entity(entity);
+        site.insert((Transform::from_translation(hex_translation(pos.0, Z_SITE)), Visibility::Hidden));
+        // Le village est posé directement sur le terrain de la case ; le camp a son sol de terre battue
+        if is_camp {
+            site.insert((Mesh2d(k.ground_outline.clone()), MeshMaterial2d(palette.outline.clone())));
+        }
+        site.with_children(|p| {
+            if is_camp {
+                p.spawn(part(&k.ground, &k.camp_ground, 0.0, 0.0, 0.01));
+                for i in 0..16 {
+                    let (x, y) = polar(22.5 * i as f32, 20.5);
+                    p.spawn(part(&k.stake, &k.wood, x, y, 0.02));
+                }
+                for i in 0..3 {
+                    let (x, y) = polar(90.0 + 120.0 * i as f32, 12.0);
+                    p.spawn(part(&k.tent_outline, &palette.outline, x, y, 0.02));
+                    p.spawn(part(&k.tent, &k.tent_red, x, y, 0.03));
+                    p.spawn(part(&k.tent_seam, &palette.outline, x, y + 1.0, 0.04));
+                }
+            } else {
+                for i in 0..5 {
+                    let (x, y) = polar(90.0 + 72.0 * i as f32, 13.0);
+                    p.spawn(part(&k.hut_outline, &palette.outline, x, y, 0.02));
+                    p.spawn(part(&k.hut, &k.straw, x, y, 0.03));
+                    p.spawn(part(&k.hut_top, &k.straw_dark, x, y, 0.04));
+                }
+            }
+            p.spawn(part(&k.fire, &k.fire_color, 0.0, 0.0, 0.05));
+            p.spawn(part(&k.fire_core, &k.fire_core_color, 0.0, 0.0, 0.06));
+        });
+    }
+}
+
+/// Visibilité selon le brouillard : sites une fois découverts, guerriers hostiles seulement à vue.
+fn update_entity_visibility(
+    fog: Res<ShownFog>,
+    mut sites: Query<(&HexPos, &mut Visibility), (Or<(With<Village>, With<Camp>)>, Without<Hostile>)>,
+    mut hostiles: Query<(&HexPos, &mut Visibility), With<Hostile>>,
+) {
+    let apply = |visible: bool, vis: &mut Visibility| {
+        let wanted = if visible { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != wanted {
+            *vis = wanted;
+        }
+    };
+    for (pos, mut vis) in &mut sites {
+        apply(fog.explored.contains(&pos.0), &mut vis);
+    }
+    for (pos, mut vis) in &mut hostiles {
+        apply(fog.visible.contains(&pos.0), &mut vis);
+    }
+}
+
+/// Symbole de ville vu de dessus : remparts hexagonaux, tours d'angle, toits rouges et donjon
+/// aux couleurs du joueur (le nom et la population sont dans la bannière, voir labels.rs).
+fn add_city_visuals(mut commands: Commands, palette: Res<Palette>, cities: Query<(Entity, &HexPos), Added<City>>) {
+    let k = &palette.city;
+    for (entity, pos) in &cities {
+        let part = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, x: f32, y: f32, z: f32| {
+            (Mesh2d(mesh.clone()), MeshMaterial2d(material.clone()), Transform::from_xyz(x, y, z))
+        };
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(k.outer.clone()),
+                MeshMaterial2d(palette.outline.clone()),
+                Transform::from_translation(hex_translation(pos.0, Z_CITY)),
+            ))
+            .with_children(|p| {
+                p.spawn(part(&k.wall, &k.stone, 0.0, 0.0, 0.01));
+                p.spawn(part(&k.inner, &k.paving, 0.0, 0.0, 0.02));
+                for i in 0..6 {
+                    // Sommets des hexagones à 30°, 90°, 150°… : tours aux sommets, toits vers les sommets intérieurs
+                    let (sin, cos) = (30.0 + 60.0 * i as f32).to_radians().sin_cos();
+                    let (tx, ty) = (cos * HEX_SIZE * 0.84, sin * HEX_SIZE * 0.84);
+                    p.spawn(part(&k.tower_outline, &palette.outline, tx, ty, 0.03));
+                    p.spawn(part(&k.tower, &palette.unit, tx, ty, 0.04));
+                    let (rx, ry) = (cos * 18.5, sin * 18.5);
+                    p.spawn(part(&k.roof, &k.tiles, rx, ry, 0.03));
+                }
+                p.spawn(part(&k.keep_outline, &palette.outline, 0.0, 0.0, 0.05));
+                p.spawn(part(&k.keep, &k.stone, 0.0, 0.0, 0.06));
+            });
+    }
+}
+
+/// Surligne les cases que l'unité sélectionnée peut atteindre ce tour-ci.
+fn update_reach_overlay(
+    mut commands: Commands,
+    selection: Res<Selection>,
+    map: Res<GameMap>,
+    fog: Res<Fog>,
+    blocked: Res<Blocked>,
+    occupancy: Res<Occupancy>,
+    enemy_zoc: Res<EnemyZoc>,
+    palette: Res<Palette>,
+    units: Query<(&Unit, &HexPos)>,
+    overlays: Query<Entity, With<ReachOverlay>>,
+    mut area: ResMut<ReachArea>,
+    mut last: Local<Option<(Entity, Hex, u32, bool, bool)>>,
+) {
+    // Clé de l'état affiché : on ne reconstruit que si l'unité, sa position, ses PM,
+    // son attaque du tour ou son arrêt en zone de contrôle changent
+    let key = selection
+        .0
+        .and_then(|e| units.get(e).ok().map(|(u, p)| (e, p.0, u.0.moves_left, u.0.has_attacked, u.0.zoc_stopped)))
+        .filter(|k| k.2 > 0);
+    if *last == key
+        && !fog.is_changed()
+        && !blocked.is_changed()
+        && !occupancy.is_changed()
+        && !enemy_zoc.is_changed()
+    {
+        return;
+    }
+    *last = key;
+    let current = key.map(|(e, p, m, _, _)| (e, p, m));
+    for e in &overlays {
+        commands.entity(e).despawn();
+    }
+    area.cells.clear();
+    area.attackable.clear();
+    let Some((entity, pos, moves)) = current else { return };
+    // Carte connue : les cases du brouillard comptent comme des prairies (rien n'est révélé)
+    let blocked_now = crate::game::movement_blocked(&blocked.0, &occupancy.own);
+    let known = KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now);
+    let Ok((unit, _)) = units.get(entity) else { return };
+    if unit.0.kind.can_attack() {
+        let reach = moves as i32 + unit.0.kind.stats().range.max(1);
+        let mut targets: Vec<Hex> = blocked
+            .0
+            .iter()
+            .copied()
+            .filter(|t| t.distance(pos) <= reach)
+            .filter(|t| crate::rules::attack_approach(&known, &map.0, &unit.0, pos, *t, &enemy_zoc.0).is_some())
+            .collect();
+        targets.sort();
+        area.attackable = targets;
+    }
+    // Arrêtée par une zone de contrôle : plus de déplacement possible ce tour-ci
+    if unit.0.zoc_stopped {
+        return;
+    }
+    let cells = reachable(&known, pos, moves);
+    if cells.is_empty() {
+        return;
+    }
+    area.cells = cells.iter().copied().chain([pos]).collect();
+    for hex in cells {
+        commands.spawn((
+            ReachOverlay,
+            Mesh2d(palette.tile_mesh.clone()),
+            MeshMaterial2d(palette.reach.clone()),
+            Transform::from_translation(hex_translation(hex, Z_REACH)),
+        ));
+    }
+}
+
+fn setup_reach_gizmos(mut store: ResMut<GizmoConfigStore>) {
+    let (config, _) = store.config_mut::<ReachGizmos>();
+    config.line.width = 3.0;
+}
+
+/// Contour extérieur de la zone de déplacement : arêtes entre une case de la zone et une case hors zone.
+fn draw_reach_outline(mut gizmos: Gizmos<ReachGizmos>, area: Res<ReachArea>) {
+    for &target in &area.attackable {
+        let (x, y) = target.to_world();
+        gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.72, ATTACK_RING);
+    }
+    for &hex in &area.cells {
+        for (dir, d) in DIRECTIONS.iter().enumerate() {
+            if !area.cells.contains(&(hex + *d)) {
+                let (a, b) = hex.edge_corners(dir);
+                gizmos.line_2d(Vec2::new(a.0, a.1), Vec2::new(b.0, b.1), REACH_OUTLINE);
+            }
+        }
+    }
+}
+
+/// Place une pastille numérotée sur la dernière case atteinte à chaque tour du trajet.
+/// Pastilles numérotées sur la dernière case atteinte à chaque tour :
+/// en bleu pour l'ordre en cours, en sombre pour l'aperçu sous le curseur.
+fn update_turn_labels(
+    mut commands: Commands,
+    hover: Res<HoverPath>,
+    order: Res<OrderPath>,
+    palette: Res<Palette>,
+    labels: Query<Entity, With<TurnLabel>>,
+) {
+    if !hover.is_changed() && !order.is_changed() {
+        return;
+    }
+    for e in &labels {
+        commands.entity(e).despawn();
+    }
+    spawn_turn_labels(&mut commands, &palette, &order.path, &order.turns, &palette.order_label_bg, Z_LABEL);
+    // L'aperçu est inutile s'il est identique à l'ordre déjà donné
+    if hover.path != order.path {
+        spawn_turn_labels(&mut commands, &palette, &hover.path, &hover.turns, &palette.label_bg, Z_LABEL + 0.5);
+    }
+}
+
+fn spawn_turn_labels(
+    commands: &mut Commands,
+    palette: &Palette,
+    path: &[Hex],
+    turns: &[u32],
+    background: &Handle<ColorMaterial>,
+    z: f32,
+) {
+    for (i, (&hex, &turn)) in path.iter().zip(turns).enumerate() {
+        let last_of_turn = turns.get(i + 1).is_none_or(|&next| next != turn);
+        if !last_of_turn {
+            continue;
+        }
+        commands.spawn((
+            TurnLabel,
+            Mesh2d(palette.label_mesh.clone()),
+            MeshMaterial2d(background.clone()),
+            Transform::from_translation(hex_translation(hex, z)),
+            children![(
+                Text2d::new(turn.to_string()),
+                TextFont::from_font_size(13.0),
+                TextColor(Color::WHITE),
+                Transform::from_xyz(0.0, 0.0, 0.01),
+            )],
+        ));
+    }
+}
+
+fn sync_transforms(mut moved: Query<(&HexPos, &mut Transform), Changed<HexPos>>) {
+    for (pos, mut transform) in &mut moved {
+        let z = transform.translation.z;
+        transform.translation = hex_translation(pos.0, z);
+    }
+}
+
+/// Frontières, sélection, chemin prévisualisé, cases exploitées.
+fn draw_overlays(
+    mut gizmos: Gizmos,
+    territory: Res<Territory>,
+    selection: Res<Selection>,
+    hover: Res<HoverPath>,
+    positions: Query<&HexPos>,
+    units: Query<&Unit>,
+    cities: Query<&City>,
+) {
+    // Frontières : arêtes entre une case possédée et une case non possédée (ou d'une autre ville)
+    for (&hex, &owner) in &territory.0 {
+        for (dir, d) in DIRECTIONS.iter().enumerate() {
+            if territory.0.get(&(hex + *d)) != Some(&owner) {
+                let (a, b) = hex.edge_corners(dir);
+                gizmos.line_2d(Vec2::new(a.0, a.1), Vec2::new(b.0, b.1), BORDER_COLOR);
+            }
+        }
+    }
+
+    let Some(selected) = selection.0 else { return };
+    let Ok(pos) = positions.get(selected) else { return };
+    let (x, y) = pos.0.to_world();
+    gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.85, Color::srgb(1.0, 0.9, 0.2));
+
+    if let Ok(city) = cities.get(selected) {
+        for h in &city.worked {
+            let (wx, wy) = h.to_world();
+            gizmos.circle_2d(Vec2::new(wx, wy), 6.0, Color::srgb(1.0, 0.9, 0.2));
+        }
+    }
+
+    if let Ok(unit) = units.get(selected) {
+        // Ordre en cours (bleu) puis prévisualisation sous le curseur (blanc)
+        let draw_path = |gizmos: &mut Gizmos, path: &[Hex], color: Color| {
+            let points = std::iter::once(pos.0).chain(path.iter().copied()).map(|h| {
+                let (px, py) = h.to_world();
+                Vec2::new(px, py)
+            });
+            gizmos.linestrip_2d(points, color);
+        };
+        if !unit.0.path.is_empty() {
+            draw_path(&mut gizmos, &unit.0.path, Color::srgb(0.4, 0.8, 1.0));
+        }
+        if !hover.path.is_empty() {
+            draw_path(&mut gizmos, &hover.path, Color::WHITE);
+            if let Some(&last) = hover.path.last() {
+                let (lx, ly) = last.to_world();
+                gizmos.circle_2d(Vec2::new(lx, ly), 8.0, Color::WHITE);
+            }
+        }
+    }
+}
+
+/// Carte du climat : flèches des vents dominants sur les cases explorées.
+fn draw_wind_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, mut gizmos: Gizmos) {
+    if *layer != MapLayer::Climate {
+        return;
+    }
+    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+        if let Some((from, to)) = wind_arrow(&map.0, hex) {
+            gizmos.arrow_2d(from, to, WIND_ARROW).with_tip_length(7.0);
+        }
+    }
+}
