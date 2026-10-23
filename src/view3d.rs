@@ -18,9 +18,9 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
-use crate::relief::{Channel, HexTop, Link, MeshData, build_hex, carve, compute_top, mountain_mesh};
+use crate::relief::{CHANNEL_LEVELS, Channel, HexTop, Link, MeshData, build_hex, carve, compute_top, mountain_mesh};
 use bevy::mesh::Indices;
-use crate::waterways::{WaterKind, WaterShape, hex_water};
+use crate::waterways::{WaterAxis, WaterKind, WaterShape, hex_water};
 
 /// Couche de rendu du monde 3D (la 2D reste sur la couche 0).
 pub const LAYER_3D: usize = 1;
@@ -72,14 +72,16 @@ pub struct Relief {
     water: HashMap<Hex, (WaterShape, Entity)>,
     /// Lits creusés qui touchent chaque case (les siens et ceux de ses voisines), visibles.
     channels: HashMap<Hex, Vec<Channel>>,
+    /// Cases d'eau (mer, lacs) : un cours d'eau qui s'y jette arrive à leur niveau.
+    water_hexes: HashSet<Hex>,
 }
 
 impl Relief {
     /// Hauteur du sol au point 2D (x, y) du monde (lits des cours d'eau creusés).
     pub fn ground(&self, x: f32, y: f32) -> f32 {
         let hex = Hex::from_world(x, y);
-        let dug = self.channels.get(&hex).map_or(0.0, |c| carve(c, Vec2::new(x, y)).0);
-        self.surface(x, y) - dug
+        let terrain = self.surface(x, y);
+        self.channels.get(&hex).map_or(terrain, |c| carve(c, Vec2::new(x, y), terrain).0)
     }
 
     /// Hauteur du sol sans les lits des cours d'eau.
@@ -89,21 +91,53 @@ impl Relief {
         self.tops.get(&hex).map_or(unexplored_height(), |t| t.sample(Vec2::new(x - cx, y - cy)))
     }
 
-    /// Lits visibles qui touchent une case : les siens et ceux de ses voisines qui s'en approchent.
+    /// Lits visibles qui touchent une case : les siens et ceux de ses voisines (une arête est
+    /// ainsi taillée pareil des deux côtés).
     fn channels_near(&self, hex: Hex, explored: impl Fn(Hex) -> bool + Copy) -> Vec<Channel> {
-        let (cx, cy) = hex.to_world();
-        let c = Vec2::new(cx, cy);
-        let mut out = Vec::new();
+        let mut out: Vec<Channel> = Vec::new();
         for h in hex.range(1) {
             if let Some((shape, _)) = self.water.get(&h) {
-                for (ch, _) in shape.visible_channels(h, explored) {
-                    if ch.nearest(c).distance(c) < HEX_SIZE + ch.hw + ch.bank && !out.contains(ch) {
-                        out.push(*ch);
+                for axis in shape.visible_channels(h, explored) {
+                    let ch = self.channel(axis);
+                    if !out.contains(&ch) {
+                        out.push(ch);
                     }
                 }
             }
         }
         out
+    }
+
+    /// Hauteur de l'eau d'un type donné en un point : le terrain le plus bas autour (au centre et
+    /// sur deux cercles), un peu en dessous. Elle ne dépend que du point : deux tronçons qui se
+    /// rejoignent ont la même hauteur au point commun, l'eau ne déborde jamais d'une berge plus
+    /// basse que l'autre, et descend en pente douce vers la mer, un lac ou le bas d'une pente.
+    fn water_level(&self, kind: WaterKind, p: Vec2) -> f32 {
+        let bed = kind.bed();
+        let ring = |r: f32| (0..6).map(move |k| p + Vec2::from_angle(k as f32 * std::f32::consts::FRAC_PI_3 + 0.26) * r);
+        // Terre : un peu sous le terrain le plus bas ; mer ou lac : à leur surface (juste dessous,
+        // l'embouchure se fond dans leur eau)
+        ring(bed.near)
+            .chain(ring(bed.far))
+            .chain([p])
+            .map(|q| {
+                let level = self.surface(q.x, q.y);
+                if self.water_hexes.contains(&Hex::from_world(q.x, q.y)) { level - MOUTH_BELOW } else { level - bed.below }
+            })
+            .fold(f32::MAX, f32::min)
+    }
+
+    /// Lit 3D d'un tronçon : hauteurs de l'eau le long de l'axe. Un affluent qui entre dans un
+    /// fleuve passe progressivement de la hauteur d'une rivière à celle du fleuve.
+    fn channel(&self, axis: &WaterAxis) -> Channel {
+        let levels = std::array::from_fn(|k| {
+            let t = k as f32 / (CHANNEL_LEVELS - 1) as f32;
+            let p = axis.a.lerp(axis.b, t);
+            let own = self.water_level(axis.kind, p);
+            if axis.inflow { own + (self.water_level(WaterKind::Fleuve, p) - own) * t } else { own }
+        });
+        let bed = if axis.inflow { WaterKind::Fleuve.bed().bed } else { axis.kind.bed().bed };
+        Channel { a: axis.a, b: axis.b, hw: axis.hw, levels, bed }
     }
 
     /// Point 3D posé sur le sol (plus `lift`) au point 2D (x, y).
@@ -222,12 +256,8 @@ const LEVEL_STEP: f32 = 8.0;
 /// Surface d'un lac sous les terres de son niveau.
 const LAKE_DEPTH: f32 = 3.0;
 /// Hauteur de l'eau des rivières, fleuves et petits lacs au-dessus du sol.
-/// Lissage de la hauteur de l'eau (rayon de la moyenne autour de l'axe, unités monde) : les
-/// passages d'un niveau à l'autre se font en pente douce.
-const WATER_SMOOTHING: f32 = 7.0;
-/// Écart de hauteur au-delà duquel le sol voisin est de l'autre côté d'une falaise (il ne
-/// compte pas dans la hauteur de l'eau).
-const CLIFF_GAP: f32 = 6.0;
+/// Un cours d'eau qui se jette dans la mer ou un lac arrive juste sous leur surface.
+const MOUTH_BELOW: f32 = 0.06;
 /// Dénivelé minimal d'une chute d'eau.
 const CASCADE_MIN_DROP: f32 = 4.0;
 
@@ -366,7 +396,7 @@ fn setup_3d(
     }
 
     // Relief : au départ tout est inexploré, donc plat
-    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new() };
+    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
     let fresh_water = [
         materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.2, ..default() }),
         materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.45, 0.5), perceptual_roughness: 0.2, ..default() }),
@@ -389,7 +419,7 @@ fn setup_3d(
         relief.tops.insert(hex, top);
     }
     for hex in map.0.hexes() {
-        let mesh = build_hex(hex, &relief.tops[&hex], Vec3::ONE, &[]);
+        let mesh = build_hex(hex, &relief.tops[&hex], Vec3::ONE, &[], false);
         let tile = commands.spawn((Tile3d, Mesh3d(meshes.add(to_mesh(mesh))), MeshMaterial3d(unexplored.clone()), layer())).id();
         relief.tiles.insert(hex, tile);
 
@@ -771,6 +801,7 @@ fn update_relief_3d(
     let water = |h: Hex| fog.explored.contains(&h) && map.0.get(h).is_some_and(|t| t.is_water());
     let started = std::time::Instant::now();
     let mut reshaped = Vec::new();
+    let mut processed = Vec::new();
     for hex in batch {
         if started.elapsed().as_secs_f32() * 1000.0 > RELIEF_BUDGET_MS {
             break;
@@ -779,14 +810,16 @@ fn update_relief_3d(
         queue.color.remove(&hex);
         if reshape || !relief.tops.contains_key(&hex) {
             relief.tops.insert(hex, compute_top(hex, height, link, water));
-            // (la surface d'un lac ou de la mer reste plate)
-            let near = if water(hex) { Vec::new() } else { relief.channels_near(hex, |h| fog.explored.contains(&h)) };
-            if near.is_empty() {
-                relief.channels.remove(&hex);
-            } else {
-                relief.channels.insert(hex, near);
-            }
             reshaped.push(hex);
+        }
+        processed.push(hex);
+        // Lits qui touchent la case (la surface d'un lac ou de la mer reste plate) ; leurs hauteurs
+        // dépendent du relief alentour, elles sont recalculées à chaque reconstruction
+        let near = if water(hex) { Vec::new() } else { relief.channels_near(hex, |h| fog.explored.contains(&h)) };
+        if near.is_empty() {
+            relief.channels.remove(&hex);
+        } else {
+            relief.channels.insert(hex, near);
         }
         let top = relief.tops[&hex];
         let color = match (fog.explored.contains(&hex), *layer) {
@@ -808,9 +841,10 @@ fn update_relief_3d(
             && let Some(mut m) = meshes.get_mut(&mesh.0)
         {
             let channels = relief.channels.get(&hex).map_or(&[][..], |c| &c[..]);
-            *m = to_mesh(build_hex(hex, &top, color, channels));
+            *m = to_mesh(build_hex(hex, &top, color, channels, water(hex)));
         }
-        if reshape {
+        // Décor reposé sur le sol (relief ou lits voisins changés)
+        {
             for &e in relief.decor.get(&hex).into_iter().flatten() {
                 if let Ok((d, mut transform)) = decor.get_mut(e) {
                     let (cx, cy) = d.hex.to_world();
@@ -819,10 +853,20 @@ fn update_relief_3d(
             }
         }
     }
-    // Cours d'eau posés sur le relief : ceux des cases refaites et de leurs voisines (une
-    // rivière d'arête épouse les deux rives)
+    // Le relief d'une case change la hauteur de l'eau des lits voisins : les cases proches qui
+    // ont des cours d'eau sont reconstruites (couleurs et lits seulement)
+    let done: HashSet<Hex> = processed.iter().copied().collect();
+    for hex in &reshaped {
+        for h in hex.range(2) {
+            if !done.contains(&h) && h.range(1).any(|x| relief.water.contains_key(&x)) && map.0.contains(h) {
+                queue.color.insert(h);
+            }
+        }
+    }
+    // Surfaces d'eau des cases reconstruites et de leurs voisines (une rivière d'arête est
+    // dessinée par une seule des deux cases)
     let mut redo: HashSet<Hex> = HashSet::new();
-    for hex in reshaped {
+    for hex in processed {
         redo.extend(hex.range(1).filter(|h| relief.water.contains_key(h)));
     }
     let explored = |h: Hex| fog.explored.contains(&h);
@@ -837,25 +881,11 @@ fn update_relief_3d(
     }
 }
 
-/// Hauteur du sol sous l'eau en un point de l'axe d'un cours d'eau : le point le plus bas tout
-/// près de l'axe (le long d'une falaise, l'eau coule au pied), moyenné avec le sol alentour qui
-/// est à peu près au même niveau. Deux tronçons qui se rejoignent ont ainsi la même hauteur au
-/// point commun, l'eau descend en pente douce sur une pente, et franchit une falaise d'un coup.
-fn water_level(relief: &Relief, axis: Vec2) -> f32 {
-    let ring = |r: f32| (0..6).map(move |k| axis + Vec2::from_angle(k as f32 * std::f32::consts::FRAC_PI_3) * r);
-    let base = ring(1.5).chain([axis]).map(|q| relief.surface(q.x, q.y)).fold(f32::MAX, f32::min);
-    let (sum, n) = ring(WATER_SMOOTHING)
-        .chain([axis])
-        .map(|q| relief.surface(q.x, q.y))
-        .filter(|h| (h - base).abs() < CLIFF_GAP)
-        .fold((2.0 * base, 2.0), |(s, n), h| (s + h, n + 1.0));
-    sum / n
-}
-
 /// Maillage des cours d'eau d'une case : surface plate en travers du lit, un peu sous le niveau
 /// du sol (prise sur l'axe du cours d'eau, lissée le long du cours), couleur selon le type.
 fn water_mesh<'a>(relief: &Relief, shape: &WaterShape, tris: impl Iterator<Item = &'a crate::waterways::WaterTri>) -> MeshData {
     let mut data = MeshData::default();
+    let mut channels: HashMap<usize, Channel> = HashMap::new();
     let linear = |c: Color| {
         let l = c.to_linear();
         [l.red, l.green, l.blue, 1.0]
@@ -870,14 +900,14 @@ fn water_mesh<'a>(relief: &Relief, shape: &WaterShape, tris: impl Iterator<Item 
         let [a, b, c] = t.pts;
         let ccw = (b - a).perp_dot(c - a) > 0.0;
         let pts = if ccw { [a, b, c] } else { [a, c, b] };
-        let (ch, _, _) = &shape.channels[t.channel];
-        let (_, _, drop) = t.kind.bed();
-        let ys = pts.map(|p| water_level(relief, ch.nearest(p)) - drop);
-        // Chute d'eau : un triangle presque vertical (l'eau franchit une falaise) prend la couleur
-        // de l'écume
-        let rise = ys.iter().fold(f32::MIN, |m, &y| m.max(y)) - ys.iter().fold(f32::MAX, |m, &y| m.min(y));
-        let span = a.distance(b).max(b.distance(c)).max(c.distance(a));
-        let color = if rise > CASCADE_MIN_DROP && rise > span * 0.8 { linear(Color::srgb(0.86, 0.93, 0.98)) } else { color };
+        let ch = channels.entry(t.channel).or_insert_with(|| relief.channel(&shape.channels[t.channel]));
+        let ys = pts.map(|p| ch.water(p));
+        // Chute d'eau : l'eau descend très fort le long du cours (elle franchit une falaise) →
+        // couleur de l'écume
+        let hi = (0..3).max_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
+        let lo = (0..3).min_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
+        let rise = ys[hi] - ys[lo];
+        let color = if rise > CASCADE_MIN_DROP && rise > 1.2 * pts[hi].distance(pts[lo]) { linear(Color::srgb(0.86, 0.93, 0.98)) } else { color };
         for (p, y) in pts.into_iter().zip(ys) {
             data.positions.push([p.x, y, -p.y]);
             data.normals.push([0.0, 1.0, 0.0]);

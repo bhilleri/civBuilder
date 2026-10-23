@@ -8,7 +8,6 @@
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
 use crate::hydro::RIVER_M3S;
 use crate::map::WorldMap;
-use crate::relief::Channel;
 use bevy::math::Vec2;
 
 /// Demi-largeur de la bande d'eau d'un fleuve (unités monde ; l'arête mesure `HEX_SIZE`).
@@ -27,16 +26,38 @@ pub enum WaterKind {
     Lake,
 }
 
+/// Réglages 3D d'un type d'eau : la hauteur de l'eau est le terrain le plus bas autour de l'axe
+/// (au centre et sur deux cercles de rayons `near` et `far`) moins `below` ; le lit descend de
+/// `bed` sous l'eau.
+#[derive(Clone, Copy, Debug)]
+pub struct Bed {
+    pub near: f32,
+    pub far: f32,
+    pub below: f32,
+    pub bed: f32,
+}
+
 impl WaterKind {
-    /// En 3D : profondeur du lit sous le sol, largeur des berges, et hauteur de l'eau sous le
-    /// niveau du sol (le cours d'eau coule un peu en contrebas, entre ses berges).
-    pub fn bed(self) -> (f32, f32, f32) {
+    pub fn bed(self) -> Bed {
         match self {
-            WaterKind::River => (2.4, 2.5, 1.0),
-            WaterKind::Fleuve => (3.6, 4.5, 1.4),
-            WaterKind::Lake => (2.0, 2.5, 0.8),
+            WaterKind::River => Bed { near: 3.0, far: 6.0, below: 1.1, bed: 1.4 },
+            WaterKind::Fleuve => Bed { near: 7.0, far: 15.0, below: 1.5, bed: 2.2 },
+            WaterKind::Lake => Bed { near: 4.5, far: 9.0, below: 0.9, bed: 1.2 },
         }
     }
+}
+
+/// Axe d'un tronçon d'eau (coordonnées monde 2D) : segment `a`–`b` (un disque si a = b) de
+/// demi-largeur `hw`. `inflow` : affluent qui entre dans un fleuve (sa hauteur rejoint
+/// progressivement celle du fleuve).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WaterAxis {
+    pub a: Vec2,
+    pub b: Vec2,
+    pub hw: f32,
+    pub kind: WaterKind,
+    pub also: Option<Hex>,
+    pub inflow: bool,
 }
 
 /// Triangle d'eau (coordonnées monde 2D). Une rivière d'arête se voit aussi depuis la case
@@ -53,9 +74,10 @@ pub struct WaterTri {
 #[derive(Default)]
 pub struct WaterShape {
     pub tris: Vec<WaterTri>,
-    pub channels: Vec<(Channel, WaterKind, Option<Hex>)>,
-    /// Case d'en face des prochains triangles ajoutés.
+    pub channels: Vec<WaterAxis>,
+    /// Case d'en face des prochains triangles ajoutés, et affluent d'un fleuve.
     also: Option<Hex>,
+    inflow: bool,
 }
 
 /// Demi-largeur d'une rivière selon son débit : elle s'élargit avec le logarithme du débit.
@@ -76,9 +98,9 @@ impl WaterShape {
     }
 
     /// Lits visibles (mêmes règles que les triangles).
-    pub fn visible_channels<'a>(&'a self, hex: Hex, explored: impl Fn(Hex) -> bool + 'a) -> impl Iterator<Item = (&'a Channel, WaterKind)> + 'a {
+    pub fn visible_channels<'a>(&'a self, hex: Hex, explored: impl Fn(Hex) -> bool + 'a) -> impl Iterator<Item = &'a WaterAxis> + 'a {
         let own = explored(hex);
-        self.channels.iter().filter(move |c| own || c.2.is_some_and(&explored)).map(|c| (&c.0, c.1))
+        self.channels.iter().filter(move |c| own || c.also.is_some_and(&explored))
     }
 
     fn tri(&mut self, pts: [Vec2; 3], kind: WaterKind) {
@@ -88,8 +110,7 @@ impl WaterShape {
 
     /// Enregistre le lit d'un tronçon.
     fn channel(&mut self, a: Vec2, b: Vec2, hw: f32, kind: WaterKind) {
-        let (depth, bank, _) = kind.bed();
-        self.channels.push((Channel { a, b, hw, depth, bank }, kind, self.also));
+        self.channels.push(WaterAxis { a, b, hw, kind, also: self.also, inflow: self.inflow });
     }
 
     /// Bande droite de `a` à `b` (demi-largeur `hw`), découpée en `STEPS` tronçons.
@@ -175,11 +196,13 @@ pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
             let q = map.river_flow(a, dir);
             if q > 0.0 {
                 let k = corner(hex, j);
+                shape.inflow = true;
                 shape.band(k, k.lerp(c, 0.6), river_half_width(q), WaterKind::River);
+                shape.inflow = false;
             }
         }
     }
-    if map.small_lake(hex) {
+    if map.small_lake(hex) && !map.is_fleuve(hex) {
         shape.disc(center(hex) + SMALL_LAKE_AT, SMALL_LAKE_RADII, WaterKind::Lake);
     }
     shape

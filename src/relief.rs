@@ -15,45 +15,73 @@
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
 use bevy::math::{Vec2, Vec3};
 
-/// Lit creusé dans le sol par un cours d'eau (coordonnées monde 2D) : segment `a`–`b` (un
-/// disque si a = b), demi-largeur du lit `hw`, profondeur `depth` au fond, berges de largeur
-/// `bank` qui remontent en pente douce jusqu'au sol.
+/// Nombre de hauteurs d'eau mémorisées le long de l'axe d'un lit.
+pub const CHANNEL_LEVELS: usize = 7;
+/// Le sol au bord de l'eau dépasse un peu la surface (bord net) ; au-delà, la berge remonte
+/// avec cette pente jusqu'à rejoindre le terrain.
+const WATER_LIP: f32 = 0.2;
+const BANK_SLOPE: f32 = 0.8;
+
+/// Lit d'un cours d'eau (coordonnées monde 2D) : segment `a`–`b` (un disque si a = b), demi-
+/// largeur de l'eau `hw`, hauteur de l'eau le long de l'axe (`levels`, de a à b) et profondeur
+/// du lit sous l'eau (`bed`). Le sol est taillé à la forme du lit : fond sous l'eau, bord juste
+/// au-dessus de l'eau, puis berge en pente jusqu'au terrain. L'eau repose ainsi toujours dans
+/// son lit, quelle que soit la pente du terrain autour.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Channel {
     pub a: Vec2,
     pub b: Vec2,
     pub hw: f32,
-    pub depth: f32,
-    pub bank: f32,
+    pub levels: [f32; CHANNEL_LEVELS],
+    pub bed: f32,
 }
 
 impl Channel {
-    /// Point de l'axe le plus proche de `p`.
-    pub fn nearest(&self, p: Vec2) -> Vec2 {
+    /// Position (0 à 1) du point de l'axe le plus proche de `p`.
+    fn param(&self, p: Vec2) -> f32 {
         let ab = self.b - self.a;
         let len2 = ab.length_squared();
-        if len2 < 1e-6 {
-            return self.a;
-        }
-        self.a + ab * ((p - self.a).dot(ab) / len2).clamp(0.0, 1.0)
+        if len2 < 1e-6 { 0.0 } else { ((p - self.a).dot(ab) / len2).clamp(0.0, 1.0) }
     }
 
-    /// Part du creusement en `p` : 1 au fond du lit (jusqu'aux 4/5 de sa demi-largeur), 0 au-delà
-    /// des berges. Le bord de l'eau reste ainsi au-dessus du sol : il est net, et la berge
-    /// remonte au-delà.
-    pub fn profile(&self, p: Vec2) -> f32 {
+    /// Point de l'axe le plus proche de `p`.
+    pub fn nearest(&self, p: Vec2) -> Vec2 {
+        self.a + (self.b - self.a) * self.param(p)
+    }
+
+    /// Hauteur de l'eau en face de `p` (interpolée le long de l'axe).
+    pub fn water(&self, p: Vec2) -> f32 {
+        let x = self.param(p) * (CHANNEL_LEVELS - 1) as f32;
+        let k = (x.floor() as usize).min(CHANNEL_LEVELS - 2);
+        let f = x - k as f32;
+        self.levels[k] * (1.0 - f) + self.levels[k + 1] * f
+    }
+
+    /// Hauteur du sol taillé par le lit en `p` (sans limite : le terrain plus bas l'emporte).
+    pub fn cut(&self, p: Vec2) -> f32 {
         let d = p.distance(self.nearest(p));
-        let (inner, outer) = (0.8 * self.hw, self.hw + self.bank);
-        1.0 - smoothstep((d - inner) / (outer - inner))
+        let w = self.water(p);
+        let half = 0.5 * self.hw;
+        if d <= half {
+            w - self.bed
+        } else if d <= self.hw {
+            w - self.bed + (self.bed + WATER_LIP) * smoothstep((d - half) / half)
+        } else {
+            w + WATER_LIP + (d - self.hw) * BANK_SLOPE
+        }
+    }
+
+    /// Le lit peut-il toucher le point `p` (au-delà, la berge a rejoint tout terrain raisonnable) ?
+    fn reaches(&self, p: Vec2) -> bool {
+        p.distance(self.nearest(p)) < self.hw + 40.0
     }
 }
 
-/// Creusement (profondeur) et part de berge (0 à 1) en un point, d'après tous les lits voisins.
-pub fn carve(channels: &[Channel], p: Vec2) -> (f32, f32) {
-    channels.iter().fold((0.0f32, 0.0f32), |(d, k), c| {
-        let f = c.profile(p);
-        (d.max(c.depth * f), k.max(f))
-    })
+/// Hauteur du sol en `p` une fois les lits taillés dans le terrain (`terrain`), et part de berge
+/// (0 à 1 : terre remuée, pour la couleur).
+pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
+    let h = channels.iter().filter(|c| c.reaches(p)).map(|c| c.cut(p)).fold(terrain, f32::min);
+    (h, smoothstep((terrain - h) / 1.5))
 }
 
 /// Rayon (fraction de l'apothème) du plateau central plat.
@@ -304,6 +332,16 @@ impl MeshData {
         self.indices.extend([i, k, j, i, l, k]);
     }
 
+    /// Bord vertical d'une étendue d'eau, éclairé comme la surface.
+    fn water_skirt(&mut self, top_a: Vec3, top_b: Vec3, c: Vec3) {
+        let floor = |p: Vec3| Vec3::new(p.x, 0.0, p.z);
+        let i = self.vertex(top_a, Vec3::Y, c);
+        let j = self.vertex(top_b, Vec3::Y, c);
+        let k = self.vertex(floor(top_b), Vec3::Y, c * 0.8);
+        let l = self.vertex(floor(top_a), Vec3::Y, c * 0.8);
+        self.indices.extend([i, k, j, i, l, k]);
+    }
+
     /// Paroi de falaise : roche striée en facettes, rangées intermédiaires en saillie aléatoire,
     /// jusqu'au pied (`bottom`), puis prolongée jusqu'au fond.
     fn rock_wall(&mut self, top_a: Vec3, top_b: Vec3, bottom: f32) {
@@ -405,7 +443,7 @@ impl HexTop {
 /// devient abrupte (falaises) ; bord de case légèrement assombri. Les cours d'eau proches
 /// (`channels`, ceux de la case et de ses voisines : une arête est creusée pareil des deux côtés)
 /// creusent leur lit, bordé de berges de terre humide ; le maillage est alors plus fin.
-pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel]) -> MeshData {
+pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel], skirt: bool) -> MeshData {
     let (cx, cy) = hex.to_world();
     let origin = Vec2::new(cx, cy);
     let world = |p: Vec2, y: f32| Vec3::new(cx + p.x, y, -(cy + p.y));
@@ -416,14 +454,19 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel]) -> M
         .filter(|&d| top.links[d] == Link::Shore && top.center > top.wall_bottoms[d] + 0.5)
         .map(|d| (corner(d), corner(d + 1), top.wall_bottoms[d]))
         .collect();
-    let dig = |q: Vec2| if fine { carve(channels, origin + q) } else { (0.0, 0.0) };
-    let height = |q: Vec2| top.sample(q) - dig(q).0;
+    let dig = |q: Vec2| {
+        let terrain = top.sample(q);
+        if fine { carve(channels, origin + q, terrain) } else { (terrain, 0.0) }
+    };
+    let height = |q: Vec2| dig(q).0;
     let normal = |q: Vec2| {
         if !fine {
             return top.normal(q);
         }
+        // Gradient du terrain (mesuré comme `HexTop::gradient`) corrigé du creusement
         let e = 0.4;
-        let dd = |v: Vec2| dig(q + v).0 - dig(q - v).0;
+        let cut = |v: Vec2| top.sample(v) - dig(v).0;
+        let dd = |v: Vec2| cut(q + v) - cut(q - v);
         let g = top.gradient(q) - Vec2::new(dd(Vec2::X * e), dd(Vec2::Y * e)) / (2.0 * e);
         Vec3::new(-g.x, 1.0, g.y).normalize()
     };
@@ -488,12 +531,16 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, channels: &[Channel]) -> M
         // Un rivage garde aussi un talus : si un coin reste en hauteur (falaise voisine),
         // il ferme l'espace au-dessus de l'eau
         let shore_skirt = top.links[d] == Link::Shore && top.center > top.wall_bottoms[d];
-        if top.joined(d) && !shore_skirt {
+        if top.joined(d) && !shore_skirt && !skirt {
             continue;
         }
         let q = border[(i + 1) % border.len()].0;
         let (ta, tb) = (world(p, height(p)), world(q, height(q)));
-        if top.cliff_top(d) {
+        if skirt && top.joined(d) {
+            // Bord d'une étendue d'eau : vu dans l'entaille d'une embouchure, il doit avoir l'air
+            // d'eau (même couleur, éclairé comme la surface)
+            mesh.water_skirt(ta, tb, color);
+        } else if top.cliff_top(d) {
             mesh.rock_wall(ta, tb, top.wall_bottoms[d]);
         } else {
             mesh.wall(ta, tb, color * EDGE_SHADE);
@@ -610,9 +657,9 @@ mod tests {
         let a = Hex::new(0, 0);
         let b = a + DIRECTIONS[0];
         let ((ax, ay), (bx, by)) = a.edge_corners(0);
-        let ch = [Channel { a: Vec2::new(ax, ay), b: Vec2::new(bx, by), hw: 3.0, depth: 2.0, bank: 2.5 }];
+        let ch = [Channel { a: Vec2::new(ax, ay), b: Vec2::new(bx, by), hw: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0 }];
         let flat = compute_top(a, |_| 10.0, |_, _| Link::Gentle, |_| false);
-        let (ma, mb) = (build_hex(a, &flat, Vec3::ONE, &ch), build_hex(b, &flat, Vec3::ONE, &ch));
+        let (ma, mb) = (build_hex(a, &flat, Vec3::ONE, &ch, false), build_hex(b, &flat, Vec3::ONE, &ch, false));
         let mid = Vec3::new((ax + bx) / 2.0, 0.0, -(ay + by) / 2.0);
         let at = |m: &MeshData| {
             m.positions.iter().map(|p| Vec3::from_array(*p)).filter(|p| (p.x - mid.x).abs() < 0.01 && (p.z - mid.z).abs() < 0.01).map(|p| p.y).next()
@@ -622,7 +669,7 @@ mod tests {
         let (cx, _) = a.to_world();
         let center = ma.positions.iter().find(|p| (p[0] - cx).abs() < 0.01 && p[2].abs() < 0.01).unwrap();
         assert_eq!(center[1], 10.0, "le centre de la case n'est pas touché");
-        assert!(ma.positions.len() > build_hex(a, &flat, Vec3::ONE, &[]).positions.len(), "maillage plus fin");
+        assert!(ma.positions.len() > build_hex(a, &flat, Vec3::ONE, &[], false).positions.len(), "maillage plus fin");
     }
 
     #[test]
@@ -683,8 +730,8 @@ mod tests {
         // La case haute porte une paroi rocheuse ; la case basse n'a pas de roche
         let rocky = |m: &MeshData| m.colors.iter().filter(|c| (c[0] - ROCK.x).abs() < 0.12 && c[1] < c[0]).count();
         let green = Vec3::new(0.1, 0.5, 0.1);
-        assert!(rocky(&build_hex(b, high, green, &[])) >= 24, "paroi de falaise en roche");
-        assert_eq!(rocky(&build_hex(a, top, green, &[])), 0);
+        assert!(rocky(&build_hex(b, high, green, &[], false)) >= 24, "paroi de falaise en roche");
+        assert_eq!(rocky(&build_hex(a, top, green, &[], false)), 0);
     }
 
     #[test]
@@ -699,7 +746,7 @@ mod tests {
             edge_slopes: [0.0; 6],
             wall_bottoms: [0.0; 6],
         };
-        let ground = build_hex(Hex::new(0, 0), &top, Vec3::ONE, &[]);
+        let ground = build_hex(Hex::new(0, 0), &top, Vec3::ONE, &[], false);
         let normal = |m: &MeshData, t: usize| {
             let p = |k: usize| Vec3::from_array(m.positions[m.indices[t * 3 + k] as usize]);
             (p(1) - p(0)).cross(p(2) - p(0))
@@ -709,7 +756,7 @@ mod tests {
         }
         // Paroi d'une arête non liée : tournée vers l'extérieur
         let walled = HexTop { links: [Link::Gentle, Link::None, Link::Gentle, Link::Gentle, Link::Gentle, Link::Gentle], ..top };
-        let ground = build_hex(Hex::new(0, 0), &walled, Vec3::ONE, &[]);
+        let ground = build_hex(Hex::new(0, 0), &walled, Vec3::ONE, &[], false);
         let last = ground.indices.len() / 3 - 1;
         let out = Vec3::new(60f32.to_radians().cos(), 0.0, -60f32.to_radians().sin());
         assert!(normal(&ground, last).dot(out) > 0.0, "paroi tournée vers l'intérieur");

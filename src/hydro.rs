@@ -455,6 +455,11 @@ pub fn simulate(input: &HydroInput) -> Hydrology {
         }
     }
 
+    // Pas de petit lac dans le lit d'un fleuve
+    for i in 0..n {
+        out.small_lake[i] &= !out.fleuve[i];
+    }
+
     // --- 5. Rivières sur les arêtes : écoulement de coin en coin
     edge_rivers(input, grid, &mut out, &pools, &terminal);
     out
