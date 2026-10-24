@@ -1,6 +1,8 @@
 # Journal des versions
 
-## 0.2.0 (en cours)
+## 0.2.0 « Biome Update » — 24 octobre 2026
+
+Les saisons du climat façonnent maintenant les paysages  : 7 nouveaux terrains, de la jungle à la taïga.
 
 ### Biomes
 - Le climat garde ses 4 saisons (température, pluie, évaporation possible de chaque saison).

@@ -6,7 +6,7 @@
 
 Un petit jeu 4X (eXplore, eXpand, eXploit, eXterminate) au tour par tour, écrit en Rust avec [Bevy](https://bevy.org) 0.19, sur une planète générée et simulée : relief, climat, cours d'eau et lacs réalistes.
 
-Version actuelle : **0.1.0 « River Update »**. Nouveautés : voir le [journal des versions](CHANGELOG.md).
+Version actuelle : **0.2.0 « Biome Update »**. Nouveautés : voir le [journal des versions](CHANGELOG.md).
 
 ## Jouer
 
@@ -21,7 +21,7 @@ Version actuelle : **0.1.0 « River Update »**. Nouveautés : voir le [journal 
 
 ## Aperçu
 
-- **Planète simulée** : 192 × 111 cases de 40 km, du pôle Nord au pôle Sud ; climat calculé (vents, pluie, 4 saisons), 15 terrains dont jungle, savanes, broussailles, taïga, steppe et marais selon la température, l'aridité et les saisons.
+- **Planète simulée** : 192 × 111 cases de 40 km, du pôle Nord au pôle Sud ; climat calculé (vents, pluie, 4 saisons), 14 terrains de terre, dont jungle, savanes, broussailles, taïga, steppe et marais selon la température, l'aridité et les saisons.
 - **Cours d'eau réels** : débits en m³/s, fleuves dans les cases, rivières sur les arêtes, lacs d'eau douce ou salés, mers intérieures, noms réels selon la latitude.
 - **Cartes** : normale, relief, climat, bassins versants, débits, réseau hydrographique ; vues 2D et 3D.
 - **Jeu** : exploration (automatique ou non), villes et production, unités, combats, camps hostiles et villages.
