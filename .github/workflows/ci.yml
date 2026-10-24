@@ -1,0 +1,34 @@
+# Intégration continue : à chaque push sur main et à chaque pull request, vérifie que le code
+# compile sans avertissement (clippy) et que les tests passent.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Bibliothèques système dont Bevy a besoin pour compiler sous Linux
+      - name: Dépendances système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libx11-dev libxi-dev libxcursor-dev \
+            libxrandr-dev libxkbcommon-dev libudev-dev libasound2-dev libwayland-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Cache des dépendances compilées (Bevy) : les exécutions suivantes sont bien plus rapides
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --no-default-features

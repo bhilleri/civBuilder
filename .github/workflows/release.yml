@@ -1,0 +1,64 @@
+# Livraison : pousser un tag de version (git tag -a v0.2.0 -m "..." puis git push origin v0.2.0)
+# compile la version Windows, fabrique le zip (package.ps1) et publie une « Release » GitHub
+# avec le zip à télécharger et la section correspondante du CHANGELOG.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Lancement à la main depuis l'onglet Actions (fabrique le zip sans publier de Release)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Le tag doit correspondre à la version de Cargo.toml (v0.2.0 ↔ version = "0.2.0")
+      - name: Vérifier la version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Le tag ${{ github.ref_name }} ne correspond pas à la version $version de Cargo.toml."
+          }
+
+      - name: Compiler et empaqueter
+        shell: pwsh
+        run: ./package.ps1
+
+      # Notes de version : la section du CHANGELOG qui commence par « ## <version> »
+      - name: Notes de version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+          $lines = Get-Content CHANGELOG.md -Encoding UTF8
+          $start = ($lines | Select-String -Pattern "^## $([regex]::Escape($version))\b").LineNumber
+          if (-not $start) { "Version $version" | Set-Content notes.md -Encoding UTF8; exit 0 }
+          $rest = $lines[$start..($lines.Count - 1)]
+          $end = ($rest | Select-String -Pattern '^## ' | Select-Object -First 1).LineNumber
+          $body = if ($end) { $rest[0..($end - 2)] } else { $rest }
+          $body | Set-Content notes.md -Encoding UTF8
+
+      - name: Garder le zip (onglet Actions)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CivBuilder-windows
+          path: CivBuilder-*.zip
+
+      - name: Publier la Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: CivBuilder ${{ github.ref_name }}
+          body_path: notes.md
+          files: CivBuilder-*.zip
