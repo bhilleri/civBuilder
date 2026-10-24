@@ -1,17 +1,37 @@
 # CivBuilder
 
-Un petit jeu 4X (eXplore, eXpand, eXploit, eXterminate) au tour par tour, écrit en Rust avec [Bevy](https://bevy.org) 0.19.
+Un petit jeu 4X (eXplore, eXpand, eXploit, eXterminate) au tour par tour, écrit en Rust avec [Bevy](https://bevy.org) 0.19, sur une planète générée et simulée : relief, climat, cours d'eau et lacs réalistes.
 
-Version actuelle : **0.1.0 « River Update »** (voir [CHANGELOG.md](CHANGELOG.md)).
+Version actuelle : **0.1.0 « River Update »**. Nouveautés : voir le [journal des versions](CHANGELOG.md).
 
-## Installation de Rust (Windows)
+## Jouer
+
+1. Télécharger `CivBuilder-<version>.zip` sur la [page de la dernière version](../../releases/latest).
+2. Décompresser le zip, puis lancer `civbuilder.exe`. Rien d'autre à installer.
+
+- **Configuration** : Windows 10 ou 11 (64 bits), carte graphique DirectX 12 ou Vulkan.
+- **Alerte Windows** : l'exécutable n'est pas signé, Windows peut afficher « Windows a protégé votre ordinateur » : « Informations complémentaires » puis « Exécuter quand même ».
+- **Génération du monde** : quelques dizaines de secondes au lancement (le climat est simulé plusieurs fois), selon le processeur.
+- Le **terminal** reste ouvert à côté du jeu : il affiche la graine de la carte et les messages utiles en cas de problème.
+- **Wiki en jeu** : touche F1.
+
+## Aperçu
+
+- **Planète simulée** : 192 × 111 cases de 40 km, du pôle Nord au pôle Sud ; climat calculé (vents, pluie, saisons moyennées), biomes selon la température et l'aridité.
+- **Cours d'eau réels** : débits en m³/s, fleuves dans les cases, rivières sur les arêtes, lacs d'eau douce ou salés, mers intérieures, noms réels selon la latitude.
+- **Cartes** : normale, relief, climat, bassins versants, débits, réseau hydrographique ; vues 2D et 3D.
+- **Jeu** : exploration (automatique ou non), villes et production, unités, combats, camps hostiles et villages.
+
+## Développement
+
+### Installer Rust (Windows)
 
 1. Installer les **Build Tools de Visual Studio** (composant « Développement Desktop en C++ ») :
    https://visualstudio.microsoft.com/fr/visual-cpp-build-tools/
 2. Installer Rust avec **rustup** : https://rustup.rs (télécharger `rustup-init.exe`, choix par défaut).
 3. Ouvrir un nouveau terminal et vérifier : `cargo --version` (Rust 1.95 minimum).
 
-## Lancer le jeu
+### Lancer depuis les sources
 
 ```powershell
 cd D:\projet\testIA\CivBuilder
@@ -21,15 +41,21 @@ cargo run
 La première compilation prend plusieurs minutes (Bevy est volumineux) ; les suivantes sont rapides.
 Pour une version optimisée : `cargo run --release`.
 
-### Distribuer le jeu
-
-`.\package.ps1` (PowerShell, à la racine) compile la version optimisée et fabrique `CivBuilder-<version>.zip` : l'exécutable, le dossier `assets` (icônes, licence de la police), le README et le journal des versions. Le destinataire décompresse et lance `civbuilder.exe` (Windows 10/11 64 bits, carte graphique DirectX 12 ou Vulkan) ; rien d'autre à installer. L'exécutable n'étant pas signé, Windows peut afficher « Windows a protégé votre ordinateur » : « Informations complémentaires » puis « Exécuter quand même ». Le terminal reste ouvert à côté du jeu (messages utiles en cas de problème).
 Pour rejouer une carte précise, fixer sa graine (affichée dans la console au lancement) : `$env:CIVBUILDER_SEED=12345; cargo run` (PowerShell).
 
 > Les icônes sont chargées depuis le dossier `assets/`. Avec `cargo run`, Bevy le trouve automatiquement ;
 > si vous lancez directement l'exécutable (`target\release\civbuilder.exe`), copiez `assets/` à côté de lui.
 
-Tests unitaires de la logique (hexagones, carte, pathfinding, règles) : `cargo test`.
+Tests unitaires de la logique (hexagones, carte, climat, hydrologie, pathfinding, règles) : `cargo test`.
+
+### Livraison
+
+- **Intégration continue** (`.github/workflows/ci.yml`) : à chaque push sur `main` et à chaque pull request, GitHub vérifie clippy (sans avertissement) et lance les tests.
+- **Publier une version** (`.github/workflows/release.yml`) :
+  1. Changer `version` dans `Cargo.toml` (par exemple `0.2.0`) et ajouter la section `## 0.2.0 …` en tête de `CHANGELOG.md`.
+  2. Commiter, puis créer et pousser le tag : `git tag -a v0.2.0 -m "Version 0.2.0"` puis `git push origin main v0.2.0`.
+  3. GitHub compile la version Windows, fabrique le zip et publie la version (page « Releases ») avec la section du journal. Le tag doit correspondre à la version de `Cargo.toml`, sinon la publication s'arrête.
+- **Paquet en local** : `.\package.ps1` (PowerShell, à la racine) fabrique le même zip `CivBuilder-<version>.zip` (exécutable, dossier `assets`, README, journal). Si Windows refuse les scripts : `powershell -ExecutionPolicy Bypass -File package.ps1`.
 
 ## Commandes
 

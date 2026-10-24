@@ -1,1 +1,5 @@
 /target
+/Claude outputs/
+/CivBuilder-*/
+/CivBuilder-*.zip
+/notes.md
