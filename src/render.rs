@@ -6,7 +6,7 @@ use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
 use crate::hostile::{Blocked, Camp, EnemyZoc, Hostile, Occupancy, Village};
 use crate::input::{HoverPath, OrderPath};
 use crate::map::KnownMap;
-use crate::map::{LevelEdge, MAX_LEVEL, Terrain};
+use crate::map::{LevelEdge, MAX_LEVEL, Relief, Terrain};
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::PrimitiveTopology;
 use crate::rules::UnitKind;
@@ -107,9 +107,11 @@ struct Palette {
     /// Par terrain et par niveau d'altitude.
     terrain: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
     terrain_dim: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
-    /// Carte topographique, par terrain et niveau.
-    topo: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
-    topo_dim: HashMap<(Terrain, u8), Handle<ColorMaterial>>,
+    /// Cartes de l'altitude et du relief : teintes (voir `altitude_index`, `relief_index`).
+    altitude: Vec<Handle<ColorMaterial>>,
+    altitude_dim: Vec<Handle<ColorMaterial>>,
+    relief: Vec<Handle<ColorMaterial>>,
+    relief_dim: Vec<Handle<ColorMaterial>>,
     /// Carte du climat : teintes de précipitations, puis eau profonde et eau côtière.
     climate: Vec<Handle<ColorMaterial>>,
     climate_dim: Vec<Handle<ColorMaterial>>,
@@ -145,6 +147,9 @@ struct Palette {
 pub enum MapLayer {
     #[default]
     Normal,
+    /// Altitude (m), teintes continues.
+    Altitude,
+    /// Relief des cases : plat, vallonné, accidenté, montagne, pic.
     Relief,
     Climate,
     Basins,
@@ -153,12 +158,14 @@ pub enum MapLayer {
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 6] = [MapLayer::Normal, MapLayer::Relief, MapLayer::Climate, MapLayer::Basins, MapLayer::Flow, MapLayer::Network];
+    pub const ALL: [MapLayer; 7] =
+        [MapLayer::Normal, MapLayer::Altitude, MapLayer::Relief, MapLayer::Climate, MapLayer::Basins, MapLayer::Flow, MapLayer::Network];
 
     /// Nom court (bouton « Carte »).
     pub fn short_name(self) -> &'static str {
         match self {
             MapLayer::Normal => "normale",
+            MapLayer::Altitude => "altitude",
             MapLayer::Relief => "relief",
             MapLayer::Climate => "climat",
             MapLayer::Basins => "bassins versants",
@@ -356,26 +363,64 @@ pub fn basin_color(index: usize) -> (f32, f32, f32) {
     BASIN_VIVID.get(index).copied().unwrap_or_else(|| BASIN_MUTED[(index - BASIN_VIVID.len()) % BASIN_MUTED.len()])
 }
 
-/// Couleurs de la carte topographique (sRGB) : eau, niveaux 1 à 6, sommets.
+/// Carte de l'altitude (sRGB) : eau, puis teintes hypsométriques selon l'altitude (m).
 pub const TOPO_OCEAN: (f32, f32, f32) = (0.12, 0.25, 0.50);
 pub const TOPO_COAST: (f32, f32, f32) = (0.35, 0.56, 0.80);
-pub const TOPO_LEVELS: [(f32, f32, f32); 6] = [
-    (0.30, 0.58, 0.32),
-    (0.56, 0.73, 0.38),
-    (0.84, 0.81, 0.46),
-    (0.86, 0.63, 0.34),
-    (0.69, 0.46, 0.29),
-    (0.56, 0.44, 0.38),
+pub const ALTITUDE_STOPS: [(f32, (f32, f32, f32)); 7] = [
+    (0.0, (0.28, 0.55, 0.30)),
+    (300.0, (0.52, 0.71, 0.38)),
+    (800.0, (0.84, 0.81, 0.46)),
+    (1_500.0, (0.84, 0.60, 0.33)),
+    (2_400.0, (0.62, 0.43, 0.32)),
+    (3_400.0, (0.66, 0.62, 0.60)),
+    (4_800.0, (0.97, 0.97, 0.98)),
 ];
-pub const TOPO_SUMMIT: (f32, f32, f32) = (0.93, 0.93, 0.96);
+/// Nombre de teintes de la carte de l'altitude en 2D.
+const ALTITUDE_SHADES: usize = 24;
 
-/// Couleur topographique d'une case.
-pub fn topo_color(t: Terrain, level: u8) -> (f32, f32, f32) {
-    match t {
-        Terrain::Ocean => TOPO_OCEAN,
-        Terrain::Coast | Terrain::Lake => TOPO_COAST,
-        Terrain::Mountains => TOPO_SUMMIT,
-        _ => TOPO_LEVELS[(level.clamp(1, MAX_LEVEL) - 1) as usize],
+/// Couleur d'une altitude (m) sur la carte de l'altitude.
+pub fn altitude_color(m: f32) -> (f32, f32, f32) {
+    let last = ALTITUDE_STOPS.len() - 1;
+    let m = m.clamp(0.0, ALTITUDE_STOPS[last].0);
+    let k = ALTITUDE_STOPS.iter().position(|s| s.0 >= m).unwrap_or(last).max(1);
+    let ((a, ca), (b, cb)) = (ALTITUDE_STOPS[k - 1], ALTITUDE_STOPS[k]);
+    let t = if b > a { (m - a) / (b - a) } else { 1.0 };
+    (ca.0 + (cb.0 - ca.0) * t, ca.1 + (cb.1 - ca.1) * t, ca.2 + (cb.2 - ca.2) * t)
+}
+
+/// Altitude (m) au milieu d'une teinte de la carte de l'altitude en 2D.
+fn altitude_shade_meters(index: usize) -> f32 {
+    (index as f32 + 0.5) / ALTITUDE_SHADES as f32 * ALTITUDE_STOPS[ALTITUDE_STOPS.len() - 1].0
+}
+
+/// Teinte (indice) d'une case sur la carte de l'altitude : teintes de la terre, puis mer et lac.
+fn altitude_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
+    match map.get(hex) {
+        Some(t) if t.is_sea() => ALTITUDE_SHADES,
+        Some(Terrain::Lake) => ALTITUDE_SHADES + 1,
+        _ => {
+            let m = map.elevation(hex).unwrap_or(0.0);
+            ((m / ALTITUDE_STOPS[ALTITUDE_STOPS.len() - 1].0 * ALTITUDE_SHADES as f32) as usize).min(ALTITUDE_SHADES - 1)
+        }
+    }
+}
+
+/// Teinte (indice) d'une case sur la carte du relief : les 5 reliefs, puis mer et lac.
+fn relief_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
+    match map.get(hex) {
+        Some(t) if t.is_sea() => Relief::ALL.len(),
+        Some(Terrain::Lake) => Relief::ALL.len() + 1,
+        _ => Relief::ALL.iter().position(|&r| r == map.relief(hex)).unwrap_or(0),
+    }
+}
+
+/// Couleur d'une case sur la carte de l'altitude ou du relief (3D).
+pub fn elevation_layer_color(map: &crate::map::WorldMap, hex: Hex, layer: MapLayer) -> (f32, f32, f32) {
+    match map.get(hex) {
+        Some(Terrain::Ocean) => TOPO_OCEAN,
+        Some(Terrain::Coast | Terrain::Lake) => TOPO_COAST,
+        _ if layer == MapLayer::Relief => map.relief(hex).color(),
+        _ => altitude_color(map.elevation(hex).unwrap_or(0.0)),
     }
 }
 
@@ -691,17 +736,12 @@ fn setup_map_visuals(
     let mut mat = |c: Color| materials.add(ColorMaterial::from_color(c));
     let mut terrain = HashMap::new();
     let mut terrain_dim = HashMap::new();
-    let mut topo = HashMap::new();
-    let mut topo_dim = HashMap::new();
     for t in Terrain::ALL {
         for level in 0..=MAX_LEVEL {
             // L'eau d'un lac garde sa couleur à toute altitude
             let (r, g, b) = level_tint(t.color(), if t.is_water() { 0 } else { level });
             terrain.insert((t, level), mat(Color::srgb(r, g, b)));
             terrain_dim.insert((t, level), mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)));
-            let (r, g, b) = topo_color(t, level);
-            topo.insert((t, level), mat(Color::srgb(r, g, b)));
-            topo_dim.insert((t, level), mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)));
         }
     }
     let mut climate = Vec::new();
@@ -715,6 +755,9 @@ fn setup_map_visuals(
         colors.into_iter().map(|(r, g, b)| (mat(Color::srgb(r, g, b)), mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)))).unzip()
     };
     let (basins, basins_dim) = pair(BASIN_VIVID.iter().chain(&BASIN_MUTED).copied().chain([HYDRO_OCEAN, HYDRO_LAKE]).collect());
+    let (altitude, altitude_dim) =
+        pair((0..ALTITUDE_SHADES).map(|i| altitude_color(altitude_shade_meters(i))).chain([TOPO_OCEAN, TOPO_COAST]).collect());
+    let (relief, relief_dim) = pair(Relief::ALL.iter().map(|r| r.color()).chain([TOPO_OCEAN, TOPO_COAST]).collect());
     let flow_shades = (0..FLOW_SHADES).map(|i| flow_scale_color((i as f32 + 0.5) / FLOW_SHADES as f32));
     let (flow, flow_dim) = pair(flow_shades.chain([HYDRO_OCEAN, HYDRO_LAKE, NETWORK_LAND, NETWORK_LAKE, NETWORK_OCEAN]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
@@ -723,8 +766,10 @@ fn setup_map_visuals(
         tile_mesh: tile_mesh.clone(),
         terrain,
         terrain_dim,
-        topo,
-        topo_dim,
+        altitude,
+        altitude_dim,
+        relief,
+        relief_dim,
         climate,
         climate_dim,
         basins,
@@ -786,6 +831,12 @@ fn setup_map_visuals(
     let bump = meshes.add(CircularSector::new(7.5, std::f32::consts::FRAC_PI_2));
     let bump_light = materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.24)));
     let bump_dark = materials.add(ColorMaterial::from_color(Color::srgba(0.0, 0.0, 0.0, 0.32)));
+    let rugged_dark = materials.add(ColorMaterial::from_color(Color::srgba(0.0, 0.0, 0.0, 0.48)));
+    let snow_cap = materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.9)));
+    // Sommet : triangle entier (ombre), moitié éclairée, calotte de neige
+    let peak_shade = meshes.add(Triangle2d::new(Vec2::new(-10.0, -8.0), Vec2::new(10.0, -8.0), Vec2::new(0.0, 9.0)));
+    let peak_lit = meshes.add(Triangle2d::new(Vec2::new(-10.0, -8.0), Vec2::new(0.0, -8.0), Vec2::new(0.0, 9.0)));
+    let peak_cap = meshes.add(Triangle2d::new(Vec2::new(-3.5, 3.0), Vec2::new(3.5, 3.0), Vec2::new(0.0, 9.0)));
     for hex in map.0.hexes() {
         commands.spawn((
             Tile(hex),
@@ -793,18 +844,40 @@ fn setup_map_visuals(
             MeshMaterial2d(palette.unexplored.clone()),
             Transform::from_translation(hex_translation(hex, Z_TILE)),
         ));
-        if map.0.hills(hex) {
-            for (dx, dy, k) in [(-9.0, -4.0, 1.0), (8.0, -6.0, 0.85), (0.0, 8.0, 0.8)] {
-                let at = hex_translation(hex, Z_HILLS) + Vec3::new(dx, dy, 0.0);
-                for (material, shift) in [(&bump_dark, Vec3::new(1.5, -1.0, 0.0)), (&bump_light, Vec3::Z * 0.01)] {
-                    commands.spawn((
-                        HillMark(hex),
-                        Mesh2d(bump.clone()),
-                        MeshMaterial2d(material.clone()),
-                        Transform::from_translation(at + shift).with_scale(Vec3::splat(k)),
-                        Visibility::Hidden,
-                    ));
-                }
+        // Relief : bosses (collines), bosses serrées et plus marquées (accidenté), sommets
+        // triangulaires (montagne), grand sommet enneigé (pic)
+        let mut glyph = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, at: Vec3, k: f32| {
+            commands.spawn((
+                HillMark(hex),
+                Mesh2d(mesh.clone()),
+                MeshMaterial2d(material.clone()),
+                Transform::from_translation(at).with_scale(Vec3::splat(k)),
+                Visibility::Hidden,
+            ));
+        };
+        let base = hex_translation(hex, Z_HILLS);
+        let bumps: &[(f32, f32, f32)] = match map.0.relief(hex) {
+            Relief::Hills => &[(-9.0, -4.0, 1.0), (8.0, -6.0, 0.85), (0.0, 8.0, 0.8)],
+            Relief::Rugged => &[(-10.0, -5.0, 0.8), (-1.0, -8.0, 0.75), (9.0, -3.0, 0.8), (-5.0, 6.0, 0.75), (6.0, 8.0, 0.7)],
+            _ => &[],
+        };
+        let dark = if map.0.relief(hex) == Relief::Rugged { &rugged_dark } else { &bump_dark };
+        for &(dx, dy, k) in bumps {
+            let at = base + Vec3::new(dx, dy, 0.0);
+            glyph(&bump, dark, at + Vec3::new(1.5, -1.0, 0.0), k);
+            glyph(&bump, &bump_light, at + Vec3::Z * 0.01, k);
+        }
+        let peaks: &[(f32, f32, f32)] = match map.0.relief(hex) {
+            Relief::Mountain => &[(-7.0, -3.0, 0.8), (7.0, 1.0, 0.95)],
+            Relief::Peak => &[(0.0, -2.0, 1.45)],
+            _ => &[],
+        };
+        for &(dx, dy, k) in peaks {
+            let at = base + Vec3::new(dx, dy, 0.0);
+            glyph(&peak_shade, &bump_dark, at, k);
+            glyph(&peak_lit, &bump_light, at + Vec3::Z * 0.01, k);
+            if map.0.relief(hex) == Relief::Peak {
+                glyph(&peak_cap, &snow_cap, at + Vec3::Z * 0.02, k);
             }
         }
     }
@@ -827,13 +900,12 @@ fn update_tile_fog(
     if !fog.is_changed() && !layer.is_changed() {
         return;
     }
-    let (lit, dim) = match *layer {
-        MapLayer::Relief => (&palette.topo, &palette.topo_dim),
-        _ => (&palette.terrain, &palette.terrain_dim),
-    };
+    let (lit, dim) = (&palette.terrain, &palette.terrain_dim);
     // Cartes à teintes indexées (climat, bassins, débits) : teintes vives et assombries
     let indexed: Option<(&Vec<_>, &Vec<_>)> = match *layer {
         MapLayer::Climate => Some((&palette.climate, &palette.climate_dim)),
+        MapLayer::Altitude => Some((&palette.altitude, &palette.altitude_dim)),
+        MapLayer::Relief => Some((&palette.relief, &palette.relief_dim)),
         MapLayer::Basins => Some((&palette.basins, &palette.basins_dim)),
         MapLayer::Flow | MapLayer::Network => Some((&palette.flow, &palette.flow_dim)),
         _ => None,
@@ -842,6 +914,8 @@ fn update_tile_fog(
         (MapLayer::Climate, Some(Terrain::Ocean)) => CLIMATE_SHADES,
         (MapLayer::Climate, Some(Terrain::Coast | Terrain::Lake)) => CLIMATE_SHADES + 1,
         (MapLayer::Climate, _) => climate_shade(map.0.rain(hex).unwrap_or(500.0)),
+        (MapLayer::Altitude, _) => altitude_index(&map.0, hex),
+        (MapLayer::Relief, _) => relief_index(&map.0, hex),
         _ => hydro_index(&map.0, hex, *layer),
     };
     for (mark, mut vis) in &mut marks {

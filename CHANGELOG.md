@@ -1,5 +1,18 @@
 # Journal des versions
 
+## 0.3.0 (en cours)
+
+### Altitude et relief
+- L'altitude en mètres devient la référence : déplacements, combat, climat et infobulle (« 2 950 m »).
+- **Relief** de chaque case, en plus du terrain : plat, vallonné, accidenté, montagne, pic (dénivelée avec les voisines, bruit propre, altitude).
+- **Montagnes franchissables** (3 PM, 0/1/0, +6 en défense, pas de ville) ; seuls les **pics** (≈ 0,5 % des terres, jamais côte à côte) sont infranchissables. Le terrain « Montagnes » disparaît : une montagne porte le biome de son climat (toundra, neige, forêt…).
+- Relief accidenté : +2 PM, +1 production, −1 nourriture, +3 en défense. Coûts plafonnés à 3 PM.
+- Pentes en mètres : montée de 400 à 900 m +1 PM, au-delà +2 PM ; falaise (≈ 1 000 m d'écart) toujours infranchissable.
+- Combat : être plus haut d'au moins 250 m donne l'avantage (défense de mêlée, tir, portée).
+- Nouvelles cartes **Altitude** (teintes en mètres) et **Relief** (plat → pic), avec légendes ; symboles 2D par relief.
+- **Relief 3D modelé dans le sol** (fini les montagnes posées comme des objets) : crêtes et ravines continues d'une case à l'autre, ampleur croissante des collines aux montagnes, sommet propre aux pics ; roche sur les pentes raides et en hauteur, neige au-dessus d'une limite qui dépend du froid ; arbres sur les versants jusqu'à la limite des arbres ; le relief s'efface près des cours d'eau, qui coulent dans des vallées.
+- **Sol 3D à l'altitude réelle** en mètres (fini les 6 tranches) : pentes douces continues, plateaux et bassins visibles ; lacs à la cote de leur surface.
+
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 
 Les saisons du climat façonnent maintenant les paysages  : 7 nouveaux terrains, de la jungle à la taïga.

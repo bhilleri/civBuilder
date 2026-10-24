@@ -14,6 +14,100 @@
 
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
 use bevy::math::{Vec2, Vec3};
+use std::collections::HashMap;
+
+/// Relief interne d'une case (collines, relief accidenté, montagne, pic) : déformation du sol
+/// ajoutée au profil de la case. `amp` : ampleur des crêtes et ravines (bruit continu sur toute
+/// la carte) ; `summit` : sommet au centre de la case ; `snowline` : hauteur de déformation
+/// au-dessus de laquelle le sol est enneigé (selon le froid).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bumps {
+    pub amp: f32,
+    pub summit: f32,
+    pub snowline: f32,
+}
+
+impl Default for Bumps {
+    fn default() -> Self {
+        Self { amp: 0.0, summit: 0.0, snowline: f32::MAX }
+    }
+}
+
+pub type BumpMap = HashMap<Hex, Bumps>;
+
+/// Portée de l'ampleur d'une case autour de son centre (au-delà du centre des voisines, elle ne
+/// compte plus) : l'ampleur varie continûment d'une case à l'autre, deux montagnes voisines
+/// forment une seule crête.
+const BUMP_REACH: f32 = HEX_SIZE * 1.6;
+/// Près d'un cours d'eau, la déformation s'efface (vallée) sur cette distance au bord de l'eau.
+const VALLEY_FADE: f32 = 10.0;
+/// Neige (linéaire) et roche des hauteurs.
+const SNOW: Vec3 = Vec3::new(0.88, 0.90, 0.94);
+
+/// Bruit « en crêtes » (0 à 1), continu sur toute la carte : crêtes aiguës et ravines.
+fn ridge_noise(p: Vec2) -> f32 {
+    use noise::{NoiseFn, Perlin};
+    static PERLIN: std::sync::OnceLock<Perlin> = std::sync::OnceLock::new();
+    let perlin = PERLIN.get_or_init(|| Perlin::new(7_919));
+    let (mut sum, mut norm, mut freq, mut amp) = (0.0f64, 0.0f64, 1.0 / 70.0, 1.0f64);
+    for _ in 0..3 {
+        let n = perlin.get([f64::from(p.x) * freq, f64::from(p.y) * freq]);
+        let r = 1.0 - n.abs();
+        sum += r * r * amp;
+        norm += amp;
+        freq *= 2.1;
+        amp *= 0.4;
+    }
+    (sum / norm) as f32
+}
+
+/// Déformation du relief au point `p` (monde 2D) : hauteur ajoutée, et hauteur de la limite
+/// des neiges à cet endroit.
+pub fn lift_at(p: Vec2, bumps: &BumpMap) -> (f32, f32) {
+    if bumps.is_empty() {
+        return (0.0, f32::MAX);
+    }
+    let here = Hex::from_world(p.x, p.y);
+    let (mut sw, mut sa, mut summit) = (0.0f32, 0.0f32, 0.0f32);
+    let (mut snow_w, mut snow) = (0.0f32, 0.0f32);
+    for h in std::iter::once(here).chain(here.neighbors()) {
+        let b = bumps.get(&h).copied().unwrap_or_default();
+        let (cx, cy) = h.to_world();
+        let d = p.distance(Vec2::new(cx, cy));
+        let w = (1.0 - d / BUMP_REACH).max(0.0).powi(2);
+        sw += w;
+        sa += w * b.amp;
+        if b.amp > 0.0 {
+            snow_w += w;
+            snow += w * b.snowline;
+        }
+        // Sommet : cloche nulle au bord de la case (rayon = apothème)
+        if b.summit > 0.0 {
+            let t = (d / APOTHEM).min(1.0);
+            summit += b.summit * (1.0 - t * t).powi(2);
+        }
+    }
+    if sa <= 0.0 && summit <= 0.0 {
+        return (0.0, f32::MAX);
+    }
+    let amp = if sw > 0.0 { sa / sw } else { 0.0 };
+    let ridge = ridge_noise(p);
+    let lift = amp * (0.2 + 0.8 * ridge) + summit * (0.75 + 0.25 * ridge);
+    (lift, if snow_w > 0.0 { snow / snow_w } else { f32::MAX })
+}
+
+/// Effacement de la déformation près des cours d'eau (0 au bord de l'eau, 1 au loin) : les
+/// rivières coulent dans des vallées, jamais sous la roche.
+pub fn valley_fade(channels: &[Channel], p: Vec2) -> f32 {
+    channels
+        .iter()
+        .map(|c| {
+            let t = c.param(p);
+            let d = p.distance(c.a + (c.b - c.a) * t) - c.half_width(t);
+            smoothstep(d / VALLEY_FADE)
+        })
+        .fold(1.0, f32::min)
+}
 
 /// Nombre de hauteurs d'eau mémorisées le long de l'axe d'un lit.
 pub const CHANNEL_LEVELS: usize = 7;
@@ -524,11 +618,30 @@ impl HexTop {
 /// devient abrupte (falaises) ; bord de case légèrement assombri. Les cours d'eau proches
 /// (`channels`, ceux de la case et de ses voisines : une arête est creusée pareil des deux côtés)
 /// creusent leur lit, bordé de berges de terre humide ; le maillage est alors plus fin.
-pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, sides: Option<&[Vec3; 6]>, channels: &[Channel], skirt: bool) -> MeshData {
+pub fn build_hex(
+    hex: Hex,
+    top: &HexTop,
+    color: Vec3,
+    sides: Option<&[Vec3; 6]>,
+    channels: &[Channel],
+    skirt: bool,
+    bumps: &BumpMap,
+) -> MeshData {
     let (cx, cy) = hex.to_world();
     let origin = Vec2::new(cx, cy);
     let world = |p: Vec2, y: f32| Vec3::new(cx + p.x, y, -(cy + p.y));
-    let fine = !channels.is_empty();
+    // Relief interne (collines, montagnes) de la case ou de ses voisines : maillage fin
+    let bumpy = !skirt && std::iter::once(hex).chain(hex.neighbors()).any(|h| bumps.get(&h).is_some_and(|b| b.amp > 0.0 || b.summit > 0.0));
+    let fine = !channels.is_empty() || bumpy;
+    // Déformation du relief (effacée près de l'eau) et limite des neiges
+    let lift = |q: Vec2| -> (f32, f32) {
+        if !bumpy {
+            return (0.0, f32::MAX);
+        }
+        let (l, snow) = lift_at(origin + q, bumps);
+        (l * valley_fade(channels, origin + q), snow)
+    };
+    let terrain = |q: Vec2| top.sample(q) + lift(q).0;
     // Rivages de la case (côté terre) : arête, hauteur de l'eau
     let corner = |j: usize| Vec2::from_angle((-30.0 + 60.0 * j as f32).to_radians()) * HEX_SIZE;
     let shores: Vec<(Vec2, Vec2, f32)> = (0..6)
@@ -536,8 +649,8 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, sides: Option<&[Vec3; 6]>,
         .map(|d| (corner(d), corner(d + 1), top.wall_bottoms[d]))
         .collect();
     let dig = |q: Vec2| {
-        let terrain = top.sample(q);
-        if fine { carve(channels, origin + q, terrain) } else { (terrain, 0.0) }
+        let terrain = terrain(q);
+        if !channels.is_empty() { carve(channels, origin + q, terrain) } else { (terrain, 0.0) }
     };
     let height = |q: Vec2| dig(q).0;
     // Normale : gradient du terrain (`g`, mesuré comme `HexTop::gradient`), corrigé du creusement
@@ -546,7 +659,7 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, sides: Option<&[Vec3; 6]>,
         let g = if bank > 0.0 {
             // (écart assez large pour lisser les angles du profil du lit)
             let e = 1.0;
-            let cut = |v: Vec2| top.sample(v) - dig(v).0;
+            let cut = |v: Vec2| terrain(v) - dig(v).0;
             let dd = |v: Vec2| cut(q + v) - cut(q - v);
             g - Vec2::new(dd(Vec2::X * e), dd(Vec2::Y * e)) / (2.0 * e)
         } else {
@@ -571,8 +684,14 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, sides: Option<&[Vec3; 6]>,
         let around = if total > 0.0 { sum / total } else { color };
         color.lerp(around, smoothstep((len / APOTHEM - 0.2) / 0.5))
     };
-    let shade = |q: Vec2, y: f32, bank: f32, slope: f32, edge: bool| {
+    let shade = |q: Vec2, y: f32, bank: f32, slope: f32, edge: bool, (up, snowline): (f32, f32)| {
         let mut c = base(q);
+        // Relief : la roche gagne avec la hauteur, la neige couvre les sommets au-dessus de la
+        // limite des neiges (plus basse dans le froid)
+        if up > 0.0 {
+            c = c.lerp(rock_color(y), 0.65 * smoothstep((up - 5.0) / 14.0));
+            c = c.lerp(SNOW, smoothstep((up - snowline) / 4.0));
+        }
         if bank > 0.0 {
             c = c.lerp(BANK_MUD, BANK_TINT * bank);
         }
@@ -605,8 +724,19 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, sides: Option<&[Vec3; 6]>,
     let n = border.len() as u32;
     let vertex = |mesh: &mut MeshData, q: Vec2, edge: bool| {
         let (y, bank) = dig(q);
-        let g = top.gradient(q);
-        mesh.vertex(world(q, y), normal(q, g, bank), shade(q, y, bank, g.length(), edge))
+        let up = lift(q);
+        // Pente : profil de la case, plus la déformation du relief (mesurée de part et d'autre)
+        let g = if up.0 > 0.0 || bumpy {
+            let e = 0.5;
+            let lx = lift(q + Vec2::X * e).0 - lift(q - Vec2::X * e).0;
+            let ly = lift(q + Vec2::Y * e).0 - lift(q - Vec2::Y * e).0;
+            top.gradient(q) + Vec2::new(lx, ly) / (2.0 * e)
+        } else {
+            top.gradient(q)
+        };
+        // Une crête enneigée reste blanche même sur une pente raide
+        let slope = if up.0 > up.1 { 0.0 } else { g.length() };
+        mesh.vertex(world(q, y), normal(q, g, bank), shade(q, y, bank, slope, edge, up))
     };
     let center = vertex(&mut mesh, Vec2::ZERO, false);
     let mut ring_start = Vec::new();
@@ -652,91 +782,6 @@ pub fn build_hex(hex: Hex, top: &HexTop, color: Vec3, sides: Option<&[Vec3; 6]>,
     mesh
 }
 
-/// Montagne en relief (repère local : origine au sol, au centre de la case) : un sommet
-/// principal élancé, des sommets secondaires, des crêtes vers les cases de montagne voisines
-/// (`ridges[d]` : la voisine de direction d est une montagne) pour former des chaînes,
-/// facettes de roche sombre et neige au-dessus d'une certaine altitude.
-/// `seed` varie la forme d'une case à l'autre.
-pub fn mountain_mesh(seed: u32, ridges: [bool; 6]) -> MeshData {
-    const RINGS: [f32; 10] = [0.0, 0.08, 0.17, 0.27, 0.38, 0.5, 0.62, 0.75, 0.88, 1.0];
-    const SECTORS: usize = 24;
-    let radius = HEX_SIZE * 1.02;
-    let rnd = |k: u32| {
-        let x = ((seed.wrapping_mul(2_654_435_761) ^ k.wrapping_mul(40_503)) % 10_007) as f32 / 10_007.0;
-        (x * 12.9898 + k as f32 * 4.1414).sin().abs().fract()
-    };
-    let dir = |d: usize| Vec2::from_angle((60.0 * d as f32).to_radians());
-    // Sommets : (position, hauteur, rayon d'influence)
-    let main_h = 42.0 + rnd(1) * 14.0;
-    let mut peaks = vec![(Vec2::new(rnd(2) - 0.5, rnd(3) - 0.5) * 7.0, main_h, radius * 0.8)];
-    let subs = 2 + (rnd(4) * 2.0) as u32;
-    for k in 0..subs {
-        let angle = (rnd(10 + k) + k as f32 / subs as f32) * std::f32::consts::TAU;
-        let at = Vec2::from_angle(angle) * radius * (0.35 + rnd(20 + k) * 0.2);
-        peaks.push((at, main_h * (0.45 + rnd(30 + k) * 0.25), radius * (0.4 + rnd(40 + k) * 0.15)));
-    }
-    // Crêtes vers les montagnes voisines : un col à mi-hauteur sur l'arête commune
-    for d in (0..6).filter(|&d| ridges[d]) {
-        peaks.push((dir(d) * APOTHEM * 0.75, main_h * (0.42 + rnd(60 + d as u32) * 0.12), radius * 0.55));
-    }
-    let height = |p: Vec2| {
-        let r = p.length() / radius;
-        let mut h = peaks
-            .iter()
-            .map(|&(c, ph, pr)| ph * (1.0 - (p - c).length() / pr).max(0.0).powf(1.5))
-            .fold(0.0_f32, f32::max);
-        // Arêtes irrégulières, plus marquées en altitude (sauf au sommet même)
-        if r > 0.04 {
-            h += (hash01(Vec3::new(p.x, seed as f32 * 0.01, p.y)) - 0.5) * (2.0 + 5.0 * h / main_h);
-        }
-        // Le pied s'enfonce dans le sol, sauf du côté des crêtes qui rejoignent une voisine
-        let toward = if r > 0.0 { p / p.length() } else { Vec2::X };
-        let ridge = (0..6).filter(|&d| ridges[d]).map(|d| toward.dot(dir(d)).max(0.0).powi(6)).fold(0.0, f32::max);
-        let edge = smoothstep((r - 0.72) / 0.28) * (1.0 - ridge);
-        h * (1.0 - edge) - 12.0 * edge
-    };
-    let point = |ring: usize, sector: usize| {
-        let angle = (sector as f32 + if ring % 2 == 1 { 0.5 } else { 0.0 }) / SECTORS as f32 * std::f32::consts::TAU;
-        let p = Vec2::from_angle(angle + rnd(50) * 6.0) * radius * RINGS[ring];
-        Vec3::new(p.x, height(p), -p.y)
-    };
-    let mut mesh = MeshData::default();
-    let snow_line = main_h * 0.55;
-    let mut facet = |a: Vec3, b: Vec3, c: Vec3| {
-        let mut n = (b - a).cross(c - a).normalize_or_zero();
-        let (a, c) = if n.y < 0.0 {
-            n = -n;
-            (c, a)
-        } else {
-            (a, c)
-        };
-        let mid = (a + b + c) / 3.0;
-        let jitter = 0.85 + 0.3 * hash01(mid * 0.53);
-        // Neige sur les faces hautes et pas trop raides ; roche sombre, plus brune au pied
-        let color = if mid.y > snow_line + (hash01(mid) - 0.5) * 8.0 && n.y > 0.3 {
-            Vec3::new(0.92, 0.94, 0.98) * (0.96 + 0.04 * jitter)
-        } else {
-            let low = Vec3::new(0.15, 0.13, 0.11);
-            let high = Vec3::new(0.22, 0.21, 0.21);
-            low.lerp(high, smoothstep(mid.y / snow_line)) * jitter
-        };
-        for p in [a, b, c] {
-            let k = mesh.vertex(p, n, color);
-            mesh.indices.push(k);
-        }
-    };
-    for ring in 0..RINGS.len() - 1 {
-        for s in 0..SECTORS {
-            let (a0, b0) = (point(ring, s), point(ring, (s + 1) % SECTORS));
-            let (a1, b1) = (point(ring + 1, s), point(ring + 1, (s + 1) % SECTORS));
-            facet(a0, a1, b1);
-            if ring > 0 {
-                facet(a0, b1, b0);
-            }
-        }
-    }
-    mesh
-}
 
 #[cfg(test)]
 mod tests {
@@ -762,7 +807,7 @@ mod tests {
         let ((ax, ay), (bx, by)) = a.edge_corners(0);
         let ch = [Channel { a: Vec2::new(ax, ay), b: Vec2::new(bx, by), hw: 3.0, hw_end: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0 }];
         let flat = compute_top(a, |_| 10.0, |_, _| Link::Gentle, |_| false);
-        let (ma, mb) = (build_hex(a, &flat, Vec3::ONE, None, &ch, false), build_hex(b, &flat, Vec3::ONE, None, &ch, false));
+        let (ma, mb) = (build_hex(a, &flat, Vec3::ONE, None, &ch, false, &BumpMap::new()), build_hex(b, &flat, Vec3::ONE, None, &ch, false, &BumpMap::new()));
         let mid = Vec3::new((ax + bx) / 2.0, 0.0, -(ay + by) / 2.0);
         let at = |m: &MeshData| {
             m.positions.iter().map(|p| Vec3::from_array(*p)).filter(|p| (p.x - mid.x).abs() < 0.01 && (p.z - mid.z).abs() < 0.01).map(|p| p.y).next()
@@ -772,7 +817,7 @@ mod tests {
         let (cx, _) = a.to_world();
         let center = ma.positions.iter().find(|p| (p[0] - cx).abs() < 0.01 && p[2].abs() < 0.01).unwrap();
         assert_eq!(center[1], 10.0, "le centre de la case n'est pas touché");
-        assert!(ma.positions.len() > build_hex(a, &flat, Vec3::ONE, None, &[], false).positions.len(), "maillage plus fin");
+        assert!(ma.positions.len() > build_hex(a, &flat, Vec3::ONE, None, &[], false, &BumpMap::new()).positions.len(), "maillage plus fin");
     }
 
     #[test]
@@ -833,8 +878,8 @@ mod tests {
         // La case haute porte une paroi rocheuse ; la case basse n'a pas de roche
         let rocky = |m: &MeshData| m.colors.iter().filter(|c| (c[0] - ROCK.x).abs() < 0.12 && c[1] < c[0]).count();
         let green = Vec3::new(0.1, 0.5, 0.1);
-        assert!(rocky(&build_hex(b, high, green, None, &[], false)) >= 24, "paroi de falaise en roche");
-        assert_eq!(rocky(&build_hex(a, top, green, None, &[], false)), 0);
+        assert!(rocky(&build_hex(b, high, green, None, &[], false, &BumpMap::new())) >= 24, "paroi de falaise en roche");
+        assert_eq!(rocky(&build_hex(a, top, green, None, &[], false, &BumpMap::new())), 0);
     }
 
     #[test]
@@ -849,7 +894,7 @@ mod tests {
             edge_slopes: [0.0; 6],
             wall_bottoms: [0.0; 6],
         };
-        let ground = build_hex(Hex::new(0, 0), &top, Vec3::ONE, None, &[], false);
+        let ground = build_hex(Hex::new(0, 0), &top, Vec3::ONE, None, &[], false, &BumpMap::new());
         let normal = |m: &MeshData, t: usize| {
             let p = |k: usize| Vec3::from_array(m.positions[m.indices[t * 3 + k] as usize]);
             (p(1) - p(0)).cross(p(2) - p(0))
@@ -859,7 +904,7 @@ mod tests {
         }
         // Paroi d'une arête non liée : tournée vers l'extérieur
         let walled = HexTop { links: [Link::Gentle, Link::None, Link::Gentle, Link::Gentle, Link::Gentle, Link::Gentle], ..top };
-        let ground = build_hex(Hex::new(0, 0), &walled, Vec3::ONE, None, &[], false);
+        let ground = build_hex(Hex::new(0, 0), &walled, Vec3::ONE, None, &[], false, &BumpMap::new());
         let last = ground.indices.len() / 3 - 1;
         let out = Vec3::new(60f32.to_radians().cos(), 0.0, -60f32.to_radians().sin());
         assert!(normal(&ground, last).dot(out) > 0.0, "paroi tournée vers l'intérieur");
@@ -880,17 +925,31 @@ mod tests {
         assert_eq!(top.sample(Vec2::ZERO), 24.0, "le centre de la case de terre garde sa hauteur");
     }
 
+
     #[test]
-    fn montagne_avec_sommets_et_neige() {
-        for seed in 0..5 {
-            let m = mountain_mesh(seed, [seed % 2 == 0, false, true, false, false, false]);
-            let top = m.positions.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
-            assert!(top > 30.0, "sommet trop bas : {top}");
-            let snow = m.colors.iter().filter(|c| c[0] > 0.7).count();
-            assert!(snow > 0, "neige au sommet");
-            assert!(m.normals.iter().all(|n| n[1] >= 0.0), "faces tournées vers le haut");
-        }
-        assert_ne!(mountain_mesh(1, [false; 6]).positions, mountain_mesh(2, [false; 6]).positions, "formes variées");
+    fn relief_modele_dans_le_sol() {
+        // Montagne en A, case plate en B : le sol monte en A, reste plat au centre de B, et la
+        // déformation est la même vue des deux cases (fonction de la position seule)
+        let (a, b) = (Hex::new(0, 0), Hex::new(0, 0) + DIRECTIONS[0]);
+        let mut bumps = BumpMap::new();
+        bumps.insert(a, Bumps { amp: 16.0, summit: 24.0, snowline: 6.0 });
+        let center = |h: Hex| {
+            let (x, y) = h.to_world();
+            Vec2::new(x, y)
+        };
+        assert!(lift_at(center(a), &bumps).0 > 8.0, "sommet au centre de la montagne");
+        assert_eq!(lift_at(center(b), &bumps).0, 0.0, "rien au centre de la voisine plate");
+        // Près d'un cours d'eau, la déformation s'efface (vallée)
+        let ch = [Channel { a: center(a) - Vec2::X * 20.0, b: center(a) + Vec2::X * 20.0, hw: 3.0, hw_end: 3.0, levels: [20.0; CHANNEL_LEVELS], bed: 1.0 }];
+        assert_eq!(valley_fade(&ch, center(a)), 0.0);
+        assert_eq!(valley_fade(&ch, center(a) + Vec2::Y * 30.0), 1.0);
+        // Maillage fin, sommet plus haut que le profil plat, neige au-dessus de la limite
+        let top = compute_top(a, |_| 24.0, |_, _| Link::Gentle, |_| false);
+        let mesh = build_hex(a, &top, Vec3::new(0.1, 0.4, 0.1), None, &[], false, &bumps);
+        let highest = mesh.positions.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+        assert!(highest > 32.0, "relief modelé : {highest}");
+        assert!(mesh.colors.iter().any(|c| c[0] > 0.7), "neige");
+        assert!(mesh.positions.len() > build_hex(a, &top, Vec3::ONE, None, &[], false, &BumpMap::new()).positions.len());
     }
 
     #[test]
@@ -936,10 +995,10 @@ mod bench {
         for _ in 0..200 { std::hint::black_box(compute_top(a, |h| 10.0 + (h.q * 3 + h.r * 5) as f32, |_, _| Link::Gentle, |_| false)); }
         println!("compute_top : {:.3} ms", t.elapsed().as_secs_f64() * 1000.0 / 200.0);
         let t = std::time::Instant::now();
-        for _ in 0..200 { std::hint::black_box(build_hex(a, &flat, Vec3::ONE, None, &[], false)); }
+        for _ in 0..200 { std::hint::black_box(build_hex(a, &flat, Vec3::ONE, None, &[], false, &BumpMap::new())); }
         println!("case simple : {:.3} ms", t.elapsed().as_secs_f64() * 1000.0 / 200.0);
         let t = std::time::Instant::now();
-        for _ in 0..50 { std::hint::black_box(build_hex(a, &flat, Vec3::ONE, None, &ch, false)); }
+        for _ in 0..50 { std::hint::black_box(build_hex(a, &flat, Vec3::ONE, None, &ch, false, &BumpMap::new())); }
         println!("case fine (10 lits) : {:.3} ms", t.elapsed().as_secs_f64() * 1000.0 / 50.0);
     }
 }

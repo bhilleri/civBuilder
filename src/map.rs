@@ -23,27 +23,90 @@ pub trait MoveCosts {
 /// Altitude : 0 = eau, 1 (littoral) à 6 (massif, où se trouvent les sommets).
 pub const MAX_LEVEL: u8 = 6;
 
-/// Nom d'un niveau d'altitude.
-pub fn level_name(level: u8) -> &'static str {
-    match level {
-        0 => "eau",
-        1 => "littoral",
-        2 => "plaine basse",
-        3 => "plaine haute",
-        4 => "plateau",
-        5 => "haut plateau",
-        _ => "massif",
-    }
+/// Falaise entre deux cases de terre voisines : écart d'au moins 3 classes d'altitude
+/// (≈ 1 000 m et plus), infranchissable dans les deux sens (et dessinée comme telle en 3D).
+pub fn is_cliff(from_level: u8, to_level: u8) -> bool {
+    (i32::from(to_level) - i32::from(from_level)).abs() >= 3
 }
 
-/// Surcoût d'un pas selon l'écart de niveau : pente douce (1 niveau) gratuite,
-/// montée de 2 niveaux +1 PM, falaise (3 niveaux ou plus, dans les deux sens) infranchissable.
-pub fn slope_cost(from_level: u8, to_level: u8) -> Option<u32> {
-    let diff = i32::from(to_level) - i32::from(from_level);
-    match diff {
-        d if d.abs() >= 3 => None,
-        2 => Some(1),
-        _ => Some(0),
+/// Surcoût d'un pas selon la dénivelée réelle (m) : montée de moins de `CLIMB_GENTLE_M`
+/// gratuite, jusqu'à `CLIMB_STEEP_M` +1 PM, au-delà +2 PM ; la descente est gratuite. (À 40 km
+/// entre deux centres de cases, c'est surtout le relief interne à la case qui gêne : voir `Relief`.)
+pub fn climb_cost(from_m: f32, to_m: f32) -> u32 {
+    let up = to_m - from_m;
+    if up < CLIMB_GENTLE_M {
+        0
+    } else if up < CLIMB_STEEP_M {
+        1
+    } else {
+        2
+    }
+}
+pub const CLIMB_GENTLE_M: f32 = 400.0;
+pub const CLIMB_STEEP_M: f32 = 900.0;
+
+/// Relief interne à une case, du plus doux au plus escarpé. Il s'ajoute au terrain (biome) :
+/// une forêt peut être vallonnée, une toundra montagneuse.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Relief {
+    #[default]
+    Flat,
+    /// Collines.
+    Hills,
+    /// Relief accidenté : gorges, crêtes, versants raides.
+    Rugged,
+    /// Montagne : franchissable, à 3 PM.
+    Mountain,
+    /// Pic : sommet infranchissable.
+    Peak,
+}
+
+impl Relief {
+    pub const ALL: [Relief; 5] = [Relief::Flat, Relief::Hills, Relief::Rugged, Relief::Mountain, Relief::Peak];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Relief::Flat => "plat",
+            Relief::Hills => "vallonné",
+            Relief::Rugged => "accidenté",
+            Relief::Mountain => "montagne",
+            Relief::Peak => "pic",
+        }
+    }
+
+    /// Couleur sur la carte du relief (sRGB).
+    pub fn color(self) -> (f32, f32, f32) {
+        match self {
+            Relief::Flat => (0.86, 0.88, 0.76),
+            Relief::Hills => (0.80, 0.75, 0.47),
+            Relief::Rugged => (0.71, 0.52, 0.31),
+            Relief::Mountain => (0.47, 0.35, 0.29),
+            Relief::Peak => (0.96, 0.96, 0.98),
+        }
+    }
+
+    /// Surcoût de déplacement (PM) ajouté au terrain, sous le plafond `MOUNTAIN_MOVE_COST`.
+    pub fn move_extra(self) -> u32 {
+        match self {
+            Relief::Flat => 0,
+            Relief::Hills => HILL_MOVE_COST,
+            Relief::Rugged => RUGGED_MOVE_COST,
+            Relief::Mountain | Relief::Peak => 0,
+        }
+    }
+
+    /// Bonus de défense (combat) : collines et relief accidenté une fois, montagne deux fois.
+    pub fn defense_steps(self) -> i32 {
+        match self {
+            Relief::Flat | Relief::Peak => 0,
+            Relief::Hills | Relief::Rugged => 1,
+            Relief::Mountain => 2,
+        }
+    }
+
+    /// Empêche la charge de cavalerie.
+    pub fn blocks_charge(self) -> bool {
+        self != Relief::Flat
     }
 }
 
@@ -73,13 +136,20 @@ impl MoveCosts for WorldMap {
             return Some(FLEUVE_MOVE_COST);
         }
         let base = self.get(hex)?.move_cost()?;
-        Some(base + if self.hills(hex) { HILL_MOVE_COST } else { 0 })
+        match self.relief(hex) {
+            Relief::Peak => None,
+            Relief::Mountain => Some(MOUNTAIN_MOVE_COST),
+            r => Some((base + r.move_extra()).min(MOUNTAIN_MOVE_COST.max(base))),
+        }
     }
 
     fn step_cost(&self, from: Hex, to: Hex) -> Option<u32> {
         let terrain = self.move_cost(to)?;
+        if self.cliff_between(from, to) {
+            return None;
+        }
         let river = if self.river_between(from, to) { RIVER_CROSSING_COST } else { 0 };
-        Some(terrain + river + slope_cost(self.level(from)?, self.level(to)?)?)
+        Some(terrain + river + climb_cost(self.elevation(from)?, self.elevation(to)?))
     }
 }
 
@@ -128,15 +198,27 @@ impl MoveCosts for KnownMap<'_> {
     }
 }
 
-/// Répartition des terres émergées par niveau (bornes cumulées des niveaux 1 à 5 ; le reste est au niveau 6).
+/// Répartition des terres émergées par classe d'altitude (bornes cumulées des classes 1 à 5 ; le
+/// reste est en classe 6).
 const LEVEL_BANDS: [f64; 5] = [0.16, 0.36, 0.56, 0.74, 0.87];
-/// Percentile des terres au-delà duquel tout est sommet (les 4 % les plus hauts) ;
-/// ailleurs sur le massif (niveau 6), les sommets se dressent là où le relief est accidenté.
+/// Percentile des terres au-delà duquel commence le pied des sommets (`SUMMIT_FOOT_M`).
 const MOUNTAIN_PERCENTILE: f64 = 0.96;
-/// Part des terres au relief accidenté (collines).
-const HILL_SHARE: f64 = 0.16;
-/// Bonus de relief accidenté au pied d'un changement de niveau (contreforts).
-const FOOTHILL_BONUS: f64 = 0.25;
+/// Parts des terres par relief (les plus escarpées d'abord) : pics, montagnes, relief accidenté,
+/// collines ; le reste est plat. Une montagne demande au moins `MOUNTAIN_MIN_M`, un pic
+/// `PEAK_MIN_M` et d'être un sommet local (jamais deux pics côte à côte).
+const PEAK_SHARE: f64 = 0.01;
+const MOUNTAIN_SHARE: f64 = 0.05;
+const RUGGED_SHARE: f64 = 0.08;
+const HILL_SHARE: f64 = 0.15;
+const MOUNTAIN_MIN_M: f32 = 1_500.0;
+const PEAK_MIN_M: f32 = 2_400.0;
+/// Un pic peut avoir une voisine un peu plus haute que lui (crête), de cet écart au plus (m).
+const PEAK_TOLERANCE_M: f32 = 200.0;
+/// Montagne : 3 PM (plafond aussi pour les autres reliefs) ; relief accidenté +2 PM.
+pub const MOUNTAIN_MOVE_COST: u32 = 3;
+pub const RUGGED_MOVE_COST: u32 = 2;
+/// Rendements d'une montagne (pâturages d'altitude, pierre).
+pub const MOUNTAIN_YIELDS: Yields = Yields::new(0, 1, 0);
 /// Collines : +1 de production et +1 PM par rapport au terrain de base.
 pub const HILL_PRODUCTION: i32 = 1;
 /// Températures moyennes annuelles (°C) sous lesquelles la terre est enneigée, ou en toundra.
@@ -253,7 +335,6 @@ pub enum Terrain {
     Tundra,
     Snow,
     Forest,
-    Mountains,
     /// Lac d'eau douce (au moins une demi-case), éventuellement en altitude.
     Lake,
     /// Forêt tropicale humide : chaud toute l'année, sans saison sèche.
@@ -306,7 +387,6 @@ impl Terrain {
             Terrain::Tundra => "Toundra",
             Terrain::Snow => "Neige",
             Terrain::Forest => "Forêt tempérée",
-            Terrain::Mountains => "Montagnes",
             Terrain::Lake => "Lac",
             Terrain::Jungle => "Jungle",
             Terrain::Savanna => "Savane",
@@ -328,7 +408,6 @@ impl Terrain {
             Terrain::Tundra => Yields::new(1, 0, 0),
             Terrain::Snow => Yields::new(0, 0, 0),
             Terrain::Forest => Yields::new(1, 2, 0),
-            Terrain::Mountains => Yields::new(0, 0, 0),
             Terrain::Lake => Yields::new(2, 0, 1),
             Terrain::Jungle => Yields::new(1, 1, 0),
             Terrain::Savanna => Yields::new(2, 0, 0),
@@ -343,7 +422,7 @@ impl Terrain {
     /// Coût de déplacement pour une unité terrestre ; `None` = infranchissable.
     pub fn move_cost(self) -> Option<u32> {
         match self {
-            Terrain::Ocean | Terrain::Coast | Terrain::Lake | Terrain::Mountains => None,
+            Terrain::Ocean | Terrain::Coast | Terrain::Lake => None,
             Terrain::Forest | Terrain::Jungle | Terrain::Taiga => Some(2),
             Terrain::Marsh => Some(3),
             _ => Some(1),
@@ -375,7 +454,6 @@ impl Terrain {
             Terrain::Tundra => (0.55, 0.58, 0.50),
             Terrain::Snow => (0.92, 0.94, 0.97),
             Terrain::Forest => (0.15, 0.42, 0.18),
-            Terrain::Mountains => (0.45, 0.43, 0.42),
             Terrain::Lake => (0.33, 0.62, 0.82),
             Terrain::Jungle => (0.05, 0.33, 0.13),
             Terrain::Savanna => (0.78, 0.70, 0.36),
@@ -387,7 +465,7 @@ impl Terrain {
         }
     }
 
-    pub const ALL: [Terrain; 17] = [
+    pub const ALL: [Terrain; 16] = [
         Terrain::Ocean,
         Terrain::Coast,
         Terrain::Grassland,
@@ -396,7 +474,6 @@ impl Terrain {
         Terrain::Tundra,
         Terrain::Snow,
         Terrain::Forest,
-        Terrain::Mountains,
         Terrain::Lake,
         Terrain::Jungle,
         Terrain::Savanna,
@@ -429,11 +506,12 @@ pub struct WorldMap {
     tiles: Vec<Terrain>,
     /// Altitude de chaque case (0 = eau, 1 à `MAX_LEVEL` sur terre).
     levels: Vec<u8>,
-    /// Relief accidenté (collines) : relief interne à la case, sur n'importe quel terrain de terre
-    /// franchissable (prairie, plaine, désert, toundra, neige, forêt).
-    hills: Vec<bool>,
+    /// Relief interne à chaque case de terre (plat à pic).
+    relief: Vec<Relief>,
     /// Altitude du sol (m), continue (les niveaux en sont un découpage).
     elevation: Vec<f32>,
+    /// Altitude de la surface de chaque lac (m), la même pour toutes ses cases.
+    lake_level_m: Vec<f32>,
     /// Climat simulé à la génération (vide pour une carte remplie à la main).
     climate: Climate,
     /// Cours d'eau et lacs (vides pour une carte remplie à la main).
@@ -456,8 +534,9 @@ impl WorldMap {
             height,
             tiles: vec![terrain; n],
             levels: vec![level; n],
-            hills: vec![false; n],
+            relief: vec![Relief::Flat; n],
             elevation: vec![if terrain.is_water() { 0.0 } else { climate::LEVEL_ALTITUDE[0] }; n],
+            lake_level_m: vec![climate::LEVEL_ALTITUDE[0]; n],
             climate: Climate::default(),
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
@@ -486,8 +565,8 @@ impl WorldMap {
         if let Some(i) = self.index(hex) {
             self.tiles[i] = terrain;
             self.levels[i] = if terrain.is_sea() { 0 } else { self.levels[i].max(1) };
-            if terrain.move_cost().is_none() {
-                self.hills[i] = false;
+            if terrain.is_water() {
+                self.relief[i] = Relief::Flat;
             }
             if terrain.is_water() {
                 self.hydro.fleuve[i] = false;
@@ -496,17 +575,30 @@ impl WorldMap {
         }
     }
 
-    /// La case a un relief accidenté (collines).
-    pub fn hills(&self, hex: Hex) -> bool {
-        self.index(hex).is_some_and(|i| self.hills[i])
+    /// Relief de la case (plat pour l'eau et hors carte).
+    pub fn relief(&self, hex: Hex) -> Relief {
+        self.index(hex).map_or(Relief::Flat, |i| self.relief[i])
     }
 
-    /// Ajoute ou retire les collines (seulement sur un terrain de terre franchissable, hors fleuve).
-    pub fn set_hills(&mut self, hex: Hex, hills: bool) {
+    /// Change le relief (seulement sur la terre ; un fleuve reste plat) (tests, éditeur).
+    #[cfg(test)]
+    pub fn set_relief(&mut self, hex: Hex, relief: Relief) {
         self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
-            self.hills[i] = hills && self.tiles[i].move_cost().is_some() && !self.hydro.fleuve[i];
+            self.relief[i] = if self.tiles[i].is_water() || self.hydro.fleuve[i] { Relief::Flat } else { relief };
         }
+    }
+
+    /// La case a des collines.
+    #[cfg(test)]
+    pub fn hills(&self, hex: Hex) -> bool {
+        self.relief(hex) == Relief::Hills
+    }
+
+    /// Ajoute ou retire les collines (tests, éditeur).
+    #[cfg(test)]
+    pub fn set_hills(&mut self, hex: Hex, hills: bool) {
+        self.set_relief(hex, if hills { Relief::Hills } else { Relief::Flat });
     }
 
     /// Rendements d'une case : terrain de base, plus la production des collines et la
@@ -517,11 +609,22 @@ impl WorldMap {
             return Some(FLEUVE_YIELDS);
         }
         let t = self.get(hex)?;
-        let mut y = t.yields();
-        if self.hills(hex) {
-            y.production += HILL_PRODUCTION;
+        let relief = self.relief(hex);
+        let mut y = match relief {
+            Relief::Peak => return Some(Yields::default()),
+            Relief::Mountain => return Some(MOUNTAIN_YIELDS),
+            _ => t.yields(),
+        };
+        match relief {
+            Relief::Hills => y.production += HILL_PRODUCTION,
+            Relief::Rugged => {
+                y.production += HILL_PRODUCTION;
+                y.food = (y.food - 1).max(0);
+            }
+            _ => {}
         }
-        if !t.is_water() && t != Terrain::Mountains && self.fresh_water(hex) {
+        if !t.is_water() && self.fresh_water(hex) {
+            // (pas sur une montagne ni un pic : sortis plus haut)
             y.food += FRESH_WATER_FOOD;
         }
         Some(y)
@@ -534,21 +637,58 @@ impl WorldMap {
         if self.is_fleuve(hex) {
             return format!("Fleuve (rives : {})", t.name().to_lowercase());
         }
-        let base = match (self.hills(hex), t.is_feminine(), t == Terrain::Mediterranean) {
-            (false, _, _) => t.name().to_string(),
-            (true, _, true) => format!("{} vallonnées", t.name()),
-            (true, true, _) => format!("{} vallonnée", t.name()),
-            (true, false, _) => format!("{} vallonné", t.name()),
+        let name = t.name();
+        // Accord de l'adjectif : « vallonnée », « accidentés »…
+        let agree = |adj: &str| {
+            let fem = if t.is_feminine() || t == Terrain::Mediterranean { "e" } else { "" };
+            let plural = if t == Terrain::Mediterranean { "s" } else { "" };
+            format!("{name} {adj}{fem}{plural}")
+        };
+        let base = match self.relief(hex) {
+            Relief::Flat => name.to_string(),
+            Relief::Hills => agree("vallonné"),
+            Relief::Rugged => agree("accidenté"),
+            Relief::Mountain => format!("Montagne ({})", name.to_lowercase()),
+            Relief::Peak => format!("Pic ({})", name.to_lowercase()),
         };
         if self.small_lake(hex) { format!("{base}, petit lac") } else { base }
     }
 
     // ------------------------------------------------------------ Cours d'eau
 
-    /// Altitude du sol (m) (servira à la génération géologique et aux saisons).
-    #[allow(dead_code)]
+    /// Altitude du sol (m) ; 0 pour la mer.
     pub fn elevation(&self, hex: Hex) -> Option<f32> {
-        self.index(hex).map(|i| self.elevation[i])
+        self.index(hex).map(|i| if self.tiles[i].is_sea() { 0.0 } else { self.elevation[i].max(0.0) })
+    }
+
+    /// Altitude (m) de la surface d'une case d'eau (0 pour la mer) ou du sol d'une case de terre.
+    pub fn surface_elevation(&self, hex: Hex) -> Option<f32> {
+        let i = self.index(hex)?;
+        Some(match self.tiles[i] {
+            t if t.is_sea() => 0.0,
+            Terrain::Lake => self.lake_level_m[i],
+            _ => self.elevation[i].max(0.0),
+        })
+    }
+
+    /// Change l'altitude (m) d'une case de terre, et sa classe d'altitude (tests, éditeur).
+    #[cfg(test)]
+    pub fn set_elevation(&mut self, hex: Hex, meters: f32) {
+        self.step_cache = std::sync::OnceLock::new();
+        if let Some(i) = self.index(hex)
+            && !self.tiles[i].is_water()
+        {
+            self.elevation[i] = meters;
+            self.levels[i] = level_of_meters(meters);
+        }
+    }
+
+    /// Falaise entre deux cases voisines (écart de classes d'altitude).
+    pub fn cliff_between(&self, a: Hex, b: Hex) -> bool {
+        match (self.level(a), self.level(b)) {
+            (Some(la), Some(lb)) if la > 0 && lb > 0 => is_cliff(la, lb),
+            _ => false,
+        }
     }
 
     /// Le cours d'eau occupe la case (fleuve).
@@ -650,7 +790,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.hydro.fleuve[i] = true;
-            self.hills[i] = false;
+            self.relief[i] = Relief::Flat;
         }
     }
 
@@ -753,7 +893,7 @@ impl WorldMap {
 
     /// Tous les changements de niveau entre cases de terre voisines, chacun une seule fois.
     pub fn level_edges(&self) -> Vec<LevelEdge> {
-        let land = |h: Hex| self.get(h).filter(|t| !t.is_water() && *t != Terrain::Mountains).and(self.level(h));
+        let land = |h: Hex| self.get(h).filter(|t| !t.is_water() && self.relief(h) < Relief::Mountain).and(self.level(h));
         let mut edges = Vec::new();
         for high in self.hexes() {
             let Some(hl) = land(high) else { continue };
@@ -768,13 +908,16 @@ impl WorldMap {
         edges
     }
 
-    /// Change l'altitude d'une case de terre (bornée entre 1 et `MAX_LEVEL`).
+    /// Change la classe d'altitude d'une case de terre (bornée entre 1 et `MAX_LEVEL`), et son
+    /// altitude (m) en conséquence (altitude moyenne de la classe) (tests, éditeur).
+    #[cfg(test)]
     pub fn set_level(&mut self, hex: Hex, level: u8) {
         self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
         {
             self.levels[i] = level.clamp(1, MAX_LEVEL);
+            self.elevation[i] = climate::LEVEL_ALTITUDE[(self.levels[i] - 1) as usize];
         }
     }
 
@@ -891,39 +1034,87 @@ impl WorldMap {
         };
         let land_levels: std::collections::HashMap<Hex, u8> =
             elevations.iter().filter(|&&(h, e)| !is_sea(h, e)).map(|&(h, e)| (h, if ponds.contains(&h) { 1 } else { level_of(e) })).collect();
-        // Relief accidenté : bruit propre, renforcé au pied des changements de niveau (contreforts)
-        let rough_score = |h: Hex| {
-            let level = land_levels[&h];
-            let foothill = h.neighbors().iter().any(|n| land_levels.get(n).is_some_and(|&l| l != level));
-            sample(&rough_noise, h, 2.5) + if foothill { FOOTHILL_BONUS } else { 0.0 }
-        };
-        let rough_threshold = {
-            let mut r: Vec<f64> = land_levels.keys().map(|&h| rough_score(h)).collect();
-            r.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            r[((r.len().max(1) - 1) as f64 * (1.0 - HILL_SHARE)) as usize]
-        };
-        let mountain_rough = {
-            let mut r: Vec<f64> = land_levels.keys().map(|&h| sample(&rough_noise, h, 2.5)).collect();
-            r.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            r[((r.len().max(1) - 1) as f64 * (1.0 - HILL_SHARE)) as usize]
-        };
-        // 3) Relief : niveaux, montagnes, collines
-        let is_mountain = |h: Hex, e: f64| {
-            e >= summits || (land_levels[&h] == MAX_LEVEL && sample(&rough_noise, h, 2.5) > mountain_rough)
-        };
+        // 3) Altitude (m) et classe d'altitude de chaque case de terre
         let mut surface = vec![climate::Surface::Water; (width * height) as usize];
         for &(h, e) in &elevations {
             if is_sea(h, e) {
                 continue; // reste océan
             }
-            let level = land_levels[&h];
-            let mountain = is_mountain(h, e);
             let i = map.index(h).unwrap();
             map.elevation[i] = if ponds.contains(&h) { POND_DEPTH_M } else { meters(e) };
-            surface[i] = climate::Surface::Land(climate::altitude(level, mountain));
-            map.set(h, if mountain { Terrain::Mountains } else { Terrain::Plains });
-            map.set_level(h, level);
+            surface[i] = climate::Surface::Land(map.elevation[i].max(0.0));
+            map.tiles[i] = Terrain::Plains;
+            map.levels[i] = land_levels[&h];
         }
+        // Relief de chaque case : note d'escarpement = dénivelée avec les voisines (rangée parmi
+        // les terres), bruit propre et altitude ; les cases les mieux notées sont montagnes, puis
+        // relief accidenté, puis collines. Les pics sont les plus hauts sommets locaux des montagnes.
+        let land_cells: Vec<usize> = (0..map.tiles.len()).filter(|&i| !map.tiles[i].is_water()).collect();
+        let hex_of = |i: usize| Hex::from_offset(i as i32 % width, i as i32 / width);
+        let local: Vec<f32> = land_cells
+            .iter()
+            .map(|&i| {
+                hex_of(i)
+                    .neighbors()
+                    .iter()
+                    .filter_map(|&nb| map.index(nb))
+                    .filter(|&j| !map.tiles[j].is_water())
+                    .map(|j| (map.elevation[i] - map.elevation[j]).abs())
+                    .fold(0.0, f32::max)
+            })
+            .collect();
+        let rank = |values: &[f32]| -> Vec<f32> {
+            let mut order: Vec<usize> = (0..values.len()).collect();
+            order.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
+            let mut r = vec![0.0; values.len()];
+            for (k, &o) in order.iter().enumerate() {
+                r[o] = k as f32 / values.len().max(1) as f32;
+            }
+            r
+        };
+        let rough: Vec<f32> = land_cells.iter().map(|&i| sample(&rough_noise, hex_of(i), 2.5) as f32).collect();
+        let (local_rank, rough_rank) = (rank(&local), rank(&rough));
+        let score: Vec<f32> = (0..land_cells.len())
+            .map(|k| 0.45 * local_rank[k] + 0.3 * rough_rank[k] + 0.35 * (map.elevation[land_cells[k]] / PEAK_M).clamp(0.0, 1.0))
+            .collect();
+        let mut by_score: Vec<usize> = (0..land_cells.len()).filter(|&k| !ponds.contains(&hex_of(land_cells[k]))).collect();
+        by_score.sort_by(|&a, &b| score[b].total_cmp(&score[a]));
+        let count = |share: f64| (land_cells.len() as f64 * share).round() as usize;
+        let (mountains, rugged, hills) = (count(MOUNTAIN_SHARE), count(RUGGED_SHARE), count(HILL_SHARE));
+        for (rank, &k) in by_score.iter().enumerate() {
+            let i = land_cells[k];
+            map.relief[i] = if rank < mountains {
+                if map.elevation[i] >= MOUNTAIN_MIN_M { Relief::Mountain } else { Relief::Rugged }
+            } else if rank < mountains + rugged {
+                Relief::Rugged
+            } else if rank < mountains + rugged + hills {
+                Relief::Hills
+            } else {
+                Relief::Flat
+            };
+        }
+        // Pics : sommets locaux des montagnes, du plus haut au plus bas, jamais côte à côte
+        let mut summits_local: Vec<usize> = land_cells
+            .iter()
+            .copied()
+            .filter(|&i| map.relief[i] == Relief::Mountain && map.elevation[i] >= PEAK_MIN_M)
+            .filter(|&i| {
+                hex_of(i).neighbors().iter().filter_map(|&nb| map.index(nb)).all(|j| map.elevation[j] <= map.elevation[i] + PEAK_TOLERANCE_M)
+            })
+            .collect();
+        summits_local.sort_by(|&a, &b| map.elevation[b].total_cmp(&map.elevation[a]));
+        let mut peaks = 0;
+        for i in summits_local {
+            if peaks >= count(PEAK_SHARE) {
+                break;
+            }
+            if hex_of(i).neighbors().iter().filter_map(|&nb| map.index(nb)).any(|j| map.relief[j] == Relief::Peak) {
+                continue;
+            }
+            map.relief[i] = Relief::Peak;
+            peaks += 1;
+        }
+        let relief_base = map.relief.clone();
         map.region = region;
         // 4) à 6) Climat, terrain, cours d'eau et lacs, en `CLIMATE_PASSES` passes : à partir de la
         //    deuxième, le climat voit les lacs de la passe précédente (ils évaporent et humidifient
@@ -936,21 +1127,23 @@ impl WorldMap {
                         *s = climate::Surface::Lake(climate::altitude(map.levels[i], false));
                     }
                 }
-                // Terrain d'avant les lacs (niveaux, montagnes) : la passe le recalcule
+                // Terrain d'avant les lacs (classes d'altitude, relief) : la passe le recalcule
                 for &(h, e) in &elevations {
                     if is_sea(h, e) {
                         continue;
                     }
-                    map.set(h, if is_mountain(h, e) { Terrain::Mountains } else { Terrain::Plains });
-                    map.set_level(h, land_levels[&h]);
-                    map.set_hills(h, false);
+                    let i = map.index(h).unwrap();
+                    map.tiles[i] = Terrain::Plains;
+                    map.levels[i] = land_levels[&h];
                 }
+                map.relief.clone_from(&relief_base);
+                map.step_cache = std::sync::OnceLock::new();
             }
             map.climate = climate::simulate(width, height, &surface, seed, &region);
             // 4) Climat : pression, vents, humidité et pluie (voir climate.rs), puis terrain selon
             //    la température et les précipitations, avec un peu de bruit pour casser les contours.
             for &(h, e) in &elevations {
-                if is_sea(h, e) || is_mountain(h, e) {
+                if is_sea(h, e) {
                     continue;
                 }
                 let i = map.index(h).unwrap();
@@ -968,7 +1161,6 @@ impl WorldMap {
                     dry_summer: map.climate.dry_summer(i).unwrap_or(false),
                 });
                 map.set(h, t);
-                map.set_hills(h, rough_score(h) > rough_threshold);
             }
             // 5) Les eaux adjacentes à la terre deviennent des côtes
             let coasts: Vec<Hex> = map
@@ -1039,7 +1231,7 @@ impl WorldMap {
         let lakes: Vec<usize> = (0..n).filter(|&i| hydro.lake[i]).collect();
         for &i in &lakes {
             self.tiles[i] = Terrain::Lake;
-            self.hills[i] = false;
+            self.relief[i] = Relief::Flat;
         }
         // Niveau d'un lac : celui de sa surface, sans dépasser ses rives ; le même pour toutes les
         // cases d'eau qui se touchent (une seule surface plane)
@@ -1081,13 +1273,30 @@ impl WorldMap {
                 .min()
                 .unwrap_or(1)
                 .max(1);
+            // Surface en mètres (vue 3D) : la plus basse du groupe, sous ses rives
+            let surface = group
+                .iter()
+                .map(|&i| {
+                    let shore = hex_of(i)
+                        .neighbors()
+                        .iter()
+                        .filter_map(|&nb| self.index(nb))
+                        .filter(|&j| !self.tiles[j].is_water())
+                        .map(|j| self.elevation[j].max(0.0))
+                        .fold(f32::MAX, f32::min);
+                    hydro.lake_surface[i].min(shore)
+                })
+                .fold(f32::MAX, f32::min)
+                .max(0.0);
             for &i in &group {
                 self.levels[i] = level;
+                self.lake_level_m[i] = surface;
             }
         }
         for i in 0..n {
             if hydro.fleuve[i] {
-                self.hills[i] = false;
+                // Un fleuve coule dans une vallée : sa case est plate
+                self.relief[i] = Relief::Flat;
             }
         }
         self.hydro = hydro;
@@ -1102,10 +1311,10 @@ impl WorldMap {
             .filter(|&i| {
                 let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
                 let t = self.tiles[i];
-                if t.is_water() || matches!(t, Terrain::Mountains | Terrain::Snow | Terrain::Tundra | Terrain::Desert) {
+                if t.is_water() || matches!(t, Terrain::Snow | Terrain::Tundra | Terrain::Desert) {
                     return false;
                 }
-                if self.hills[i] || self.is_fleuve(hex) || self.levels[i] > MARSH_MAX_LEVEL {
+                if self.relief[i] != Relief::Flat || self.is_fleuve(hex) || self.levels[i] > MARSH_MAX_LEVEL {
                     return false;
                 }
                 let wet = self.climate.aridity(i).is_some_and(|a| a >= MARSH_ARIDITY) && self.climate.temperature.get(i).is_some_and(|&t| t > 0.0);
@@ -1265,7 +1474,7 @@ mod tests {
                 for n in h.neighbors() {
                     if let Some(m) = map.level(n).filter(|&m| m > 0 && l > 0) {
                         edges += 1;
-                        cliffs += usize::from(slope_cost(l, m).is_none());
+                        cliffs += usize::from(is_cliff(l, m));
                     }
                 }
             }
@@ -1289,12 +1498,14 @@ mod tests {
 
     #[test]
     fn pente() {
-        assert_eq!(slope_cost(2, 3), Some(0), "pente douce");
-        assert_eq!(slope_cost(3, 2), Some(0));
-        assert_eq!(slope_cost(2, 4), Some(1), "montée raide");
-        assert_eq!(slope_cost(4, 2), Some(0), "descente raide gratuite");
-        assert_eq!(slope_cost(1, 4), None, "falaise");
-        assert_eq!(slope_cost(5, 2), None, "falaise dans les deux sens");
+        assert_eq!(climb_cost(450.0, 800.0), 0, "pente douce");
+        assert_eq!(climb_cost(800.0, 450.0), 0);
+        assert_eq!(climb_cost(450.0, 1_100.0), 1, "montée raide");
+        assert_eq!(climb_cost(450.0, 1_500.0), 2, "très raide");
+        assert_eq!(climb_cost(1_500.0, 450.0), 0, "descente gratuite");
+        assert!(is_cliff(1, 4), "falaise");
+        assert!(is_cliff(5, 2), "falaise dans les deux sens");
+        assert!(!is_cliff(2, 4));
         let mut map = WorldMap::filled(5, 5, Terrain::Plains);
         let (a, b) = (Hex::from_offset(1, 1), Hex::from_offset(2, 1));
         map.set_level(b, 3);
@@ -1302,6 +1513,11 @@ mod tests {
         assert_eq!(map.step_cost(b, a), Some(1));
         map.set_level(b, 4);
         assert_eq!(map.step_cost(a, b), None);
+        // En mètres : 150 → 500 m gratuit, 150 → 1 000 m +1 (même classe d'écart < 3)
+        map.set_elevation(b, 500.0);
+        assert_eq!(map.step_cost(a, b), Some(1));
+        map.set_elevation(b, 1_000.0);
+        assert_eq!(map.step_cost(a, b), Some(2));
     }
 
     #[test]
@@ -1319,8 +1535,22 @@ mod tests {
         assert_eq!(m.yields(h), Some(Yields::new(1, 3, 0)));
         assert_eq!(m.move_cost(h), Some(3));
         assert_eq!(m.describe(h), "Forêt tempérée vallonnée");
-        m.set(h, Terrain::Mountains);
-        assert!(!m.hills(h), "pas de collines sur une montagne");
+        m.set_relief(h, Relief::Mountain);
+        assert_eq!(m.move_cost(h), Some(MOUNTAIN_MOVE_COST), "montagne franchissable");
+        assert_eq!(m.yields(h), Some(MOUNTAIN_YIELDS));
+        assert_eq!(m.describe(h), "Montagne (forêt tempérée)");
+        m.set_relief(h, Relief::Rugged);
+        assert_eq!(m.move_cost(h), Some(MOUNTAIN_MOVE_COST), "forêt accidentée : plafond");
+        assert_eq!(m.yields(h), Some(Yields::new(0, 3, 0)));
+        assert_eq!(m.describe(h), "Forêt tempérée accidentée");
+        m.set_relief(h, Relief::Peak);
+        assert_eq!(m.move_cost(h), None, "pic infranchissable");
+        // Répartition des reliefs générés : peu de pics, jamais deux côte à côte
+        let peaks: Vec<Hex> = map.hexes().filter(|&h| map.relief(h) == Relief::Peak).collect();
+        let land_all = map.hexes().filter(|&h| map.get(h).is_some_and(|t| !t.is_water())).count();
+        assert!(peaks.len() * 100 <= land_all * 2, "{} pics / {land_all}", peaks.len());
+        assert!(peaks.iter().all(|p| p.neighbors().iter().all(|n| map.relief(*n) != Relief::Peak)));
+        assert!(map.hexes().any(|h| map.relief(h) == Relief::Mountain), "des montagnes franchissables");
     }
 }
 
@@ -1416,7 +1646,7 @@ mod apercu {
                 line.push(match t {
                     Terrain::Ocean => ' ', Terrain::Coast => '.', Terrain::Grassland => 'p', Terrain::Plains => '-',
                     Terrain::Desert => 'D', Terrain::Tundra => 't', Terrain::Snow => '*', Terrain::Forest => 'F',
-                    Terrain::Mountains => 'M', Terrain::Lake => 'o', Terrain::Jungle => 'J', Terrain::Savanna => 's', Terrain::WoodedSavanna => 'w', Terrain::Mediterranean => 'm', Terrain::Taiga => 'T', Terrain::Steppe => '_', Terrain::Marsh => '~',
+                    Terrain::Lake => 'o', Terrain::Jungle => 'J', Terrain::Savanna => 's', Terrain::WoodedSavanna => 'w', Terrain::Mediterranean => 'm', Terrain::Taiga => 'T', Terrain::Steppe => '_', Terrain::Marsh => '~',
                 });
                 let w = m.wind(h).unwrap();
                 rl.push(if t.is_water() {
@@ -1547,7 +1777,6 @@ mod planete {
                             Terrain::Tundra => 't',
                             Terrain::Snow => '*',
                             Terrain::Forest => 'F',
-                            Terrain::Mountains => 'M',
                             Terrain::Lake => 'o',
                             Terrain::Jungle => 'J', Terrain::Savanna => 's', Terrain::WoodedSavanna => 'w', Terrain::Mediterranean => 'm', Terrain::Taiga => 'T', Terrain::Steppe => '_', Terrain::Marsh => '~',
                         }
@@ -1558,3 +1787,4 @@ mod planete {
         }
     }
 }
+

@@ -43,7 +43,7 @@ impl Info {
     pub fn label(self) -> &'static str {
         match self {
             Info::Terrain => "Terrain",
-            Info::Altitude => "Altitude (niveau)",
+            Info::Altitude => "Altitude (m) et relief",
             Info::Climate => "Climat",
             Info::Temperature => "Température",
             Info::Rain => "Précipitations",
@@ -66,7 +66,7 @@ impl Info {
     fn default_on(self, layer: MapLayer) -> bool {
         match self {
             Info::Terrain | Info::Climate | Info::Yields | Info::Moves => true,
-            Info::Altitude => layer == MapLayer::Relief,
+            Info::Altitude => matches!(layer, MapLayer::Altitude | MapLayer::Relief),
             Info::Temperature | Info::Rain | Info::Latitude => layer == MapLayer::Climate,
             Info::Waterways | Info::Lake | Info::Network => layer.hydrologic(),
             Info::Discharge => layer == MapLayer::Flow,

@@ -3,10 +3,12 @@
 
 use crate::combat::{self, CHARGE_BONUS, FLANK_BONUS, HIGHER_GROUND_DEFENSE, HIGH_GROUND_PERCENT, TERRAIN_DEFENSE};
 use crate::hostile::{CAMP_CAPTURE_GOLD, CAMP_MAX_UNITS, CAMP_SPAWN_INTERVAL, HUNT_RANGE, WANDER_RADIUS, WOUNDED_HP};
-use crate::map::{HILL_MOVE_COST, HILL_PRODUCTION, MAX_LEVEL, Terrain, UNKNOWN_MOVE_COST, level_name};
+use crate::map::{
+    CLIMB_GENTLE_M, CLIMB_STEEP_M, HILL_MOVE_COST, HILL_PRODUCTION, MOUNTAIN_MOVE_COST, MOUNTAIN_YIELDS, RUGGED_MOVE_COST, Relief, Terrain,
+    UNKNOWN_MOVE_COST,
+};
 use crate::rules::{DETOUR_TOLERANCE_PERCENT, MAX_HP, MIN_CITY_DISTANCE, growth_threshold};
 use crate::sites::{CAMP_MIN_FROM_START, LAND_PER_CAMP, LAND_PER_VILLAGE, VILLAGE_MIN_FROM_START};
-use crate::render::TOPO_LEVELS;
 use crate::units::{UnitClass, UnitKind};
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
@@ -218,7 +220,7 @@ fn climate() -> Article {
             h("Température"),
             p("Elle dépend de la latitude (environ 27 °C à l'équateur, 13 °C vers 40°, 6 °C vers 50° au niveau de la \
                mer), puis baisse de 6,5 °C par kilomètre \
-               d'altitude (un niveau de terre vaut quelques centaines de mètres, les sommets environ 3 800 m). Les \
+               d'altitude (les terres vont du niveau de la mer à près de 4 800 m). Les \
                courants marins modifient les côtes : eau froide le long des côtes ouest vers 15 à 35° de latitude, eau \
                chaude le long des côtes est, dérive chaude qui adoucit les côtes ouest des hautes latitudes. L'écart \
                entre le jour et la nuit est faible près de la mer et grand dans les régions sèches."),
@@ -265,7 +267,8 @@ fn climate() -> Article {
                température de la saison la plus froide, nombre de saisons sèches (pluie de la saison inférieure \
                à 30 % de son évaporation possible), été sec. Les règles s'appliquent dans l'ordre du tableau."),
             table_icons(&["Température, saisons", "Indice d'aridité", "Terrain"], biomes),
-            p("Les sommets (le haut du niveau 6) sont des montagnes, quel que soit le climat."),
+            p("Les montagnes et les pics portent eux aussi un terrain selon leur climat : souvent toundra ou neige \
+               en altitude, où il fait plus froid."),
         ],
     }
 }
@@ -280,50 +283,72 @@ fn terrain() -> Article {
             (swatch(t.color()), vec![t.name().into(), y.food.to_string(), y.production.to_string(), y.gold.to_string(), moves, defense])
         })
         .collect();
-    let levels = (1..=MAX_LEVEL)
-        .map(|l| (swatch(TOPO_LEVELS[(l - 1) as usize]), vec![l.to_string(), level_name(l).to_string()]))
+    let reliefs = Relief::ALL
+        .iter()
+        .map(|&r| {
+            let (moves, yields, defense) = match r {
+                Relief::Flat => ("terrain".to_string(), "terrain".to_string(), "—".to_string()),
+                Relief::Hills => (format!("+{HILL_MOVE_COST} PM"), format!("+{HILL_PRODUCTION} production"), format!("+{TERRAIN_DEFENSE}")),
+                Relief::Rugged => (
+                    format!("+{RUGGED_MOVE_COST} PM"),
+                    format!("+{HILL_PRODUCTION} production, −1 nourriture"),
+                    format!("+{TERRAIN_DEFENSE}"),
+                ),
+                Relief::Mountain => (
+                    format!("{MOUNTAIN_MOVE_COST} PM"),
+                    format!("{} / {} / {}", MOUNTAIN_YIELDS.food, MOUNTAIN_YIELDS.production, MOUNTAIN_YIELDS.gold),
+                    format!("+{}", 2 * TERRAIN_DEFENSE),
+                ),
+                Relief::Peak => ("infranchissable".to_string(), "rien".to_string(), "—".to_string()),
+            };
+            (swatch(r.color()), vec![r.name().to_string(), moves, yields, defense])
+        })
         .collect();
     Article {
         title: "Cases et terrain",
         icon: "icons/wiki_terrain.png",
         blocks: vec![
-            p("Chaque case a un terrain, un niveau d'altitude et, parfois, des collines. Le survol d'une case \
-               affiche tout cela, avec ses rendements et son coût de déplacement."),
+            p("Chaque case a un terrain (selon le climat), une altitude en mètres et un relief (plat, vallonné, \
+               accidenté, montagne ou pic). Le survol d'une case affiche tout cela, avec ses rendements et son coût \
+               de déplacement."),
             h("Terrains"),
             table_icons(&["Terrain", "Nourriture", "Production", "Or", "Déplacement", "Défense"], rows),
             p("La côte, l'océan et les lacs ne se traversent pas encore (pas d'unités navales), mais une ville \
                peut exploiter leurs rendements. Les rivières, fleuves et lacs sont décrits dans « Cours d'eau et \
                lacs »."),
-            h("Collines"),
+            h("Relief"),
             p(format!(
-                "Les collines sont un relief interne à la case, qui s'ajoute au terrain : prairie, plaine, désert, \
-                 toundra, neige, forêt, jungle, taïga, savane, broussailles ou steppe vallonnés (jamais un marais). Effets : \
-                 +{HILL_PRODUCTION} production, +{HILL_MOVE_COST} PM (une forêt vallonnée coûte donc 3 PM), \
-                 +{TERRAIN_DEFENSE} en défense (cumulable avec la forêt, la jungle ou la taïga) et \
-                 pas de charge de cavalerie. Elles sont plus fréquentes au pied des changements de niveau."
+                "Le relief est interne à la case et s'ajoute au terrain : une forêt peut être vallonnée, une toundra \
+                 montagneuse. Il dépend de la dénivelée avec les cases voisines et de l'altitude. Les coûts d'un relief \
+                 vallonné ou accidenté s'ajoutent au terrain sans dépasser {MOUNTAIN_MOVE_COST} PM ; une montagne coûte \
+                 toujours {MOUNTAIN_MOVE_COST} PM. Collines, relief accidenté et montagne empêchent la charge de \
+                 cavalerie ; leur bonus de défense se cumule avec la forêt, la jungle ou la taïga. Seuls les pics, les \
+                 plus hauts sommets, sont infranchissables ; on ne fonde pas de ville en montagne."
             )),
+            table_icons(&["Relief", "Déplacement", "Rendements", "Défense"], reliefs),
             h("Altitude"),
-            p("L'altitude est le relief entre les cases : chaque case de terre est à un niveau de 1 à 6 (l'eau est \
-               au niveau 0). Le niveau compte pour les déplacements et le combat."),
-            table_icons(&["Niveau", "Nom (couleur sur la carte du relief)"], levels),
             p(format!(
-                "Pente : passer à une case d'un niveau d'écart ne coûte rien de plus ; monter de 2 niveaux coûte \
-                 +1 PM ; un écart de 3 niveaux ou plus est une falaise, infranchissable dans les deux sens, à travers \
-                 laquelle on ne peut ni combattre au corps à corps ni flanquer. Être plus haut donne +{HIGHER_GROUND_DEFENSE} \
-                 en défense de mêlée et +{HIGH_GROUND_PERCENT} % de force de tir."
+                "Chaque case de terre a une altitude en mètres (carte de l'altitude). Pente : monter de moins de \
+                 {CLIMB_GENTLE_M:.0} m vers une case voisine ne coûte rien de plus, jusqu'à {CLIMB_STEEP_M:.0} m +1 PM, \
+                 au-delà +2 PM ; descendre est gratuit. Entre deux cases dont l'altitude diffère d'environ 1 000 m ou \
+                 plus, une falaise est infranchissable dans les deux sens : on ne peut ni y combattre au corps à corps \
+                 ni flanquer à travers. Être plus haut d'au moins {} m donne +{HIGHER_GROUND_DEFENSE} en défense de \
+                 mêlée et +{HIGH_GROUND_PERCENT} % de force de tir ; un tireur plus bas d'autant perd 1 de portée.",
+                combat::HIGHER_GROUND_M
             )),
-            p("Sur la carte : en 2D, une ombre en dégradé marque une descente praticable et une arête sombre à dents \
-               de hachure marque une falaise ; en 3D, le relief est modelé et les falaises sont des parois rocheuses. \
-               Les côtes basses (niveaux 1 et 2) descendent en plage jusqu'à la mer, les plus hautes tombent en falaise."),
-            h("Montagnes"),
-            p("Les montagnes se dressent sur le massif (niveau 6). Elles sont infranchissables et ne rapportent rien."),
+            p("Sur la carte : en 2D, une ombre en dégradé marque une descente et une arête sombre à dents de hachure \
+               marque une falaise ; en 3D, le sol est à sa hauteur réelle en mètres, les falaises sont des parois rocheuses, \
+               et le relief des cases (collines, montagnes, pics) est modelé dans le sol : crêtes et ravines continues \
+               d'une case à l'autre, roche sur les pentes raides, neige en hauteur (plus bas dans le froid), arbres \
+               sur les versants jusqu'à la limite des arbres. Les cours d'eau coulent dans des vallées. Les côtes \
+               basses descendent en plage jusqu'à la mer, les plus hautes tombent en falaise."),
             h("Brouillard de guerre"),
             p("Une case inexplorée est noire. Une fois découverte, elle reste connue mais apparaît assombrie hors de \
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \
                la cavalerie légère et l'archer monté)."),
             h("Cartes et vues"),
-            p("Le bouton « Carte » (touche T) choisit la carte : normale, du relief (chaque case prend la couleur de \
-               son niveau d'altitude), du climat (pluies et vents), des bassins versants, des débits des cours d'eau ou du réseau hydrographique. \
+            p("Le bouton « Carte » (touche T) choisit la carte : normale, de l'altitude (couleur selon les mètres), du \
+               relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau ou du réseau hydrographique. \
                Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. Le bouton \
                « Options de carte » (touche O) règle les noms affichés (cours d'eau, lacs, villes ; la touche N les \
                masque ou les remet tous), la surbrillance des cours d'eau (au survol du cours d'eau, au survol de son \

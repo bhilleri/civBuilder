@@ -4,7 +4,7 @@
 //! En mêlée, le défenseur riposte ; un tir ne reçoit pas de riposte.
 //! Modificateurs : bonus de type (anti-cavalerie…), charge, flanquement, terrain, surplomb, blessures.
 
-use crate::map::Terrain;
+use crate::map::{Relief, Terrain};
 use crate::rules::{MAX_HP, UnitState};
 use crate::units::{UnitClass, UnitKind};
 use rand::Rng;
@@ -31,10 +31,14 @@ pub struct Fighter {
     pub kind: UnitKind,
     pub hp: i32,
     pub terrain: Terrain,
-    pub level: u8,
-    /// Case vallonnée (collines).
-    pub hills: bool,
+    /// Altitude de la case (m).
+    pub altitude: i32,
+    /// Relief de la case (collines, montagne…).
+    pub relief: Relief,
 }
+
+/// Écart d'altitude (m) à partir duquel une case est « en hauteur » par rapport à une autre.
+pub const HIGHER_GROUND_M: i32 = 250;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttackKind {
@@ -79,12 +83,12 @@ pub fn attack_kind(kind: UnitKind) -> AttackKind {
 /// Portée effective d'un tir : −1 si l'archer est à une altitude plus basse que la cible ou si
 /// la cible est en forêt ; jamais moins de 1 (un tir adjacent reste possible). 0 = pas de tir.
 /// (Les collines sont un relief interne à la case : elles ne comptent pas dans la hauteur.)
-pub fn effective_range(kind: UnitKind, from: (u8, Terrain), target: (u8, Terrain)) -> i32 {
+pub fn effective_range(kind: UnitKind, from: (i32, Terrain), target: (i32, Terrain)) -> i32 {
     let base = kind.stats().range;
     if base == 0 {
         return 0;
     }
-    let malus = from.0 < target.0 || target.1.is_wooded();
+    let malus = target.0 - from.0 >= HIGHER_GROUND_M || target.1.is_wooded();
     (base - i32::from(malus)).max(1)
 }
 
@@ -112,8 +116,8 @@ pub fn bonus_vs(me: UnitKind, other: UnitKind) -> Option<(i32, &'static str)> {
 
 /// La charge s'applique si l'attaquant (cavalerie de mêlée) a parcouru au moins une case
 /// ce tour-ci et que la cible n'est ni en forêt ni dans des collines.
-pub fn charge_applies(attacker: UnitKind, moved_this_turn: bool, target_terrain: Terrain, target_hills: bool) -> bool {
-    attacker.can_charge() && moved_this_turn && !target_terrain.is_wooded() && target_terrain != Terrain::Marsh && !target_hills
+pub fn charge_applies(attacker: UnitKind, moved_this_turn: bool, target_terrain: Terrain, target_relief: Relief) -> bool {
+    attacker.can_charge() && moved_this_turn && !target_terrain.is_wooded() && target_terrain != Terrain::Marsh && !target_relief.blocks_charge()
 }
 
 /// Malus de blessure : −1 de force par tranche de 10 PV perdus.
@@ -199,8 +203,9 @@ pub fn preview(e: &Engagement) -> Preview {
     if d.terrain.is_wooded() {
         def_mods.push((d.terrain.name().to_lowercase(), TERRAIN_DEFENSE));
     }
-    if d.hills {
-        def_mods.push(("collines".to_string(), TERRAIN_DEFENSE));
+    if d.relief.defense_steps() > 0 {
+        let label = if d.relief == Relief::Hills { "collines".to_string() } else { format!("relief {}", d.relief.name()) };
+        def_mods.push((label, TERRAIN_DEFENSE * d.relief.defense_steps()));
     }
 
     let (attack, defense, charge) = match e.kind {
@@ -209,7 +214,7 @@ pub fn preview(e: &Engagement) -> Preview {
             if let Some((b, label)) = bonus_vs(a.kind, d.kind) {
                 att_mods.push((label.to_string(), b));
             }
-            let charge = charge_applies(a.kind, e.attacker_moved, d.terrain, d.hills);
+            let charge = charge_applies(a.kind, e.attacker_moved, d.terrain, d.relief);
             if charge {
                 att_mods.push(("charge".to_string(), CHARGE_BONUS));
             }
@@ -219,7 +224,7 @@ pub fn preview(e: &Engagement) -> Preview {
             if let Some((b, label)) = bonus_vs(d.kind, a.kind) {
                 def_mods.push((label.to_string(), b));
             }
-            if d.level > a.level {
+            if d.altitude - a.altitude >= HIGHER_GROUND_M {
                 def_mods.push(("en hauteur".to_string(), HIGHER_GROUND_DEFENSE));
             }
             if e.across_river {
@@ -233,7 +238,7 @@ pub fn preview(e: &Engagement) -> Preview {
         }
         AttackKind::Ranged => {
             let mut att_mods = Vec::new();
-            if a.level > d.level {
+            if a.altitude - d.altitude >= HIGHER_GROUND_M {
                 att_mods.push(("surplomb".to_string(), (sa.ranged_attack * HIGH_GROUND_PERCENT + 50) / 100));
             }
             (
@@ -318,15 +323,15 @@ mod tests {
     use UnitKind::*;
 
     fn f(kind: UnitKind) -> Fighter {
-        Fighter { kind, hp: MAX_HP, terrain: Terrain::Plains, level: 1, hills: false }
+        Fighter { kind, hp: MAX_HP, terrain: Terrain::Plains, altitude: 150, relief: Relief::Flat }
     }
 
     fn on(kind: UnitKind, terrain: Terrain) -> Fighter {
-        Fighter { kind, hp: MAX_HP, terrain, level: 1, hills: false }
+        Fighter { kind, hp: MAX_HP, terrain, altitude: 150, relief: Relief::Flat }
     }
 
     fn on_hills(kind: UnitKind, terrain: Terrain) -> Fighter {
-        Fighter { hills: true, ..on(kind, terrain) }
+        Fighter { relief: Relief::Hills, ..on(kind, terrain) }
     }
 
     /// Prévision d'un corps à corps simple.
@@ -363,12 +368,12 @@ mod tests {
 
     #[test]
     fn charge_conditions() {
-        assert!(charge_applies(LightCavalry, true, Terrain::Plains, false));
-        assert!(!charge_applies(LightCavalry, false, Terrain::Plains, false), "sans déplacement");
-        assert!(!charge_applies(HeavyCavalry, true, Terrain::Forest, false), "cible en forêt");
-        assert!(!charge_applies(HeavyCavalry, true, Terrain::Grassland, true), "cible dans des collines");
-        assert!(!charge_applies(HorseArcher, true, Terrain::Plains, false), "pas pour l'archer monté");
-        assert!(!charge_applies(HeavyWarrior, true, Terrain::Plains, false), "pas pour l'infanterie");
+        assert!(charge_applies(LightCavalry, true, Terrain::Plains, Relief::Flat));
+        assert!(!charge_applies(LightCavalry, false, Terrain::Plains, Relief::Flat), "sans déplacement");
+        assert!(!charge_applies(HeavyCavalry, true, Terrain::Forest, Relief::Flat), "cible en forêt");
+        assert!(!charge_applies(HeavyCavalry, true, Terrain::Grassland, Relief::Hills), "cible dans des collines");
+        assert!(!charge_applies(HorseArcher, true, Terrain::Plains, Relief::Flat), "pas pour l'archer monté");
+        assert!(!charge_applies(HeavyWarrior, true, Terrain::Plains, Relief::Flat), "pas pour l'infanterie");
 
         let still = pm(&f(HeavyCavalry), &f(ShieldWarrior), false);
         let charging = pm(&f(HeavyCavalry), &f(ShieldWarrior), true);
@@ -434,6 +439,8 @@ mod tests {
         assert_eq!(forest.defense.value, plain.defense.value + TERRAIN_DEFENSE);
         assert_eq!(hills.defense.value, plain.defense.value + TERRAIN_DEFENSE);
         assert_eq!(both.defense.value, plain.defense.value + 2 * TERRAIN_DEFENSE, "forêt vallonnée : cumul");
+        let mountain = pm(&f(Militia), &Fighter { relief: Relief::Mountain, ..f(Militia) }, false);
+        assert_eq!(mountain.defense.value, plain.defense.value + 2 * TERRAIN_DEFENSE, "montagne : double");
         let flanked = preview(&Engagement::melee(f(Militia), f(Militia), false).flanked_by(2));
         assert_eq!(flanked.attack.value, plain.attack.value + 2 * FLANK_BONUS);
         // Pas de flanquement pour un tir
@@ -458,28 +465,29 @@ mod tests {
     fn hauteur_et_portee() {
         use Terrain::*;
         // Archer expert (portée 2)
-        let (p, fo) = ((2, Plains), (2, Forest));
+        let (p, fo) = ((450, Plains), (450, Forest));
         assert_eq!(effective_range(ExpertArcher, p, p), 2);
-        assert_eq!(effective_range(ExpertArcher, p, (3, Plains)), 1, "archer plus bas");
-        assert_eq!(effective_range(ExpertArcher, (3, Plains), p), 2);
+        assert_eq!(effective_range(ExpertArcher, p, (850, Plains)), 1, "archer plus bas");
+        assert_eq!(effective_range(ExpertArcher, p, (600, Plains)), 2, "écart trop faible");
+        assert_eq!(effective_range(ExpertArcher, (850, Plains), p), 2);
         assert_eq!(effective_range(ExpertArcher, p, fo), 1, "cible en forêt");
         // Archer monté (portée 1) : jamais moins de 1
-        assert_eq!(effective_range(HorseArcher, p, (3, Plains)), 1);
+        assert_eq!(effective_range(HorseArcher, p, (850, Plains)), 1);
         assert_eq!(effective_range(Militia, p, p), 0, "pas de tir");
         // +20 % en surplomb
         let flat = preview(&Engagement::ranged(f(ExpertArcher), f(Militia)));
         let hills = preview(&Engagement::ranged(on_hills(ExpertArcher, Plains), f(Militia)));
         assert_eq!(hills.attack.value, flat.attack.value, "les collines ne donnent pas de surplomb");
-        let above = preview(&Engagement::ranged(Fighter { level: 2, ..f(ExpertArcher) }, f(Militia)));
-        assert_eq!(above.attack.value, flat.attack.value + 4, "niveau supérieur");
+        let above = preview(&Engagement::ranged(Fighter { altitude: 450, ..f(ExpertArcher) }, f(Militia)));
+        assert_eq!(above.attack.value, flat.attack.value + 4, "plus haut de 300 m");
     }
 
     #[test]
     fn defense_en_hauteur() {
         let flat = pm(&f(Militia), &f(Militia), false);
-        let high = pm(&f(Militia), &Fighter { level: 2, ..f(Militia) }, false);
+        let high = pm(&f(Militia), &Fighter { altitude: 450, ..f(Militia) }, false);
         assert_eq!(high.defense.value, flat.defense.value + HIGHER_GROUND_DEFENSE);
-        let low = pm(&f(Militia), &Fighter { level: 0, ..f(Militia) }, false);
+        let low = pm(&f(Militia), &Fighter { altitude: 0, ..f(Militia) }, false);
         assert_eq!(low.defense.value, flat.defense.value, "pas de malus en contrebas");
     }
 

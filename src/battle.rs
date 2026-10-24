@@ -27,9 +27,14 @@ pub fn engagement(
     will_move: bool,
 ) -> Engagement {
     let terrain = |h: Hex| map.get(h).unwrap_or(Terrain::Plains);
-    let level = |h: Hex| map.level(h).unwrap_or(1);
-    let fighter =
-        |u: &UnitState, h: Hex| Fighter { kind: u.kind, hp: u.hp, terrain: terrain(h), level: level(h), hills: map.hills(h) };
+    let altitude = |h: Hex| map.elevation(h).unwrap_or(0.0).round() as i32;
+    let fighter = |u: &UnitState, h: Hex| Fighter {
+        kind: u.kind,
+        hp: u.hp,
+        terrain: terrain(h),
+        altitude: altitude(h),
+        relief: map.relief(h),
+    };
     let (a, d) = (fighter(attacker.0, attacker.1), fighter(defender.0, defender.1));
     match combat::attack_kind(a.kind) {
         AttackKind::Ranged => Engagement::ranged(a, d),

@@ -130,6 +130,7 @@ fn setup_panel(mut commands: Commands) {
             for layer in MapLayer::ALL {
                 let name = match layer {
                     MapLayer::Normal => "Normale",
+                    MapLayer::Altitude => "Altitude",
                     MapLayer::Relief => "Relief",
                     MapLayer::Climate => "Climat",
                     MapLayer::Basins => "Bassins",

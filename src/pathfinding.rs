@@ -123,7 +123,7 @@ pub fn reachable(map: &impl MoveCosts, start: Hex, moves: u32) -> HashSet<Hex> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::{KnownMap, Terrain, WorldMap};
+    use crate::map::{KnownMap, Relief, Terrain, WorldMap};
 
     #[test]
     fn ligne_droite() {
@@ -140,12 +140,12 @@ mod tests {
         let mut map = WorldMap::filled(10, 10, Terrain::Plains);
         // mur de montagnes vertical en colonne 4, sauf la ligne 8
         for row in 0..8 {
-            map.set(Hex::from_offset(4, row), Terrain::Mountains);
+            map.set_relief(Hex::from_offset(4, row), Relief::Peak);
         }
         let a = Hex::from_offset(2, 2);
         let b = Hex::from_offset(6, 2);
         let path = find_path(&map, a, b).unwrap();
-        assert!(path.iter().all(|&h| map.get(h) != Some(Terrain::Mountains)));
+        assert!(path.iter().all(|&h| map.relief(h) != Relief::Peak));
         assert!(path.len() > 4);
     }
 
@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(reachable(&map, c, 2).len(), 6);
         // Avec 3 PM : forêt (reste 1) puis une seconde forêt
         assert_eq!(reachable(&map, c, 3).len(), 18);
-        map.set(c.neighbors()[0], Terrain::Mountains);
+        map.set_relief(c.neighbors()[0], Relief::Peak);
         assert!(!reachable(&map, c, 3).contains(&c.neighbors()[0]));
     }
 

@@ -9,16 +9,18 @@ use crate::game::{City, GameMap, ShownFog, HexPos, Selection, Territory, Unit};
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
 use crate::hostile::{Camp, Hostile, Village};
 use crate::input::{HoverPath, OrderPath};
-use crate::map::{MAX_LEVEL, Terrain};
+use crate::map::{Relief as CellRelief, Terrain};
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::PrimitiveTopology;
-use crate::render::{MapLayer, ReachArea, climate_color, hydro_color, topo_color, wind_arrow, wind_arrow_site};
+use crate::render::{MapLayer, ReachArea, climate_color, elevation_layer_color, hydro_color, wind_arrow, wind_arrow_site};
 use crate::units::UnitKind;
 use bevy::camera::visibility::RenderLayers;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
-use crate::relief::{CHANNEL_LEVELS, Channel, HexTop, Link, MeshData, build_hex, carve, compute_top, mountain_mesh, water_surface};
+use crate::relief::{
+    BumpMap, Bumps, CHANNEL_LEVELS, Channel, HexTop, Link, MeshData, build_hex, carve, compute_top, lift_at, valley_fade, water_surface,
+};
 use bevy::mesh::Indices;
 use rayon::prelude::*;
 use crate::waterways::{WaterAxis, WaterKind, WaterShape, hex_water};
@@ -86,14 +88,41 @@ pub struct Relief {
     explored: HashSet<Hex>,
     /// Hachures posées sur le relief (cases partagées entre deux bassins, carte des bassins).
     hatches: HashMap<Hex, Entity>,
+    /// Relief interne (collines, montagnes) des cases explorées, modelé dans le sol.
+    bumps: BumpMap,
+}
+
+/// Relief interne d'une case de terre, modelé dans le sol 3D : ampleur des crêtes, sommet au
+/// centre, limite des neiges (plus basse dans le froid). Rien pour une case plate.
+fn bumps_for(map: &crate::map::WorldMap, hex: Hex) -> Option<Bumps> {
+    let (amp, summit) = match map.relief(hex) {
+        CellRelief::Flat => return None,
+        // (pas de sommet propre à chaque montagne : un damier de cônes ; les crêtes viennent du
+        // bruit continu, seuls les pics ont leur sommet)
+        CellRelief::Hills => (5.0, 0.0),
+        CellRelief::Rugged => (9.0, 0.0),
+        CellRelief::Mountain => (17.0, 0.0),
+        CellRelief::Peak => (16.0, 24.0),
+    };
+    let snowline = if map.get(hex) == Some(Terrain::Snow) {
+        0.0
+    } else {
+        // (collines et reliefs bas ne sont enneigés que sur un terrain de neige)
+        ((map.temperature(hex).unwrap_or(5.0) + 12.0) * 2.0).clamp(10.0, 40.0)
+    };
+    Some(Bumps { amp, summit, snowline })
 }
 
 impl Relief {
     /// Hauteur du sol au point 2D (x, y) du monde (lits des cours d'eau creusés).
     pub fn ground(&self, x: f32, y: f32) -> f32 {
         let hex = Hex::from_world(x, y);
-        let terrain = self.surface(x, y);
-        self.channels.get(&hex).map_or(terrain, |c| carve(c, Vec2::new(x, y), terrain).0)
+        let p = Vec2::new(x, y);
+        // Relief interne (collines, montagnes), effacé près des cours d'eau
+        let up = lift_at(p, &self.bumps).0;
+        let up = if up > 0.0 { up * self.channels.get(&hex).map_or(1.0, |c| valley_fade(c, p)) } else { 0.0 };
+        let terrain = self.surface(x, y) + up;
+        self.channels.get(&hex).map_or(terrain, |c| carve(c, p, terrain).0)
     }
 
     /// Hauteur du sol sans les lits des cours d'eau.
@@ -318,8 +347,6 @@ impl Plugin for View3dPlugin {
 
 /// Niveau de la mer en 3D.
 const SEA_LEVEL: f32 = 8.0;
-/// Hauteur d'un niveau d'altitude en 3D.
-const LEVEL_STEP: f32 = 8.0;
 /// Surface d'un lac sous les terres de son niveau.
 const LAKE_DEPTH: f32 = 3.0;
 /// Hauteur de l'eau des rivières, fleuves et petits lacs au-dessus du sol.
@@ -338,29 +365,35 @@ const MOUTH_BLEND: f32 = 14.0;
 /// Dénivelé minimal d'une chute d'eau.
 const CASCADE_MIN_DROP: f32 = 4.0;
 
-/// Hauteur du dessus d'une case : eau plus ou moins profonde, terre selon son niveau
-/// (les collines et les montagnes ont leur propre décor par-dessus).
-pub fn tile_height(t: Terrain, level: u8) -> f32 {
-    match t {
-        // Même niveau de mer pour la côte et le large : seule la couleur indique la profondeur
-        Terrain::Ocean | Terrain::Coast => SEA_LEVEL,
-        // Lac : un peu sous les terres de son niveau, qui descendent jusqu'à lui
-        Terrain::Lake => SEA_LEVEL + f32::from(level) * LEVEL_STEP - LAKE_DEPTH,
-        _ => SEA_LEVEL + f32::from(level) * LEVEL_STEP,
+/// Hauteur 3D d'une altitude réelle (m) : 150 m ≈ 16, 2 400 m ≈ 56, 4 800 m ≈ 98 (les anciennes
+/// tranches d'altitude tombent aux mêmes hauteurs).
+pub fn meters_to_height(m: f32) -> f32 {
+    SEA_LEVEL + LAND_BASE + m.max(0.0) * METER_SCALE
+}
+/// Hauteur de la terre au niveau de la mer au-dessus de la mer, et hauteur 3D par mètre.
+const LAND_BASE: f32 = 6.0;
+const METER_SCALE: f32 = 0.0175;
+
+/// Hauteur du dessus d'une case selon son altitude réelle : mer au niveau de la mer, lac un peu
+/// sous la surface de ses rives, terre à la hauteur de son altitude en mètres (le relief des
+/// collines et montagnes est modelé par-dessus, voir `relief::lift_at`).
+pub fn tile_height(map: &crate::map::WorldMap, hex: Hex) -> f32 {
+    match map.get(hex) {
+        Some(t) if t.is_sea() => SEA_LEVEL,
+        Some(Terrain::Lake) => meters_to_height(map.surface_elevation(hex).unwrap_or(0.0)) - LAKE_DEPTH,
+        Some(_) => meters_to_height(map.surface_elevation(hex).unwrap_or(0.0)),
+        None => SEA_LEVEL,
     }
 }
 
-/// Hauteur d'une case inexplorée (plate, au niveau du littoral).
+/// Hauteur provisoire d'une case inexplorée (plate, au niveau du littoral).
 fn unexplored_height() -> f32 {
-    tile_height(Terrain::Plains, 1)
+    meters_to_height(150.0)
 }
 
-/// Hauteur affichée d'une case : relief connu, ou plat si elle est inexplorée.
+/// Hauteur affichée d'une case : inexplorée, elle reste plate (son relief n'est pas connu).
 pub fn shown_height(map: &GameMap, fog: &ShownFog, hex: Hex) -> f32 {
-    match (map.0.get(hex), map.0.level(hex)) {
-        (Some(t), Some(level)) if fog.explored.contains(&hex) => tile_height(t, level),
-        _ => unexplored_height(),
-    }
+    if map.0.contains(hex) && fog.explored.contains(&hex) { tile_height(&map.0, hex) } else { unexplored_height() }
 }
 
 pub fn to_3d(hex: Hex, height: f32) -> Vec3 {
@@ -440,17 +473,6 @@ fn setup_3d(
     let tent_red = mat(Color::srgb(0.66, 0.14, 0.10), 0.85);
     let rock = mat(Color::srgb(0.50, 0.48, 0.47), 0.95);
     let boulder = mat(Color::srgb(0.46, 0.42, 0.38), 1.0);
-    // Montagnes : couleurs portées par les sommets du maillage
-    let mountain = mat(Color::WHITE, 0.95);
-    // Bosses des collines : couleur du terrain de base, un peu plus sombre
-    let hill: HashMap<Terrain, Handle<StandardMaterial>> = Terrain::ALL
-        .into_iter()
-        .map(|t| {
-            let (r, g, b) = t.color();
-            let k = TERRAIN_TINT * 0.88;
-            (t, mat(Color::srgb(r * k, g * k, b * k), 0.95))
-        })
-        .collect();
 
     // Végétation des biomes : feuillus (houppier rond sur un tronc), conifères étroits (taïga),
     // grands arbres sombres (jungle), acacias à cime plate (savanes), buissons (broussailles), roseaux
@@ -462,6 +484,7 @@ fn setup_3d(
     let shrub_mesh = meshes.add(Sphere::new(3.0).mesh().ico(1).unwrap());
     let reed_mesh = meshes.add(Cone { radius: 0.55, height: 7.0 });
     let puddle_mesh = meshes.add(Cylinder::new(4.5, 0.25));
+    let rock_mesh = meshes.add(Sphere::new(2.6).mesh().ico(0).unwrap());
     let trunk = mat(Color::srgb(0.32, 0.22, 0.13), 0.95);
     let broadleaf = mat(Color::srgb(0.17, 0.38, 0.14), 0.9);
     let jungle_leaf = mat(Color::srgb(0.05, 0.27, 0.09), 0.85);
@@ -479,8 +502,6 @@ fn setup_3d(
         reed_mesh.clone(),
         puddle_mesh.clone(),
     ];
-    // Bosses des collines : demi-sphères aplaties
-    let mound_mesh = meshes.add(Sphere::new(10.0).mesh().uv(16, 8));
 
     let mut icons = HashMap::new();
     let icon_paths: Vec<&'static str> =
@@ -498,7 +519,9 @@ fn setup_3d(
     }
 
     // Relief : au départ tout est inexploré, donc plat
-    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
+    // Relief interne de toutes les cases (pour placer les arbres sous la limite des arbres)
+    let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect();
+    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: HashMap::new(), water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
     let fresh_water = [
         materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.25, ..default() }),
         materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.45, 0.5), perceptual_roughness: 0.25, ..default() }),
@@ -521,7 +544,7 @@ fn setup_3d(
         relief.tops.insert(hex, top);
     }
     for hex in map.0.hexes() {
-        let mesh = build_hex(hex, &relief.tops[&hex], Vec3::ONE, None, &[], false);
+        let mesh = build_hex(hex, &relief.tops[&hex], Vec3::ONE, None, &[], false, &relief.bumps);
         let tile = commands.spawn((Tile3d, Mesh3d(meshes.add(to_mesh(mesh))), MeshMaterial3d(unexplored.clone()), layer())).id();
         relief.tiles.insert(hex, tile);
 
@@ -529,25 +552,28 @@ fn setup_3d(
         let t = map.0.get(hex).unwrap();
         let polar = |deg: f32, r: f32| Vec2::from_angle(deg.to_radians()) * r;
         let mut pieces: Vec<(Handle<Mesh>, Handle<StandardMaterial>, Vec2, f32, Vec3)> = Vec::new();
-        // Collines (relief interne à la case) : trois bosses de la couleur du terrain
-        const MOUNDS: [(f32, f32, f32); 3] = [(90.0, 12.0, 1.0), (210.0, 13.0, 0.85), (330.0, 12.5, 0.75)];
-        let hills = map.0.hills(hex);
-        if hills {
-            for (a, r, k) in MOUNDS {
-                pieces.push((mound_mesh.clone(), hill[&t].clone(), polar(a, r), -1.0, Vec3::new(k, 0.75 * k, k)));
+        // Relief interne (collines, montagnes) : modelé dans le sol de la case (voir `Bumps`) ;
+        // quelques rochers sur un relief accidenté
+        let relief_kind = map.0.relief(hex);
+        if relief_kind == CellRelief::Rugged {
+            for (a, r) in [(30.0_f32, 6.0), (150.0, 20.0), (270.0, 18.0)] {
+                pieces.push((rock_mesh.clone(), rock.clone(), polar(a, r), 1.5, Vec3::new(1.4, 1.0, 1.1)));
             }
         }
-        // Végétation selon le biome (pas dans le lit d'un fleuve). Sans collines, les plantes
-        // restent près du bord : le centre est libre pour le jeton d'une unité ; avec collines,
-        // un arbre au sommet de chaque bosse et les autres entre elles.
-        if !map.0.is_fleuve(hex) {
+        // Végétation selon le biome (pas dans le lit d'un fleuve, ni sur un pic). Les plantes
+        // restent près du bord : le centre est libre pour le jeton d'une unité. En montagne, les
+        // arbres s'arrêtent à la limite des arbres (sous la limite des neiges).
+        if !map.0.is_fleuve(hex) && relief_kind < CellRelief::Peak {
             let ring6 = [30.0_f32, 90.0, 150.0, 210.0, 270.0, 330.0];
-            // Emplacements (position, hausse due à une bosse)
-            let spots: Vec<(Vec2, f32)> = if hills {
-                MOUNDS.iter().map(|&(a, r, k)| (polar(a, r), 7.0 * k)).chain([30.0_f32, 150.0, 270.0].map(|a| (polar(a, 21.0), 0.0))).collect()
-            } else {
-                ring6.iter().map(|&a| (polar(a, 21.0), 0.0)).collect()
+            let (cx, cy) = hex.to_world();
+            let below_treeline = |at: Vec2| {
+                let (up, snow) = lift_at(Vec2::new(cx, cy) + at, &all_bumps);
+                up < (snow * 0.6).min(14.0)
             };
+            // Emplacements (position, hausse) sous la limite des arbres ; seconde couronne (entre
+            // les premiers) pour les forêts denses
+            let spots: Vec<(Vec2, f32)> = ring6.iter().map(|&a| (polar(a, 21.0), 0.0)).filter(|&(at, _)| below_treeline(at)).collect();
+            let inner: Vec<Vec2> = ring6.iter().map(|&a| polar(a + 30.0, 24.5)).filter(|&at| below_treeline(at)).collect();
             // Feuillu : tronc et houppier rond
             let broad = |at: Vec2, up: f32, leaf: &Handle<StandardMaterial>, size: f32, pieces: &mut Vec<_>| {
                 pieces.push((trunk_mesh.clone(), trunk.clone(), at, up + 4.0 * size, Vec3::new(size, size, size)));
@@ -564,26 +590,22 @@ fn setup_3d(
                     for &(at, up) in &spots {
                         broad(at, up, &jungle_leaf, 1.2, &mut pieces);
                     }
-                    if !hills {
-                        for a in ring6 {
-                            broad(polar(a + 30.0, 25.0), 0.0, &jungle_leaf, 0.8, &mut pieces);
-                        }
+                    for &at in &inner {
+                        broad(at, 0.0, &jungle_leaf, 0.8, &mut pieces);
                     }
                 }
                 Terrain::Taiga => {
                     for &(at, up) in &spots {
                         pieces.push((conifer_mesh.clone(), conifer.clone(), at, up + 9.0, Vec3::ONE));
                     }
-                    if !hills {
-                        for a in ring6 {
-                            pieces.push((conifer_mesh.clone(), conifer.clone(), polar(a + 30.0, 24.0), 7.0, Vec3::splat(0.8)));
-                        }
+                    for &at in &inner {
+                        pieces.push((conifer_mesh.clone(), conifer.clone(), at, 7.0, Vec3::splat(0.8)));
                     }
                 }
                 Terrain::WoodedSavanna | Terrain::Savanna => {
                     // Acacias : tronc fin et cime plate, épars (un seul en savane herbeuse)
                     let picks: &[usize] = if t == Terrain::Savanna { &[1] } else { &[0, 2, 4] };
-                    for &k in picks {
+                    for &k in picks.iter().filter(|_| !spots.is_empty()) {
                         let (at, up) = spots[k % spots.len()];
                         pieces.push((trunk_mesh.clone(), trunk.clone(), at, up + 4.0, Vec3::new(0.7, 1.2, 0.7)));
                         pieces.push((canopy_mesh.clone(), acacia.clone(), at, up + 9.5, Vec3::ONE));
@@ -613,18 +635,9 @@ fn setup_3d(
                 _ => {}
             }
         }
-        pieces.extend(match t {
-            // Montagne en relief, différente sur chaque case (sommets, arêtes, neige)
-            Terrain::Mountains => {
-                let seed = (hex.q * 7919 + hex.r * 104_729).unsigned_abs();
-                let ridges = std::array::from_fn(|d| map.0.get(hex + DIRECTIONS[d]) == Some(Terrain::Mountains));
-                vec![(meshes.add(to_mesh(mountain_mesh(seed, ridges))), mountain.clone(), Vec2::ZERO, 0.0, Vec3::ONE)]
-            }
-            _ => Vec::new(),
-        });
         let mut ids = Vec::new();
         for (mesh, material, offset, lift, scale) in pieces {
-            let vegetation = mesh == mound_mesh || plant_meshes.contains(&mesh);
+            let vegetation = mesh == rock_mesh || plant_meshes.contains(&mesh);
             ids.push(
                 commands
                     .spawn((
@@ -862,7 +875,7 @@ fn link(map: &GameMap, fog: &ShownFog, terraces: &HashSet<Hex>, a: Hex, b: Hex) 
             // permet, falaise sinon (la mer reste plate, voir `compute_top`)
             (wa, wb) => {
                 let (la, lb) = (map.0.level(a).unwrap_or(0), map.0.level(b).unwrap_or(0));
-                match (crate::map::slope_cost(la, lb).is_some(), wa || wb) {
+                match (!crate::map::is_cliff(la, lb), wa || wb) {
                     (true, true) => Link::Shore,
                     (true, false) => Link::Gentle,
                     (false, _) => Link::Cliff,
@@ -922,6 +935,7 @@ fn update_relief_3d(
     if fog.is_changed() {
         relief.water_seen = relief.water_hexes.intersection(&fog.explored).copied().collect();
         relief.explored = fog.explored.clone();
+        relief.bumps = fog.explored.iter().filter_map(|&h| map.0.contains(h).then(|| bumps_for(&map.0, h)).flatten().map(|b| (h, b))).collect();
         for (&hex, &tile) in &relief.tiles {
             // Une case dont le relief reste à refaire garde son aspect jusqu'à sa reconstruction
             // (pas de case blanche, plate, en attendant)
@@ -988,7 +1002,7 @@ fn update_relief_3d(
         (true, thematic) => {
             let t = map.0.get(hex).unwrap();
             let (r, g, b) = match thematic {
-                MapLayer::Relief => topo_color(t, map.0.level(hex).unwrap_or(1)),
+                MapLayer::Altitude | MapLayer::Relief => elevation_layer_color(&map.0, hex, thematic),
                 MapLayer::Climate => climate_color(t, map.0.rain(hex).unwrap_or(500.0)),
                 _ => hydro_color(&map.0, hex, thematic),
             };
@@ -1039,8 +1053,11 @@ fn update_relief_3d(
             });
             jobs.push((hex, relief.tops[&hex], color, sides, near, water(hex)));
         }
-        let built: Vec<(Hex, MeshData)> =
-            jobs.into_par_iter().map(|(hex, top, color, sides, near, skirt)| (hex, build_hex(hex, &top, color, sides.as_ref(), &near, skirt))).collect();
+        let bumps = &relief.bumps;
+        let built: Vec<(Hex, MeshData)> = jobs
+            .into_par_iter()
+            .map(|(hex, top, color, sides, near, skirt)| (hex, build_hex(hex, &top, color, sides.as_ref(), &near, skirt, bumps)))
+            .collect();
         for (hex, data) in built {
             let tile = relief.tiles[&hex];
             if let Ok((mesh, mut material)) = tiles.get_mut(tile) {
@@ -1566,7 +1583,7 @@ fn draw_wind_3d(
 /// Case sous le curseur en vue 3D : on avance le long du rayon de la caméra, du haut du
 /// relief vers le sol, jusqu'à passer sous le dessus de la case survolée (falaises comprises).
 pub fn hovered_hex_3d(ray: Ray3d, relief: &Relief, map: &GameMap) -> Option<Hex> {
-    let top = tile_height(Terrain::Plains, MAX_LEVEL);
+    let top = meters_to_height(4_800.0);
     let ground = Vec3::Y;
     let start = ray.intersect_plane(Vec3::new(0.0, top, 0.0), InfinitePlane3d::new(ground))?;
     let end = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(ground))?;

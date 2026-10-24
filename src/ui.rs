@@ -4,7 +4,7 @@ use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, Selection
 use crate::input::{HoverPath, HoveredHex, OrderPath};
 use crate::rules::{self, UnitKind};
 use crate::render::{
-    BASIN_MUTED, CLIMATE_COAST, CLIMATE_OCEAN, HYDRO_LAKE, HYDRO_OCEAN, MapLayer, TOPO_COAST, TOPO_LEVELS, TOPO_OCEAN, TOPO_SUMMIT,
+    BASIN_MUTED, CLIMATE_COAST, CLIMATE_OCEAN, HYDRO_LAKE, HYDRO_OCEAN, MapLayer, TOPO_COAST, TOPO_OCEAN,
     basin_color, flow_color, rain_color,
 };
 use bevy::prelude::*;
@@ -172,6 +172,7 @@ fn setup_ui(mut commands: Commands) {
                 children![(HoverText, text("", 14.0))],
             ),
             topo_legend(),
+            relief_legend(),
             climate_legend(),
             basin_legend(),
             flow_legend(),
@@ -187,6 +188,7 @@ fn setup_ui(mut commands: Commands) {
                 }),
                 children![
                     map_option(MapLayer::Normal, "Carte normale"),
+                    map_option(MapLayer::Altitude, "Carte de l'altitude"),
                     map_option(MapLayer::Relief, "Carte du relief"),
                     map_option(MapLayer::Climate, "Carte du climat"),
                     map_option(MapLayer::Basins, "Carte des bassins versants"),
@@ -314,26 +316,43 @@ fn climate_legend() -> impl Bundle {
     )
 }
 
-/// Légende de la carte du relief : une pastille de couleur par niveau.
+/// Légende de la carte de l'altitude : teintes par altitude (m).
 fn topo_legend() -> impl Bundle {
-    let row = |(r, g, b): (f32, f32, f32), label: String| {
-        (
-            Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() },
-            children![
-                (
-                    Node {
-                        width: Val::Px(14.0),
-                        height: Val::Px(14.0),
-                        border_radius: BorderRadius::all(Val::Px(3.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(r, g, b)),
-                ),
-                (Text::new(label), TextFont::from_font_size(13.0), TextColor(Color::srgb(0.92, 0.92, 0.95))),
-            ],
-        )
+    use crate::render::altitude_color;
+    (
+        Legend(MapLayer::Altitude),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Altitude", 14.0)),
+            Spawn(legend_row(altitude_color(4_500.0), "4 500 m et plus".into())),
+            Spawn(legend_row(altitude_color(3_400.0), "3 400 m".into())),
+            Spawn(legend_row(altitude_color(2_400.0), "2 400 m".into())),
+            Spawn(legend_row(altitude_color(1_500.0), "1 500 m".into())),
+            Spawn(legend_row(altitude_color(800.0), "800 m".into())),
+            Spawn(legend_row(altitude_color(300.0), "300 m".into())),
+            Spawn(legend_row(altitude_color(0.0), "niveau de la mer".into())),
+            Spawn(legend_row(TOPO_COAST, "Eau côtière, lac".into())),
+            Spawn(legend_row(TOPO_OCEAN, "Eau profonde".into())),
+        )),
+    )
+}
+
+/// Légende de la carte du relief : plat, vallonné, accidenté, montagne, pic.
+fn relief_legend() -> impl Bundle {
+    use crate::map::Relief;
+    let label = |r: Relief| match r {
+        Relief::Flat => "Plat".to_string(),
+        Relief::Hills => "Vallonné (collines)".to_string(),
+        Relief::Rugged => "Accidenté".to_string(),
+        Relief::Mountain => "Montagne (franchissable)".to_string(),
+        Relief::Peak => "Pic (infranchissable)".to_string(),
     };
-    let levels: Vec<String> = (1..=crate::map::MAX_LEVEL).map(|l| format!("{l} — {}", crate::map::level_name(l))).collect();
     (
         Legend(MapLayer::Relief),
         panel(Node {
@@ -345,15 +364,13 @@ fn topo_legend() -> impl Bundle {
         }),
         Children::spawn((
             Spawn(text("Relief", 14.0)),
-            Spawn(row(TOPO_SUMMIT, "Sommets".into())),
-            Spawn(row(TOPO_LEVELS[5], levels[5].clone())),
-            Spawn(row(TOPO_LEVELS[4], levels[4].clone())),
-            Spawn(row(TOPO_LEVELS[3], levels[3].clone())),
-            Spawn(row(TOPO_LEVELS[2], levels[2].clone())),
-            Spawn(row(TOPO_LEVELS[1], levels[1].clone())),
-            Spawn(row(TOPO_LEVELS[0], levels[0].clone())),
-            Spawn(row(TOPO_COAST, "Eau côtière".into())),
-            Spawn(row(TOPO_OCEAN, "Eau profonde".into())),
+            Spawn(legend_row(Relief::Peak.color(), label(Relief::Peak))),
+            Spawn(legend_row(Relief::Mountain.color(), label(Relief::Mountain))),
+            Spawn(legend_row(Relief::Rugged.color(), label(Relief::Rugged))),
+            Spawn(legend_row(Relief::Hills.color(), label(Relief::Hills))),
+            Spawn(legend_row(Relief::Flat.color(), label(Relief::Flat))),
+            Spawn(legend_row(TOPO_COAST, "Eau côtière, lac".into())),
+            Spawn(legend_row(TOPO_OCEAN, "Eau profonde".into())),
         )),
     )
 }
@@ -812,8 +829,9 @@ fn update_hover_text(
             let m = &map.0;
             // Terrain et climat
             let mut place = Vec::new();
-            let level = m.level(h).unwrap_or(0);
-            let altitude = (shows(Info::Altitude) && level > 0).then(|| format!("niveau {level}, {}", crate::map::level_name(level)));
+            let land_here = m.get(h).is_some_and(|t| !t.is_water());
+            let altitude = (shows(Info::Altitude) && land_here)
+                .then(|| format!("{} m", round_meters(m.elevation(h).unwrap_or(0.0))));
             // Lac ou mer intérieure nommés : leur nom et leur nature plutôt que « Lac » ou « Océan »
             let terrain = match m.contains(h).then(|| m.basins().lake(m.cell(h))).flatten() {
                 Some(body) => format!("{} ({})", body.name, body.kind.short()),
@@ -953,7 +971,7 @@ fn update_log(log: Res<GameLog>, mut text: Single<&mut Text, With<LogText>>) {
 
 /// Cours d'eau d'une case pour le survol : fleuve, rivières sur ses arêtes, eau douce.
 fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
-    use crate::map::{FLEUVE_MOVE_COST, FRESH_WATER_FOOD, RIVER_CROSSING_COST, Terrain};
+    use crate::map::{FLEUVE_MOVE_COST, FRESH_WATER_FOOD, RIVER_CROSSING_COST};
     const SIDES: [&str; 6] = ["à l'est", "au nord-est", "au nord-ouest", "à l'ouest", "au sud-ouest", "au sud-est"];
     let flow = |q: f32| format!("≈ {} m³/s", round_flow(q));
     let mut note = String::new();
@@ -979,7 +997,7 @@ fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
         note += "\nPetit lac";
     }
     let t = map.get(h);
-    if !map.is_fleuve(h) && t.is_some_and(|t| !t.is_water() && t != Terrain::Mountains) && map.fresh_water(h) {
+    if !map.is_fleuve(h) && t.is_some_and(|t| !t.is_water()) && map.relief(h) < crate::map::Relief::Mountain && map.fresh_water(h) {
         note += &format!(" — eau douce : +{FRESH_WATER_FOOD} nourriture");
     }
     note
@@ -1032,6 +1050,12 @@ fn basin_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
         note += &format!(" ; dessert aussi {name} (hachures)");
     }
     note
+}
+
+/// Altitude arrondie lisiblement : 150, 1 850 (à 10 m près, espace des milliers).
+fn round_meters(m: f32) -> String {
+    let v = ((m / 10.0).round() * 10.0) as i64;
+    if v >= 1_000 { format!("{} {:03}", v / 1_000, v % 1_000) } else { v.to_string() }
 }
 
 /// Débit arrondi lisiblement : 140, 1 200, 31 000.

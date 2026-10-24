@@ -207,11 +207,9 @@ impl<M: MoveCosts> MoveCosts for AvoidZoc<'_, M> {
 /// L'unité peut-elle attaquer `target` depuis `at` ? (adjacente en mêlée, à portée effective pour un tir)
 /// Pas de corps à corps à travers une falaise.
 pub fn in_attack_position(world: &WorldMap, kind: UnitKind, at: Hex, target: Hex) -> bool {
-    let spot = |h: Hex| (world.level(h).unwrap_or(1), world.get(h).unwrap_or(crate::map::Terrain::Plains));
+    let spot = |h: Hex| (world.elevation(h).unwrap_or(0.0).round() as i32, world.get(h).unwrap_or(crate::map::Terrain::Plains));
     match combat::attack_kind(kind) {
-        AttackKind::Melee => {
-            at.distance(target) == 1 && crate::map::slope_cost(spot(at).0, spot(target).0).is_some()
-        }
+        AttackKind::Melee => at.distance(target) == 1 && !world.cliff_between(at, target),
         AttackKind::Ranged => at != target && at.distance(target) <= combat::effective_range(kind, spot(at), spot(target)),
     }
 }
@@ -309,6 +307,9 @@ pub fn can_found_city(map: &WorldMap, at: Hex, cities: &[Hex]) -> Result<(), &'s
     }
     if map.is_fleuve(at) {
         return Err("pas de ville dans le lit d'un fleuve : choisissez une rive");
+    }
+    if map.relief(at) >= crate::map::Relief::Mountain {
+        return Err("pas de ville en montagne");
     }
     if cities.iter().any(|&c| c.distance(at) < MIN_CITY_DISTANCE) {
         return Err("trop près d'une autre ville");
@@ -421,13 +422,15 @@ impl CityState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::Terrain;
+    use crate::map::{Relief, Terrain};
 
     /// Couloir horizontal sur la ligne `row`, entouré de montagnes : le trajet est imposé.
     fn corridor(width: i32, row: i32) -> WorldMap {
-        let mut map = WorldMap::filled(width, row + 3, Terrain::Mountains);
-        for col in 0..width {
-            map.set(Hex::from_offset(col, row), Terrain::Plains);
+        let mut map = WorldMap::filled(width, row + 3, Terrain::Plains);
+        for h in map.hexes().collect::<Vec<_>>() {
+            if h.to_offset().1 != row {
+                map.set_relief(h, Relief::Peak);
+            }
         }
         map
     }
@@ -568,7 +571,7 @@ mod tests {
         let mut map = WorldMap::filled(40, 30, Terrain::Plains);
         let center = Hex::from_offset(22, 15);
         for h in center.range(5).filter(|h| h.distance(center) >= 3) {
-            map.set(h, Terrain::Mountains);
+            map.set_relief(h, Relief::Peak);
         }
         let start = Hex::from_offset(8, 12);
         let mut pos = start;
@@ -655,7 +658,7 @@ mod tests {
         assert_eq!(attack_approach(&map, &map, &militia, target.neighbors()[0], target, &none), Some(Vec::new()));
         // Cible entourée de montagnes : inaccessible
         for n in target.neighbors() {
-            map.set(n, Terrain::Mountains);
+            map.set_relief(n, Relief::Peak);
         }
         assert!(attack_approach(&map, &map, &cav, from, target, &none).is_none());
     }
@@ -781,7 +784,7 @@ mod tests {
 #[cfg(test)]
 mod experience_brouillard {
     use super::*;
-    use crate::map::Terrain;
+    use crate::map::{Relief, Terrain};
 
     /// Massif montagneux en anneau (rayon 3 à 5) autour d'une cuvette ; `gap` ouvre une brèche.
     fn massif(gap: bool) -> (WorldMap, Hex) {
@@ -790,7 +793,7 @@ mod experience_brouillard {
         for h in center.range(5) {
             let d = h.distance(center);
             if (3..=5).contains(&d) {
-                map.set(h, Terrain::Mountains);
+                map.set_relief(h, Relief::Peak);
             }
         }
         if gap {
