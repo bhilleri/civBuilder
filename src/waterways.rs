@@ -7,7 +7,7 @@
 
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
 use crate::hydro::RIVER_M3S;
-use crate::map::WorldMap;
+use crate::map::{Terrain, WorldMap};
 use bevy::math::Vec2;
 
 /// Demi-largeur de la bande d'eau d'un fleuve (unités monde ; l'arête mesure `HEX_SIZE`).
@@ -150,6 +150,48 @@ impl WaterShape {
     }
 }
 
+/// Arêtes d'une case de fleuve où l'eau est dessinée (`open`), et celles qu'elle occupe sur
+/// toute leur largeur (`full`, sous-ensemble de `open`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Openings {
+    pub open: u8,
+    pub full: u8,
+}
+
+/// Arêtes par où l'eau d'un fleuve sort de sa case : celles de son cours, toutes celles qui
+/// donnent sur un lac (sur toute leur largeur) ; à son embouchure, tout le large, et aussi :
+/// - les arêtes voisines qui donnent aussi sur l'eau (lac ou mer) : un fleuve qui arrive dans
+///   un coin de lac s'y jette sur toute sa largeur plutôt que de longer une mince langue de terre ;
+/// - l'intérieur d'un virage serré juste avant l'embouchure (arête de terre entre l'embouchure
+///   et le tronçon amont) : l'eau l'occupe, au lieu d'une pointe de terre entre le fleuve et le lac.
+pub fn fleuve_openings(map: &WorldMap, hex: Hex) -> Openings {
+    let links = map.fleuve_links(hex);
+    let water_side = |d: usize| map.get(hex + DIRECTIONS[d]).is_some_and(|t| t.is_water());
+    let mut open = links;
+    let mut full = 0u8;
+    // Un fleuve qui longe un lac s'y ouvre sur chaque arête commune (le lac et le fleuve
+    // forment une seule nappe d'eau) ; pas la mer : un fleuve côtier garde sa rive
+    for (d, &step) in DIRECTIONS.iter().enumerate() {
+        if map.get(hex + step) == Some(Terrain::Lake) {
+            open |= 1 << d;
+            full |= 1 << d;
+        }
+    }
+    for d in 0..6 {
+        if links & (1 << d) == 0 || !water_side(d) {
+            continue;
+        }
+        full |= 1 << d;
+        for (e, beyond) in [((d + 1) % 6, (d + 2) % 6), ((d + 5) % 6, (d + 4) % 6)] {
+            if water_side(e) || (links & (1 << beyond) != 0 && !map.is_fleuve(hex + DIRECTIONS[e])) {
+                open |= 1 << e;
+                full |= 1 << e;
+            }
+        }
+    }
+    Openings { open, full }
+}
+
 fn v((x, y): (f32, f32)) -> Vec2 {
     Vec2::new(x, y)
 }
@@ -184,18 +226,28 @@ pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
     }
     if map.is_fleuve(hex) {
         let c = center(hex);
-        let links = map.fleuve_links(hex);
+        let Openings { open, full } = fleuve_openings(map, hex);
         shape.disc(c, Vec2::splat(FLEUVE_HALF_WIDTH), WaterKind::Fleuve);
         for d in 0..6 {
-            if links & (1 << d) != 0 {
+            if open & (1 << d) != 0 {
                 let ((ax, ay), (bx, by)) = hex.edge_corners(d);
                 let mid = (Vec2::new(ax, ay) + Vec2::new(bx, by)) / 2.0;
                 // Léger débord sur la case voisine : pas de liseré entre deux tronçons
                 let mid = mid + (mid - c).normalize_or_zero() * 0.6;
                 // Embouchure (mer, lac) : le fleuve s'évase jusqu'à occuper toute l'arête
-                let mouth = map.get(hex + DIRECTIONS[d]).is_some_and(|t| t.is_water());
-                let end = if mouth { ESTUARY_HALF_WIDTH } else { FLEUVE_HALF_WIDTH };
+                let end = if full & (1 << d) != 0 { ESTUARY_HALF_WIDTH } else { FLEUVE_HALF_WIDTH };
                 shape.flared_band(c, mid, FLEUVE_HALF_WIDTH, end, WaterKind::Fleuve);
+            }
+        }
+        // Deux arêtes ouvertes côte à côte dont l'une sur toute sa largeur : l'eau remplit aussi
+        // le coin qui les sépare (pas de pointe de terre entre elles)
+        for d in 0..6 {
+            let e = (d + 1) % 6;
+            let both = open & (1 << d) != 0 && open & (1 << e) != 0;
+            if both && (full & (1 << d) != 0 || full & (1 << e) != 0) {
+                let k = corner(hex, e);
+                let k = k + (k - c).normalize_or_zero() * 0.6;
+                shape.flared_band(c, k, FLEUVE_HALF_WIDTH, HEX_SIZE * 0.25, WaterKind::Fleuve);
             }
         }
         // Affluents (rivières d'arête) qui arrivent à un coin : ils rejoignent le fleuve
@@ -217,10 +269,74 @@ pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
     shape
 }
 
+/// Morceaux d'un triangle d'eau situés dans des cases explorées : le triangle est coupé par
+/// l'arête qui sépare la case explorée qui le porte de chaque case inexplorée qu'il touche.
+pub fn clip_to_explored(pts: [Vec2; 3], explored: &impl Fn(Hex) -> bool) -> Vec<[Vec2; 3]> {
+    let hex_of = |p: Vec2| Hex::from_world(p.x, p.y);
+    let centroid = (pts[0] + pts[1] + pts[2]) / 3.0;
+    let touched: Vec<Hex> = std::iter::once(centroid).chain(pts).map(hex_of).collect();
+    let unknown: Vec<Hex> = touched.iter().copied().filter(|&h| !explored(h)).collect();
+    if unknown.is_empty() {
+        return vec![pts];
+    }
+    let Some(keep) = touched.iter().copied().find(|&h| explored(h)) else { return Vec::new() };
+    let center = |h: Hex| {
+        let (x, y) = h.to_world();
+        Vec2::new(x, y)
+    };
+    let mut poly: Vec<Vec2> = pts.to_vec();
+    for u in unknown {
+        // Demi-plan plus proche de la case gardée que de la case inconnue (leur arête commune)
+        let (k, o) = (center(keep), center(u));
+        let normal = o - k;
+        let offset = normal.dot((k + o) / 2.0);
+        let side = |p: Vec2| offset - normal.dot(p); // ≥ 0 : côté gardé
+        let mut out = Vec::with_capacity(poly.len() + 2);
+        for i in 0..poly.len() {
+            let (p, q) = (poly[i], poly[(i + 1) % poly.len()]);
+            let (sp, sq) = (side(p), side(q));
+            if sp >= 0.0 {
+                out.push(p);
+            }
+            if (sp >= 0.0) != (sq >= 0.0) {
+                out.push(p + (q - p) * (sp / (sp - sq)));
+            }
+        }
+        poly = out;
+        if poly.len() < 3 {
+            return Vec::new();
+        }
+    }
+    (1..poly.len() - 1).map(|i| [poly[0], poly[i], poly[i + 1]]).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::Terrain;
+
+    #[test]
+    fn eau_coupee_au_bord_de_l_exploration() {
+        let a = Hex::from_offset(3, 3);
+        let b = a + DIRECTIONS[0];
+        let ((x0, y0), (x1, y1)) = a.edge_corners(0);
+        let mid = Vec2::new((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+        let (ca, cb) = (center(a), center(b));
+        // Triangle à cheval sur l'arête A–B
+        let tri = [mid + (ca - mid) * 0.3, mid + (cb - mid) * 0.3 + Vec2::Y * 4.0, mid + (cb - mid) * 0.3 - Vec2::Y * 4.0];
+        let area = |t: &[Vec2; 3]| (t[1] - t[0]).perp_dot(t[2] - t[0]).abs() / 2.0;
+        let whole = area(&tri);
+        // Tout est exploré : intact ; B inconnue : seule la partie côté A reste ; rien d'exploré : rien
+        assert_eq!(clip_to_explored(tri, &|_| true), vec![tri]);
+        let kept = clip_to_explored(tri, &|h| h == a);
+        let kept_area: f32 = kept.iter().map(area).sum();
+        assert!(kept_area > 0.0 && kept_area < whole);
+        for t in &kept {
+            for p in t {
+                assert!(p.distance(ca) <= p.distance(cb) + 1e-3);
+            }
+        }
+        assert!(clip_to_explored(tri, &|_| false).is_empty());
+    }
 
     #[test]
     fn une_arete_dessinee_une_seule_fois() {
@@ -229,6 +345,48 @@ mod tests {
         map.set_river(h, 4, 50.0); // arête vers le sud-ouest : dessinée par la voisine
         assert!(hex_water(&map, h).is_empty());
         assert!(!hex_water(&map, h + DIRECTIONS[4]).is_empty());
+    }
+
+    #[test]
+    fn embouchure_dans_un_coin_de_lac() {
+        let mut map = WorldMap::filled(8, 8, Terrain::Plains);
+        let h = Hex::from_offset(3, 3);
+        map.set(h + DIRECTIONS[0], Terrain::Lake);
+        map.set(h + DIRECTIONS[1], Terrain::Lake);
+        map.set_fleuve_links(h, 1 << 0 | 1 << 3);
+        // L'arête vers le second lac s'ouvre aussi ; pas celle vers la terre
+        assert_eq!(fleuve_openings(&map, h).open, 1 << 0 | 1 << 1 | 1 << 3);
+    }
+
+    #[test]
+    fn fleuve_qui_longe_un_lac() {
+        let mut map = WorldMap::filled(8, 8, Terrain::Plains);
+        let h = Hex::from_offset(3, 3);
+        map.set(h + DIRECTIONS[4], Terrain::Lake);
+        map.set(h + DIRECTIONS[5], Terrain::Lake);
+        // Le fleuve passe d'ouest en est sans se jeter dans le lac : il s'y ouvre quand même
+        map.set_fleuve_links(h, 1 << 0 | 1 << 3);
+        let o = fleuve_openings(&map, h);
+        assert_eq!(o.open, 1 << 0 | 1 << 3 | 1 << 4 | 1 << 5);
+        assert_eq!(o.full, 1 << 4 | 1 << 5);
+        // La mer, elle, ne s'ouvre pas le long d'un fleuve côtier
+        let mut map = WorldMap::filled(8, 8, Terrain::Plains);
+        map.set(h + DIRECTIONS[4], Terrain::Ocean);
+        map.set_fleuve_links(h, 1 << 0 | 1 << 3);
+        assert_eq!(fleuve_openings(&map, h).open, 1 << 0 | 1 << 3);
+    }
+
+    #[test]
+    fn virage_serre_avant_embouchure() {
+        let mut map = WorldMap::filled(8, 8, Terrain::Plains);
+        let h = Hex::from_offset(3, 3);
+        map.set(h + DIRECTIONS[0], Terrain::Lake);
+        // Le fleuve arrive par l'arête 2 et se jette dans le lac par l'arête 0 : l'intérieur du
+        // virage (arête 1, de la terre) est rempli d'eau
+        map.set_fleuve_links(h, 1 << 0 | 1 << 2);
+        let o = fleuve_openings(&map, h);
+        assert_eq!(o.open, 1 << 0 | 1 << 1 | 1 << 2);
+        assert_eq!(o.full, 1 << 0 | 1 << 1);
     }
 
     #[test]
@@ -244,7 +402,7 @@ mod diag {
     #[ignore]
     fn fleuves_planete() {
         use super::*;
-        let m = WorldMap::generate_in(192, 111, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+        let m = crate::map::WorldMap::generate_in(192, 111, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
         let f: Vec<Hex> = m.hexes().filter(|&h| m.is_fleuve(h)).collect();
         println!("fleuves {}", f.len());
         for h in f.iter().take(10) {
@@ -252,3 +410,5 @@ mod diag {
         }
     }
 }
+
+

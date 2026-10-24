@@ -1,5 +1,5 @@
-//! Étiquettes à l'écran ancrées sur la carte : bannières des villes (2D et 3D)
-//! et numéros de tour le long des trajets (3D ; la 2D a ses propres pastilles).
+//! Étiquettes à l'écran ancrées sur la carte : bannières des villes (2D et 3D), noms des
+//! fleuves et numéros de tour le long des trajets (3D ; la 2D a ses propres pastilles).
 //!
 //! Ce sont des nœuds d'interface placés chaque image à la projection de leur case par la
 //! caméra active : ils restent lisibles quel que soit le zoom ou l'inclinaison.
@@ -10,6 +10,7 @@ use crate::hostile::Hostile;
 use crate::rules::MAX_HP;
 use crate::hex::Hex;
 use crate::input::{HoverPath, OrderPath};
+use crate::highlight::{Feature, HighlightMode, HoveredLabel};
 use crate::view3d::{CITY_HEIGHT, ViewMode, shown_height, to_3d};
 use bevy::camera::CameraUpdateSystems;
 use bevy::prelude::*;
@@ -63,6 +64,51 @@ struct BannerName;
 #[derive(Component)]
 struct BannerPop;
 
+/// Étiquettes affichées (bouton « Étiquettes », touche N).
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LabelFilter {
+    pub rivers: bool,
+    pub lakes: bool,
+    pub cities: bool,
+}
+
+impl Default for LabelFilter {
+    fn default() -> Self {
+        Self { rivers: true, lakes: true, cities: true }
+    }
+}
+
+/// Nom d'un cours d'eau. Posé au plus près du milieu de son cours sur un emplacement exploré,
+/// sans chevaucher une étiquette plus importante ; les cours d'eau secondaires ne se montrent
+/// qu'assez près (les longs affluents de fleuve, puis tout le reste en zoom fin).
+#[derive(Component)]
+struct RiverName {
+    /// Ordre de placement : par importance, les lacs juste après les cours d'eau de même
+    /// importance, puis dans l'ordre des noms (débit ou taille décroissants).
+    rank: usize,
+    /// 0 cours principal d'un fleuve ou très grand lac, 1 long affluent ou grand lac, 2 le reste.
+    tier: u8,
+    /// Emplacements possibles : une case (a = b) ou une arête.
+    spots: Vec<(Hex, Hex)>,
+    /// Emplacements déjà rangés par préférence (lac : du centre vers les rives) ; sinon on part
+    /// du milieu du cours.
+    ordered: bool,
+    /// Cours d'eau ou lac nommé.
+    feature: Feature,
+}
+const LAKE_NAME_BG: Color = Color::srgba(0.02, 0.06, 0.14, 0.78);
+const RIVER_NAME_BG: Color = Color::srgba(0.04, 0.10, 0.20, 0.72);
+const STREAM_NAME_BG: Color = Color::srgba(0.04, 0.10, 0.20, 0.55);
+/// Par importance : taille du texte, couleur, rayon d'une case à l'écran (pixels) en dessous
+/// duquel le nom n'est pas montré.
+const NAME_STYLES: [(f32, Color, f32); 3] = [
+    (15.0, Color::srgb(0.80, 0.90, 1.0), 0.0),
+    (12.0, Color::srgb(0.66, 0.78, 0.90), 14.0),
+    (11.0, Color::srgb(0.62, 0.74, 0.86), 40.0),
+];
+/// Écart minimal entre deux étiquettes (pixels).
+const LABEL_MARGIN: f32 = 4.0;
+
 /// Pastille « tour d'arrivée » d'un trajet, en vue 3D.
 #[derive(Component)]
 struct TurnLabel3d;
@@ -73,11 +119,20 @@ impl Plugin for LabelsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (spawn_city_banners, update_city_banners, update_turn_labels_3d, spawn_hp_bars_3d, update_hp_bars_3d),
+            (
+                spawn_city_banners,
+                update_city_banners,
+                spawn_river_names,
+                update_turn_labels_3d,
+                spawn_hp_bars_3d,
+                update_hp_bars_3d,
+            ),
         )
+        .init_resource::<LabelFilter>()
+        .add_systems(Update, (label_interaction, update_hovered_label).chain())
         .add_systems(
             PostUpdate,
-            place_labels.after(CameraUpdateSystems).before(UiSystems::Prepare),
+            (place_labels, place_river_names).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
         );
     }
 }
@@ -130,6 +185,55 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
                     TextColor(Color::WHITE),
                 ));
             });
+    }
+}
+
+/// Une étiquette par grand lac et par cours d'eau nommé (refaites si la carte change de
+/// monde) ; les plus importants en plus gros.
+fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<RiverName>>) {
+    if !map.is_added() {
+        return;
+    }
+    for e in &old {
+        commands.entity(e).despawn();
+    }
+    let basins = map.0.basins();
+    let rank = |tier: u8, lake: bool, i: usize| tier as usize * 1_000_000 + usize::from(lake) * 500_000 + i;
+    for (i, lake) in basins.lakes.iter().enumerate() {
+        let (size, color, _) = NAME_STYLES[lake.tier as usize];
+        let spots = lake.cells.iter().map(|&c| (map.0.hex_at(c), map.0.hex_at(c))).collect();
+        commands.spawn((
+            RiverName { rank: rank(lake.tier, true, i), tier: lake.tier, spots, ordered: true, feature: Feature::Lake(i) },
+            Node {
+                position_type: PositionType::Absolute,
+                padding: UiRect::axes(Val::Px(7.0), Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(8.0)),
+                ..default()
+            },
+            UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
+            BackgroundColor(LAKE_NAME_BG),
+            GlobalZIndex(-3),
+            Visibility::Hidden,
+            children![(Text::new(lake.name), TextFont::from_font_size(size), TextColor(color))],
+        ));
+    }
+    for (i, river) in basins.rivers.iter().enumerate() {
+        let (size, color, _) = NAME_STYLES[river.tier as usize];
+        let spots = river.spots.iter().map(|&(a, b)| (map.0.hex_at(a), map.0.hex_at(b))).collect();
+        commands.spawn((
+            RiverName { rank: rank(river.tier, false, i), tier: river.tier, spots, ordered: false, feature: Feature::River(i) },
+            Node {
+                position_type: PositionType::Absolute,
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(8.0)),
+                ..default()
+            },
+            UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
+            BackgroundColor(if river.fleuve { RIVER_NAME_BG } else { STREAM_NAME_BG }),
+            GlobalZIndex(-3),
+            Visibility::Hidden,
+            children![(Text::new(river.name), TextFont::from_font_size(size), TextColor(color))],
+        ));
     }
 }
 
@@ -291,7 +395,8 @@ fn place_labels(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     cameras: Query<(&Camera, &Transform, Has<Camera3d>)>,
-    mut labels: Query<(&Anchor, &mut Node, &mut Visibility)>,
+    filter: Res<LabelFilter>,
+    mut labels: Query<(&Anchor, &mut Node, &mut Visibility, Has<CityBanner>), Without<RiverName>>,
 ) {
     let Some((camera, transform, _)) = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active) else {
         return;
@@ -299,14 +404,14 @@ fn place_labels(
     let cam_global = GlobalTransform::from(*transform);
     // Inclinaison de la caméra : écrase verticalement le disque d'un jeton à l'écran
     let tilt = (-transform.forward().y).clamp(0.2, 1.0);
-    for (anchor, mut node, mut vis) in &mut labels {
+    for (anchor, mut node, mut vis, is_city) in &mut labels {
         let world = if mode.is_3d {
             to_3d(anchor.hex, shown_height(&map, &fog, anchor.hex) + anchor.up_3d)
         } else {
             let (x, y) = anchor.hex.to_world();
             Vec3::new(x, y + anchor.up_2d, 0.0)
         };
-        let shown = !anchor.hidden && (mode.is_3d || !anchor.only_3d);
+        let shown = !anchor.hidden && (mode.is_3d || !anchor.only_3d) && (filter.cities || !is_city);
         let mut screen = if shown { camera.world_to_viewport(&cam_global, world).ok() } else { None };
         if anchor.under_token
             && let Some(center) = screen
@@ -331,5 +436,166 @@ fn place_labels(
                 node.top = top;
             }
         }
+    }
+}
+
+/// Rectangle d'une étiquette à l'écran (pixels logiques) : coin haut-gauche et taille.
+#[derive(Clone, Copy)]
+struct ScreenRect {
+    min: Vec2,
+    size: Vec2,
+}
+
+impl ScreenRect {
+    fn overlaps(&self, other: &ScreenRect) -> bool {
+        let (a_max, b_max) = (self.min + self.size, other.min + other.size);
+        self.min.x < b_max.x + LABEL_MARGIN
+            && other.min.x < a_max.x + LABEL_MARGIN
+            && self.min.y < b_max.y + LABEL_MARGIN
+            && other.min.y < a_max.y + LABEL_MARGIN
+    }
+}
+
+/// Taille logique d'un nœud ; avant sa première mise en page, une estimation.
+fn logical_size(computed: &ComputedNode, fallback: Vec2) -> Vec2 {
+    let size = computed.size() * computed.inverse_scale_factor();
+    if size.x > 0.0 { size } else { fallback }
+}
+
+/// Place les noms des cours d'eau, du plus important au moins important : sur l'emplacement
+/// exploré le plus proche du milieu du cours où l'étiquette ne chevauche ni une bannière de ville
+/// ni un nom déjà posé ; sinon le nom est masqué. Les cours d'eau secondaires ne sont nommés que
+/// d'assez près.
+fn place_river_names(
+    mode: Res<ViewMode>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    filter: Res<LabelFilter>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>)>,
+    banners: Query<(&Node, &ComputedNode, &Visibility), (With<CityBanner>, Without<RiverName>)>,
+    mut names: Query<(&RiverName, &mut Node, &mut Visibility, &ComputedNode, &Children)>,
+    texts: Query<&Text>,
+) {
+    let hide = |vis: &mut Visibility| {
+        if *vis != Visibility::Hidden {
+            *vis = Visibility::Hidden;
+        }
+    };
+    let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
+    let Some((camera, transform, _)) = camera else {
+        for (_, _, mut vis, _, _) in &mut names {
+            hide(&mut vis);
+        }
+        return;
+    };
+    let cam_global = GlobalTransform::from(*transform);
+    // Point d'un emplacement : centre de la case, ou milieu de l'arête entre deux cases
+    let world = |(a, b): (Hex, Hex)| {
+        if mode.is_3d {
+            let h = shown_height(&map, &fog, a).max(shown_height(&map, &fog, b)) + 4.0;
+            (to_3d(a, h) + to_3d(b, h)) / 2.0
+        } else {
+            let ((xa, ya), (xb, yb)) = (a.to_world(), b.to_world());
+            Vec3::new((xa + xb) / 2.0, (ya + yb) / 2.0, 0.0)
+        }
+    };
+    // Bannières de villes visibles : déjà placées, elles ont la priorité
+    let mut taken: Vec<ScreenRect> = banners
+        .iter()
+        .filter(|(_, _, vis)| **vis != Visibility::Hidden)
+        .filter_map(|(node, computed, _)| {
+            let (Val::Px(x), Val::Px(y)) = (node.left, node.top) else { return None };
+            let size = logical_size(computed, Vec2::new(90.0, 22.0));
+            // Ancrée au milieu de son bord inférieur
+            Some(ScreenRect { min: Vec2::new(x - size.x / 2.0, y - size.y), size })
+        })
+        .collect();
+    let mut order: Vec<_> = names.iter_mut().collect();
+    order.sort_by_key(|(river, ..)| river.rank);
+    for (river, mut node, mut vis, computed, children) in order {
+        let enabled = match river.feature {
+            Feature::River(_) => filter.rivers,
+            Feature::Lake(_) => filter.lakes,
+        };
+        if !enabled {
+            hide(&mut vis);
+            continue;
+        }
+        let chars = children.first().and_then(|c| texts.get(*c).ok()).map_or(8, |t| t.0.chars().count());
+        let (font, _, min_px) = NAME_STYLES[river.tier as usize];
+        let size = logical_size(computed, Vec2::new(chars as f32 * font * 0.6 + 12.0, font + 4.0));
+        // Emplacements explorés du cours, du plus proche du milieu au plus lointain
+        let mid = river.spots.len() as i32 / 2;
+        let explored = |&(a, b): &(Hex, Hex)| fog.explored.contains(&a) || fog.explored.contains(&b);
+        let mut candidates: Vec<(i32, (Hex, Hex))> = river
+            .spots
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| explored(s))
+            .map(|(i, &s)| (if river.ordered { i as i32 } else { (i as i32 - mid).abs() }, s))
+            .collect();
+        candidates.sort_by_key(|(d, _)| *d);
+        let mut placed = None;
+        for (_, spot) in candidates {
+            let center = world(spot);
+            let Ok(p) = camera.world_to_viewport(&cam_global, center) else { continue };
+            if min_px > 0.0 {
+                // Taille d'une case à l'écran : de loin, les cours d'eau secondaires se taisent
+                let edge = camera.world_to_viewport(&cam_global, center + transform.right() * crate::hex::HEX_SIZE).ok();
+                if edge.is_none_or(|e| e.distance(p) < min_px) {
+                    break;
+                }
+            }
+            let rect = ScreenRect { min: p - size / 2.0, size };
+            if !taken.iter().any(|t| t.overlaps(&rect)) {
+                placed = Some((p, rect));
+                break;
+            }
+        }
+        let Some((p, rect)) = placed else {
+            hide(&mut vis);
+            continue;
+        };
+        taken.push(rect);
+        if *vis != Visibility::Inherited {
+            *vis = Visibility::Inherited;
+        }
+        let (left, top) = (Val::Px(p.x.round()), Val::Px(p.y.round()));
+        if node.left != left || node.top != top {
+            node.left = left;
+            node.top = top;
+        }
+    }
+}
+
+/// Les étiquettes des noms ne réagissent à la souris qu'en mode « survol de l'étiquette » (sinon
+/// elles laisseraient passer le survol de la carte en dessous).
+fn label_interaction(
+    mut commands: Commands,
+    mode: Res<HighlightMode>,
+    names: Query<(Entity, Has<Interaction>), With<RiverName>>,
+    added: Query<(), Added<RiverName>>,
+) {
+    if !mode.is_changed() && added.is_empty() {
+        return;
+    }
+    let wanted = *mode == HighlightMode::OnLabel;
+    for (e, has) in &names {
+        if wanted && !has {
+            commands.entity(e).insert(Interaction::default());
+        } else if !wanted && has {
+            commands.entity(e).remove::<Interaction>();
+        }
+    }
+}
+
+/// Cours d'eau ou lac dont l'étiquette est sous la souris.
+fn update_hovered_label(names: Query<(&RiverName, &Interaction, &Visibility)>, mut hovered: ResMut<HoveredLabel>) {
+    let wanted = names
+        .iter()
+        .find(|(_, i, v)| **i != Interaction::None && **v != Visibility::Hidden)
+        .map(|(n, _, _)| n.feature);
+    if hovered.0 != wanted {
+        hovered.0 = wanted;
     }
 }

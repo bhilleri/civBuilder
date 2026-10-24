@@ -4,23 +4,27 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 mod fonts;
+mod basins;
 mod battle;
 mod climate;
 mod combat;
 mod explore;
 mod game;
 mod hex;
+mod highlight;
 mod hostile;
 mod hydro;
 mod input;
 mod labels;
 mod map;
+mod options;
 mod menu;
 mod pathfinding;
 mod render;
 mod relief;
 mod rules;
 mod sites;
+mod tooltip;
 mod ui;
 mod units;
 mod view3d;
@@ -39,6 +43,6 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins((fonts::FontsPlugin, game::GamePlugin, hostile::HostilePlugin, render::RenderPlugin, input::InputPlugin, ui::UiPlugin, view3d::View3dPlugin, labels::LabelsPlugin, wiki::WikiPlugin, menu::MenuPlugin))
+        .add_plugins((fonts::FontsPlugin, game::GamePlugin, hostile::HostilePlugin, render::RenderPlugin, input::InputPlugin, ui::UiPlugin, view3d::View3dPlugin, labels::LabelsPlugin, highlight::HighlightPlugin, options::OptionsPlugin, wiki::WikiPlugin, menu::MenuPlugin))
         .run();
 }

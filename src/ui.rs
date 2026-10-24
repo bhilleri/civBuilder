@@ -3,7 +3,10 @@
 use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, Selection, Unit};
 use crate::input::{HoverPath, HoveredHex, OrderPath};
 use crate::rules::{self, UnitKind};
-use crate::render::{CLIMATE_COAST, CLIMATE_OCEAN, MapLayer, TOPO_COAST, TOPO_LEVELS, TOPO_OCEAN, TOPO_SUMMIT, rain_color};
+use crate::render::{
+    BASIN_MUTED, CLIMATE_COAST, CLIMATE_OCEAN, HYDRO_LAKE, HYDRO_OCEAN, MapLayer, TOPO_COAST, TOPO_LEVELS, TOPO_OCEAN, TOPO_SUMMIT,
+    basin_color, flow_color, rain_color,
+};
 use bevy::prelude::*;
 
 #[derive(Component)]
@@ -28,13 +31,12 @@ struct MapLayerMenu;
 /// Option du menu de carte.
 #[derive(Component)]
 struct MapLayerOption(MapLayer);
-/// Légende de la carte topographique.
+/// Légende d'une carte (affichée avec elle).
 #[derive(Component)]
-struct TopoLegend;
-
-/// Légende de la carte du climat.
+struct Legend(MapLayer);
+/// Lignes de la légende des bassins : les grands bassins découverts.
 #[derive(Component)]
-struct ClimateLegend;
+struct BasinLegendRows;
 /// Panneau de production (visible quand une ville est sélectionnée).
 #[derive(Component)]
 struct ProductionPanel;
@@ -67,6 +69,7 @@ impl Plugin for UiPlugin {
                     update_selection_panel,
                     update_hover_text,
                     update_log,
+                    update_basin_legend,
                 ),
             );
     }
@@ -170,6 +173,9 @@ fn setup_ui(mut commands: Commands) {
             ),
             topo_legend(),
             climate_legend(),
+            basin_legend(),
+            flow_legend(),
+            network_legend(),
             (
                 MapLayerMenu,
                 panel(Node {
@@ -183,6 +189,9 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Normal, "Carte normale"),
                     map_option(MapLayer::Relief, "Carte du relief"),
                     map_option(MapLayer::Climate, "Carte du climat"),
+                    map_option(MapLayer::Basins, "Carte des bassins versants"),
+                    map_option(MapLayer::Flow, "Carte des débits"),
+                    map_option(MapLayer::Network, "Carte du réseau hydrographique"),
                 ],
             ),
             (
@@ -206,6 +215,17 @@ fn setup_ui(mut commands: Commands) {
                 },
                 BackgroundColor(PRODUCE_BG),
                 children![text("Carte : normale (T)", 16.0)],
+            ),
+            (
+                crate::options::OptionsButton,
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
+                    ..default()
+                },
+                BackgroundColor(PRODUCE_BG),
+                children![text("Options de carte (O)", 16.0)],
             ),
             (
                 ViewToggleButton,
@@ -272,7 +292,7 @@ fn legend_row((r, g, b): (f32, f32, f32), label: String) -> impl Bundle {
 /// Légende de la carte du climat : précipitations et vents.
 fn climate_legend() -> impl Bundle {
     (
-        ClimateLegend,
+        Legend(MapLayer::Climate),
         panel(Node {
             flex_direction: FlexDirection::Column,
             row_gap: Val::Px(3.0),
@@ -315,7 +335,7 @@ fn topo_legend() -> impl Bundle {
     };
     let levels: Vec<String> = (1..=crate::map::MAX_LEVEL).map(|l| format!("{l} — {}", crate::map::level_name(l))).collect();
     (
-        TopoLegend,
+        Legend(MapLayer::Relief),
         panel(Node {
             flex_direction: FlexDirection::Column,
             row_gap: Val::Px(3.0),
@@ -338,16 +358,136 @@ fn topo_legend() -> impl Bundle {
     )
 }
 
+/// Légende de la carte des bassins versants : les grands bassins découverts (mis à jour avec
+/// l'exploration), puis les petits bassins et l'eau.
+fn basin_legend() -> impl Bundle {
+    (
+        Legend(MapLayer::Basins),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(320.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Bassins versants", 14.0)),
+            Spawn((BasinLegendRows, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), ..default() })),
+            Spawn(legend_row(BASIN_MUTED[1], "Petits bassins (côtiers ou fermés)".into())),
+            Spawn(legend_row(HYDRO_LAKE, "Lac".into())),
+            Spawn(legend_row(HYDRO_OCEAN, "Mer".into())),
+            Spawn(text("Une couleur : toute l'eau qui y tombe rejoint la même sortie", 12.0)),
+        )),
+    )
+}
+
+/// Nombre de grands bassins listés dans la légende.
+const BASIN_LEGEND_ROWS: usize = 10;
+
+/// Grands bassins découverts dans la légende : nom du fleuve principal et étendue.
+fn update_basin_legend(
+    mut commands: Commands,
+    layer: Res<MapLayer>,
+    map: Res<GameMap>,
+    fog: Res<crate::game::ShownFog>,
+    rows: Single<(Entity, Option<&Children>), With<BasinLegendRows>>,
+) {
+    if *layer != MapLayer::Basins || !(layer.is_changed() || fog.is_changed()) {
+        return;
+    }
+    let basins = map.0.basins();
+    let mut found: Vec<usize> = fog
+        .explored
+        .iter()
+        .filter_map(|&h| map.0.contains(h).then(|| basins.basin_of[map.0.cell(h)]).flatten())
+        .map(|b| b as usize)
+        .filter(|&b| basins.basins[b].major())
+        .collect();
+    found.sort_unstable();
+    found.dedup();
+    found.sort_by_key(|&b| std::cmp::Reverse(basins.basins[b].cells));
+    let (entity, children) = *rows;
+    for &child in children.into_iter().flatten() {
+        commands.entity(child).despawn();
+    }
+    if found.is_empty() {
+        commands.entity(entity).with_child(text("Aucun grand bassin découvert", 12.0));
+    }
+    for &b in found.iter().take(BASIN_LEGEND_ROWS) {
+        let basin = &basins.basins[b];
+        let name = basins.basin_name(basin).unwrap_or("?");
+        commands.entity(entity).with_child(legend_row(basin_color(basin.color), format!("{name} ({} cases)", basin.cells)));
+    }
+    if found.len() > BASIN_LEGEND_ROWS {
+        commands.entity(entity).with_child(text(&format!("… et {} autres", found.len() - BASIN_LEGEND_ROWS), 12.0));
+    }
+}
+
+/// Légende de la carte des débits.
+fn flow_legend() -> impl Bundle {
+    use crate::hydro::{FLEUVE_M3S, RIVER_M3S};
+    (
+        Legend(MapLayer::Flow),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Débit qui traverse la case", 14.0)),
+            Spawn(legend_row(flow_color(50_000.0), "50 000 m³/s et plus".into())),
+            Spawn(legend_row(flow_color(10_000.0), "10 000 m³/s".into())),
+            Spawn(legend_row(flow_color(FLEUVE_M3S), format!("{} m³/s : fleuve", round_flow(FLEUVE_M3S)))),
+            Spawn(legend_row(flow_color(1_000.0), "1 000 m³/s".into())),
+            Spawn(legend_row(flow_color(RIVER_M3S), format!("{} m³/s : rivière", round_flow(RIVER_M3S)))),
+            Spawn(legend_row(flow_color(10.0), "10 m³/s et moins".into())),
+            Spawn(legend_row(HYDRO_LAKE, "Lac".into())),
+            Spawn(legend_row(HYDRO_OCEAN, "Mer".into())),
+            Spawn(text("Repères : Charente 100, Rhône 1 700, Congo 41 000", 12.0)),
+        )),
+    )
+}
+
+/// Légende de la carte du réseau hydrographique.
+fn network_legend() -> impl Bundle {
+    use crate::highlight::LEVEL_COLORS;
+    use crate::render::{NETWORK_LAKE, NETWORK_OCEAN};
+    (
+        Legend(MapLayer::Network),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(320.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Rang par rapport au déversoir", 14.0)),
+            Spawn(legend_row(LEVEL_COLORS[0], "Se jette dans la mer (ou un lac salé, une mer intérieure)".into())),
+            Spawn(legend_row(LEVEL_COLORS[1], "Affluent".into())),
+            Spawn(legend_row(LEVEL_COLORS[2], "Affluent d'un affluent".into())),
+            Spawn(legend_row(LEVEL_COLORS[3], "3e rang".into())),
+            Spawn(legend_row(LEVEL_COLORS[4], "4e rang et au-delà".into())),
+            Spawn(legend_row(NETWORK_LAKE, "Lac (rang du cours qui en sort)".into())),
+            Spawn(legend_row(NETWORK_OCEAN, "Mer".into())),
+            Spawn(text("Traits épais : fleuves ; fins : rivières ; chevrons : sens du courant", 12.0)),
+        )),
+    )
+}
+
 /// Choix de la carte : le bouton ouvre ou ferme le menu, une option change la carte (T : bascule
-/// directe) ; la légende du relief n'apparaît qu'avec la carte du relief.
+/// directe) ; chaque légende n'apparaît qu'avec sa carte.
 fn map_layer_controls(
     keys: Res<ButtonInput<KeyCode>>,
     mut layer: ResMut<MapLayer>,
     mut button: Query<(Ref<Interaction>, &mut BackgroundColor, &Children), (With<MapLayerButton>, Without<MapLayerOption>)>,
     mut options: Query<(Ref<Interaction>, &MapLayerOption, &mut BackgroundColor), Without<MapLayerButton>>,
-    mut menu: Single<&mut Node, (With<MapLayerMenu>, Without<TopoLegend>, Without<ClimateLegend>)>,
-    mut legend: Single<&mut Node, (With<TopoLegend>, Without<MapLayerMenu>, Without<ClimateLegend>)>,
-    mut climate_legend: Single<&mut Node, (With<ClimateLegend>, Without<MapLayerMenu>, Without<TopoLegend>)>,
+    mut menu: Single<&mut Node, (With<MapLayerMenu>, Without<Legend>)>,
+    mut legends: Query<(&Legend, &mut Node), Without<MapLayerMenu>>,
     mut texts: Query<&mut Text>,
 ) {
     if keys.just_pressed(KeyCode::KeyT) {
@@ -362,15 +502,11 @@ fn map_layer_controls(
         if bg.0 != color {
             bg.0 = color;
         }
-        let label = match *layer {
-            MapLayer::Normal => "Carte : normale (T)",
-            MapLayer::Relief => "Carte : relief (T)",
-            MapLayer::Climate => "Carte : climat (T)",
-        };
+        let label = format!("Carte : {} (T)", layer.short_name());
         if let Some(mut t) = children.first().and_then(|c| texts.get_mut(*c).ok())
             && t.0 != label
         {
-            t.0 = label.to_string();
+            t.0 = label;
         }
     }
     for (interaction, option, mut bg) in &mut options {
@@ -395,13 +531,11 @@ fn map_layer_controls(
     if menu.display != menu_display {
         menu.display = menu_display;
     }
-    let legend_display = if *layer == MapLayer::Relief { Display::Flex } else { Display::None };
-    if legend.display != legend_display {
-        legend.display = legend_display;
-    }
-    let climate_display = if *layer == MapLayer::Climate { Display::Flex } else { Display::None };
-    if climate_legend.display != climate_display {
-        climate_legend.display = climate_display;
+    for (legend, mut node) in &mut legends {
+        let display = if *layer == legend.0 { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 
@@ -665,25 +799,88 @@ fn update_hover_text(
     camps: Query<&crate::game::HexPos, With<crate::hostile::Camp>>,
     hostiles: Query<(&Unit, &crate::game::HexPos), With<crate::hostile::Hostile>>,
     attack: Res<crate::input::AttackPreview>,
+    layer: Res<MapLayer>,
+    feature: Res<crate::highlight::HoveredFeature>,
+    config: Res<crate::tooltip::TooltipConfig>,
     mut text: Single<&mut Text, With<HoverText>>,
 ) {
+    use crate::tooltip::Info;
+    let shows = |info: Info| config.shows(*layer, info);
     let mut content = match hovered.0 {
         Some(h) if fog.explored.contains(&h) => {
             use crate::map::MoveCosts;
-            let y = map.0.yields(h).unwrap_or_default();
-            let moves = map.0.move_cost(h).map(|c| format!("{c} PM")).unwrap_or_else(|| "infranchissable".into());
-            let altitude = match map.0.level(h).unwrap_or(0) {
-                0 => String::new(),
-                l => format!(" (niveau {l}, {})", crate::map::level_name(l)),
+            let m = &map.0;
+            // Terrain et climat
+            let mut place = Vec::new();
+            let level = m.level(h).unwrap_or(0);
+            let altitude = (shows(Info::Altitude) && level > 0).then(|| format!("niveau {level}, {}", crate::map::level_name(level)));
+            // Lac ou mer intérieure nommés : leur nom et leur nature plutôt que « Lac » ou « Océan »
+            let terrain = match m.contains(h).then(|| m.basins().lake(m.cell(h))).flatten() {
+                Some(body) => format!("{} ({})", body.name, body.kind.short()),
+                None => m.describe(h),
             };
-            let name = map.0.describe(h);
-            let climate = map.0.climate_name(h).map(|c| format!(", climat {c}")).unwrap_or_default();
-            let mut line =
-                format!("{name}{altitude}{climate} — nourriture {}, production {}, or {} — {}", y.food, y.production, y.gold, moves);
-            line += &water_note(&map.0, h);
-            line
+            match (shows(Info::Terrain), altitude) {
+                (true, Some(a)) => place.push(format!("{terrain} ({a})")),
+                (true, None) => place.push(terrain),
+                (false, Some(a)) => place.push(format!("Altitude : {a}")),
+                (false, None) => {}
+            }
+            let land = m.get(h).is_some_and(|t| !t.is_water());
+            if land {
+                if shows(Info::Climate)
+                    && let Some(zone) = m.climate_zone(h)
+                {
+                    place.push(format!("climat {zone}"));
+                }
+                if shows(Info::Temperature)
+                    && let Some(t) = m.temperature(h)
+                {
+                    place.push(format!("{t:.0} °C"));
+                }
+                if shows(Info::Rain)
+                    && let Some(r) = m.rain(h)
+                {
+                    place.push(format!("{:.0} mm/an", (r / 10.0).round() * 10.0));
+                }
+            }
+            if shows(Info::Latitude) {
+                let lat = m.latitude(h);
+                place.push(format!("{:.0}°{}", lat.abs(), if lat >= 0.0 { "N" } else { "S" }));
+            }
+            let mut parts = Vec::new();
+            if !place.is_empty() {
+                parts.push(place.join(", "));
+            }
+            if shows(Info::Yields) {
+                let y = m.yields(h).unwrap_or_default();
+                parts.push(format!("nourriture {}, production {}, or {}", y.food, y.production, y.gold));
+            }
+            if shows(Info::Moves) {
+                parts.push(m.move_cost(h).map(|c| format!("{c} PM")).unwrap_or_else(|| "infranchissable".into()));
+            }
+            let mut line = parts.join(" — ");
+            if shows(Info::Waterways) {
+                line += &water_note(m, h);
+            }
+            if shows(Info::Lake)
+                && let Some(lake) = m.contains(h).then(|| m.basins().lake(m.cell(h))).flatten()
+            {
+                line += &format!("\n{} : {}, {} cases", lake.name, lake.kind.describe(), lake.cells.len());
+            }
+            if shows(Info::Discharge) && m.discharge(h) > 0.0 {
+                line += &format!("\nDébit qui traverse la case : ≈ {} m³/s", round_flow(m.discharge(h)));
+            }
+            if shows(Info::Basin) {
+                line += &basin_note(m, h);
+            }
+            if shows(Info::Network) {
+                line += &network_note(m, &fog, feature.0);
+            }
+            line.trim_start_matches('\n').to_string()
         }
         Some(_) => "Inexploré (terrain inconnu, supposé franchissable : 2 PM)".into(),
+        // Survol d'une étiquette : l'élément nommé et son réseau
+        None if feature.0.is_some() => network_note(&map.0, &fog, feature.0).trim_start_matches('\n').to_string(),
         None => "—".into(),
     };
     if let Some(h) = hovered.0 {
@@ -761,14 +958,21 @@ fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
     let flow = |q: f32| format!("≈ {} m³/s", round_flow(q));
     let mut note = String::new();
     if map.is_fleuve(h) {
+        let name = map.named_river(h).map(|r| format!(" {}", r.name)).unwrap_or_default();
         note += &format!(
-            "\nFleuve ({}) : une unité à pied y entre à gué ou en barque ({FLEUVE_MOVE_COST} PM) ; pas de ville dans son lit",
+            "\nFleuve{name} ({}) : une unité à pied y entre à gué ou en barque ({FLEUVE_MOVE_COST} PM) ; pas de ville dans son lit",
             flow(map.discharge(h))
         );
     }
     let rivers: Vec<(usize, f32)> = (0..6).map(|d| (d, map.river_flow(h, d))).filter(|(_, q)| *q > 0.0).collect();
     if !rivers.is_empty() {
-        let sides: Vec<String> = rivers.iter().map(|&(d, q)| format!("{} ({})", SIDES[d], flow(q))).collect();
+        let sides: Vec<String> = rivers
+            .iter()
+            .map(|&(d, q)| match map.contains(h).then(|| map.basins().river_on_edge(map.cell(h), d)).flatten() {
+                Some(r) => format!("{} ({}, {})", SIDES[d], r.name, flow(q)),
+                None => format!("{} ({})", SIDES[d], flow(q)),
+            })
+            .collect();
         note += &format!("\nRivière {} : la traverser coûte +{RIVER_CROSSING_COST} PM", sides.join(", "));
     }
     if map.small_lake(h) {
@@ -777,6 +981,55 @@ fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
     let t = map.get(h);
     if !map.is_fleuve(h) && t.is_some_and(|t| !t.is_water() && t != Terrain::Mountains) && map.fresh_water(h) {
         note += &format!(" — eau douce : +{FRESH_WATER_FOOD} nourriture");
+    }
+    note
+}
+
+/// Élément surligné (cours d'eau ou lac) : où il se jette, ses affluents directs et le nombre
+/// d'affluents plus lointains (connus seulement).
+fn network_note(map: &crate::map::WorldMap, fog: &crate::game::ShownFog, feature: Option<crate::highlight::Feature>) -> String {
+    use crate::highlight::{Feature, known, network};
+    let Some(main) = feature else { return String::new() };
+    let basins = map.basins();
+    let net = network(basins, main);
+    let mut note = format!("\nEn rouge : {}", main.name(basins));
+    if let Some(r) = net.receiver.filter(|&r| known(map, fog, r)) {
+        let verb = if matches!(main, Feature::Lake(_)) { "se déverse dans" } else { "se jette dans" };
+        note += &format!(" — {verb} : {} (en bleu)", r.name(basins));
+    }
+    let direct: Vec<&str> = net.direct.iter().filter(|&&f| known(map, fog, f)).map(|f| f.name(basins)).collect();
+    if !direct.is_empty() {
+        note += &format!(" — affluents (en orange) : {}", direct.join(", "));
+    }
+    let after: Vec<&str> = net.downstream.iter().filter(|&&f| known(map, fog, f)).map(|f| f.name(basins)).collect();
+    if !after.is_empty() {
+        note += &format!(" — puis : {} (en violet)", after.join(" → "));
+    }
+    let deeper = net.deeper.iter().filter(|&&f| known(map, fog, f)).count();
+    if deeper > 0 {
+        note += &format!(" — et {deeper} plus en amont (en jaune)");
+    }
+    note
+}
+
+/// Bassin versant d'une case pour le survol.
+fn basin_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
+    let Some(basin) = map.basin(h) else { return String::new() };
+    let basins = map.basins();
+    let kind = match (basin.lake, basin.river) {
+        (Some(l), _) => {
+            let lake = &basins.lakes[l];
+            format!("Bassin fermé : l'eau finit dans {} ({})", lake.name, lake.kind.short())
+        }
+        (None, Some(r)) => format!("Bassin versant du fleuve {}", basins.rivers[r].name),
+        _ if basin.closed => "Bassin fermé (l'eau finit dans un lac sans issue)".to_string(),
+        _ => "Petit bassin côtier".to_string(),
+    };
+    let mut note = format!("\n{kind} : {} cases, ≈ {} m³/s à sa sortie", basin.cells, round_flow(basin.outflow));
+    if let Some(other) = map.contains(h).then(|| basins.basin_also[map.cell(h)]).flatten() {
+        let other = &basins.basins[other as usize];
+        let name = basins.basin_name(other).map_or_else(|| "un petit bassin voisin".to_string(), |n| format!("le bassin : {n}"));
+        note += &format!(" ; dessert aussi {name} (hachures)");
     }
     note
 }

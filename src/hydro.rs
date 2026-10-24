@@ -80,6 +80,20 @@ pub struct HydroInput<'a> {
     pub aridity: &'a [f32],
 }
 
+/// Tronçon de rivière sur une arête : l'arête `dir` de la case `cell`, parcourue du coin `up`
+/// au coin `down` (identifiants de coins propres à la carte), avec son débit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RiverSegment {
+    pub cell: u32,
+    pub dir: u8,
+    pub up: u32,
+    pub down: u32,
+    /// Coin aval, numéroté dans la case `cell` (0 à 5 ; le coin j est commun à la case et à ses
+    /// voisines des directions j−1 et j) ; le coin amont est l'autre bout de l'arête.
+    pub down_corner: u8,
+    pub flow: f32,
+}
+
 /// Résultat, une valeur par case.
 #[derive(Clone, Debug, Default)]
 pub struct Hydrology {
@@ -100,6 +114,13 @@ pub struct Hydrology {
     pub fleuve_links: Vec<u8>,
     /// Débit de la rivière sur chaque arête (m³/s, 0 sans rivière), le même vu des deux cases.
     pub edge_flow: Vec<[f32; 6]>,
+    /// Tronçons de rivière d'arête, avec leur sens (coins amont et aval).
+    pub river_segments: Vec<RiverSegment>,
+    /// Pour chaque coin de chaque case : le coin exutoire où finit l'eau qui en part en suivant
+    /// les coins (au bord d'un fleuve, d'un lac, de la mer, ou au fond d'une cuvette).
+    pub corner_outlet: Vec<[u32; 6]>,
+    /// Cases autour de chaque coin (`u32::MAX` hors de la carte).
+    pub corner_cells: Vec<[u32; 3]>,
     /// Bilan (m³/s) : ruissellement total, eau arrivée à la mer, évaporée par les lacs,
     /// perdue dans les lits (contrôle de la conservation).
     pub total_runoff: f32,
@@ -120,6 +141,8 @@ impl Hydrology {
             downstream: vec![None; n],
             fleuve_links: vec![0; n],
             edge_flow: vec![[0.0; 6]; n],
+            corner_outlet: vec![[u32::MAX; 6]; n],
+            corner_cells: Vec::new(),
             ..Default::default()
         }
     }
@@ -586,8 +609,21 @@ fn edge_rivers(input: &HydroInput, grid: Grid, out: &mut Hydrology, pools: &[Poo
         if flow >= RIVER_M3S && basin[c] >= RIVER_MIN_BASIN_CELLS && plain(cell) && plain(j) {
             out.edge_flow[cell][d as usize] = flow;
             out.edge_flow[j][(d as usize + 3) % 6] = flow;
+            let down_corner = if corner_of[cell][d as usize] == r { d } else { (d + 1) % 6 };
+            out.river_segments.push(RiverSegment { cell: cell as u32, dir: d, up: c as u32, down: r as u32, down_corner, flow });
         }
     }
+
+    // Où finit l'eau de chaque coin : son coin exutoire (en suivant les receveurs, depuis les
+    // exutoires dans l'ordre du remplissage), puis la case qui le représente
+    let mut sink_of: Vec<usize> = (0..m).collect();
+    for &c in &order {
+        if let Some((r, _, _)) = receiver[c] {
+            sink_of[c] = sink_of[r];
+        }
+    }
+    out.corner_outlet = (0..n).map(|i| std::array::from_fn(|j| sink_of[corner_of[i][j]] as u32)).collect();
+    out.corner_cells = corners.iter().map(|c| c.map(|h| cell_index(h).map_or(u32::MAX, |i| i as u32))).collect();
 }
 
 #[cfg(test)]

@@ -120,6 +120,38 @@ fn waters() -> Article {
             p("Dans les régions arides, le lit des rivières perd de l'eau en s'infiltrant dans le sol. Cette perte \
                augmente avec la largeur du lit, donc beaucoup moins vite que le débit : les petits cours d'eau se \
                perdent dans le désert (oueds), les grands fleuves le traversent en s'affaiblissant, comme le Nil."),
+            h("Bassins versants et noms"),
+            p("Un bassin versant réunit toutes les cases dont l'eau aboutit au même endroit : l'embouchure d'un \
+               fleuve, une petite côte, ou un lac sans issue (bassin fermé). Les lignes de partage des eaux sont les \
+               limites entre bassins. La carte des bassins versants donne une couleur à chaque bassin (couleurs vives \
+               pour les grands, teintes grises pour les petits) ; la carte des débits colore chaque case selon l'eau \
+               qui la traverse, des sources aux embouchures. Une case hachurée dessert deux bassins : la moitié de \
+               ses coins envoie l'eau, par les rivières, vers le bassin dont les hachures ont la couleur. La carte du réseau hydrographique trace tous les cours d'eau \
+               et lacs connus, colorés selon leur rang par rapport à leur déversoir : bleu nuit pour ceux qui se jettent \
+               dans la mer (ou un lac salé, une mer intérieure), puis bleu, turquoise, vert et olive pour les affluents \
+               de plus en plus lointains ; le principal cours qui entre dans un lac garde le rang du lac. Des chevrons \
+               y montrent le sens du courant."),
+            p(format!(
+                "Les fleuves portent le nom d'un grand fleuve réel qui coule à une latitude voisine : les plus \
+                 abondants reçoivent les plus grands noms (Amazone sous l'équateur, Mississippi ou Danube aux latitudes \
+                 moyennes, Ienisseï ou Léna dans le Grand Nord). Chaque affluent porte son propre nom (un long affluent \
+                 compte au moins {} cases de fleuve), et les rivières prennent des noms de rivières réelles plus modestes \
+                 (Garonne, Tage, Ohio…) ; un nom peut resservir loin de son premier emploi. Le nom apparaît sur la carte une fois une partie de son cours découverte, près de son \
+                 milieu ; de loin, seuls les grands fleuves sont nommés (en plus gros), les longs affluents apparaissent \
+                 en s'approchant, toutes les rivières en zoom fin, et un nom qui en chevaucherait un plus important est décalé le long du cours ou masqué.",
+                crate::basins::MIN_NAMED_CELLS
+            )),
+            p("Un fleuve garde son nom de l'embouchure à sa source, à travers les petits lacs d'une ou deux cases ; ses \
+               petits bras portent le nom du cours où ils se jettent. Les étendues d'eau portent le nom d'une étendue \
+               réelle de latitude voisine, selon leur nature : un lac d'eau douce se déverse dans un cours d'eau (lac \
+               Supérieur, Victoria, Baïkal…) ; un lac salé n'a pas d'issue, l'eau s'en évapore (lac Tchad, Grand Lac \
+               Salé…) ; une mer intérieure est une étendue de mer enclavée dans les terres (mer Caspienne, mer d'Aral…). \
+               Un fleuve presque entouré par un lac en fait partie, et un petit lac qu'un fleuve traverse porte le nom du \
+               fleuve. Survoler un cours d'eau ou un \
+               lac le trace en rouge, ses affluents en orange, les affluents de ses affluents (de proche en proche) en \
+               jaune, le cours d'eau ou le lac où il se jette en bleu, et la suite du chemin de l'eau jusqu'à la mer en \
+               violet ; \
+               les tracés sont reliés aux confluents, et des chevrons qui descendent le courant en montrent le sens."),
             h("Effets en jeu"),
             p(format!(
                 "Traverser une rivière coûte +{RIVER_CROSSING_COST} PM, ce qui arrête la plupart des unités sur \
@@ -282,9 +314,14 @@ fn terrain() -> Article {
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \
                la cavalerie légère et l'archer monté)."),
             h("Cartes et vues"),
-            p("Le bouton « Carte » (touche T) choisit la carte normale ou la carte du relief, où chaque case prend \
-               la couleur de son niveau d'altitude. Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie \
-               s'applique aux deux vues."),
+            p("Le bouton « Carte » (touche T) choisit la carte : normale, du relief (chaque case prend la couleur de \
+               son niveau d'altitude), du climat (pluies et vents), des bassins versants, des débits des cours d'eau ou du réseau hydrographique. \
+               Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. Le bouton \
+               « Options de carte » (touche O) règle les noms affichés (cours d'eau, lacs, villes ; la touche N les \
+               masque ou les remet tous), la surbrillance des cours d'eau (au survol du cours d'eau, au survol de son \
+               étiquette, ou aucune) et les rubriques de l'infobulle, pour chaque carte : par défaut le terrain, le \
+               climat, les rendements et le coût de déplacement, plus ce qui concerne la carte affichée (débit sur la \
+               carte des débits, bassin et affluents sur celle des bassins versants…)."),
         ],
     }
 }

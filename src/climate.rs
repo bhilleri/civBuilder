@@ -95,6 +95,12 @@ const LARGE_SCALE_W: f32 = 0.003;
 const STORM_W: f32 = 0.004;
 /// Vitesse verticale de la convection pleinement développée (m/s).
 const CONVECTION_W: f32 = 0.004;
+/// Effet de lac : l'air qui passe sur un lac s'y charge d'humidité et s'élève au-dessus du lac et
+/// sur la rive sous le vent (brise de lac, air réchauffé par l'eau). Vitesse verticale ajoutée sur
+/// le lac et sur la rive juste sous le vent (m/s), décroissant jusqu'à `LAKE_EFFECT_KM`. Réglage
+/// simplifié, faute de saisons : étouffé comme la convection sous le couvercle des anticyclones.
+const LAKE_EFFECT_W: f32 = 0.003;
+const LAKE_EFFECT_KM: f32 = 130.0;
 /// Part de l'eau condensée dans l'air soulevé qui précipite, dans un air sec puis dans un air
 /// saturé : le reste s'évapore en altitude (enclumes des orages). Un air humide perd moins de
 /// gouttes en route, d'où un meilleur rendement.
@@ -157,6 +163,10 @@ pub enum Surface {
     Water,
     /// Terre, avec son altitude en mètres.
     Land(f32),
+    /// Lac (eau libre à l'intérieur des terres), avec l'altitude de sa surface en mètres : il
+    /// évapore comme la mer et humidifie l'air, mais compte comme de la terre pour les courants
+    /// marins, la continentalité et le relief vu par l'air.
+    Lake(f32),
 }
 
 /// Une période simulée. `sun_lat` : latitude (signée, -1 à 1) où le soleil est au zénith ;
@@ -679,14 +689,16 @@ pub fn simulate_periods(
     let steps = |days: f32| (days / dt_days).ceil() as usize;
     let n = grid.lat.len();
     assert_eq!(surface.len(), n);
-    let is_land = |i: usize| matches!(surface[i], Surface::Land(_));
+    let is_land = |i: usize| matches!(surface[i], Surface::Land(_) | Surface::Lake(_));
+    // Sol (réservoir d'eau, ruissellement) : la terre ; la mer et les lacs évaporent librement
+    let has_soil = |i: usize| matches!(surface[i], Surface::Land(_));
     // Altitude réelle du sol, et relief « vu par l'air » : l'écoulement épouse un relief lissé sur
     // quelques dizaines de km et contourne en partie les sommets isolés
     let elevation: Vec<f32> = surface
         .iter()
         .map(|s| match s {
             Surface::Water => 0.0,
-            Surface::Land(z) => *z,
+            Surface::Land(z) | Surface::Lake(z) => *z,
         })
         .collect();
     let smoothing = grid.cells(AIRFLOW_SMOOTHING_KM, 0);
@@ -740,10 +752,40 @@ pub fn simulate_periods(
     let land_share = share_within(MARITIME_RADIUS_KM);
 
     let mixing: Vec<f32> = (0..n).map(|i| grid.mixing(i)).collect();
+    // Effet de lac : pour chaque case proche d'un lac, distance et direction depuis le lac le plus
+    // proche
+    let lake_effect: Vec<(f32, f32, f32)> = {
+        let reach = grid.cells(LAKE_EFFECT_KM, 1);
+        let mut best: Vec<Option<(i32, usize)>> = vec![None; n];
+        for k in (0..n).filter(|&k| matches!(surface[k], Surface::Lake(_))) {
+            for h in grid.hexes[k].range(reach) {
+                if let Some(j) = grid.index(h) {
+                    let d = grid.hexes[k].distance(h);
+                    if best[j].is_none_or(|(bd, _)| d < bd) {
+                        best[j] = Some((d, k));
+                    }
+                }
+            }
+        }
+        (0..n)
+            .map(|i| match best[i] {
+                None => (0.0, 0.0, 0.0),
+                Some(_) if matches!(surface[i], Surface::Lake(_)) => (0.5, 0.0, 0.0),
+                Some(_) if !is_land(i) => (0.0, 0.0, 0.0),
+                Some((d, k)) => {
+                    let ((x0, y0), (x1, y1)) = (grid.hexes[k].to_world(), grid.hexes[i].to_world());
+                    let (dx, dy) = (x1 - x0, y1 - y0);
+                    let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+                    let f = 1.0 - (d - 1) as f32 / reach.max(1) as f32;
+                    (f.clamp(0.0, 1.0), dx / len, dy / len)
+                }
+            })
+            .collect()
+    };
     // État de chaque case, conservé d'une période à l'autre
     let mut cells: Vec<CellState> = (0..n)
         .map(|i| CellState {
-            soil: if is_land(i) { SOIL_CAPACITY / SOIL_SPIN_UP_SPEED * 0.5 } else { 0.0 },
+            soil: if has_soil(i) { SOIL_CAPACITY / SOIL_SPIN_UP_SPEED * 0.5 } else { 0.0 },
             rh_mean: 0.6,
             ..CellState::default()
         })
@@ -771,7 +813,8 @@ pub fn simulate_periods(
                 // Température au sol réel (sommet plus froid que le relief lissé)
                 let t_ground = t_surface - LAPSE * (elevation[i] - ground[i]);
                 CellConst {
-                    land: is_land(i),
+                    land: has_soil(i),
+                    lake_effect: lake_effect[i],
                     t_surface,
                     t_ground,
                     m_low,
@@ -897,6 +940,9 @@ pub fn simulate_periods(
 #[derive(Clone, Copy, Debug, Default)]
 struct CellConst {
     land: bool,
+    /// Effet de lac : intensité (0 à 1) et direction (unitaire) du lac le plus proche vers la case ;
+    /// direction nulle sur le lac lui-même (effet quel que soit le vent).
+    lake_effect: (f32, f32, f32),
     t_surface: f32,
     t_ground: f32,
     m_low: f32,
@@ -990,7 +1036,17 @@ fn column_step(
     // basse, qui suit le sol et se refroidit avec l'altitude (voir plus bas).
     // Montée profonde (fronts, convection, ascendance hors couvercle) et montée peu profonde
     // (convergence sous le couvercle d'un anticyclone : cumulus bas)
-    let w_deep = rising_large * lid + CONVECTION_W * unstable * lid + c.storms;
+    // Effet de lac : sur le lac, et sur la rive vers laquelle souffle le vent
+    let lake_w = match c.lake_effect {
+        (f, _, _) if f <= 0.0 => 0.0,
+        (f, 0.0, 0.0) => LAKE_EFFECT_W * f,
+        (f, dx, dy) => {
+            let (wx, wy) = r.surface[i];
+            let speed = (wx * wx + wy * wy).sqrt().max(1e-6);
+            LAKE_EFFECT_W * f * ((dx * wx + dy * wy) / speed).max(0.0)
+        }
+    };
+    let w_deep = rising_large * lid + CONVECTION_W * unstable * lid + lake_w * lid + c.storms;
     let w_shallow = rising_large * (1.0 - lid);
     let w_up = w_deep + w_shallow;
     let lifted = (w_deep * dt / LOW_DEPTH).min(0.3);

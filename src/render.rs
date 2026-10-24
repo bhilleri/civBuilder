@@ -16,6 +16,8 @@ use std::collections::{HashMap, HashSet};
 
 const Z_TILE: f32 = 0.0;
 const Z_HILLS: f32 = 0.3;
+/// Hachures des cases partagées entre deux bassins (carte des bassins versants).
+const Z_HATCH: f32 = 0.35;
 const Z_WATER: f32 = 0.4;
 const Z_SLOPE: f32 = 0.5;
 const Z_REACH: f32 = 1.0;
@@ -111,6 +113,11 @@ struct Palette {
     /// Carte du climat : teintes de précipitations, puis eau profonde et eau côtière.
     climate: Vec<Handle<ColorMaterial>>,
     climate_dim: Vec<Handle<ColorMaterial>>,
+    /// Cartes des bassins et des débits : teintes (voir `hydro_index`).
+    basins: Vec<Handle<ColorMaterial>>,
+    basins_dim: Vec<Handle<ColorMaterial>>,
+    flow: Vec<Handle<ColorMaterial>>,
+    flow_dim: Vec<Handle<ColorMaterial>>,
     unexplored: Handle<ColorMaterial>,
     unit: Handle<ColorMaterial>,
     hostile_unit: Handle<ColorMaterial>,
@@ -132,18 +139,38 @@ struct Palette {
     icons: HashMap<UnitKind, Handle<Image>>,
 }
 
-/// Carte affichée : normale (terrains), topographique (relief : couleur par niveau d'altitude)
-/// ou climatique (précipitations et vents dominants).
+/// Carte affichée : normale (terrains), topographique (relief : couleur par niveau d'altitude),
+/// climatique (précipitations et vents dominants), des bassins versants ou des débits.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MapLayer {
     #[default]
     Normal,
     Relief,
     Climate,
+    Basins,
+    Flow,
+    Network,
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 3] = [MapLayer::Normal, MapLayer::Relief, MapLayer::Climate];
+    pub const ALL: [MapLayer; 6] = [MapLayer::Normal, MapLayer::Relief, MapLayer::Climate, MapLayer::Basins, MapLayer::Flow, MapLayer::Network];
+
+    /// Nom court (bouton « Carte »).
+    pub fn short_name(self) -> &'static str {
+        match self {
+            MapLayer::Normal => "normale",
+            MapLayer::Relief => "relief",
+            MapLayer::Climate => "climat",
+            MapLayer::Basins => "bassins versants",
+            MapLayer::Flow => "débits",
+            MapLayer::Network => "réseau hydrographique",
+        }
+    }
+
+    /// Cartes de l'eau (bassins, débits, réseau).
+    pub fn hydrologic(self) -> bool {
+        matches!(self, MapLayer::Basins | MapLayer::Flow | MapLayer::Network)
+    }
 
     /// Carte suivante (touche T).
     pub fn next(self) -> MapLayer {
@@ -225,6 +252,108 @@ pub fn wind_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2)> 
     let half = HEX_SIZE * (0.35 + 0.45 * speed.min(1.2)) / 2.0;
     let d = Vec2::new(wx, wy) / speed * half;
     Some((Vec2::new(x, y) - d, Vec2::new(x, y) + d))
+}
+
+/// Carte des bassins versants : couleurs vives des grands bassins (ceux d'un fleuve nommé),
+/// teintes sobres des autres (petits bassins côtiers, bassins fermés), puis l'eau.
+pub const BASIN_VIVID: [(f32, f32, f32); crate::basins::VIVID_COLORS] = [
+    (0.91, 0.55, 0.33),
+    (0.38, 0.69, 0.44),
+    (0.45, 0.60, 0.88),
+    (0.88, 0.77, 0.32),
+    (0.69, 0.48, 0.80),
+    (0.36, 0.74, 0.74),
+    (0.88, 0.48, 0.60),
+    (0.62, 0.78, 0.32),
+    (0.74, 0.54, 0.38),
+    (0.56, 0.52, 0.92),
+    (0.96, 0.68, 0.50),
+    (0.52, 0.82, 0.62),
+];
+pub const BASIN_MUTED: [(f32, f32, f32); crate::basins::MUTED_COLORS] =
+    [(0.60, 0.58, 0.54), (0.70, 0.68, 0.62), (0.64, 0.61, 0.52), (0.55, 0.59, 0.58)];
+pub const HYDRO_OCEAN: (f32, f32, f32) = (0.09, 0.12, 0.20);
+pub const HYDRO_LAKE: (f32, f32, f32) = (0.24, 0.36, 0.54);
+/// Terres de la carte du réseau hydrographique : neutres, pour lire les tracés.
+pub const NETWORK_LAND: (f32, f32, f32) = (0.86, 0.84, 0.78);
+pub const NETWORK_LAKE: (f32, f32, f32) = (0.62, 0.74, 0.86);
+pub const NETWORK_OCEAN: (f32, f32, f32) = (0.40, 0.52, 0.66);
+
+/// Carte des débits : couleur selon le débit qui traverse la case (m³/s, échelle logarithmique).
+pub const FLOW_STOPS: [(f32, (f32, f32, f32)); 5] = [
+    (10.0, (0.95, 0.93, 0.85)),
+    (100.0, (0.78, 0.87, 0.76)),
+    (1_000.0, (0.44, 0.72, 0.80)),
+    (10_000.0, (0.20, 0.40, 0.74)),
+    (50_000.0, (0.32, 0.16, 0.52)),
+];
+/// Nombre de teintes de la carte des débits en 2D.
+const FLOW_SHADES: usize = 20;
+
+/// Position (0 à 1) d'un débit sur l'échelle de la carte des débits.
+fn flow_position(q: f32) -> f32 {
+    let lq = q.max(1.0).log10();
+    let last = FLOW_STOPS.len() - 1;
+    let k = FLOW_STOPS.iter().position(|s| s.0.log10() >= lq).unwrap_or(last).max(1);
+    let (a, b) = (FLOW_STOPS[k - 1].0.log10(), FLOW_STOPS[k].0.log10());
+    let t = ((lq - a) / (b - a)).clamp(0.0, 1.0);
+    (k as f32 - 1.0 + t) / last as f32
+}
+
+fn flow_scale_color(position: f32) -> (f32, f32, f32) {
+    let last = FLOW_STOPS.len() - 1;
+    let x = position.clamp(0.0, 1.0) * last as f32;
+    let k = (x.floor() as usize).min(last - 1);
+    let t = x - k as f32;
+    let (ca, cb) = (FLOW_STOPS[k].1, FLOW_STOPS[k + 1].1);
+    (ca.0 + (cb.0 - ca.0) * t, ca.1 + (cb.1 - ca.1) * t, ca.2 + (cb.2 - ca.2) * t)
+}
+
+/// Couleur d'un débit (m³/s) sur la carte des débits.
+pub fn flow_color(q: f32) -> (f32, f32, f32) {
+    flow_scale_color(flow_position(q))
+}
+
+/// Teinte (indice) d'une case sur une carte de l'eau : pour les bassins, la couleur du bassin
+/// (vives puis sobres) ; pour les débits, la teinte du débit ; puis eau profonde et lac.
+fn hydro_index(map: &crate::map::WorldMap, hex: Hex, layer: MapLayer) -> usize {
+    if layer == MapLayer::Network {
+        // Teintes ajoutées après celles des débits : terre, lac, mer
+        return match map.get(hex) {
+            Some(t) if t.is_sea() => FLOW_SHADES + 4,
+            Some(Terrain::Lake) => FLOW_SHADES + 3,
+            _ => FLOW_SHADES + 2,
+        };
+    }
+    let shades = if layer == MapLayer::Basins { BASIN_VIVID.len() + BASIN_MUTED.len() } else { FLOW_SHADES };
+    match map.get(hex) {
+        Some(t) if t.is_sea() => shades,
+        Some(Terrain::Lake) => shades + 1,
+        _ if layer == MapLayer::Basins => map.basin(hex).map_or(BASIN_VIVID.len(), |b| b.color),
+        _ => ((flow_position(map.discharge(hex)) * FLOW_SHADES as f32) as usize).min(FLOW_SHADES - 1),
+    }
+}
+
+/// Couleur d'une case sur une carte de l'eau (bassins ou débits).
+pub fn hydro_color(map: &crate::map::WorldMap, hex: Hex, layer: MapLayer) -> (f32, f32, f32) {
+    if layer == MapLayer::Network {
+        return match map.get(hex) {
+            Some(t) if t.is_sea() => NETWORK_OCEAN,
+            Some(Terrain::Lake) => NETWORK_LAKE,
+            _ => NETWORK_LAND,
+        };
+    }
+    match map.get(hex) {
+        Some(t) if t.is_sea() => HYDRO_OCEAN,
+        Some(Terrain::Lake) => HYDRO_LAKE,
+        _ if layer == MapLayer::Basins => map.basin(hex).map_or(BASIN_MUTED[0], |b| basin_color(b.color)),
+        _ => flow_color(map.discharge(hex)),
+    }
+}
+
+/// Couleur d'un indice de couleur de bassin.
+pub fn basin_color(index: usize) -> (f32, f32, f32) {
+    BASIN_VIVID.get(index).copied().unwrap_or_else(|| BASIN_MUTED[(index - BASIN_VIVID.len()) % BASIN_MUTED.len()])
 }
 
 /// Couleurs de la carte topographique (sRGB) : eau, niveaux 1 à 6, sommets.
@@ -372,6 +501,99 @@ struct WaterOverlay {
     mesh: Handle<Mesh>,
 }
 
+/// Hachures d'une case : bandes diagonales parallèles (alignées d'une case à l'autre), chacune
+/// découpée par l'hexagone et donnée par ses deux bords, échantillonnés en `steps` + 1 points
+/// d'un bout à l'autre (pour épouser le relief en 3D).
+pub fn hatch_strips(hex: Hex, steps: usize) -> Vec<Vec<(Vec2, Vec2)>> {
+    const PERIOD: f32 = 9.0;
+    const WIDTH: f32 = 3.2;
+    let (cx, cy) = hex.to_world();
+    let center = Vec2::new(cx, cy);
+    let u = Vec2::new(1.0, 1.0).normalize();
+    let n = u.perp();
+    // Hexagone un peu rentré, pour ne pas déborder sur les voisines
+    let apothem = HEX_SIZE * 0.866 * 0.96;
+    let normals: Vec<Vec2> = (0..6).map(|d| Vec2::from_angle((60.0 * d as f32).to_radians())).collect();
+    // Intervalle de la droite center + n·t + u·s à l'intérieur de l'hexagone
+    let interval = |t: f32| -> Option<(f32, f32)> {
+        let (mut lo, mut hi) = (f32::MIN, f32::MAX);
+        for nd in &normals {
+            let a = u.dot(*nd);
+            let b = apothem - n.dot(*nd) * t;
+            if a.abs() < 1e-6 {
+                if b < 0.0 {
+                    return None;
+                }
+            } else if a > 0.0 {
+                hi = hi.min(b / a);
+            } else {
+                lo = lo.max(b / a);
+            }
+        }
+        (lo < hi).then_some((lo, hi))
+    };
+    let phase = center.dot(n).rem_euclid(PERIOD);
+    let mut strips = Vec::new();
+    let mut t = -HEX_SIZE - phase;
+    while t < HEX_SIZE {
+        if let (Some((a0, a1)), Some((b0, b1))) = (interval(t), interval(t + WIDTH)) {
+            let strip = (0..=steps)
+                .map(|k| {
+                    let f = k as f32 / steps as f32;
+                    let p = center + n * t + u * (a0 + (a1 - a0) * f);
+                    let q = center + n * (t + WIDTH) + u * (b0 + (b1 - b0) * f);
+                    (p, q)
+                })
+                .collect();
+            strips.push(strip);
+        }
+        t += PERIOD;
+    }
+    strips
+}
+
+/// Surcouche 2D des hachures (carte des bassins versants).
+#[derive(Resource)]
+struct HatchOverlay {
+    mesh: Handle<Mesh>,
+}
+
+fn setup_hatch_overlay(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>) {
+    let mesh = meshes.add(SlopeMeshBuilder::default().build());
+    let material = materials.add(ColorMaterial::from_color(Color::WHITE));
+    commands.spawn((Mesh2d(mesh.clone()), MeshMaterial2d(material), Transform::from_xyz(0.0, 0.0, Z_HATCH)));
+    commands.insert_resource(HatchOverlay { mesh });
+}
+
+/// Cases explorées qui desservent deux bassins : hachées de la couleur de l'autre bassin.
+fn update_hatch_overlay(fog: Res<ShownFog>, layer: Res<MapLayer>, map: Res<GameMap>, overlay: Res<HatchOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
+    if !fog.is_changed() && !layer.is_changed() {
+        return;
+    }
+    let mut builder = SlopeMeshBuilder::default();
+    if *layer == MapLayer::Basins {
+        for (cell, other) in map.0.basins().basin_also.iter().enumerate() {
+            let Some(other) = other else { continue };
+            let hex = map.0.hex_at(cell);
+            if !fog.explored.contains(&hex) {
+                continue;
+            }
+            let (r, g, b) = basin_color(map.0.basins().basins[*other as usize].color);
+            let k = if fog.visible.contains(&hex) { 1.0 } else { 0.5 };
+            let c = Color::srgb(r * k, g * k, b * k * 1.1).to_linear();
+            let c = [c.red, c.green, c.blue, 1.0];
+            for strip in hatch_strips(hex, 1) {
+                let ((p0, q0), (p1, q1)) = (strip[0], strip[1]);
+                builder.tri([(p0, c), (p1, c), (q1, c)]);
+                builder.tri([(p0, c), (q1, c), (q0, c)]);
+            }
+        }
+    }
+    if let Some(mut mesh) = meshes.get_mut(&overlay.mesh) {
+        *mesh = builder.build();
+    }
+}
+
 /// Couleurs (sRGB) de l'eau douce en 2D.
 const RIVER_2D: Color = Color::srgb(0.20, 0.45, 0.80);
 const FLEUVE_2D: Color = Color::srgb(0.18, 0.40, 0.72);
@@ -412,7 +634,10 @@ fn update_water_overlay(fog: Res<ShownFog>, overlay: Res<WaterOverlay>, mut mesh
         let lit = fog.visible.contains(hex);
         for t in shape.visible(*hex, explored) {
             let c = color(t.kind, lit || t.also.is_some_and(|o| fog.visible.contains(&o)));
-            builder.tri([(t.pts[0], c), (t.pts[1], c), (t.pts[2], c)]);
+            // L'eau s'arrête au bord de la zone explorée
+            for pts in crate::waterways::clip_to_explored(t.pts, &explored) {
+                builder.tri([(pts[0], c), (pts[1], c), (pts[2], c)]);
+            }
         }
     }
     if let Some(mut mesh) = meshes.get_mut(&overlay.mesh) {
@@ -427,7 +652,7 @@ impl Plugin for RenderPlugin {
         app.init_resource::<ReachArea>()
             .init_resource::<MapLayer>()
             .init_gizmo_group::<ReachGizmos>()
-            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_slope_overlay, setup_water_overlay))
+            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay))
             .add_systems(
             Update,
             (
@@ -445,6 +670,7 @@ impl Plugin for RenderPlugin {
                 draw_wind_2d,
                 update_slope_overlay,
                 update_water_overlay,
+                update_hatch_overlay,
             ),
         );
     }
@@ -485,6 +711,12 @@ fn setup_map_visuals(
         climate.push(mat(Color::srgb(r, g, b)));
         climate_dim.push(mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)));
     }
+    let mut pair = |colors: Vec<(f32, f32, f32)>| -> (Vec<_>, Vec<_>) {
+        colors.into_iter().map(|(r, g, b)| (mat(Color::srgb(r, g, b)), mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)))).unzip()
+    };
+    let (basins, basins_dim) = pair(BASIN_VIVID.iter().chain(&BASIN_MUTED).copied().chain([HYDRO_OCEAN, HYDRO_LAKE]).collect());
+    let flow_shades = (0..FLOW_SHADES).map(|i| flow_scale_color((i as f32 + 0.5) / FLOW_SHADES as f32));
+    let (flow, flow_dim) = pair(flow_shades.chain([HYDRO_OCEAN, HYDRO_LAKE, NETWORK_LAND, NETWORK_LAKE, NETWORK_OCEAN]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
     let tile_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.99, 6));
     let palette = Palette {
@@ -495,6 +727,10 @@ fn setup_map_visuals(
         topo_dim,
         climate,
         climate_dim,
+        basins,
+        basins_dim,
+        flow,
+        flow_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
         unit: mat(PLAYER_COLOR),
         hostile_unit: mat(HOSTILE_COLOR),
@@ -592,13 +828,21 @@ fn update_tile_fog(
         return;
     }
     let (lit, dim) = match *layer {
-        MapLayer::Normal | MapLayer::Climate => (&palette.terrain, &palette.terrain_dim),
         MapLayer::Relief => (&palette.topo, &palette.topo_dim),
+        _ => (&palette.terrain, &palette.terrain_dim),
     };
-    let climate_index = |hex: Hex| match map.0.get(hex) {
-        Some(Terrain::Ocean) => CLIMATE_SHADES,
-        Some(Terrain::Coast | Terrain::Lake) => CLIMATE_SHADES + 1,
-        _ => climate_shade(map.0.rain(hex).unwrap_or(500.0)),
+    // Cartes à teintes indexées (climat, bassins, débits) : teintes vives et assombries
+    let indexed: Option<(&Vec<_>, &Vec<_>)> = match *layer {
+        MapLayer::Climate => Some((&palette.climate, &palette.climate_dim)),
+        MapLayer::Basins => Some((&palette.basins, &palette.basins_dim)),
+        MapLayer::Flow | MapLayer::Network => Some((&palette.flow, &palette.flow_dim)),
+        _ => None,
+    };
+    let shade_index = |hex: Hex| match (*layer, map.0.get(hex)) {
+        (MapLayer::Climate, Some(Terrain::Ocean)) => CLIMATE_SHADES,
+        (MapLayer::Climate, Some(Terrain::Coast | Terrain::Lake)) => CLIMATE_SHADES + 1,
+        (MapLayer::Climate, _) => climate_shade(map.0.rain(hex).unwrap_or(500.0)),
+        _ => hydro_index(&map.0, hex, *layer),
     };
     for (mark, mut vis) in &mut marks {
         let wanted = if fog.explored.contains(&mark.0) { Visibility::Inherited } else { Visibility::Hidden };
@@ -608,11 +852,10 @@ fn update_tile_fog(
     }
     for (tile, mut material) in &mut tiles {
         let key = (map.0.get(tile.0).unwrap(), map.0.level(tile.0).unwrap_or(0));
-        let climate = *layer == MapLayer::Climate;
         let wanted = if fog.visible.contains(&tile.0) {
-            if climate { &palette.climate[climate_index(tile.0)] } else { &lit[&key] }
+            if let Some((shades, _)) = indexed { &shades[shade_index(tile.0)] } else { &lit[&key] }
         } else if fog.explored.contains(&tile.0) {
-            if climate { &palette.climate_dim[climate_index(tile.0)] } else { &dim[&key] }
+            if let Some((_, shades)) = indexed { &shades[shade_index(tile.0)] } else { &dim[&key] }
         } else {
             &palette.unexplored
         };

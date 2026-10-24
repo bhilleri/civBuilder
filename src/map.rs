@@ -2,6 +2,7 @@
 
 use crate::hex::Hex;
 use crate::climate::{self, Climate, Region};
+use crate::basins::{self, Basin, Basins, NamedRiver};
 use crate::hydro::{self, Hydrology};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use std::collections::HashSet;
@@ -290,6 +291,14 @@ impl Terrain {
     }
 }
 
+/// Une case de fleuve qui touche au moins autant de cases de lac est intégrée au lac.
+pub const FLEUVE_IN_LAKE: usize = 3;
+/// Altitude (m) d'une ancienne mare de mer devenue cuvette : assez creuse pour qu'un lac
+/// l'occupe toute dès que l'eau y arrive en quantité.
+const POND_DEPTH_M: f32 = -60.0;
+/// Passes climat → cours d'eau : à partir de la deuxième, le climat tient compte des lacs.
+pub const CLIMATE_PASSES: usize = 3;
+
 /// Carte rectangulaire stockée en coordonnées offset (odd-r).
 #[derive(Clone, Debug)]
 pub struct WorldMap {
@@ -309,6 +318,11 @@ pub struct WorldMap {
     hydro: Hydrology,
     /// Échelle et latitude de la carte.
     region: Region,
+    /// Bassins versants et fleuves nommés.
+    basins: Basins,
+    /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
+    /// calculé à la première demande (le terrain ne change pas en cours de partie).
+    step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
 }
 
 impl WorldMap {
@@ -325,6 +339,8 @@ impl WorldMap {
             climate: Climate::default(),
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
+            basins: Basins::empty(n),
+            step_cache: std::sync::OnceLock::new(),
         }
     }
 
@@ -344,6 +360,7 @@ impl WorldMap {
 
     /// Change le terrain ; la mer est ramenée au niveau 0, la terre (et les lacs) au niveau 1 au moins.
     pub fn set(&mut self, hex: Hex, terrain: Terrain) {
+        self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.tiles[i] = terrain;
             self.levels[i] = if terrain.is_sea() { 0 } else { self.levels[i].max(1) };
@@ -364,6 +381,7 @@ impl WorldMap {
 
     /// Ajoute ou retire les collines (seulement sur un terrain de terre franchissable, hors fleuve).
     pub fn set_hills(&mut self, hex: Hex, hills: bool) {
+        self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.hills[i] = hills && self.tiles[i].move_cost().is_some() && !self.hydro.fleuve[i];
         }
@@ -441,6 +459,50 @@ impl WorldMap {
         self.index(hex).and_then(|i| self.hydro.downstream[i]).map(usize::from)
     }
 
+    /// Coûts d'un pas de chaque case (indice) vers ses six voisines (`u8::MAX` : infranchissable,
+    /// hors de la carte compris). Mis en cache : la recherche de chemin les consulte sans cesse.
+    pub fn step_costs(&self) -> &[[u8; 6]] {
+        self.step_cache.get_or_init(|| {
+            (0..self.tiles.len())
+                .map(|i| {
+                    let h = self.hex_at(i);
+                    std::array::from_fn(|d| {
+                        let to = h + crate::hex::DIRECTIONS[d];
+                        if !self.contains(to) {
+                            return u8::MAX;
+                        }
+                        self.step_cost(h, to).map_or(u8::MAX, |c| c.min(254) as u8)
+                    })
+                })
+                .collect()
+        })
+    }
+
+    /// Indice d'une case dans les tableaux de la carte (la case doit être sur la carte).
+    pub fn cell(&self, hex: Hex) -> usize {
+        self.index(hex).expect("case hors de la carte")
+    }
+
+    /// Bassins versants et fleuves nommés.
+    pub fn basins(&self) -> &Basins {
+        &self.basins
+    }
+
+    /// Bassin versant d'une case de terre ou de lac.
+    pub fn basin(&self, hex: Hex) -> Option<&Basin> {
+        self.index(hex).and_then(|i| self.basins.basin(i))
+    }
+
+    /// Fleuve nommé qui occupe la case.
+    pub fn named_river(&self, hex: Hex) -> Option<&NamedRiver> {
+        self.index(hex).and_then(|i| self.basins.river(i))
+    }
+
+    /// Case d'indice donné.
+    pub fn hex_at(&self, cell: usize) -> Hex {
+        Hex::from_offset(cell as i32 % self.width, cell as i32 / self.width)
+    }
+
     /// Directions où le fleuve de la case touche l'arête (bits 0 à 5).
     pub fn fleuve_links(&self, hex: Hex) -> u8 {
         self.index(hex).map_or(0, |i| self.hydro.fleuve_links[i])
@@ -462,15 +524,26 @@ impl WorldMap {
     /// Fait d'une case un fleuve (tests, éditeur).
     #[cfg(test)]
     pub fn set_fleuve(&mut self, hex: Hex) {
+        self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.hydro.fleuve[i] = true;
             self.hills[i] = false;
         }
     }
 
+    /// Fixe les arêtes par où passe un fleuve (tests).
+    #[cfg(test)]
+    pub fn set_fleuve_links(&mut self, hex: Hex, links: u8) {
+        self.set_fleuve(hex);
+        if let Some(i) = self.index(hex) {
+            self.hydro.fleuve_links[i] = links;
+        }
+    }
+
     /// Pose une rivière sur l'arête entre une case et sa voisine `dir` (tests, éditeur).
     #[cfg(test)]
     pub fn set_river(&mut self, hex: Hex, dir: usize, flow: f32) {
+        self.step_cache = std::sync::OnceLock::new();
         let other = hex + crate::hex::DIRECTIONS[dir];
         if let (Some(i), Some(j)) = (self.index(hex), self.index(other)) {
             self.hydro.edge_flow[i][dir] = flow;
@@ -505,6 +578,12 @@ impl WorldMap {
     }
 
     /// Climat en mots, avec température et pluie : « tempéré humide, 11 °C, 850 mm/an ».
+    /// Climat d'une case de terre en deux mots : « tempéré humide », « chaud aride »…
+    pub fn climate_zone(&self, hex: Hex) -> Option<String> {
+        let name = self.climate_name(hex)?;
+        name.split(',').next().map(str::to_string)
+    }
+
     pub fn climate_name(&self, hex: Hex) -> Option<String> {
         let (t, r, ai) = (self.temperature(hex)?, self.rain(hex)?, self.aridity(hex)?);
         if self.get(hex)?.is_water() {
@@ -557,6 +636,7 @@ impl WorldMap {
 
     /// Change l'altitude d'une case de terre (bornée entre 1 et `MAX_LEVEL`).
     pub fn set_level(&mut self, hex: Hex, level: u8) {
+        self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
         {
@@ -612,6 +692,51 @@ impl WorldMap {
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let sea = sorted[((sorted.len() - 1) as f64 * 0.58) as usize];
         let land_sorted: Vec<f64> = sorted.iter().copied().filter(|&e| e >= sea).collect();
+        // Mares de mer : petites étendues de mer (moins de `MIN_INLAND_SEA_CELLS` cases) enfermées
+        // dans les terres. Une case de mer isolée qui avalerait de grands fleuves n'a pas de sens :
+        // elles deviennent des cuvettes de terre, que l'hydrologie remplit (lac qui déborde vers
+        // la vraie mer, ou cuvette sèche en climat aride)
+        let ponds: std::collections::HashSet<Hex> = {
+            let wet = |h: Hex| map.index(h).is_some_and(|i| elevations[i].1 < sea);
+            let mut seen = std::collections::HashSet::new();
+            let mut ponds = std::collections::HashSet::new();
+            for &(start, e) in &elevations {
+                if e >= sea || seen.contains(&start) {
+                    continue;
+                }
+                let mut group = vec![start];
+                seen.insert(start);
+                let mut k = 0;
+                let mut border = false;
+                while k < group.len() && group.len() < crate::basins::MIN_INLAND_SEA_CELLS {
+                    let h = group[k];
+                    let (c, r) = h.to_offset();
+                    border |= c == 0 || r == 0 || c == width - 1 || r == height - 1;
+                    for nb in h.neighbors() {
+                        if wet(nb) && seen.insert(nb) {
+                            group.push(nb);
+                        }
+                    }
+                    k += 1;
+                }
+                // Groupe exploré en entier (pas de frontière d'exploration en attente) et petit
+                if !border && k == group.len() && group.len() < crate::basins::MIN_INLAND_SEA_CELLS {
+                    ponds.extend(group);
+                } else {
+                    // Le reste du groupe (grand) : on finit de le marquer
+                    while k < group.len() {
+                        for nb in group[k].neighbors() {
+                            if wet(nb) && seen.insert(nb) {
+                                group.push(nb);
+                            }
+                        }
+                        k += 1;
+                    }
+                }
+            }
+            ponds
+        };
+        let is_sea = |h: Hex, e: f64| e < sea && !ponds.contains(&h);
         let land_pct = |p: f64| land_sorted[((land_sorted.len() - 1) as f64 * p) as usize];
         // Bornes hautes des niveaux 1 à 5 ; au-delà : niveau 6
         let bands: Vec<f64> = LEVEL_BANDS.iter().map(|&p| land_pct(p)).collect();
@@ -631,7 +756,7 @@ impl WorldMap {
             m0 + (m1 - m0) * t
         };
         let land_levels: std::collections::HashMap<Hex, u8> =
-            elevations.iter().filter(|(_, e)| *e >= sea).map(|&(h, e)| (h, level_of(e))).collect();
+            elevations.iter().filter(|&&(h, e)| !is_sea(h, e)).map(|&(h, e)| (h, if ponds.contains(&h) { 1 } else { level_of(e) })).collect();
         // Relief accidenté : bruit propre, renforcé au pied des changements de niveau (contreforts)
         let rough_score = |h: Hex| {
             let level = land_levels[&h];
@@ -654,57 +779,79 @@ impl WorldMap {
         };
         let mut surface = vec![climate::Surface::Water; (width * height) as usize];
         for &(h, e) in &elevations {
-            if e < sea {
+            if is_sea(h, e) {
                 continue; // reste océan
             }
             let level = land_levels[&h];
             let mountain = is_mountain(h, e);
             let i = map.index(h).unwrap();
-            map.elevation[i] = meters(e);
+            map.elevation[i] = if ponds.contains(&h) { POND_DEPTH_M } else { meters(e) };
             surface[i] = climate::Surface::Land(climate::altitude(level, mountain));
             map.set(h, if mountain { Terrain::Mountains } else { Terrain::Plains });
             map.set_level(h, level);
         }
-        // 4) Climat : pression, vents, humidité et pluie (voir climate.rs), puis terrain selon
-        //    la température et les précipitations, avec un peu de bruit pour casser les contours.
         map.region = region;
-        map.climate = climate::simulate(width, height, &surface, seed, &region);
-        for &(h, e) in &elevations {
-            if e < sea || is_mountain(h, e) {
-                continue;
+        // 4) à 6) Climat, terrain, cours d'eau et lacs, en `CLIMATE_PASSES` passes : à partir de la
+        //    deuxième, le climat voit les lacs de la passe précédente (ils évaporent et humidifient
+        //    l'air), ce qui change la pluie, le ruissellement, donc les lacs eux-mêmes
+        for pass in 0..CLIMATE_PASSES {
+            let mut surface = surface.clone();
+            if pass > 0 {
+                for (i, s) in surface.iter_mut().enumerate() {
+                    if map.tiles[i] == Terrain::Lake {
+                        *s = climate::Surface::Lake(climate::altitude(map.levels[i], false));
+                    }
+                }
+                // Terrain d'avant les lacs (niveaux, montagnes) : la passe le recalcule
+                for &(h, e) in &elevations {
+                    if is_sea(h, e) {
+                        continue;
+                    }
+                    map.set(h, if is_mountain(h, e) { Terrain::Mountains } else { Terrain::Plains });
+                    map.set_level(h, land_levels[&h]);
+                    map.set_hills(h, false);
+                }
             }
-            let i = map.index(h).unwrap();
-            let temperature = map.climate.temperature[i];
-            // Petite variation locale (sols, exposition) pour casser les contours
-            let jitter = 1.0 + sample(&moisture_noise, h, 3.0) as f32 * 0.25;
-            let aridity = map.climate.aridity(i).unwrap_or(1.0) * jitter;
-            let t = if temperature < SNOW_BELOW {
-                Terrain::Snow
-            } else if temperature < TUNDRA_BELOW {
-                Terrain::Tundra
-            } else if aridity < ARID_BELOW && temperature >= DESERT_ABOVE {
-                Terrain::Desert
-            } else if aridity < SEMI_ARID_BELOW {
-                Terrain::Plains
-            } else if aridity < FOREST_ABOVE {
-                Terrain::Grassland
-            } else {
-                Terrain::Forest
-            };
-            map.set(h, t);
-            map.set_hills(h, rough_score(h) > rough_threshold);
+            map.climate = climate::simulate(width, height, &surface, seed, &region);
+            // 4) Climat : pression, vents, humidité et pluie (voir climate.rs), puis terrain selon
+            //    la température et les précipitations, avec un peu de bruit pour casser les contours.
+            for &(h, e) in &elevations {
+                if is_sea(h, e) || is_mountain(h, e) {
+                    continue;
+                }
+                let i = map.index(h).unwrap();
+                let temperature = map.climate.temperature[i];
+                // Petite variation locale (sols, exposition) pour casser les contours
+                let jitter = 1.0 + sample(&moisture_noise, h, 3.0) as f32 * 0.25;
+                let aridity = map.climate.aridity(i).unwrap_or(1.0) * jitter;
+                let t = if temperature < SNOW_BELOW {
+                    Terrain::Snow
+                } else if temperature < TUNDRA_BELOW {
+                    Terrain::Tundra
+                } else if aridity < ARID_BELOW && temperature >= DESERT_ABOVE {
+                    Terrain::Desert
+                } else if aridity < SEMI_ARID_BELOW {
+                    Terrain::Plains
+                } else if aridity < FOREST_ABOVE {
+                    Terrain::Grassland
+                } else {
+                    Terrain::Forest
+                };
+                map.set(h, t);
+                map.set_hills(h, rough_score(h) > rough_threshold);
+            }
+            // 5) Les eaux adjacentes à la terre deviennent des côtes
+            let coasts: Vec<Hex> = map
+                .hexes()
+                .filter(|&h| map.get(h) == Some(Terrain::Ocean))
+                .filter(|&h| h.neighbors().iter().any(|&n| map.get(n).is_some_and(|t| !t.is_water())))
+                .collect();
+            for h in coasts {
+                map.set(h, Terrain::Coast);
+            }
+            // 6) Cours d'eau et lacs (voir hydro.rs)
+            map.add_hydrology();
         }
-        // 5) Les eaux adjacentes à la terre deviennent des côtes
-        let coasts: Vec<Hex> = map
-            .hexes()
-            .filter(|&h| map.get(h) == Some(Terrain::Ocean))
-            .filter(|&h| h.neighbors().iter().any(|&n| map.get(n).is_some_and(|t| !t.is_water())))
-            .collect();
-        for h in coasts {
-            map.set(h, Terrain::Coast);
-        }
-        // 6) Cours d'eau et lacs (voir hydro.rs)
-        map.add_hydrology();
         map
     }
 
@@ -728,6 +875,36 @@ impl WorldMap {
             pet: &self.climate.pet,
             aridity: &aridity,
         });
+        let mut hydro = hydro;
+        // Un fleuve presque entouré par un lac (au moins `FLEUVE_IN_LAKE` voisines de lac) en fait
+        // partie : il traverse le lac au lieu de le découper (de proche en proche)
+        loop {
+            let swallowed: Vec<usize> = (0..n)
+                .filter(|&i| hydro.fleuve[i])
+                .filter(|&i| {
+                    let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
+                    hex.neighbors().iter().filter(|&&nb| self.index(nb).is_some_and(|j| hydro.lake[j])).count() >= FLEUVE_IN_LAKE
+                })
+                .collect();
+            if swallowed.is_empty() {
+                break;
+            }
+            for i in swallowed {
+                // Surface du lac voisin (le niveau du lac n'en est pas changé)
+                let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
+                hydro.lake_surface[i] = hex
+                    .neighbors()
+                    .iter()
+                    .filter_map(|&nb| self.index(nb))
+                    .filter(|&j| hydro.lake[j])
+                    .map(|j| hydro.lake_surface[j])
+                    .fold(f32::MIN, f32::max);
+                hydro.fleuve[i] = false;
+                hydro.fleuve_links[i] = 0;
+                hydro.lake[i] = true;
+                hydro.small_lake[i] = false;
+            }
+        }
         let lakes: Vec<usize> = (0..n).filter(|&i| hydro.lake[i]).collect();
         for &i in &lakes {
             self.tiles[i] = Terrain::Lake;
@@ -783,6 +960,27 @@ impl WorldMap {
             }
         }
         self.hydro = hydro;
+        self.add_basins();
+    }
+
+    /// Bassins versants et noms des fleuves (après l'hydrologie).
+    fn add_basins(&mut self) {
+        let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
+        let (region, height) = (self.region, self.height);
+        let latitude = move |row: i32| region.latitude_deg(row, height);
+        self.basins = basins::compute(&basins::BasinInput {
+            width: self.width,
+            height: self.height,
+            downstream: &self.hydro.downstream,
+            discharge: &self.hydro.discharge,
+            fleuve: &self.hydro.fleuve,
+            sea: &sea,
+            lake: &self.hydro.lake,
+            segments: &self.hydro.river_segments,
+            corner_outlet: &self.hydro.corner_outlet,
+            corner_cells: &self.hydro.corner_cells,
+            latitude: &latitude,
+        });
     }
 
     /// Note d'un emplacement de départ : somme des rendements autour, terrain constructible.
@@ -808,6 +1006,35 @@ impl WorldMap {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn pas_de_mare_de_mer() {
+        // Aucune étendue de mer de moins de `MIN_INLAND_SEA_CELLS` cases enfermée dans les terres
+        for seed in [2, 777] {
+            let m = WorldMap::generate_in(128, 74, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 74));
+            let mut seen = std::collections::HashSet::new();
+            for start in m.hexes().filter(|&h| m.get(h).is_some_and(|t| t.is_sea())) {
+                if !seen.insert(start) {
+                    continue;
+                }
+                let mut group = vec![start];
+                let mut k = 0;
+                while k < group.len() {
+                    for nb in group[k].neighbors() {
+                        if m.get(nb).is_some_and(|t| t.is_sea()) && seen.insert(nb) {
+                            group.push(nb);
+                        }
+                    }
+                    k += 1;
+                }
+                let border = group.iter().any(|h| {
+                    let (c, r) = h.to_offset();
+                    c == 0 || r == 0 || c == m.width - 1 || r == m.height - 1
+                });
+                assert!(border || group.len() >= crate::basins::MIN_INLAND_SEA_CELLS, "graine {seed} : {:?}", group[0].to_offset());
+            }
+        }
+    }
     use super::*;
 
     #[test]

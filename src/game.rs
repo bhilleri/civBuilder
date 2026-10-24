@@ -411,6 +411,11 @@ fn sync_shown_fog(fog: Res<Fog>, debug: Res<DebugMode>, map: Res<GameMap>, mut s
     if !fog.is_changed() && !debug.is_changed() {
         return;
     }
+    // En mode debug, toute la carte est déjà affichée : un changement du brouillard du joueur ne
+    // change rien à l'écran (sans ce garde-fou, chaque tour redessinait toute la carte)
+    if debug.0 && !debug.is_changed() && shown.explored.len() == map.0.hexes().count() {
+        return;
+    }
     if debug.0 {
         let all: HashSet<Hex> = map.0.hexes().collect();
         shown.visible = all.clone();

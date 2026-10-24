@@ -17,7 +17,7 @@ use crate::hex::Hex;
 use crate::map::{MoveCosts, WorldMap};
 use crate::rules::UnitState;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashSet};
 use std::sync::LazyLock;
 
 /// Pondération du coût dans le score (voir l'en-tête du module).
@@ -30,6 +30,7 @@ pub const THREAT_RADIUS: i32 = 2;
 pub const VILLAGE_VALUE: usize = 25;
 
 static EMPTY: LazyLock<HashSet<Hex>> = LazyLock::new(HashSet::new);
+
 
 /// Ce que l'explorateur sait du monde, hors brouillard (passé à part car il évolue en route).
 #[derive(Clone, Copy)]
@@ -75,87 +76,205 @@ impl<'a> ExploreWorld<'a> {
     }
 }
 
-/// Cases inconnues (et sur la carte) qu'une unité verrait depuis `at`, hors cases réservées.
-pub fn reveal_gain(map: &WorldMap, explored: &HashSet<Hex>, reserved: &HashSet<Hex>, at: Hex, sight: i32) -> usize {
-    at.range(sight)
-        .filter(|h| map.contains(*h) && !explored.contains(h) && !reserved.contains(h))
-        .count()
-}
-
 /// Cases que les autres explorateurs vont révéler : (cible, vision) de chacun.
 pub fn reserved_by(others: impl IntoIterator<Item = (Hex, i32)>) -> HashSet<Hex> {
     others.into_iter().flat_map(|(target, sight)| target.range(sight)).collect()
 }
 
-/// Meilleure cible d'exploration et chemin pour l'atteindre (départ exclu),
-/// ou `None` s'il ne reste rien d'accessible à découvrir ni à visiter.
-pub fn choose_target(world: &ExploreWorld, explored: &HashSet<Hex>, start: Hex, sight: i32) -> Option<(Hex, Vec<Hex>)> {
-    let free = world.reserved(&EMPTY);
-    // Par ordre de préférence : cible sûre et non réservée, cible sûre réservée par un autre
-    // explorateur, puis — s'il ne reste rien d'autre — cible dans la zone dangereuse.
-    search_target(world, explored, start, sight, true)
-        .or_else(|| search_target(&free, explored, start, sight, true))
-        .or_else(|| search_target(world, explored, start, sight, false))
-        .or_else(|| search_target(&free, explored, start, sight, false))
+/// Ce que sait l'explorateur, en tableaux indexés par case (bien plus rapide que des ensembles :
+/// la recherche de cible consulte des dizaines de cases pour chaque case parcourue).
+struct Known {
+    width: i32,
+    height: i32,
+    explored: Vec<bool>,
+    reserved: Vec<bool>,
+    blocked: Vec<bool>,
+    danger: Vec<bool>,
+    villages: Vec<bool>,
+    any_village: bool,
+    /// Case à moins de `sight` d'une case inconnue (sinon elle ne révèle rien : inutile de
+    /// compter). Prudente : reste vraie quand l'inconnu voisin est découvert en route.
+    near_unknown: Vec<bool>,
 }
 
-fn search_target(
-    world: &ExploreWorld,
-    explored: &HashSet<Hex>,
-    start: Hex,
-    sight: i32,
-    safe_targets_only: bool,
-) -> Option<(Hex, Vec<Hex>)> {
-    let ExploreWorld { map, reserved, blocked, villages, danger, .. } = *world;
+impl Known {
+    fn new(world: &ExploreWorld, explored: &HashSet<Hex>) -> Self {
+        let (width, height) = (world.map.width, world.map.height);
+        let n = (width * height) as usize;
+        let mut known = Self {
+            width,
+            height,
+            explored: vec![false; n],
+            reserved: vec![false; n],
+            blocked: vec![false; n],
+            danger: vec![false; n],
+            villages: vec![false; n],
+            any_village: false,
+            near_unknown: vec![false; n],
+        };
+        let fill = |grid: &mut Vec<bool>, set: &HashSet<Hex>| {
+            for &h in set {
+                if let Some(i) = known_index(width, height, h) {
+                    grid[i] = true;
+                }
+            }
+        };
+        fill(&mut known.explored, explored);
+        fill(&mut known.reserved, world.reserved);
+        fill(&mut known.blocked, world.blocked);
+        fill(&mut known.danger, world.danger);
+        fill(&mut known.villages, world.villages);
+        known.any_village = known.villages.iter().any(|&v| v);
+        known
+    }
+
+    /// Marque les cases à moins de `sight` de l'inconnu (en partant des cases inconnues voisines
+    /// du terrain connu : les seules atteignables par un explorateur).
+    fn mark_near_unknown(&mut self, sight: i32) {
+        for i in 0..self.explored.len() {
+            if self.explored[i] {
+                continue;
+            }
+            let h = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
+            let borders_known = h.neighbors().iter().any(|&nb| self.index(nb).is_some_and(|j| self.explored[j]));
+            if borders_known {
+                for nb in h.range(sight) {
+                    if let Some(j) = self.index(nb) {
+                        self.near_unknown[j] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    fn index(&self, h: Hex) -> Option<usize> {
+        known_index(self.width, self.height, h)
+    }
+
+    fn set(grid: &mut [bool], i: Option<usize>) {
+        if let Some(i) = i {
+            grid[i] = true;
+        }
+    }
+
+    /// Cases inconnues (sur la carte) visibles depuis `at`, hors cases réservées si demandé.
+    fn gain(&self, at: Hex, sight: i32, use_reserved: bool) -> usize {
+        at.range(sight)
+            .filter_map(|h| self.index(h))
+            .filter(|&i| !self.explored[i] && !(use_reserved && self.reserved[i]))
+            .count()
+    }
+}
+
+fn known_index(width: i32, height: i32, h: Hex) -> Option<usize> {
+    let (col, row) = h.to_offset();
+    (col >= 0 && col < width && row >= 0 && row < height).then(|| (row * width + col) as usize)
+}
+
+/// Meilleure cible d'exploration et chemin pour l'atteindre (départ exclu),
+/// ou `None` s'il ne reste rien d'accessible à découvrir ni à visiter.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn choose_target(world: &ExploreWorld, explored: &HashSet<Hex>, start: Hex, sight: i32) -> Option<(Hex, Vec<Hex>)> {
+    let mut known = Known::new(world, explored);
+    known.mark_near_unknown(sight);
+    choose_known(world.map, &known, start, sight)
+}
+
+fn choose_known(map: &WorldMap, known: &Known, start: Hex, sight: i32) -> Option<(Hex, Vec<Hex>)> {
+    search_target(map, known, start, sight)
+}
+
+/// Catégories de cibles, par ordre de préférence : sûre et non réservée, sûre réservée par un
+/// autre explorateur, puis — s'il ne reste rien d'autre — dans la zone dangereuse (non réservée,
+/// puis réservée). Une seule recherche les évalue toutes (le coût d'accès ne dépend pas de la
+/// catégorie) ; elle s'arrête tôt dès que la catégorie préférée a sa cible.
+const CATEGORIES: [(bool, bool); 4] = [(true, true), (false, true), (true, false), (false, false)];
+
+fn search_target(map: &WorldMap, known: &Known, start: Hex, sight: i32) -> Option<(Hex, Vec<Hex>)> {
+    let start_i = known.index(start)?;
+    let steps = map.step_costs();
     // Dijkstra limité au terrain connu et franchissable
-    let mut cost: HashMap<Hex, u32> = HashMap::from([(start, 0)]);
-    let mut came_from: HashMap<Hex, Hex> = HashMap::new();
+    let n = known.explored.len();
+    let mut cost = vec![u32::MAX; n];
+    let mut came_from = vec![u32::MAX; n];
+    cost[start_i] = 0;
     let mut open = BinaryHeap::from([Reverse((0u32, start))]);
-    let mut best: Option<(f32, u32, Hex)> = None;
+    // Meilleure cible de chaque catégorie : (score, coût, case)
+    let mut best: [Option<(f32, u32, Hex)>; 4] = [None; 4];
+    // Plus grand gain possible d'une case : tout ce qu'elle voit, plus un village. Les cases
+    // sortent par coût croissant : dès que même ce gain ne battrait plus la meilleure cible
+    // préférée à ce coût, aucune case plus lointaine ne peut gagner, la recherche s'arrête
+    let max_gain = start.range(sight).count() + if known.any_village { VILLAGE_VALUE } else { 0 };
 
     while let Some(Reverse((c, current))) = open.pop() {
-        if c > cost[&current] {
+        let ci = known.index(current).expect("case sur la carte");
+        if c > cost[ci] {
             continue;
         }
-        if current != start && !(safe_targets_only && danger.contains(&current)) {
-            let village = villages.contains(&current) && !reserved.contains(&current);
-            let gain = reveal_gain(map, explored, reserved, current, sight) + if village { VILLAGE_VALUE } else { 0 };
-            if gain > 0 {
+        if let Some((s, bc, _)) = best[0]
+            && c > bc
+            && max_gain as f32 / (c as f32 + COST_OFFSET) <= s + 1e-6
+        {
+            break;
+        }
+        if current != start && (known.near_unknown[ci] || known.villages[ci]) {
+            let village = known.villages[ci];
+            let unreserved_village = village && !known.reserved[ci];
+            let gain_all = known.gain(current, sight, false) + if village { VILLAGE_VALUE } else { 0 };
+            let gain_free = if gain_all == 0 {
+                0
+            } else {
+                known.gain(current, sight, true) + if unreserved_village { VILLAGE_VALUE } else { 0 }
+            };
+            for (k, &(use_reserved, safe_only)) in CATEGORIES.iter().enumerate() {
+                if safe_only && known.danger[ci] {
+                    continue;
+                }
+                let gain = if use_reserved { gain_free } else { gain_all };
+                if gain == 0 {
+                    continue;
+                }
                 let score = gain as f32 / (c as f32 + COST_OFFSET);
                 // Départage déterministe : meilleur score, puis moindre coût, puis coordonnées
-                let better = match best {
+                let better = match best[k] {
                     None => true,
                     Some((s, bc, bh)) => score > s + 1e-6 || ((score - s).abs() <= 1e-6 && (c, current) < (bc, bh)),
                 };
                 if better {
-                    best = Some((score, c, current));
+                    best[k] = Some((score, c, current));
                 }
             }
         }
-        for next in current.neighbors() {
+        for (d, next) in current.neighbors().into_iter().enumerate() {
             // Terrain connu seulement ; les abords des ennemis coûtent cher
-            if !explored.contains(&next) || blocked.contains(&next) {
+            let step = steps[ci][d];
+            if step == u8::MAX {
                 continue;
             }
-            let Some(step) = map.step_cost(current, next) else { continue };
-            let step = step + if danger.contains(&next) { DANGER_PENALTY } else { 0 };
+            let Some(ni) = known.index(next) else { continue };
+            if !known.explored[ni] || known.blocked[ni] {
+                continue;
+            }
+            let step = u32::from(step) + if known.danger[ni] { DANGER_PENALTY } else { 0 };
             let total = c + step;
-            if cost.get(&next).is_none_or(|&b| total < b) {
-                cost.insert(next, total);
-                came_from.insert(next, current);
+            if total < cost[ni] {
+                cost[ni] = total;
+                came_from[ni] = ci as u32;
                 open.push(Reverse((total, next)));
             }
         }
     }
 
-    let (_, _, target) = best?;
+    let (_, _, target) = best.into_iter().flatten().next()?;
+    let hex_of = |i: usize| Hex::from_offset(i as i32 % known.width, i as i32 / known.width);
     let mut path = vec![target];
-    let mut node = target;
-    while let Some(&prev) = came_from.get(&node) {
-        if prev == start {
+    let mut node = known.index(target)?;
+    while came_from[node] != u32::MAX {
+        let prev = came_from[node] as usize;
+        if prev == start_i {
             break;
         }
-        path.push(prev);
+        path.push(hex_of(prev));
         node = prev;
     }
     path.reverse();
@@ -179,18 +298,21 @@ pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, e
     let sight = unit.kind.sight();
     unit.last_steps.clear();
     explored.extend(pos.range(sight));
-    // Cases occupées découvertes en route (une unité par case), ajoutées aux cases bloquées ;
-    // ennemis aperçus en route, ajoutés à la zone dangereuse.
-    let mut blocked = world.blocked.clone();
-    let mut danger = world.danger.clone();
+    // Connaissances en tableaux, tenues à jour en route : cases découvertes, cases occupées
+    // découvertes (une unité par case) ajoutées aux cases bloquées, ennemis aperçus ajoutés à la
+    // zone dangereuse.
+    let mut known = Known::new(world, explored);
+    known.mark_near_unknown(sight);
     loop {
         for &t in world.threats {
             if t.distance(*pos) <= sight {
-                danger.extend(t.range(THREAT_RADIUS));
+                for h in t.range(THREAT_RADIUS) {
+                    let i = known.index(h);
+                    Known::set(&mut known.danger, i);
+                }
             }
         }
-        let current = ExploreWorld { blocked: &blocked, danger: &danger, ..*world };
-        let Some((target, path)) = choose_target(&current, explored, *pos, sight) else {
+        let Some((target, path)) = choose_known(map, &known, *pos, sight) else {
             unit.path.clear();
             unit.explore_target = None;
             return ExploreOutcome::Finished;
@@ -202,7 +324,8 @@ pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, e
         }
         let next = unit.path[0];
         if world.occupied.contains(&next) {
-            blocked.insert(next);
+            let i = known.index(next);
+                    Known::set(&mut known.blocked, i);
             continue;
         }
         unit.path.remove(0);
@@ -211,7 +334,11 @@ pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, e
         *pos = next;
         unit.last_steps.push(next);
         unit.moved_this_turn = true;
-        explored.extend(pos.range(sight));
+        for h in pos.range(sight) {
+            explored.insert(h);
+            let i = known.index(h);
+                    Known::set(&mut known.explored, i);
+        }
     }
 }
 
@@ -421,6 +548,38 @@ mod tests {
             }
             let missing = seen.iter().filter(|h| !explored.contains(h)).count();
             assert_eq!(missing, 0, "graine {seed} : {missing} cases accessibles non explorées");
+        }
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use crate::rules::UnitKind;
+
+    /// 36 explorateurs sur une planète : temps d'un tour (fin de tour).
+    #[test]
+    #[ignore]
+    fn trente_six_explorateurs() {
+        let map = WorldMap::generate_in(192, 111, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+        let start = map.find_start().unwrap();
+        // Départ : 36 unités sur des cases franchissables autour du départ
+        let spots: Vec<Hex> = start.range(8).filter(|&h| map.move_cost(h).is_some()).take(36).collect();
+        let mut units: Vec<(UnitState, Hex)> = spots.iter().map(|&h| (UnitState::new(UnitKind::Scout), h)).collect();
+        let mut explored: HashSet<Hex> = start.range(10).collect();
+        for turn in 0..40 {
+            let t = std::time::Instant::now();
+            let mut steps = 0;
+            for k in 0..units.len() {
+                let reserved = reserved_by(units.iter().enumerate().filter(|(i, _)| *i != k).filter_map(|(_, (u, _))| u.explore_target.map(|t| (t, u.kind.sight()))));
+                let occupied: HashSet<Hex> = units.iter().map(|(_, p)| *p).collect();
+                let (u, p) = &mut units[k];
+                u.moves_left = u.kind.max_moves();
+                let world = ExploreWorld::new(&map).reserved(&reserved).occupied(&occupied);
+                explore_step(u, p, &world, &mut explored);
+                steps += u.last_steps.len();
+            }
+            println!("tour {turn} : {:.0} ms, {steps} pas, {} cases connues", t.elapsed().as_secs_f32() * 1000.0, explored.len());
         }
     }
 }

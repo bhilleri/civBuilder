@@ -20,17 +20,17 @@ pub const CHANNEL_LEVELS: usize = 7;
 /// Au bord de l'eau, le sol reste un peu sous la surface sur une petite largeur (le bord de
 /// l'eau, droit et net, se voit sans que le maillage du sol ne le crénelle) ; au-delà, la berge
 /// remonte jusqu'au terrain, de plus en plus raide.
-const WATER_EDGE: f32 = -0.4;
+const WATER_EDGE: f32 = -0.15;
 const SHELF: f32 = 1.6;
-const BANK_SLOPE: f32 = 0.9;
-const BANK_STEEPEN_AFTER: f32 = 6.0;
-const BANK_STEEPEN: f32 = 0.6;
+const BANK_SLOPE: f32 = 0.6;
+/// Au-delà du replat, le sol rejoint le terrain d'origine sur cette distance (vallée en pente
+/// douce, sans paroi verticale) ; un remblai éventuel (berge plus basse que l'eau) se raccorde
+/// plus vite.
+const FILL_FADE: f32 = 8.0;
 /// Portée d'un lit au-delà de sa demi-largeur (au-delà, il ne touche plus le terrain).
 const CHANNEL_REACH: f32 = 12.0;
 /// Largeur de la bande de terre humide au-delà du replat.
 const BANK_TINT_WIDTH: f32 = 5.0;
-/// Raccord arrondi entre la berge taillée et le terrain.
-const BANK_BLEND: f32 = 1.5;
 
 /// Lit d'un cours d'eau (coordonnées monde 2D) : segment `a`–`b` (un disque si a = b), demi-
 /// largeur de l'eau `hw`, hauteur de l'eau le long de l'axe (`levels`, de a à b) et profondeur
@@ -89,8 +89,7 @@ impl Channel {
         } else if d <= hw {
             -self.bed + (self.bed + WATER_EDGE) * smoothstep((d - half) / half)
         } else {
-            let out = (d - hw - SHELF).max(0.0);
-            WATER_EDGE + out * BANK_SLOPE + (out - BANK_STEEPEN_AFTER).max(0.0).powi(2) * BANK_STEEPEN
+            WATER_EDGE + (d - hw - SHELF).max(0.0) * BANK_SLOPE
         }
     }
 }
@@ -117,11 +116,6 @@ pub fn water_surface(channels: &[Channel], p: Vec2) -> Option<f32> {
     blend(false).or_else(|| blend(true))
 }
 
-/// Minimum adouci (raccord arrondi de largeur `k`).
-fn smooth_min(a: f32, b: f32, k: f32) -> f32 {
-    let h = (0.5 + 0.5 * (b - a) / k).clamp(0.0, 1.0);
-    b + (a - b) * h - k * h * (1.0 - h)
-}
 
 /// Hauteur du sol en `p` une fois les lits taillés dans le terrain (`terrain`), et part de berge
 /// (0 à 1 : terre remuée, pour la couleur).
@@ -130,6 +124,7 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
     // tronçons d'abord, disques à défaut)
     let mut shape = f32::MAX;
     let mut bank = 0.0f32;
+    let (mut cut, mut fill) = (0.0f32, 0.0f32);
     let (mut sw, mut sh, mut dw, mut dh) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     for c in channels {
         let t = c.param(p);
@@ -140,6 +135,10 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
         }
         let hw = c.half_width(t);
         shape = shape.min(c.profile(d, hw));
+        // Emprise du lit sur le terrain : totale jusqu'au bout du replat, puis décroissante
+        let beyond = (d - hw - SHELF).max(0.0);
+        cut = cut.max(1.0 - smoothstep(beyond / CHANNEL_REACH));
+        fill = fill.max(1.0 - smoothstep(beyond / FILL_FADE));
         // Terre humide : selon la distance au bord de l'eau (variation douce, sans dents de scie)
         bank = bank.max(1.0 - smoothstep((d - hw) / (SHELF + BANK_TINT_WIDTH)));
         let w = (1.0 - d / r).powi(4);
@@ -161,8 +160,12 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
     } else {
         return (terrain, 0.0);
     };
-    let h = smooth_min(terrain, water + shape, BANK_BLEND);
-    // Berge entaillée (gorge) : terre aussi, selon la profondeur de l'entaille
+    // Le sol prend la forme du lit : creusé là où le terrain est plus haut, remblayé (berge) là
+    // où il est plus bas, en se raccordant progressivement au terrain d'origine
+    let target = water + shape;
+    let weight = if target < terrain { cut } else { fill };
+    let h = terrain + (target - terrain) * weight;
+    // Berge entaillée : terre aussi, selon la profondeur de l'entaille
     (h, bank.max(smoothstep((terrain - h) / 4.0)))
 }
 
