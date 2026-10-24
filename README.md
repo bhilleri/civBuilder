@@ -20,6 +20,10 @@ cargo run
 
 La première compilation prend plusieurs minutes (Bevy est volumineux) ; les suivantes sont rapides.
 Pour une version optimisée : `cargo run --release`.
+
+### Distribuer le jeu
+
+`.\package.ps1` (PowerShell, à la racine) compile la version optimisée et fabrique `CivBuilder-<version>.zip` : l'exécutable, le dossier `assets` (icônes, licence de la police), le README et le journal des versions. Le destinataire décompresse et lance `civbuilder.exe` (Windows 10/11 64 bits, carte graphique DirectX 12 ou Vulkan) ; rien d'autre à installer. L'exécutable n'étant pas signé, Windows peut afficher « Windows a protégé votre ordinateur » : « Informations complémentaires » puis « Exécuter quand même ». Le terminal reste ouvert à côté du jeu (messages utiles en cas de problème).
 Pour rejouer une carte précise, fixer sa graine (affichée dans la console au lancement) : `$env:CIVBUILDER_SEED=12345; cargo run` (PowerShell).
 
 > Les icônes sont chargées depuis le dossier `assets/`. Avec `cargo run`, Bevy le trouve automatiquement ;

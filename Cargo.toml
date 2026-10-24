@@ -27,3 +27,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# Version à distribuer (cargo build --release, voir package.ps1) : optimisation entre les
+# bibliothèques (exécutable plus petit et un peu plus rapide, compilation plus longue).
+# Les symboles sont gardés : les messages d'erreur restent lisibles dans le terminal.
+[profile.release]
+lto = "thin"
