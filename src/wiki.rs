@@ -171,21 +171,26 @@ fn waters() -> Article {
 }
 
 fn climate() -> Article {
-    use crate::map::{ARID_BELOW, DESERT_ABOVE, FOREST_ABOVE, SEMI_ARID_BELOW, SNOW_BELOW, TUNDRA_BELOW};
+    use crate::map::{
+        ARID_BELOW, COLD_WINTER, DESERT_ABOVE, FOREST_ABOVE, JUNGLE_WET, SEMI_ARID_BELOW, SEMI_ARID_WOODLAND, SNOW_BELOW,
+        TAIGA_ABOVE, TROPICAL_WINTER, TUNDRA_BELOW,
+    };
     let rain = |mm: f32| swatch(crate::render::rain_color(mm));
+    let row = |t: Terrain, temp: String, ar: String| (swatch(t.color()), vec![temp, ar, t.name().into()]);
     let biomes = vec![
-        (swatch(Terrain::Snow.color()), vec![format!("sous {SNOW_BELOW:.0} °C"), "—".into(), Terrain::Snow.name().into()]),
-        (swatch(Terrain::Tundra.color()), vec![format!("sous {TUNDRA_BELOW:.0} °C"), "—".into(), Terrain::Tundra.name().into()]),
-        (
-            swatch(Terrain::Desert.color()),
-            vec![format!("{DESERT_ABOVE:.0} °C et plus"), format!("sous {ARID_BELOW} (aride)"), Terrain::Desert.name().into()],
-        ),
-        (
-            swatch(Terrain::Plains.color()),
-            vec!["—".into(), format!("sous {SEMI_ARID_BELOW} (semi-aride)"), format!("{} (steppe, savane)", Terrain::Plains.name())],
-        ),
-        (swatch(Terrain::Grassland.color()), vec!["—".into(), format!("sous {FOREST_ABOVE}"), Terrain::Grassland.name().into()]),
-        (swatch(Terrain::Forest.color()), vec!["—".into(), format!("{FOREST_ABOVE} et plus (humide)"), Terrain::Forest.name().into()]),
+        row(Terrain::Snow, format!("moyenne sous {SNOW_BELOW:.0} °C"), "—".into()),
+        row(Terrain::Tundra, format!("moyenne sous {TUNDRA_BELOW:.0} °C"), "—".into()),
+        row(Terrain::Desert, format!("moyenne de {DESERT_ABOVE:.0} °C et plus"), format!("sous {ARID_BELOW} (aride)")),
+        row(Terrain::Steppe, "saison froide sous 0 °C".into(), format!("sous {SEMI_ARID_BELOW} (semi-aride)")),
+        row(Terrain::Plains, "saison froide de 0 °C et plus".into(), format!("sous {SEMI_ARID_BELOW}")),
+        row(Terrain::Taiga, format!("saison froide sous {COLD_WINTER:.0} °C"), format!("{TAIGA_ABOVE} et plus (sinon steppe)")),
+        row(Terrain::Savanna, format!("saison froide de {TROPICAL_WINTER:.0} °C et plus"), format!("{SEMI_ARID_WOODLAND} à {FOREST_ABOVE}")),
+        row(Terrain::WoodedSavanna, format!("tropical (≥ {TROPICAL_WINTER:.0} °C), 2 saisons sèches ou plus"), format!("{FOREST_ABOVE} et plus")),
+        row(Terrain::Jungle, "tropical, au plus 1 saison sèche".into(), format!("{FOREST_ABOVE} et plus (ou {JUNGLE_WET} et plus)")),
+        row(Terrain::Mediterranean, "été sec, hiver pluvieux".into(), format!("{SEMI_ARID_WOODLAND} à {FOREST_ABOVE} (au-delà : forêt)")),
+        row(Terrain::Grassland, "tempéré".into(), format!("sous {FOREST_ABOVE}")),
+        row(Terrain::Forest, "tempéré".into(), format!("{FOREST_ABOVE} et plus (humide)")),
+        row(Terrain::Marsh, "terre basse et plate au bord d'un fleuve ou d'un lac, ne gèle pas".into(), "1 et plus".into()),
     ];
     let belts = vec![
         (rain(2_000.0), vec!["Équateur".into(), "Très arrosé".into(), "Les alizés convergent, l'air chaud monte (orages)".into()]),
@@ -255,9 +260,11 @@ fn climate() -> Article {
                jusqu'aux tropiques et la ceinture de pluies équatoriale le suit, ce qui arrose les savanes une partie de \
                l'année."),
             h("Terrain qui en résulte"),
-            p("Le terrain dépend de la température moyenne et de l'indice d'aridité : la pluie de l'année divisée par \
-               l'évaporation possible (seuils du Programme des Nations unies pour l'environnement)."),
-            table_icons(&["Température", "Indice d'aridité", "Terrain"], biomes),
+            p("Le terrain dépend de la température, de l'indice d'aridité (la pluie de l'année divisée par \
+               l'évaporation possible, seuils du Programme des Nations unies pour l'environnement) et des saisons : \
+               température de la saison la plus froide, nombre de saisons sèches (pluie de la saison inférieure \
+               à 30 % de son évaporation possible), été sec. Les règles s'appliquent dans l'ordre du tableau."),
+            table_icons(&["Température, saisons", "Indice d'aridité", "Terrain"], biomes),
             p("Les sommets (le haut du niveau 6) sont des montagnes, quel que soit le climat."),
         ],
     }
@@ -269,7 +276,7 @@ fn terrain() -> Article {
         .map(|&t| {
             let y = t.yields();
             let moves = t.move_cost().map_or("infranchissable".to_string(), |c| format!("{c} PM"));
-            let defense = if t == Terrain::Forest { format!("+{TERRAIN_DEFENSE}") } else { "—".into() };
+            let defense = if t.is_wooded() { format!("+{TERRAIN_DEFENSE}") } else { "—".into() };
             (swatch(t.color()), vec![t.name().into(), y.food.to_string(), y.production.to_string(), y.gold.to_string(), moves, defense])
         })
         .collect();
@@ -290,8 +297,9 @@ fn terrain() -> Article {
             h("Collines"),
             p(format!(
                 "Les collines sont un relief interne à la case, qui s'ajoute au terrain : prairie, plaine, désert, \
-                 toundra, neige ou forêt vallonnée. Effets : +{HILL_PRODUCTION} production, +{HILL_MOVE_COST} PM \
-                 (une forêt vallonnée coûte donc 3 PM), +{TERRAIN_DEFENSE} en défense (cumulable avec la forêt) et \
+                 toundra, neige, forêt, jungle, taïga, savane, broussailles ou steppe vallonnés (jamais un marais). Effets : \
+                 +{HILL_PRODUCTION} production, +{HILL_MOVE_COST} PM (une forêt vallonnée coûte donc 3 PM), \
+                 +{TERRAIN_DEFENSE} en défense (cumulable avec la forêt, la jungle ou la taïga) et \
                  pas de charge de cavalerie. Elles sont plus fréquentes au pied des changements de niveau."
             )),
             h("Altitude"),
@@ -431,13 +439,13 @@ fn mechanics() -> Article {
             p("Corps à corps : le défenseur riposte, et le vainqueur avance sur la case libérée. Tir : force de tir \
                contre défense à distance, sans riposte."),
             p(format!(
-                "Modificateurs : forêt +{TERRAIN_DEFENSE} et collines +{TERRAIN_DEFENSE} en défense (cumulables) ; \
+                "Modificateurs : couvert boisé (forêt, jungle, taïga) +{TERRAIN_DEFENSE} et collines +{TERRAIN_DEFENSE} en défense (cumulables) ; \
                  défenseur plus haut +{HIGHER_GROUND_DEFENSE} en mêlée ; flanquement +{FLANK_BONUS} en attaque de mêlée \
-                 par allié adjacent à la cible ; charge de cavalerie +{CHARGE_BONUS} (pas contre une cible en forêt ou \
-                 dans des collines) ; bonus de type (lances contre cavalerie…)."
+                 par allié adjacent à la cible ; charge de cavalerie +{CHARGE_BONUS} (pas contre une cible en couvert \
+                 boisé, dans un marais ou dans des collines) ; bonus de type (lances contre cavalerie…)."
             )),
             p(format!(
-                "Tir : un archer plus bas que sa cible, ou une cible en forêt, perd 1 de portée (jamais moins de 1) ; \
+                "Tir : un archer plus bas que sa cible, ou une cible en couvert boisé, perd 1 de portée (jamais moins de 1) ; \
                  un archer plus haut gagne +{HIGH_GROUND_PERCENT} % de force de tir."
             )),
             h("Zone de contrôle"),

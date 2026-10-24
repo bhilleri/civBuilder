@@ -438,7 +438,6 @@ fn setup_3d(
     let straw = mat(Color::srgb(0.80, 0.66, 0.36), 0.9);
     let wood = mat(Color::srgb(0.42, 0.28, 0.15), 0.9);
     let tent_red = mat(Color::srgb(0.66, 0.14, 0.10), 0.85);
-    let tree = mat(Color::srgb(0.10, 0.30, 0.12), 0.9);
     let rock = mat(Color::srgb(0.50, 0.48, 0.47), 0.95);
     let boulder = mat(Color::srgb(0.46, 0.42, 0.38), 1.0);
     // Montagnes : couleurs portées par les sommets du maillage
@@ -453,7 +452,33 @@ fn setup_3d(
         })
         .collect();
 
-    let tree_mesh = meshes.add(Cone { radius: 5.5, height: 17.0 });
+    // Végétation des biomes : feuillus (houppier rond sur un tronc), conifères étroits (taïga),
+    // grands arbres sombres (jungle), acacias à cime plate (savanes), buissons (broussailles), roseaux
+    // et flaques (marais)
+    let trunk_mesh = meshes.add(Cylinder::new(0.9, 8.0));
+    let crown_mesh = meshes.add(Sphere::new(5.5).mesh().ico(1).unwrap());
+    let conifer_mesh = meshes.add(Cone { radius: 3.8, height: 19.0 });
+    let canopy_mesh = meshes.add(Cylinder::new(6.5, 1.8));
+    let shrub_mesh = meshes.add(Sphere::new(3.0).mesh().ico(1).unwrap());
+    let reed_mesh = meshes.add(Cone { radius: 0.55, height: 7.0 });
+    let puddle_mesh = meshes.add(Cylinder::new(4.5, 0.25));
+    let trunk = mat(Color::srgb(0.32, 0.22, 0.13), 0.95);
+    let broadleaf = mat(Color::srgb(0.17, 0.38, 0.14), 0.9);
+    let jungle_leaf = mat(Color::srgb(0.05, 0.27, 0.09), 0.85);
+    let conifer = mat(Color::srgb(0.07, 0.22, 0.15), 0.9);
+    let acacia = mat(Color::srgb(0.33, 0.42, 0.15), 0.9);
+    let shrub = mat(Color::srgb(0.30, 0.37, 0.20), 0.95);
+    let reed = mat(Color::srgb(0.48, 0.50, 0.26), 0.95);
+    let puddle = mat(Color::srgb(0.26, 0.42, 0.48), 0.3);
+    let plant_meshes = [
+        trunk_mesh.clone(),
+        crown_mesh.clone(),
+        conifer_mesh.clone(),
+        canopy_mesh.clone(),
+        shrub_mesh.clone(),
+        reed_mesh.clone(),
+        puddle_mesh.clone(),
+    ];
     // Bosses des collines : demi-sphères aplaties
     let mound_mesh = meshes.add(Sphere::new(10.0).mesh().uv(16, 8));
 
@@ -512,21 +537,80 @@ fn setup_3d(
                 pieces.push((mound_mesh.clone(), hill[&t].clone(), polar(a, r), -1.0, Vec3::new(k, 0.75 * k, k)));
             }
         }
-        // (pas d'arbres dans le lit d'un fleuve)
-        if t == Terrain::Forest && !map.0.is_fleuve(hex) {
-            if hills {
-                // Forêt vallonnée : un arbre au sommet de chaque bosse, trois entre elles
-                for (a, r, k) in MOUNDS {
-                    pieces.push((tree_mesh.clone(), tree.clone(), polar(a, r), 8.0 + 7.0 * k, Vec3::ONE));
-                }
-                for a in [30.0_f32, 150.0, 270.0] {
-                    pieces.push((tree_mesh.clone(), tree.clone(), polar(a, 21.0), 8.0, Vec3::ONE));
-                }
+        // Végétation selon le biome (pas dans le lit d'un fleuve). Sans collines, les plantes
+        // restent près du bord : le centre est libre pour le jeton d'une unité ; avec collines,
+        // un arbre au sommet de chaque bosse et les autres entre elles.
+        if !map.0.is_fleuve(hex) {
+            let ring6 = [30.0_f32, 90.0, 150.0, 210.0, 270.0, 330.0];
+            // Emplacements (position, hausse due à une bosse)
+            let spots: Vec<(Vec2, f32)> = if hills {
+                MOUNDS.iter().map(|&(a, r, k)| (polar(a, r), 7.0 * k)).chain([30.0_f32, 150.0, 270.0].map(|a| (polar(a, 21.0), 0.0))).collect()
             } else {
-                // Arbres en couronne près du bord : le centre reste libre pour le jeton d'une unité
-                for a in [30.0_f32, 90.0, 150.0, 210.0, 270.0, 330.0] {
-                    pieces.push((tree_mesh.clone(), tree.clone(), polar(a, 21.0), 8.0, Vec3::ONE));
+                ring6.iter().map(|&a| (polar(a, 21.0), 0.0)).collect()
+            };
+            // Feuillu : tronc et houppier rond
+            let broad = |at: Vec2, up: f32, leaf: &Handle<StandardMaterial>, size: f32, pieces: &mut Vec<_>| {
+                pieces.push((trunk_mesh.clone(), trunk.clone(), at, up + 4.0 * size, Vec3::new(size, size, size)));
+                pieces.push((crown_mesh.clone(), leaf.clone(), at, up + 10.5 * size, Vec3::new(size, 0.85 * size, size)));
+            };
+            match t {
+                Terrain::Forest => {
+                    for &(at, up) in &spots {
+                        broad(at, up, &broadleaf, 1.0, &mut pieces);
+                    }
                 }
+                Terrain::Jungle => {
+                    // Dense : grands arbres sur le pourtour et plus petits entre eux
+                    for &(at, up) in &spots {
+                        broad(at, up, &jungle_leaf, 1.2, &mut pieces);
+                    }
+                    if !hills {
+                        for a in ring6 {
+                            broad(polar(a + 30.0, 25.0), 0.0, &jungle_leaf, 0.8, &mut pieces);
+                        }
+                    }
+                }
+                Terrain::Taiga => {
+                    for &(at, up) in &spots {
+                        pieces.push((conifer_mesh.clone(), conifer.clone(), at, up + 9.0, Vec3::ONE));
+                    }
+                    if !hills {
+                        for a in ring6 {
+                            pieces.push((conifer_mesh.clone(), conifer.clone(), polar(a + 30.0, 24.0), 7.0, Vec3::splat(0.8)));
+                        }
+                    }
+                }
+                Terrain::WoodedSavanna | Terrain::Savanna => {
+                    // Acacias : tronc fin et cime plate, épars (un seul en savane herbeuse)
+                    let picks: &[usize] = if t == Terrain::Savanna { &[1] } else { &[0, 2, 4] };
+                    for &k in picks {
+                        let (at, up) = spots[k % spots.len()];
+                        pieces.push((trunk_mesh.clone(), trunk.clone(), at, up + 4.0, Vec3::new(0.7, 1.2, 0.7)));
+                        pieces.push((canopy_mesh.clone(), acacia.clone(), at, up + 9.5, Vec3::ONE));
+                    }
+                }
+                Terrain::Mediterranean => {
+                    // Broussailles : buissons bas, un arbre (olivier) de temps en temps
+                    for (k, &(at, up)) in spots.iter().enumerate() {
+                        if k % 3 == 0 {
+                            broad(at, up, &shrub, 0.75, &mut pieces);
+                        } else {
+                            pieces.push((shrub_mesh.clone(), shrub.clone(), at, up + 2.0, Vec3::new(1.5, 0.9, 1.5)));
+                        }
+                    }
+                }
+                Terrain::Marsh => {
+                    // Flaques et touffes de roseaux
+                    for a in [60.0_f32, 240.0] {
+                        pieces.push((puddle_mesh.clone(), puddle.clone(), polar(a, 18.0), 0.2, Vec3::ONE));
+                    }
+                    for a in [0.0_f32, 120.0, 180.0, 300.0] {
+                        for (dx, dy) in [(0.0, 0.0), (1.6, 0.8), (-1.2, 1.4)] {
+                            pieces.push((reed_mesh.clone(), reed.clone(), polar(a, 20.0) + Vec2::new(dx, dy), 3.0, Vec3::ONE));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         pieces.extend(match t {
@@ -540,7 +624,7 @@ fn setup_3d(
         });
         let mut ids = Vec::new();
         for (mesh, material, offset, lift, scale) in pieces {
-            let vegetation = mesh == tree_mesh || mesh == mound_mesh;
+            let vegetation = mesh == mound_mesh || plant_meshes.contains(&mesh);
             ids.push(
                 commands
                     .spawn((
@@ -897,7 +981,7 @@ fn update_relief_3d(
     let hex_color = |hex: Hex| match (fog.explored.contains(&hex), *layer) {
         (false, _) => Vec3::ONE,
         // Lit d'un fleuve en forêt : prairie de berge (pas d'arbres dans le lit)
-        (true, MapLayer::Normal) if map.0.is_fleuve(hex) && map.0.get(hex) == Some(Terrain::Forest) => {
+        (true, MapLayer::Normal) if map.0.is_fleuve(hex) && map.0.get(hex).is_some_and(|t| t.is_wooded()) => {
             terrain_color(Terrain::Grassland)
         }
         (true, MapLayer::Normal) => terrain_color(map.0.get(hex).unwrap()),

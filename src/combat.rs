@@ -84,7 +84,7 @@ pub fn effective_range(kind: UnitKind, from: (u8, Terrain), target: (u8, Terrain
     if base == 0 {
         return 0;
     }
-    let malus = from.0 < target.0 || target.1 == Terrain::Forest;
+    let malus = from.0 < target.0 || target.1.is_wooded();
     (base - i32::from(malus)).max(1)
 }
 
@@ -113,7 +113,7 @@ pub fn bonus_vs(me: UnitKind, other: UnitKind) -> Option<(i32, &'static str)> {
 /// La charge s'applique si l'attaquant (cavalerie de mêlée) a parcouru au moins une case
 /// ce tour-ci et que la cible n'est ni en forêt ni dans des collines.
 pub fn charge_applies(attacker: UnitKind, moved_this_turn: bool, target_terrain: Terrain, target_hills: bool) -> bool {
-    attacker.can_charge() && moved_this_turn && target_terrain != Terrain::Forest && !target_hills
+    attacker.can_charge() && moved_this_turn && !target_terrain.is_wooded() && target_terrain != Terrain::Marsh && !target_hills
 }
 
 /// Malus de blessure : −1 de force par tranche de 10 PV perdus.
@@ -196,8 +196,8 @@ pub fn preview(e: &Engagement) -> Preview {
     let (a, d) = (&e.attacker, &e.defender);
     let (sa, sd) = (a.kind.stats(), d.kind.stats());
     let mut def_mods = Vec::new();
-    if d.terrain == Terrain::Forest {
-        def_mods.push(("forêt".to_string(), TERRAIN_DEFENSE));
+    if d.terrain.is_wooded() {
+        def_mods.push((d.terrain.name().to_lowercase(), TERRAIN_DEFENSE));
     }
     if d.hills {
         def_mods.push(("collines".to_string(), TERRAIN_DEFENSE));

@@ -151,6 +151,79 @@ pub const SUBHUMID_BELOW: f32 = 0.65;
 pub const FOREST_ABOVE: f32 = 0.75;
 /// Un désert de sable demande un climat qui ne gèle pas en moyenne (°C).
 pub const DESERT_ABOVE: f32 = 0.0;
+/// Saisons (températures moyennes de la saison, °C) : taïga ou steppe froide si la plus froide
+/// passe sous `COLD_WINTER` ; climat tropical (jungle, savanes) si la plus froide reste
+/// au-dessus de `TROPICAL_WINTER`. (La toundra reste définie par la moyenne annuelle : les
+/// écarts entre saisons de la simulation sont plus faibles que sur Terre.)
+pub const COLD_WINTER: f32 = -3.0;
+pub const TROPICAL_WINTER: f32 = 18.0;
+/// Jungle : climat tropical humide avec au plus `JUNGLE_DRY_SEASONS` saison sèche, ou très
+/// arrosé (indice d'aridité d'au moins `JUNGLE_WET`) malgré une saison sèche plus longue. La
+/// ceinture de pluies équatoriale de la simulation se déplace beaucoup avec les saisons : une
+/// stricte absence de saison sèche serait presque introuvable.
+pub const JUNGLE_DRY_SEASONS: u8 = 1;
+pub const JUNGLE_WET: f32 = 2.0;
+/// Taïga : indice d'aridité minimal (l'évaporation est faible dans le froid).
+pub const TAIGA_ABOVE: f32 = 0.6;
+/// Savane ou broussailles plutôt que plaine dans le semi-aride, au-dessus de cet indice d'aridité.
+pub const SEMI_ARID_WOODLAND: f32 = 0.35;
+/// Marais : niveau d'altitude maximal et indice d'aridité minimal.
+const MARSH_MAX_LEVEL: u8 = 2;
+const MARSH_ARIDITY: f32 = 1.0;
+
+/// Climat d'une case vu par le choix du biome.
+#[derive(Clone, Copy, Debug)]
+pub struct BiomeClimate {
+    /// Température moyenne annuelle (°C).
+    pub temperature: f32,
+    /// Indice d'aridité (pluie / évaporation potentielle).
+    pub aridity: f32,
+    /// Température de la saison la plus froide (°C).
+    pub coldest: f32,
+    /// Nombre de saisons sèches (0 à 4).
+    pub dry_seasons: u8,
+    /// Été sec et hiver pluvieux.
+    pub dry_summer: bool,
+}
+
+/// Biome d'une case de terre (hors montagnes) selon son climat et ses saisons.
+pub fn biome(c: BiomeClimate) -> Terrain {
+    let tropical = c.coldest >= TROPICAL_WINTER;
+    if c.temperature < SNOW_BELOW {
+        Terrain::Snow
+    } else if c.temperature < TUNDRA_BELOW {
+        Terrain::Tundra
+    } else if c.aridity < ARID_BELOW && c.temperature >= DESERT_ABOVE {
+        Terrain::Desert
+    } else if c.aridity < SEMI_ARID_BELOW {
+        if c.coldest < 0.0 {
+            Terrain::Steppe
+        } else if tropical && c.aridity >= SEMI_ARID_WOODLAND {
+            Terrain::Savanna
+        } else if c.dry_summer && c.aridity >= SEMI_ARID_WOODLAND {
+            Terrain::Mediterranean
+        } else {
+            Terrain::Plains
+        }
+    } else if c.coldest < COLD_WINTER {
+        if c.aridity >= TAIGA_ABOVE { Terrain::Taiga } else { Terrain::Steppe }
+    } else if tropical {
+        if c.aridity < FOREST_ABOVE {
+            Terrain::Savanna
+        } else if c.dry_seasons <= JUNGLE_DRY_SEASONS || c.aridity >= JUNGLE_WET {
+            Terrain::Jungle
+        } else {
+            Terrain::WoodedSavanna
+        }
+    } else if c.dry_summer && c.aridity < FOREST_ABOVE {
+        // Été sec : végétation basse et clairsemée ; bien arrosé sur l'année, c'est une forêt
+        Terrain::Mediterranean
+    } else if c.aridity < FOREST_ABOVE {
+        Terrain::Grassland
+    } else {
+        Terrain::Forest
+    }
+}
 pub const HILL_MOVE_COST: u32 = 1;
 /// Altitudes (m) des limites entre niveaux voisins, du pied des sommets et des plus hauts pics.
 const LEVEL_BOUNDS_M: [f32; 5] = [300.0, 650.0, 1_075.0, 1_550.0, 2_100.0];
@@ -183,6 +256,21 @@ pub enum Terrain {
     Mountains,
     /// Lac d'eau douce (au moins une demi-case), éventuellement en altitude.
     Lake,
+    /// Forêt tropicale humide : chaud toute l'année, sans saison sèche.
+    Jungle,
+    /// Savane herbeuse : chaud, une ou plusieurs saisons sèches.
+    Savanna,
+    /// Savane arborée (forêt claire, forêt de mousson) : chaud et bien arrosé, avec une saison
+    /// sèche.
+    WoodedSavanna,
+    /// Broussailles (maquis, garrigue) : été sec, hiver doux et pluvieux.
+    Mediterranean,
+    /// Taïga (forêt boréale) : hiver rigoureux, été doux.
+    Taiga,
+    /// Steppe : semi-aride à hiver froid.
+    Steppe,
+    /// Marais : terre basse et plate gorgée d'eau, au bord d'un fleuve ou d'un lac.
+    Marsh,
 }
 
 /// Rendement d'une case : nourriture, production, or.
@@ -217,9 +305,16 @@ impl Terrain {
             Terrain::Desert => "Désert",
             Terrain::Tundra => "Toundra",
             Terrain::Snow => "Neige",
-            Terrain::Forest => "Forêt",
+            Terrain::Forest => "Forêt tempérée",
             Terrain::Mountains => "Montagnes",
             Terrain::Lake => "Lac",
+            Terrain::Jungle => "Jungle",
+            Terrain::Savanna => "Savane",
+            Terrain::WoodedSavanna => "Savane arborée",
+            Terrain::Mediterranean => "Broussailles",
+            Terrain::Taiga => "Taïga",
+            Terrain::Steppe => "Steppe",
+            Terrain::Marsh => "Marais",
         }
     }
 
@@ -235,6 +330,13 @@ impl Terrain {
             Terrain::Forest => Yields::new(1, 2, 0),
             Terrain::Mountains => Yields::new(0, 0, 0),
             Terrain::Lake => Yields::new(2, 0, 1),
+            Terrain::Jungle => Yields::new(1, 1, 0),
+            Terrain::Savanna => Yields::new(2, 0, 0),
+            Terrain::WoodedSavanna => Yields::new(1, 1, 0),
+            Terrain::Mediterranean => Yields::new(1, 1, 1),
+            Terrain::Taiga => Yields::new(1, 1, 0),
+            Terrain::Steppe => Yields::new(1, 1, 0),
+            Terrain::Marsh => Yields::new(1, 0, 0),
         }
     }
 
@@ -242,9 +344,15 @@ impl Terrain {
     pub fn move_cost(self) -> Option<u32> {
         match self {
             Terrain::Ocean | Terrain::Coast | Terrain::Lake | Terrain::Mountains => None,
-            Terrain::Forest => Some(2),
+            Terrain::Forest | Terrain::Jungle | Terrain::Taiga => Some(2),
+            Terrain::Marsh => Some(3),
             _ => Some(1),
         }
+    }
+
+    /// Couvert boisé dense (forêt tempérée, jungle, taïga) : défense, pas de charge, tir gêné.
+    pub fn is_wooded(self) -> bool {
+        matches!(self, Terrain::Forest | Terrain::Jungle | Terrain::Taiga)
     }
 
     pub fn is_water(self) -> bool {
@@ -269,10 +377,17 @@ impl Terrain {
             Terrain::Forest => (0.15, 0.42, 0.18),
             Terrain::Mountains => (0.45, 0.43, 0.42),
             Terrain::Lake => (0.33, 0.62, 0.82),
+            Terrain::Jungle => (0.05, 0.33, 0.13),
+            Terrain::Savanna => (0.78, 0.70, 0.36),
+            Terrain::WoodedSavanna => (0.60, 0.62, 0.30),
+            Terrain::Mediterranean => (0.56, 0.58, 0.38),
+            Terrain::Taiga => (0.13, 0.31, 0.27),
+            Terrain::Steppe => (0.72, 0.68, 0.50),
+            Terrain::Marsh => (0.38, 0.53, 0.47),
         }
     }
 
-    pub const ALL: [Terrain; 10] = [
+    pub const ALL: [Terrain; 17] = [
         Terrain::Ocean,
         Terrain::Coast,
         Terrain::Grassland,
@@ -283,11 +398,18 @@ impl Terrain {
         Terrain::Forest,
         Terrain::Mountains,
         Terrain::Lake,
+        Terrain::Jungle,
+        Terrain::Savanna,
+        Terrain::WoodedSavanna,
+        Terrain::Mediterranean,
+        Terrain::Taiga,
+        Terrain::Steppe,
+        Terrain::Marsh,
     ];
 
     /// Nom au féminin ou au masculin pour l'accord de « vallonné ».
     fn is_feminine(self) -> bool {
-        !matches!(self, Terrain::Desert | Terrain::Lake)
+        !matches!(self, Terrain::Desert | Terrain::Lake | Terrain::Marsh)
     }
 }
 
@@ -412,10 +534,11 @@ impl WorldMap {
         if self.is_fleuve(hex) {
             return format!("Fleuve (rives : {})", t.name().to_lowercase());
         }
-        let base = match (self.hills(hex), t.is_feminine()) {
-            (false, _) => t.name().to_string(),
-            (true, true) => format!("{} vallonnée", t.name()),
-            (true, false) => format!("{} vallonné", t.name()),
+        let base = match (self.hills(hex), t.is_feminine(), t == Terrain::Mediterranean) {
+            (false, _, _) => t.name().to_string(),
+            (true, _, true) => format!("{} vallonnées", t.name()),
+            (true, true, _) => format!("{} vallonnée", t.name()),
+            (true, false, _) => format!("{} vallonné", t.name()),
         };
         if self.small_lake(hex) { format!("{base}, petit lac") } else { base }
     }
@@ -609,6 +732,17 @@ impl WorldMap {
         };
         let lat = self.latitude(hex);
         let hemisphere = if lat >= 0.0 { "N" } else { "S" };
+        // Saisons : été sec (méditerranéen) ou nombre de saisons sèches
+        let i = self.index(hex)?;
+        let dry = self.climate.dry_seasons(i).map_or(0, |d| d.iter().filter(|&&x| x).count());
+        let seasons = match (self.climate.dry_summer(i).unwrap_or(false), dry) {
+            (true, _) => " à été sec".to_string(),
+            // (sec toute l'année : déjà dit par « aride » ou « semi-aride »)
+            (false, 0 | 4) => String::new(),
+            (false, 1) => " à une saison sèche".to_string(),
+            (false, k) => format!(" à {k} saisons sèches"),
+        };
+        let wet = format!("{wet}{seasons}");
         Some(format!("{zone} {wet}, {t:.0} °C, {:.0} mm/an, {:.0}°{hemisphere}", (r / 10.0).round() * 10.0, lat.abs()))
     }
 
@@ -824,19 +958,15 @@ impl WorldMap {
                 // Petite variation locale (sols, exposition) pour casser les contours
                 let jitter = 1.0 + sample(&moisture_noise, h, 3.0) as f32 * 0.25;
                 let aridity = map.climate.aridity(i).unwrap_or(1.0) * jitter;
-                let t = if temperature < SNOW_BELOW {
-                    Terrain::Snow
-                } else if temperature < TUNDRA_BELOW {
-                    Terrain::Tundra
-                } else if aridity < ARID_BELOW && temperature >= DESERT_ABOVE {
-                    Terrain::Desert
-                } else if aridity < SEMI_ARID_BELOW {
-                    Terrain::Plains
-                } else if aridity < FOREST_ABOVE {
-                    Terrain::Grassland
-                } else {
-                    Terrain::Forest
-                };
+                let (coldest, _) = map.climate.coldest_warmest(i).unwrap_or((temperature, temperature));
+                let dry = map.climate.dry_seasons(i).unwrap_or([false; 4]);
+                let t = biome(BiomeClimate {
+                    temperature,
+                    aridity,
+                    coldest,
+                    dry_seasons: dry.iter().filter(|&&d| d).count() as u8,
+                    dry_summer: map.climate.dry_summer(i).unwrap_or(false),
+                });
                 map.set(h, t);
                 map.set_hills(h, rough_score(h) > rough_threshold);
             }
@@ -851,6 +981,7 @@ impl WorldMap {
             }
             // 6) Cours d'eau et lacs (voir hydro.rs)
             map.add_hydrology();
+            map.add_marshes();
         }
         map
     }
@@ -963,6 +1094,37 @@ impl WorldMap {
         self.add_basins();
     }
 
+    /// Marais (après l'hydrologie) : case de terre basse et plate (aucune voisine plus basse,
+    /// pas de collines), au bord d'un fleuve ou d'un lac (ou avec un petit lac), dans un climat
+    /// humide qui ne gèle pas toute l'année.
+    fn add_marshes(&mut self) {
+        let marsh: Vec<usize> = (0..self.tiles.len())
+            .filter(|&i| {
+                let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
+                let t = self.tiles[i];
+                if t.is_water() || matches!(t, Terrain::Mountains | Terrain::Snow | Terrain::Tundra | Terrain::Desert) {
+                    return false;
+                }
+                if self.hills[i] || self.is_fleuve(hex) || self.levels[i] > MARSH_MAX_LEVEL {
+                    return false;
+                }
+                let wet = self.climate.aridity(i).is_some_and(|a| a >= MARSH_ARIDITY) && self.climate.temperature.get(i).is_some_and(|&t| t > 0.0);
+                if !wet {
+                    return false;
+                }
+                let lower = hex.neighbors().iter().any(|&n| {
+                    self.index(n).is_some_and(|j| !self.tiles[j].is_water() && self.levels[j] < self.levels[i])
+                });
+                let water = self.small_lake(hex) || hex.neighbors().iter().any(|&n| self.is_fleuve(n) || self.get(n) == Some(Terrain::Lake));
+                !lower && water
+            })
+            .collect();
+        for i in marsh {
+            self.tiles[i] = Terrain::Marsh;
+        }
+        self.step_cache = std::sync::OnceLock::new();
+    }
+
     /// Bassins versants et noms des fleuves (après l'hydrologie).
     fn add_basins(&mut self) {
         let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
@@ -986,7 +1148,7 @@ impl WorldMap {
     /// Note d'un emplacement de départ : somme des rendements autour, terrain constructible.
     pub fn start_score(&self, hex: Hex) -> i32 {
         match self.get(hex) {
-            Some(Terrain::Grassland | Terrain::Plains) if !self.is_fleuve(hex) => {}
+            Some(Terrain::Grassland | Terrain::Plains | Terrain::Savanna | Terrain::Steppe | Terrain::Mediterranean) if !self.is_fleuve(hex) => {}
             _ => return i32::MIN,
         }
         hex.range(2)
@@ -1006,6 +1168,31 @@ impl WorldMap {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn biomes_selon_les_saisons() {
+        let c = |temperature: f32, aridity: f32, coldest: f32, dry_seasons: u8, dry_summer: bool| {
+            biome(BiomeClimate { temperature, aridity, coldest, dry_seasons, dry_summer })
+        };
+        assert_eq!(c(-20.0, 1.0, -30.0, 0, false), Terrain::Snow);
+        assert_eq!(c(-8.0, 1.0, -20.0, 0, false), Terrain::Tundra);
+        assert_eq!(c(2.0, 1.0, -10.0, 0, false), Terrain::Taiga, "hiver rigoureux, humide");
+        assert_eq!(c(2.0, 0.55, -10.0, 0, false), Terrain::Steppe, "hiver rigoureux, assez sec");
+        assert_eq!(c(5.0, 0.4, -5.0, 2, false), Terrain::Steppe, "semi-aride à hiver froid");
+        assert_eq!(c(25.0, 0.1, 22.0, 4, false), Terrain::Desert);
+        assert_eq!(c(26.0, 1.2, 24.0, 0, false), Terrain::Jungle);
+        assert_eq!(c(26.0, 1.2, 24.0, 1, false), Terrain::Jungle, "une courte saison sèche");
+        assert_eq!(c(26.0, 2.5, 24.0, 3, false), Terrain::Jungle, "très arrosé");
+        assert_eq!(c(26.0, 1.2, 24.0, 2, false), Terrain::WoodedSavanna);
+        assert_eq!(c(26.0, 0.6, 24.0, 2, false), Terrain::Savanna);
+        assert_eq!(c(26.0, 0.4, 24.0, 3, false), Terrain::Savanna, "savane sèche");
+        assert_eq!(c(15.0, 0.6, 8.0, 1, true), Terrain::Mediterranean);
+        assert_eq!(c(15.0, 0.9, 8.0, 1, true), Terrain::Forest, "été sec mais bien arrosé : forêt");
+        assert_eq!(c(15.0, 0.4, 8.0, 2, true), Terrain::Mediterranean, "broussailles semi-arides");
+        assert_eq!(c(15.0, 0.4, 8.0, 2, false), Terrain::Plains);
+        assert_eq!(c(10.0, 0.6, 2.0, 0, false), Terrain::Grassland);
+        assert_eq!(c(10.0, 1.0, 2.0, 0, false), Terrain::Forest);
+    }
 
     #[test]
     fn pas_de_mare_de_mer() {
@@ -1053,7 +1240,7 @@ mod tests {
         for seed in 0..10 {
             let map = WorldMap::generate(60, 40, seed);
             let start = map.find_start().expect("un départ doit exister");
-            assert!(matches!(map.get(start), Some(Terrain::Grassland | Terrain::Plains)));
+            assert!(matches!(map.get(start), Some(Terrain::Grassland | Terrain::Plains | Terrain::Savanna | Terrain::Steppe | Terrain::Mediterranean)));
         }
     }
 
@@ -1123,7 +1310,7 @@ mod tests {
         let land: Vec<Hex> = map.hexes().filter(|&h| map.move_cost(h).is_some()).collect();
         let hills = land.iter().filter(|&&h| map.hills(h)).count();
         assert!(hills * 100 > land.len() * 8 && hills * 100 < land.len() * 25, "{hills}/{}", land.len());
-        assert!(land.iter().any(|&h| map.hills(h) && map.get(h) == Some(Terrain::Forest)), "forêts vallonnées");
+        assert!(land.iter().any(|&h| map.hills(h) && map.get(h).is_some_and(|t| t.is_wooded())), "forêts vallonnées");
         assert!(map.hexes().filter(|&h| map.hills(h)).all(|h| map.get(h).unwrap().move_cost().is_some()));
         // Rendements et coûts
         let mut m = WorldMap::filled(4, 4, Terrain::Forest);
@@ -1131,7 +1318,7 @@ mod tests {
         m.set_hills(h, true);
         assert_eq!(m.yields(h), Some(Yields::new(1, 3, 0)));
         assert_eq!(m.move_cost(h), Some(3));
-        assert_eq!(m.describe(h), "Forêt vallonnée");
+        assert_eq!(m.describe(h), "Forêt tempérée vallonnée");
         m.set(h, Terrain::Mountains);
         assert!(!m.hills(h), "pas de collines sur une montagne");
     }
@@ -1229,7 +1416,7 @@ mod apercu {
                 line.push(match t {
                     Terrain::Ocean => ' ', Terrain::Coast => '.', Terrain::Grassland => 'p', Terrain::Plains => '-',
                     Terrain::Desert => 'D', Terrain::Tundra => 't', Terrain::Snow => '*', Terrain::Forest => 'F',
-                    Terrain::Mountains => 'M', Terrain::Lake => 'o',
+                    Terrain::Mountains => 'M', Terrain::Lake => 'o', Terrain::Jungle => 'J', Terrain::Savanna => 's', Terrain::WoodedSavanna => 'w', Terrain::Mediterranean => 'm', Terrain::Taiga => 'T', Terrain::Steppe => '_', Terrain::Marsh => '~',
                 });
                 let w = m.wind(h).unwrap();
                 rl.push(if t.is_water() {
@@ -1362,6 +1549,7 @@ mod planete {
                             Terrain::Forest => 'F',
                             Terrain::Mountains => 'M',
                             Terrain::Lake => 'o',
+                            Terrain::Jungle => 'J', Terrain::Savanna => 's', Terrain::WoodedSavanna => 'w', Terrain::Mediterranean => 'm', Terrain::Taiga => 'T', Terrain::Steppe => '_', Terrain::Marsh => '~',
                         }
                     })
                     .collect();

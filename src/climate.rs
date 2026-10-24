@@ -101,6 +101,11 @@ const CONVECTION_W: f32 = 0.004;
 /// simplifié, faute de saisons : étouffé comme la convection sous le couvercle des anticyclones.
 const LAKE_EFFECT_W: f32 = 0.003;
 const LAKE_EFFECT_KM: f32 = 130.0;
+/// Saison sèche : pluie de la saison inférieure à cette part de son évaporation potentielle.
+pub const DRY_SEASON_RATIO: f32 = 0.3;
+/// Été sec (méditerranéen) : pluie de la saison chaude inférieure à cette part de celle de la
+/// saison froide.
+pub const SUMMER_DRY_SHARE: f32 = 0.4;
 /// Part de l'eau condensée dans l'air soulevé qui précipite, dans un air sec puis dans un air
 /// saturé : le reste s'évapore en altitude (enclumes des orages). Un air humide perd moins de
 /// gouttes en route, d'où un meilleur rendement.
@@ -214,12 +219,41 @@ pub struct Climate {
     pub humidity: Vec<f32>,
     /// Eau précipitable moyenne de la colonne d'air (mm).
     pub column: Vec<f32>,
+    /// Par saison (les 4 moments de `Period::YEAR` : équinoxe, été boréal, équinoxe, hiver
+    /// boréal) : température moyenne (°C), précipitations et évaporation potentielle au rythme
+    /// de la saison (mm par an). Avec un autre nombre de périodes, les 4 valeurs sont celles de
+    /// l'année.
+    pub season_temp: Vec<[f32; 4]>,
+    pub season_rain: Vec<[f32; 4]>,
+    pub season_pet: Vec<[f32; 4]>,
 }
 
 impl Climate {
     /// Indice d'aridité (précipitations / évaporation potentielle).
     pub fn aridity(&self, i: usize) -> Option<f32> {
         Some(self.rain.get(i)? / self.pet.get(i)?.max(1.0))
+    }
+
+    /// Températures de la saison la plus froide et de la plus chaude (°C).
+    pub fn coldest_warmest(&self, i: usize) -> Option<(f32, f32)> {
+        let t = self.season_temp.get(i)?;
+        Some((t.iter().copied().fold(f32::MAX, f32::min), t.iter().copied().fold(f32::MIN, f32::max)))
+    }
+
+    /// Saisons sèches : précipitations de la saison inférieures à `DRY_SEASON_RATIO` fois son
+    /// évaporation potentielle.
+    pub fn dry_seasons(&self, i: usize) -> Option<[bool; 4]> {
+        let (r, p) = (self.season_rain.get(i)?, self.season_pet.get(i)?);
+        Some(std::array::from_fn(|s| r[s] < DRY_SEASON_RATIO * p[s].max(1.0)))
+    }
+
+    /// Été sec et hiver pluvieux (climat méditerranéen) : la saison la plus chaude est sèche et
+    /// reçoit moins de `SUMMER_DRY_SHARE` fois la pluie de la saison la plus froide.
+    pub fn dry_summer(&self, i: usize) -> Option<bool> {
+        let (t, r) = (self.season_temp.get(i)?, self.season_rain.get(i)?);
+        let warm = (0..4).max_by(|&a, &b| t[a].total_cmp(&t[b]))?;
+        let cold = (0..4).min_by(|&a, &b| t[a].total_cmp(&t[b]))?;
+        Some(warm != cold && self.dry_seasons(i)?[warm] && r[warm] < SUMMER_DRY_SHARE * r[cold])
     }
 }
 
@@ -800,7 +834,12 @@ pub fn simulate_periods(
     let mut scratch = vec![0.0f32; n];
     let mut previous_qs: (Vec<f32>, Vec<f32>) = (Vec::new(), Vec::new());
 
+    // Sommes au début de chaque période : les valeurs par saison sont les écarts
+    let mut season_sums: Vec<Vec<(f32, f32, f32)>> = Vec::with_capacity(periods.len());
+    let mut season_samples: Vec<f32> = Vec::with_capacity(periods.len());
     for (p, &period) in periods.iter().enumerate() {
+        let before: Vec<(f32, f32, f32)> = sums.iter().map(|s| (s.temperature, s.rain, s.pet)).collect();
+        let samples_before = samples;
         // Constantes de la période pour chaque case
         let consts: Vec<CellConst> = (0..n)
             .map(|i| {
@@ -916,11 +955,32 @@ pub fn simulate_periods(
                 samples += 1.0;
             }
         }
+        season_sums.push(sums.iter().zip(&before).map(|(s, b)| (s.temperature - b.0, s.rain - b.1, s.pet - b.2)).collect());
+        season_samples.push(samples - samples_before);
     }
     // Moyennes ; quantités d'eau ramenées à l'année
     let per_year = 365.0 / (samples * dt_days);
     let mean = |f: fn(&Sums) -> f32| sums.iter().map(|s| f(s) / samples).collect::<Vec<f32>>();
     let yearly = |f: fn(&Sums) -> f32| sums.iter().map(|s| f(s) * per_year).collect::<Vec<f32>>();
+    // Valeurs par saison (champ 0 : température moyenne, 1 : pluie, 2 : ETP, au rythme annuel)
+    let seasonal = |field: usize, annual: &dyn Fn(&Sums) -> f32| -> Vec<[f32; 4]> {
+        (0..sums.len())
+            .map(|i| {
+                if season_sums.len() != 4 {
+                    return [annual(&sums[i]); 4];
+                }
+                std::array::from_fn(|p| {
+                    let (t, r, e) = season_sums[p][i];
+                    let k = season_samples[p].max(1.0);
+                    match field {
+                        0 => t / k,
+                        1 => r * 365.0 / (k * dt_days),
+                        _ => e * 365.0 / (k * dt_days),
+                    }
+                })
+            })
+            .collect()
+    };
     Climate {
         temperature: mean(|s| s.temperature),
         temp_min: mean(|s| s.temp_min),
@@ -933,6 +993,9 @@ pub fn simulate_periods(
         wind: sums.iter().map(|s| (s.wind.0 / samples, s.wind.1 / samples)).collect(),
         humidity: mean(|s| s.humidity),
         column: mean(|s| s.column),
+        season_temp: seasonal(0, &|s: &Sums| s.temperature / samples),
+        season_rain: seasonal(1, &|s: &Sums| s.rain * per_year),
+        season_pet: seasonal(2, &|s: &Sums| s.pet * per_year),
     }
 }
 
