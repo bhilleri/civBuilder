@@ -10,8 +10,9 @@
 //!
 //! Des points chauds, fixes sous les plaques, percent la croûte loin des frontières (chapelets
 //! d'îles volcaniques). La carte boucle d'est en ouest : les plaques passent le raccord.
-//! Cette étape ne fait que les décrire (carte « Plaques ») ; les continents et les chaînes de
-//! montagnes en découleront ensuite.
+//! Sur une planète, le relief en découle (`Plates::elevation`) : continents sur les plaques
+//! continentales, chaînes, fosses, arcs d'îles, rifts et chapelets d'îles le long des frontières
+//! et au-dessus des points chauds.
 
 use crate::hex::{DIRECTIONS, Hex, Wrap};
 use bevy::math::{Vec2, Vec3};
@@ -40,6 +41,8 @@ const HOTSPOT_FROM_BOUNDARY: i32 = 5;
 const WARP_CELLS: f64 = 9.0;
 /// Rayon (cases) sur lequel on lisse la direction d'une frontière.
 const BOUNDARY_SMOOTH: f32 = 3.5;
+/// Passes d'adoucissement du relief des frontières.
+const LIFT_SMOOTHING: usize = 4;
 
 /// Nature d'une plaque.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +103,12 @@ impl Boundary {
         }
     }
 
+    /// Les plaques se rapprochent.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn converging(self) -> bool {
+        matches!(self, Boundary::Collision | Boundary::Subduction | Boundary::IslandArc)
+    }
+
     /// Couleur de la frontière sur la carte (sRGB) : rapprochement en rouges, écartement en
     /// bleus, glissement en jaune.
     pub fn color(self) -> (f32, f32, f32) {
@@ -122,6 +131,11 @@ pub struct BoundaryEdge {
     pub dir: u8,
     pub kind: Boundary,
     pub closing: f32,
+    /// Case voisine (de l'autre plaque).
+    pub neighbor: usize,
+    /// Plaque qui plonge sous l'autre (subduction : l'océanique ; arc d'îles : celle qui
+    /// avance le plus vite vers la frontière), `u8::MAX` sinon.
+    pub under: u8,
 }
 
 /// Les plaques de la planète.
@@ -141,6 +155,13 @@ pub struct Plates {
     pub boundary_km: Vec<f32>,
     /// Points chauds (cases).
     pub hotspots: Vec<Hex>,
+    /// Arête de frontière la plus proche de chaque case (indice dans `edges`).
+    pub nearest_edge: Vec<u32>,
+    /// Position de chaque case sur la sphère (vecteur unitaire) et rayon de la planète (km).
+    pub points: Vec<Vec3>,
+    pub radius_km: f32,
+    /// Largeur de la carte (cases).
+    pub width: i32,
 }
 
 /// Noms (réels) des plaques océaniques, puis continentales.
@@ -421,6 +442,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
     }
     let mut edges = Vec::with_capacity(raw.len());
     let mut boundary: Vec<Option<(Boundary, f32)>> = vec![None; n];
+    let mut cell_edge = vec![u32::MAX; n];
     for e in &raw {
         let (a, b) = (plate_of[e.cell], plate_of[e.neighbor]);
         let mut normal = Vec3::ZERO;
@@ -439,14 +461,27 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         for c in [e.cell, e.neighbor] {
             if boundary[c].is_none_or(|(_, s)| closing.abs() > s) {
                 boundary[c] = Some((kind, closing.abs()));
+                cell_edge[c] = edges.len() as u32;
             }
         }
-        edges.push(BoundaryEdge { cell: e.cell, dir: e.dir, kind, closing });
+        let under = match kind {
+            Boundary::Subduction => {
+                if plates[pa].kind == PlateKind::Oceanic { a } else { b }
+            }
+            Boundary::IslandArc => {
+                // Vitesse de chaque plaque vers la frontière
+                let (ta, tb) = (plates[pa].rotation.cross(e.mid).dot(normal), -plates[pb].rotation.cross(e.mid).dot(normal));
+                if ta >= tb { a } else { b }
+            }
+            _ => u8::MAX,
+        };
+        edges.push(BoundaryEdge { cell: e.cell, dir: e.dir, kind, closing, neighbor: e.neighbor, under });
     }
     let boundary: Vec<Option<Boundary>> = boundary.into_iter().map(|b| b.map(|(k, _)| k)).collect();
 
     // Distance (km, sur la sphère) de chaque case à la frontière la plus proche
     let mut boundary_km = vec![f32::MAX; n];
+    let mut nearest_edge = cell_edge;
     let mut queue: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
     for (i, b) in boundary.iter().enumerate() {
         if b.is_some() {
@@ -462,6 +497,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
             let d = boundary_km[i] + arc_km(points[i], points[j]);
             if d < boundary_km[j] {
                 boundary_km[j] = d;
+                nearest_edge[j] = nearest_edge[i];
                 queue.push(Reverse((key(d), j)));
             }
         }
@@ -491,7 +527,134 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         }
     }
 
-    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, hotspots }
+    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, hotspots, nearest_edge, points, radius_km, width }
+}
+
+/// Profil en cloche : 1 en 0, ≈ 0,37 à `width`.
+fn bell(x: f32, width: f32) -> f32 {
+    (-(x / width).powi(2)).exp()
+}
+
+impl Plates {
+    /// Altitude relative (sans unité ; la mer en dessous de 0) de chaque case, issue des plaques :
+    /// - socle : haut sur les plaques continentales, bas sur les océaniques, découpé par un
+    ///   bruit lent (côtes, mers peu profondes, îles) ;
+    /// - le long des frontières, selon leur nature et la vitesse de rapprochement : grande chaîne
+    ///   et haut plateau d'une collision, cordillère côtière d'une subduction (côté continent) et
+    ///   fosse au large (côté océan), arc d'îles, fossé et épaulements d'un rift, dorsale ;
+    /// - chapelets d'îles des points chauds, vieillissant dans le sens du mouvement de la plaque ;
+    /// - collines et vieux massifs à l'intérieur des continents.
+    ///
+    /// Tous les bruits sont lus sur la sphère : même échelle partout, pôles compris.
+    pub fn elevation(&self, seed: u32, cell_km: f32) -> Vec<f64> {
+        let n = self.plate_of.len();
+        let fbm = |k: u32, octaves: usize| -> Fbm<Perlin> { Fbm::new(seed.wrapping_add(k)).set_octaves(octaves).set_frequency(1.0) };
+        let (coast, shelf, hills, arc) = (fbm(101, 5), fbm(202, 3), fbm(303, 4), fbm(404, 3));
+        let old = noise::RidgedMulti::<Perlin>::new(seed.wrapping_add(505)).set_octaves(4);
+        // Bruit au point p, pour une longueur d'onde donnée (km)
+        let at = |f: &dyn NoiseFn<f64, 3>, p: Vec3, wavelength_km: f32| {
+            let z = f64::from(self.radius_km / wavelength_km);
+            f.get([f64::from(p.x) * z, f64::from(p.y) * z, f64::from(p.z) * z]) as f32
+        };
+        let parts: Vec<(f32, f32)> = (0..n)
+            .map(|i| {
+                let p = self.points[i];
+                let plate = &self.plates[usize::from(self.plate_of[i])];
+                let continental = plate.kind == PlateKind::Continental;
+                // Socle
+                let mut e = if continental {
+                    0.30 + 0.30 * at(&coast, p, 2_400.0) + 0.16 * at(&shelf, p, 5_000.0)
+                } else {
+                    -0.40 + 0.18 * at(&coast, p, 2_400.0)
+                };
+                if continental {
+                    e += 0.10 * at(&hills, p, 700.0) + 0.12 * (at(&old, p, 1_800.0) * 0.5 + 0.2).max(0.0);
+                    // Intérieur des continents un peu plus haut que leurs bords : l'eau s'écoule
+                    // vers les côtes au lieu de stagner dans les creux du bruit
+                    e += 0.14 * (1.0 - bell(self.boundary_km[i], 900.0));
+                }
+                let mut lift = 0.0;
+                // Frontière la plus proche
+                let edge = self.nearest_edge.get(i).copied().unwrap_or(u32::MAX);
+                if let Some(edge) = self.edges.get(edge as usize) {
+                    let d = self.boundary_km[i];
+                    let mine = self.plate_of[i];
+                    let sides = (self.plate_of[edge.cell], self.plate_of[edge.neighbor]);
+                    let on_edge = mine == sides.0 || mine == sides.1;
+                    let f = (edge.closing.abs() / 4.0).clamp(0.5, 1.6);
+                    let under = edge.under == mine;
+                    lift = match edge.kind {
+                        _ if !on_edge => 0.0,
+                        Boundary::Collision => f * (0.62 * bell(d, 180.0) + 0.26 * bell(d, 600.0)),
+                        Boundary::Subduction if under => -0.28 * f * bell(d, 90.0),
+                        Boundary::Subduction => f * (0.55 * bell(d - 150.0, 130.0) + 0.12 * bell(d, 450.0)),
+                        Boundary::IslandArc if under => -0.28 * f * bell(d, 90.0),
+                        Boundary::IslandArc => f * 0.62 * bell(d - 130.0, 75.0) * (0.45 + 0.55 * (at(&arc, p, 300.0) * 0.5 + 0.5)),
+                        Boundary::Rift => f * (-0.24 * bell(d, 70.0) + 0.09 * bell(d - 130.0, 70.0)),
+                        Boundary::Ridge if !continental => 0.16 * f * bell(d, 170.0),
+                        Boundary::Ridge => 0.0,
+                        Boundary::Transform => 0.05 * at(&hills, p, 300.0) * bell(d, 120.0),
+                    };
+                }
+                (e, lift)
+            })
+            .collect();
+        // Le relief des frontières vient de la frontière la plus proche : là où la plus proche
+        // change (à mi-chemin de deux frontières), il saute. On l'adoucit (moyenne avec les
+        // voisines, quelques passes) : plus d'arêtes droites au milieu des continents
+        let wrap = Wrap::new(self.width, true);
+        let height = n as i32 / self.width.max(1);
+        let neighbors: Vec<Vec<usize>> = (0..n)
+            .map(|i| {
+                let h = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
+                wrap.neighbors(h)
+                    .into_iter()
+                    .filter_map(|nb| {
+                        let (c, r) = nb.to_offset();
+                        (0..height).contains(&r).then_some((r * self.width + c) as usize)
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut lift: Vec<f32> = parts.iter().map(|&(_, l)| l).collect();
+        for _ in 0..LIFT_SMOOTHING {
+            lift = (0..n)
+                .map(|i| {
+                    let around: f32 = neighbors[i].iter().map(|&j| lift[j]).sum();
+                    (lift[i] * 2.0 + around) / (2.0 + neighbors[i].len() as f32)
+                })
+                .collect();
+        }
+        let mut out: Vec<f64> = (0..n).map(|i| f64::from(parts[i].0 + lift[i])).collect();
+        // Points chauds : une île sur le point chaud, puis d'anciennes îles de plus en plus basses
+        // là où la plaque les a emportées (dans le sens de son mouvement)
+        let step = 2.6 * cell_km / self.radius_km;
+        for h in &self.hotspots {
+            let (c, r) = h.to_offset();
+            let Some(i) = self.cell_of(c, r) else { continue };
+            let p = self.points[i];
+            let v = self.plates[usize::from(self.plate_of[i])].rotation.cross(p);
+            let dir = (v - p * v.dot(p)).try_normalize().unwrap_or(Vec3::Z.cross(p).normalize_or(Vec3::X));
+            for k in 0..6 {
+                let q = (p + dir * (step * k as f32)).normalize();
+                let height = 0.75 * (1.0 - k as f32 / 6.5);
+                let reach = (1.3 - 0.1 * k as f32) * cell_km;
+                for (j, &pj) in self.points.iter().enumerate() {
+                    let dist = pj.dot(q).clamp(-1.0, 1.0).acos() * self.radius_km;
+                    if dist < 3.0 * reach {
+                        out[j] = out[j].max(out[j] * 0.3 + f64::from(height * bell(dist, reach)) - 0.05);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Indice d'une case (colonne, ligne).
+    fn cell_of(&self, col: i32, row: i32) -> Option<usize> {
+        let width = self.width;
+        (width > 0 && col >= 0 && col < width && row >= 0).then(|| (row * width + col) as usize).filter(|&i| i < self.plate_of.len())
+    }
 }
 
 /// Morceaux détachés : seul le plus grand morceau de chaque plaque la garde ; les autres
@@ -674,6 +837,42 @@ mod tests {
             for h in &p.hotspots {
                 let (c, r) = h.to_offset();
                 assert!(p.boundary_km[(r * 192 + c) as usize] >= HOTSPOT_FROM_BOUNDARY as f32 * 40.0);
+            }
+        }
+    }
+
+    #[test]
+    fn relief_issu_des_plaques() {
+        for seed in [777, 2] {
+            let p = planet(seed);
+            let e = p.elevation(seed, 40.0);
+            let n = e.len();
+            let continental = |i: usize| p.plate(i).unwrap().kind == PlateKind::Continental;
+            // Les terres (au-dessus de 0) sont surtout sur les plaques continentales
+            let land: Vec<usize> = (0..n).filter(|&i| e[i] >= 0.0).collect();
+            let on_cont = land.iter().filter(|&&i| continental(i)).count();
+            assert!(on_cont * 100 >= land.len() * 85, "graine {seed} : {on_cont}/{}", land.len());
+            let share = land.len() as f32 / n as f32;
+            assert!((0.3..0.55).contains(&share), "graine {seed} : {share}");
+            // Le plus haut des terres est près des frontières qui se rapprochent
+            let mut by_height = land.clone();
+            by_height.sort_by(|&a, &b| e[b].total_cmp(&e[a]));
+            let top = &by_height[..by_height.len() / 50];
+            let near = top
+                .iter()
+                .filter(|&&i| p.boundary_km[i] < 800.0 && p.edges[p.nearest_edge[i] as usize].kind.converging())
+                .count();
+            assert!(near * 100 >= top.len() * 60, "graine {seed} : {near}/{} sommets près d'une collision ou subduction", top.len());
+            // Les fosses : les fonds océaniques au bord d'une subduction sont plus profonds
+            let ocean: Vec<usize> = (0..n).filter(|&i| !continental(i) && e[i] < 0.0).collect();
+            let mean = |cells: &[usize]| cells.iter().map(|&i| e[i]).sum::<f64>() / cells.len().max(1) as f64;
+            let trench: Vec<usize> = ocean
+                .iter()
+                .copied()
+                .filter(|&i| p.boundary_km[i] < 60.0 && p.edges[p.nearest_edge[i] as usize].under == p.plate_of[i])
+                .collect();
+            if !trench.is_empty() {
+                assert!(mean(&trench) < mean(&ocean), "graine {seed} : fosses");
             }
         }
     }

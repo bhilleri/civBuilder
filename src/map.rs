@@ -1034,10 +1034,18 @@ impl WorldMap {
                 noise.get([col as f64 * scale * zoom, row as f64 * scale * zoom])
             }
         };
-        // 1) Élévation brute
+        // 1) Élévation brute : sur une planète, issue des plaques (continents, chaînes, fosses, arcs
+        //    d'îles, points chauds ; la mer sous 0) ; sur une carte régionale, bruit fractal atténué
+        //    vers les bords
+        let tectonic = wrap.wraps();
+        let tectonic_e = if tectonic { map.plates.elevation(seed, region.cell_km) } else { Vec::new() };
         let elevations: Vec<(Hex, f64)> = map
             .hexes()
-            .map(|h| {
+            .enumerate()
+            .map(|(i, h)| {
+                if tectonic {
+                    return (h, tectonic_e[i]);
+                }
                 let (col, row) = h.to_offset();
                 let mut e = sample(&elevation_noise, h, 1.0);
                 // Atténuation vers les bords pour obtenir des continents entourés d'océan
@@ -1053,7 +1061,7 @@ impl WorldMap {
         //    percentile des terres émergées ; les sommets sont le haut du niveau 6.
         let mut sorted: Vec<f64> = elevations.iter().map(|(_, e)| *e).collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let sea = sorted[((sorted.len() - 1) as f64 * 0.58) as usize];
+        let sea = if tectonic { 0.0 } else { sorted[((sorted.len() - 1) as f64 * 0.58) as usize] };
         let land_sorted: Vec<f64> = sorted.iter().copied().filter(|&e| e >= sea).collect();
         // Mares de mer : petites étendues de mer (moins de `MIN_INLAND_SEA_CELLS` cases) enfermées
         // dans les terres. Une case de mer isolée qui avalerait de grands fleuves n'a pas de sens :
@@ -1924,3 +1932,46 @@ mod planete {
     }
 }
 
+
+#[cfg(test)]
+mod tectonique {
+    use super::*;
+
+    /// Bilan du relief tectonique (à lancer à la main) : part de terres, reliefs, altitudes.
+    #[test]
+    #[ignore]
+    fn bilan_tectonique() {
+        for seed in [777u32, 2, 5] {
+            let t = std::time::Instant::now();
+            let wrap = Wrap::new(192, true);
+            let region = crate::climate::Region::planet(crate::climate::CELL_KM, 111);
+            let p = crate::plates::generate(192, 111, wrap, seed, &|row| region.latitude_deg(row, 111), region.cell_km);
+            let t1 = t.elapsed().as_secs_f32();
+            let _ = p.elevation(seed, region.cell_km);
+            println!("plaques {t1:.2} s, altitude {:.2} s", t.elapsed().as_secs_f32() - t1);
+            let t = std::time::Instant::now();
+            let m = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let n = m.hexes().count() as f32;
+            let land: Vec<Hex> = m.hexes().filter(|&h| !m.get(h).unwrap().is_water()).collect();
+            let area = |h: Hex| m.latitude(h).to_radians().cos().max(0.02);
+            let total: f32 = m.hexes().map(area).sum();
+            let land_area: f32 = land.iter().map(|&h| area(h)).sum();
+            let count = |r: Relief| land.iter().filter(|&&h| m.relief(h) == r).count();
+            let lake = |h: Hex| m.get(h) == Some(Terrain::Lake);
+            let lakes = format!("{} (au-delà de 55° : {})", m.hexes().filter(|&h| lake(h)).count(), m.hexes().filter(|&h| lake(h) && m.latitude(h).abs() > 55.0).count());
+            let cont_land = land.iter().filter(|&&h| m.plate(h).is_some_and(|p| p.kind == crate::plates::PlateKind::Continental)).count();
+            println!(
+                "graine {seed} ({:.1} s) : terres {:.0} % des cases, {:.0} % de la surface ; sur plaques continentales {:.0} % ; montagnes {} pics {} accidenté {} ; lacs {} ; départ {:?}",
+                t.elapsed().as_secs_f32(),
+                land.len() as f32 / n * 100.0,
+                land_area / total * 100.0,
+                cont_land as f32 / land.len().max(1) as f32 * 100.0,
+                count(Relief::Mountain),
+                count(Relief::Peak),
+                count(Relief::Rugged),
+                lakes,
+                m.find_start().map(|h| h.to_offset())
+            );
+        }
+    }
+}

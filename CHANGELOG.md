@@ -25,7 +25,7 @@
 - Chaque plaque **tourne autour de son pôle d'Euler** (1 à 9 cm/an) : sa vitesse change d'un endroit à l'autre.
 - **Frontières** classées selon le mouvement relatif : collision de continents, subduction, arc d'îles, rift continental, dorsale, faille transformante ; **points chauds** loin des frontières.
 - Nouvelle **carte « Plaques »** (2D et 3D) : couleur par plaque (chaude : continentale, froide : océanique), frontières colorées, flèches des mouvements, points chauds ; légende ; infobulle « plaque de Nazca (océanique), 5 cm/an vers le nord-est ; frontière : subduction ».
-- Les plaques ne façonnent pas encore le relief (étape suivante : continents et chaînes de montagnes).
+- **Le relief découle des plaques** : continents sur les plaques continentales, grandes chaînes et hauts plateaux des collisions, cordillères côtières et fosses des subductions, arcs d'îles, rifts, dorsales, chapelets d'îles volcaniques des points chauds (les mondes changent, à graine égale).
 
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 

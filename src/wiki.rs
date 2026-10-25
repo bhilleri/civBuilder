@@ -353,8 +353,12 @@ fn terrain() -> Article {
                subduction (l'océan plonge sous le continent : chaîne côtière, fosse au large) ou un arc d'îles \
                (deux océans) ; deux plaques qui s'écartent ouvrent un rift continental ou une dorsale ; deux \
                plaques qui glissent l'une contre l'autre forment une faille transformante. Les points chauds, loin \
-               des frontières, sont des volcans isolés. Pour l'instant, les plaques sont seulement décrites : le \
-               relief et les continents en découleront."),
+               des frontières, sont des volcans isolés. Le relief en découle : les continents sont posés sur \
+               les plaques continentales ; une collision dresse une grande chaîne et un haut plateau, une \
+               subduction une cordillère le long de la côte et une fosse au large, deux océans qui se rapprochent \
+               un arc d'îles ; un rift creuse un fossé bordé d'épaulements, une dorsale soulève le fond marin ; un \
+               point chaud fait une île volcanique, suivie d'un chapelet d'îles plus anciennes là où la plaque \
+               les a emportées."),
             h("Brouillard de guerre"),
             p("Une case inexplorée est noire. Une fois découverte, elle reste connue mais apparaît assombrie hors de \
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \

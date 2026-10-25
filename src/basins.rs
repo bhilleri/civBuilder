@@ -1301,11 +1301,12 @@ mod tests {
         }
         let fleuves: Vec<&NamedRiver> = b.rivers.iter().filter(|r| r.fleuve).collect();
         assert!(!fleuves.is_empty());
-        // Petits bras : tracés à part, partant du milieu du lit d'une case de leur cours
+        // Petits bras : tracés à part, partant du milieu du lit d'une case de leur cours (ou du
+        // bord de leur première case, quand ils se jettent dans un petit lac du cours)
         for (r, river) in b.rivers.iter().enumerate() {
             for arm in &river.arms {
                 assert!(arm.len() >= 2);
-                assert_eq!(arm[0].corner, CoursePoint::CENTER);
+                assert!(arm[0].corner == CoursePoint::CENTER || arm[0].corner >= CoursePoint::EDGE, "{}", river.name);
                 assert_eq!(b.river_of[arm[0].cell], Some(r as u16), "{}", river.name);
             }
         }

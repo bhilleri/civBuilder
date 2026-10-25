@@ -528,7 +528,7 @@ fn plates_legend() -> impl Bundle {
             Spawn(legend_row(Boundary::Ridge.color(), "s'écartent : dorsale".into())),
             Spawn(legend_row(Boundary::Transform.color(), "glissent : faille transformante".into())),
             Spawn(legend_row(swatch(HOTSPOT), "Point chaud (volcans loin des frontières)".into())),
-            Spawn(text("Flèches : sens et vitesse du mouvement (1 à 9 cm/an). Le relief ne suit pas encore les plaques.", 12.0)),
+            Spawn(text("Flèches : sens et vitesse du mouvement (1 à 9 cm/an). Les continents sont sur les plaques continentales ; les montagnes naissent là où les plaques se rapprochent.", 12.0)),
         )),
     )
 }
