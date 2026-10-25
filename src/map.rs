@@ -531,10 +531,6 @@ const ISLAND_MAX_CELLS: usize = 30;
 const SHELF_DISTANCE_WEIGHT: f64 = 0.15;
 /// Limite du plateau continental (eaux peu profondes) : pêche riche.
 pub const SHELF_DEPTH_M: f32 = 200.0;
-/// Mer polaire : sur les `POLAR_SEA_ROWS` lignes du bord de la carte, la terre s'abaisse (au plus
-/// de `POLAR_SEA_DROP`, en unités du relief des plaques, sur la ligne du bord).
-const POLAR_SEA_ROWS: i32 = 4;
-const POLAR_SEA_DROP: f64 = 0.6;
 /// Début des abysses et des fosses (m).
 pub const ABYSS_DEPTH_M: f32 = 3_000.0;
 pub const TRENCH_DEPTH_M: f32 = 6_000.0;
@@ -1365,19 +1361,11 @@ impl WorldMap {
         let tectonic = wrap.wraps();
         let tectonic_e = if tectonic {
             let mut e = map.plates.elevation(seed, region.cell_km);
-            // Les bords de la carte (les pôles) ne sont pas des côtes : la terre y descend vers une
-            // mer polaire, sinon une terre collée au bord retient l'eau en un immense lac
-            for (i, v) in e.iter_mut().enumerate() {
-                let row = i as i32 / width;
-                let from_edge = row.min(height - 1 - row);
-                if from_edge < POLAR_SEA_ROWS {
-                    let k = f64::from(POLAR_SEA_ROWS - from_edge) / f64::from(POLAR_SEA_ROWS);
-                    *v -= POLAR_SEA_DROP * k * k;
-                }
-            }
             // L'eau creuse le relief : vallées, cuvettes vidées ou comblées, cols (voir erosion.rs)
             let neighbors = map.plates.neighbor_graph(region.cell_km);
-            crate::erosion::erode(&mut e, &neighbors, &map.plates.cell_area(), crate::erosion::ErosionParams::default());
+            // (l'eau qui atteint le bord, aux pôles, s'en va : la terre continue au-delà)
+            let outlet: Vec<bool> = (0..e.len()).map(|i| matches!(i as i32 / width, r if r == 0 || r == height - 1)).collect();
+            crate::erosion::erode(&mut e, &neighbors, &map.plates.cell_area(), &outlet, crate::erosion::ErosionParams::default());
             e
         } else {
             Vec::new()

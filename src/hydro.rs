@@ -247,6 +247,17 @@ pub fn simulate(input: &HydroInput) -> Hydrology {
             queue.push(filled[i], i);
         }
     }
+    // Sur une planète, le bord de la carte (les pôles) n'est pas un mur : la terre continue
+    // au-delà, l'eau qui l'atteint s'en va
+    if input.wraps {
+        for i in 0..n {
+            let row = i as i32 / input.width;
+            if !input.sea[i] && (row == 0 || row == input.height - 1) {
+                done[i] = true;
+                queue.push(filled[i], i);
+            }
+        }
+    }
     // Carte sans mer (tests) : l'eau s'échappe par la case la plus basse
     if queue.heap.is_empty()
         && let Some(i) = (0..n).min_by(|&a, &b| input.elevation[a].total_cmp(&input.elevation[b]))

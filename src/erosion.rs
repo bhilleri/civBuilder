@@ -51,14 +51,15 @@ pub struct ErosionReport {
 
 /// Érode les altitudes `elevation` (la mer en dessous de 0 n'est pas touchée ; une case de terre
 /// reste au-dessus de la mer). `neighbors[i]` : voisines de la case i et distance (en tailles de
-/// case) ; `area[i]` : surface relative de la case.
-pub fn erode(elevation: &mut [f64], neighbors: &[Vec<(usize, f32)>], area: &[f32], params: ErosionParams) -> ErosionReport {
+/// case) ; `area[i]` : surface relative de la case ; `outlet[i]` : case de terre par où l'eau
+/// quitte la carte (bord d'une planète, aux pôles : la terre continue au-delà).
+pub fn erode(elevation: &mut [f64], neighbors: &[Vec<(usize, f32)>], area: &[f32], outlet: &[bool], params: ErosionParams) -> ErosionReport {
     let n = elevation.len();
     let original = elevation.to_vec();
     let is_land: Vec<bool> = elevation.iter().map(|&e| e >= 0.0).collect();
     let mut report = ErosionReport::default();
     for pass in 0..params.passes {
-        let flow = route(elevation, neighbors, &is_land);
+        let flow = route(elevation, neighbors, &is_land, outlet);
         let pits = (0..n).filter(|&i| is_land[i] && flow.filled[i] > elevation[i] + 1e-6).count();
         if pass == 0 {
             report.pit_cells_before = pits;
@@ -117,7 +118,7 @@ pub fn erode(elevation: &mut [f64], neighbors: &[Vec<(usize, f32)>], area: &[f32
             }
         }
     }
-    let flow = route(elevation, neighbors, &is_land);
+    let flow = route(elevation, neighbors, &is_land, outlet);
     report.pit_cells_after = (0..n).filter(|&i| is_land[i] && flow.filled[i] > elevation[i] + 1e-6).count();
     let lowering: Vec<f64> = (0..n).filter(|&i| is_land[i]).map(|i| original[i] - elevation[i]).collect();
     report.mean_lowering = lowering.iter().sum::<f64>() / lowering.len().max(1) as f64;
@@ -133,9 +134,10 @@ struct Flow {
     order: Vec<usize>,
 }
 
-/// Priority-Flood depuis la mer : chaque case de terre est atteinte par sa case aval, à une
+/// Priority-Flood depuis la mer et le bord de la carte : chaque case de terre est atteinte par sa
+/// case aval, à une
 /// hauteur au moins égale à celle-ci (pente minimale imposée dans les cuvettes et les plats).
-fn route(elevation: &[f64], neighbors: &[Vec<(usize, f32)>], is_land: &[bool]) -> Flow {
+fn route(elevation: &[f64], neighbors: &[Vec<(usize, f32)>], is_land: &[bool], outlet: &[bool]) -> Flow {
     const EPSILON: f64 = 1e-5;
     let n = elevation.len();
     let key = |h: f64| (h * 1e9) as i64;
@@ -144,8 +146,9 @@ fn route(elevation: &[f64], neighbors: &[Vec<(usize, f32)>], is_land: &[bool]) -
     let mut done = vec![false; n];
     let mut order = Vec::with_capacity(n);
     let mut queue: BinaryHeap<Reverse<(i64, usize)>> = BinaryHeap::new();
+    // Exutoires : la mer, et le bord de la carte d'une planète
     for i in 0..n {
-        if !is_land[i] {
+        if !is_land[i] || outlet.get(i).copied().unwrap_or(false) {
             done[i] = true;
             queue.push(Reverse((key(filled[i]), i)));
         }
@@ -212,7 +215,7 @@ mod tests {
         // Profondeur de la cuvette : seuil (la plus basse des cases qui l'entourent) moins le fond
         let depth = |e: &[f64]| [9usize, 11].iter().flat_map(|&x| (1..4).map(move |y| y * w + x)).chain([10, 4 * w + 10]).map(|i| e[i]).fold(f64::MAX, f64::min) - e[2 * w + 10];
         let before = depth(&e);
-        let r = erode(&mut e, &neighbors, &area, ErosionParams::default());
+        let r = erode(&mut e, &neighbors, &area, &[], ErosionParams::default());
         assert!(r.pit_cells_before >= 3);
         assert!(r.pit_cells_after <= r.pit_cells_before, "{r:?}");
         assert!(depth(&e) < before * 0.7, "cuvette moins profonde : {} contre {before}", depth(&e));
@@ -234,7 +237,7 @@ mod tests {
             .collect();
         let before = e.clone();
         let neighbors = grid(w, h);
-        erode(&mut e, &neighbors, &vec![1.0; w * h], ErosionParams::default());
+        erode(&mut e, &neighbors, &vec![1.0; w * h], &[], ErosionParams::default());
         let lowered = |x: usize, y: usize| before[y * w + x] - e[y * w + x];
         assert!(lowered(6, 4) > lowered(6, 0) * 1.5, "vallée : {} contre {}", lowered(6, 4), lowered(6, 0));
         // Profil le long de la vallée : toujours descendant vers la mer

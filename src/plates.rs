@@ -48,6 +48,9 @@ const BOUNDARY_SMOOTH: f32 = 3.5;
 const LIFT_SMOOTHING: usize = 4;
 /// Rotation d'une plaque sur elle-même : au plus cette part de sa vitesse par 1 000 km.
 const SPIN_SHARE: f32 = 0.35;
+/// Lignes cachées au-dessus et au-dessous de la carte, où la géologie continue (nombre pair : la
+/// parité des lignes, donc le décalage des hexagones, est gardée).
+pub const MARGIN_ROWS: i32 = 20;
 
 /// Nature d'une plaque.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,6 +184,10 @@ pub struct Plates {
     pub world_km: f32,
     /// Largeur de la carte (cases).
     pub width: i32,
+    /// Plaques calculées sur la carte et ses marges cachées (`MARGIN_ROWS` lignes au-dessus et
+    /// au-dessous) : la géologie ne s'arrête pas au bord. Les champs ci-dessus sont la partie
+    /// visible.
+    pub full: Option<Box<Plates>>,
 }
 
 impl Plates {
@@ -216,9 +223,19 @@ pub fn cylinder(p: Vec2, world_km: f32) -> Vec3 {
     Vec3::new(r * a.cos(), r * a.sin(), p.y)
 }
 
-/// Génère les plaques d'une carte de `width` × `height` cases de `cell_km` (calcul sur la carte,
-/// qui boucle d'est en ouest).
+/// Génère les plaques d'une carte de `width` × `height` cases de `cell_km`. Elles sont calculées
+/// sur la carte (qui boucle d'est en ouest) prolongée de `MARGIN_ROWS` lignes cachées au-dessus et
+/// au-dessous : des plaques débordent au-delà des pôles, des frontières passent près du bord ou
+/// juste derrière (seule la géologie les voit). La part continentale est visée sur la partie
+/// visible.
 pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) -> Plates {
+    let full = generate_full(width, height + 2 * MARGIN_ROWS, wrap, seed, cell_km, MARGIN_ROWS..MARGIN_ROWS + height);
+    full.crop(height, MARGIN_ROWS)
+}
+
+/// Plaques sur une carte de `width` × `height` cases dont seules les lignes `visible` comptent pour
+/// la part continentale et le nombre de plaques.
+fn generate_full(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32, visible: std::ops::Range<i32>) -> Plates {
     let n = (width * height) as usize;
     let mut rng = StdRng::seed_from_u64(u64::from(seed).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x51A7E5);
     let hex_of = |i: usize| Hex::from_offset(i as i32 % width, i as i32 / width);
@@ -243,7 +260,8 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
 
     // Germes : tirés uniformément sur la carte, bien répartis (distance minimale, relâchée si on
     // n'en trouve pas)
-    let count = rng.random_range(MIN_PLATES..=MAX_PLATES);
+    // (autant de plaques sur la partie visible qu'avant, quelques-unes de plus dans les marges)
+    let count = (rng.random_range(MIN_PLATES..=MAX_PLATES) as f32 * height as f32 / visible.len().max(1) as f32).round() as usize;
     let mut seeds: Vec<Hex> = Vec::with_capacity(count);
     let mut spacing = (world_km * (y_hi - y_lo) / count as f32).sqrt() * 0.9;
     while seeds.len() < count {
@@ -328,20 +346,30 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
     let seeds: Vec<Hex> = seeds.iter().zip(&alive).filter(|(_, a)| **a).map(|(s, _)| *s).collect();
     let count = seeds.len();
     let mut sizes = vec![0usize; count];
-    for &p in &plate_of {
+    let mut shown = vec![0usize; count];
+    for (i, &p) in plate_of.iter().enumerate() {
         sizes[usize::from(p)] += 1;
+        if visible.contains(&(i as i32 / width)) {
+            shown[usize::from(p)] += 1;
+        }
     }
+    let shown_total = width as usize * visible.len();
 
     // Nature : des plaques tirées au hasard deviennent continentales jusqu'à couvrir la part
-    // visée de la carte, les autres sont océaniques
+    // visée de la partie visible, les autres sont océaniques ; une plaque tout entière cachée
+    // l'est au hasard, dans la même proportion
     let mut order: Vec<usize> = (0..count).collect();
     order.shuffle(&mut rng);
     let mut kinds = vec![PlateKind::Oceanic; count];
     let mut covered = 0usize;
     for &p in &order {
-        if (covered as f32) < CONTINENTAL_SHARE * n as f32 && (covered + sizes[p]) as f32 <= (CONTINENTAL_SHARE + 0.12) * n as f32 {
+        if shown[p] == 0 {
+            if rng.random_range(0.0..1.0) < CONTINENTAL_SHARE {
+                kinds[p] = PlateKind::Continental;
+            }
+        } else if (covered as f32) < CONTINENTAL_SHARE * shown_total as f32 && (covered + shown[p]) as f32 <= (CONTINENTAL_SHARE + 0.12) * shown_total as f32 {
             kinds[p] = PlateKind::Continental;
-            covered += sizes[p];
+            covered += shown[p];
         }
     }
 
@@ -468,7 +496,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
         }
     }
 
-    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, hotspots, nearest_edge, pos, world_km, width }
+    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, hotspots, nearest_edge, pos, world_km, width, full: None }
 }
 
 /// Profil en cloche : 1 en 0, ≈ 0,37 à `width`.
@@ -477,6 +505,73 @@ fn bell(x: f32, width: f32) -> f32 {
 }
 
 impl Plates {
+    /// Partie visible (`height` lignes à partir de la ligne `margin`) de plaques calculées avec
+    /// leurs marges ; les plaques tout entières cachées sont retirées de la liste (elles restent
+    /// dans `full`, pour la géologie).
+    fn crop(self, height: i32, margin: i32) -> Plates {
+        let width = self.width;
+        let off = (margin * width) as usize;
+        let n = (height * width) as usize;
+        let inside = |i: usize| (off..off + n).contains(&i);
+        // Plaques visibles, renumérotées
+        let mut cells = vec![0usize; self.plates.len()];
+        for &p in &self.plate_of[off..off + n] {
+            cells[usize::from(p)] += 1;
+        }
+        let mut new_id = vec![u8::MAX; self.plates.len()];
+        let mut plates = Vec::new();
+        for (p, plate) in self.plates.iter().enumerate() {
+            if cells[p] == 0 {
+                continue;
+            }
+            new_id[p] = plates.len() as u8;
+            // Germe : le sien s'il est visible, sinon la case visible de la plaque la plus proche
+            let (c, r) = plate.seed.to_offset();
+            let seed = if (margin..margin + height).contains(&r) {
+                Hex::from_offset(c, r - margin)
+            } else {
+                let at = (off..off + n)
+                    .filter(|&i| usize::from(self.plate_of[i]) == p)
+                    .min_by(|&a, &b| offset(plate.center, self.pos[a], self.world_km).length().total_cmp(&offset(plate.center, self.pos[b], self.world_km).length()))
+                    .unwrap_or(off);
+                Hex::from_offset((at - off) as i32 % width, (at - off) as i32 / width)
+            };
+            plates.push(Plate { cells: cells[p], seed, ..plate.clone() });
+        }
+        let remap = |p: u8| if p == u8::MAX { u8::MAX } else { new_id[usize::from(p)] };
+        // Frontières entre deux cases visibles
+        let mut new_edge = vec![u32::MAX; self.edges.len()];
+        let mut edges = Vec::new();
+        for (k, e) in self.edges.iter().enumerate() {
+            if inside(e.cell) && inside(e.neighbor) {
+                new_edge[k] = edges.len() as u32;
+                edges.push(BoundaryEdge { cell: e.cell - off, neighbor: e.neighbor - off, under: remap(e.under), ..*e });
+            }
+        }
+        let hotspots = self
+            .hotspots
+            .iter()
+            .filter_map(|h| {
+                let (c, r) = h.to_offset();
+                (margin..margin + height).contains(&r).then(|| Hex::from_offset(c, r - margin))
+            })
+            .collect();
+        Plates {
+            plates,
+            plate_of: self.plate_of[off..off + n].iter().map(|&p| remap(p)).collect(),
+            velocity: self.velocity[off..off + n].to_vec(),
+            edges,
+            boundary: self.boundary[off..off + n].to_vec(),
+            boundary_km: self.boundary_km[off..off + n].to_vec(),
+            hotspots,
+            nearest_edge: self.nearest_edge[off..off + n].iter().map(|&k| new_edge.get(k as usize).copied().unwrap_or(u32::MAX)).collect(),
+            pos: self.pos[off..off + n].to_vec(),
+            world_km: self.world_km,
+            width,
+            full: Some(Box::new(self)),
+        }
+    }
+
     /// Altitude relative (sans unité ; la mer en dessous de 0) de chaque case, issue des plaques :
     /// - socle : haut sur les plaques continentales, bas sur les océaniques, découpé par un
     ///   bruit lent (côtes, mers peu profondes, îles) ;
@@ -488,6 +583,13 @@ impl Plates {
     ///
     /// Tous les bruits sont lus sur le cylindre de la carte : même échelle partout.
     pub fn elevation(&self, seed: u32, cell_km: f32) -> Vec<f64> {
+        // Calculée avec les marges (frontières, points chauds, intérieur des continents au-delà du
+        // bord), puis rognée
+        if let Some(full) = &self.full {
+            let e = full.elevation(seed, cell_km);
+            let off = (MARGIN_ROWS * self.width) as usize;
+            return e[off..off + self.plate_of.len()].to_vec();
+        }
         let n = self.plate_of.len();
         let fbm = |k: u32, octaves: usize| -> Fbm<Perlin> { Fbm::new(seed.wrapping_add(k)).set_octaves(octaves).set_frequency(1.0) };
         let (coast, shelf, hills, arc) = (fbm(101, 5), fbm(202, 3), fbm(303, 4), fbm(404, 3));
@@ -705,17 +807,22 @@ mod tests {
     fn plaques_couvrent_la_planete() {
         for seed in [1, 777, 2026] {
             let p = planet(seed);
-            assert!((MIN_PLATES..=MAX_PLATES).contains(&p.plates.len()));
+            assert!((6..=20).contains(&p.plates.len()), "graine {seed} : {} plaques visibles", p.plates.len());
             assert!(p.plate_of.iter().all(|&k| usize::from(k) < p.plates.len()), "chaque case a sa plaque");
             assert_eq!(p.plates.iter().map(|pl| pl.cells).sum::<usize>(), 192 * 111);
-            // Chaque plaque d'un seul tenant (connexe, raccord compris)
+            // Chaque plaque d'un seul tenant (connexe, raccord compris), marges comprises (une
+            // plaque peut ne se rejoindre qu'au-delà du bord)
+            let f = p.full.as_ref().expect("plaques avec marges");
+            let rows = 111 + 2 * MARGIN_ROWS;
+            assert_eq!(f.plates.iter().map(|pl| pl.cells).sum::<usize>(), (192 * rows) as usize);
+            assert!(!f.hotspots.is_empty());
             let wrap = Wrap::new(192, true);
-            for (k, plate) in p.plates.iter().enumerate() {
+            for (k, plate) in f.plates.iter().enumerate() {
                 let index = |h: Hex| {
                     let (c, r) = wrap.hex(h).to_offset();
-                    (0..111).contains(&r).then(|| (r * 192 + c) as usize)
+                    (0..rows).contains(&r).then(|| (r * 192 + c) as usize)
                 };
-                let mut seen = vec![false; 192 * 111];
+                let mut seen = vec![false; (192 * rows) as usize];
                 let start = index(plate.seed).unwrap();
                 seen[start] = true;
                 let mut stack = vec![plate.seed];
@@ -724,7 +831,7 @@ mod tests {
                     for nb in wrap.neighbors(h) {
                         if let Some(j) = index(nb)
                             && !seen[j]
-                            && usize::from(p.plate_of[j]) == k
+                            && usize::from(f.plate_of[j]) == k
                         {
                             seen[j] = true;
                             size += 1;
@@ -746,7 +853,6 @@ mod tests {
             // Des frontières de plusieurs natures, et des points chauds loin d'elles
             let kinds: std::collections::HashSet<_> = p.edges.iter().map(|e| e.kind).collect();
             assert!(kinds.len() >= 3, "graine {seed} : {kinds:?}");
-            assert!(!p.hotspots.is_empty());
         }
     }
 
@@ -811,7 +917,7 @@ mod tests {
             let top = &by_height[..by_height.len() / 50];
             let near = top
                 .iter()
-                .filter(|&&i| p.boundary_km[i] < 800.0 && p.edges[p.nearest_edge[i] as usize].kind.converging())
+                .filter(|&&i| p.boundary_km[i] < 800.0 && p.edges.get(p.nearest_edge[i] as usize).is_some_and(|e| e.kind.converging()))
                 .count();
             assert!(near * 100 >= top.len() * 60, "graine {seed} : {near}/{} sommets près d'une collision ou subduction", top.len());
             // Les fosses : les fonds océaniques au bord d'une subduction sont plus profonds
@@ -820,7 +926,7 @@ mod tests {
             let trench: Vec<usize> = ocean
                 .iter()
                 .copied()
-                .filter(|&i| p.boundary_km[i] < 60.0 && p.edges[p.nearest_edge[i] as usize].under == p.plate_of[i])
+                .filter(|&i| p.boundary_km[i] < 60.0 && p.edges.get(p.nearest_edge[i] as usize).is_some_and(|e| e.under == p.plate_of[i]))
                 .collect();
             if !trench.is_empty() {
                 assert!(mean(&trench) < mean(&ocean), "graine {seed} : fosses");
