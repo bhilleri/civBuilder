@@ -402,11 +402,13 @@ fn terrain() -> Article {
             h("Mers et océans"),
             p("La mer est partagée en étendues nommées, d'après ses côtes, de la plus vaste à la plus précise : les \
                océans (découpés là où la mer se resserre entre les terres ; le nom d'un grand océan est répété en \
-               plusieurs endroits) ; les mers, fermées ou presque, ou parties abritées d'un océan le long d'une côte \
-               (entre une côte et des îles, devant une côte concave) ; les golfes et les baies (eaux enveloppées par \
-               une même terre, jusqu'à la ligne entre les deux caps de leur entrée ; un golfe où se jette un fleuve \
-               peut en porter le nom : « Golfe de la Vaska ») ; les détroits (passages de 1 à 4 cases entre deux \
-               terres distinctes, précieux à tenir). Un golfe peut être dans une mer, elle-même dans un océan. Les \
+               plusieurs endroits) ; les mers, fermées ou presque, ou parties d'un océan à l'abri entre plusieurs \
+               terres (une côte et des îles, un arc d'îles), prolongées sur le plateau continental ; les golfes \
+               (21 cases et plus, sans limite : un golfe peut être immense) et les baies (3 à 20 cases), échancrures \
+               d'une même terre derrière une entrée plus étroite qu'elles ne sont profondes, jusqu'à la ligne entre \
+               les deux caps (un golfe où se jette un fleuve peut en porter le nom : « Golfe de la Vaska ») ; les \
+               détroits (passages de 1 à 4 cases entre deux terres distinctes, précieux à tenir). Une baie peut être \
+               dans un golfe, un golfe dans une mer, elle-même dans un océan. Les \
                noms s'affichent à leur échelle : océans de très loin, mers de loin, golfes en s'approchant, baies et \
                détroits de près, en capitales espacées pour les plus grandes ; un nom n'apparaît que si l'étendue est \
                assez large à l'écran et qu'une partie en est explorée. L'infobulle d'une case de mer donne ses \

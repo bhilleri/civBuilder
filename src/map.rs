@@ -696,7 +696,8 @@ impl WorldMap {
         }
         // Étendues marines (hors lacs et mers intérieures, déjà nommés), nommées d'après leurs côtes
         let water: Vec<bool> = (0..n).map(|i| self.tiles[i].is_sea() && self.basins.lake_of[i].is_none()).collect();
-        self.seas = crate::seas::compute(self.width, self.height, self.wrap, &water);
+        let shelf: Vec<bool> = (0..n).map(|i| water[i] && self.depth.get(i).is_some_and(|&d| d < SHELF_DEPTH_M)).collect();
+        self.seas = crate::seas::compute(self.width, self.height, self.wrap, &water, &shelf);
         // Embouchure de chaque fleuve qui se jette dans la mer : la case de mer voisine
         let mut mouths: Vec<(usize, usize)> = Vec::new();
         for (r, river) in self.basins.rivers.iter().enumerate() {

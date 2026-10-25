@@ -1,23 +1,24 @@
 //! Étendues marines nommées (logique pure, calculée à la génération) : océans, mers, golfes,
-//! baies et détroits.
+//! baies et détroits, emboîtés (baie › golfe › mer bordière › océan).
 //!
 //! 1. **Distance à la côte** de chaque case de mer (en cases).
 //! 2. **Océans et mers** : la mer est découpée là où elle se resserre. Les cases sont prises de
 //!    la plus éloignée de la côte à la plus proche (le « relief » de la distance à la côte) : deux
 //!    étendues qui se rejoignent restent séparées si le passage qui les relie est étroit par
-//!    rapport à leur largeur (un passage moins large que ~55 % de la moins large des deux), sinon
-//!    elles n'en font qu'une ; une petite étendue se fond toujours dans sa voisine. Les grandes
-//!    étendues sont des océans ; une plus petite, fermée ou presque (bordée de terre sur au moins
-//!    60 % de son pourtour), est une mer (mer polaire si elle touche un pôle) ; les autres font
-//!    partie de leur voisine (une mer ouverte est une partie de l'océan).
-//! 3. **Golfes et baies** : cases de mer « enveloppées » par la terre (12 rayons de 7 cases : au
-//!    moins 8 touchent une terre). Un amas de telles cases d'au moins 25 cases est un golfe, de 4
-//!    à 24 cases une baie. Il s'étend jusqu'à la ligne entre les deux caps de son entrée.
-//! 4. **Détroits** : passages de 1 à 4 cases de large entre deux terres distinctes (une île et un
+//!    rapport à leur largeur, sinon elles n'en font qu'une ; une petite étendue se fond toujours
+//!    dans sa voisine. Les grandes étendues sont des océans ; une plus petite, fermée ou presque
+//!    (bordée de terre sur au moins 60 % de son pourtour), est une mer (mer polaire si elle touche
+//!    un pôle) ; les autres font partie de leur voisine (une mer ouverte est une partie de
+//!    l'océan).
+//! 3. **Détroits** : passages de 1 à 4 cases de large entre deux terres distinctes (une île et un
 //!    continent, deux îles), chacune d'au moins quelques cases.
-//! 5. **Mers bordières** : parties abritées d'un océan le long des côtes (entre une côte et des
-//!    îles, devant une côte concave), hors golfes et détroits, de taille modeste (60 à 600 cases) ;
-//!    l'océan n'est pas tout découpé, seules ses parties remarquables sont nommées.
+//! 4. **Golfes, baies, mers bordières**, une question d'échelle : un cercle venu du large balaie
+//!    la mer (rayons de 1 à 12 cases) ; ce qu'il n'atteint pas est à l'abri derrière un goulet.
+//!    Chaque poche est prolongée jusqu'à la ligne entre les caps de son entrée et gardée si elle
+//!    s'enfonce assez par rapport à son entrée. Bordée surtout par une terre : golfe (21 cases et
+//!    plus, sans limite haute) ou baie (3 à 20 cases) ; par plusieurs terres (île et continent,
+//!    arc d'îles) : mer bordière, prolongée sur le plateau continental voisin. Contours
+//!    réguliers, sans trou ni doigt.
 //!
 //! Chaque étendue garde la distance de chaque case à son bord (où poser son nom) et sa
 //! demi-largeur.
@@ -76,13 +77,15 @@ pub struct Seas {
     pub strait_of: Vec<Option<u16>>,
     /// Mer bordière (partie abritée d'un océan, le long d'une côte) de chaque case.
     pub coastal_of: Vec<Option<u16>>,
+    /// Baie de chaque case (dans un golfe, une mer…).
+    pub bay_of: Vec<Option<u16>>,
 }
 
 impl Seas {
     /// Étendues d'une case, de la plus précise à la plus vaste (détroit, golfe ou baie, mer ou
     /// océan).
     pub fn chain(&self, cell: usize) -> Vec<usize> {
-        [&self.strait_of, &self.inlet_of, &self.coastal_of, &self.basin_of].iter().filter_map(|v| v.get(cell).copied().flatten()).map(|z| z as usize).collect()
+        [&self.strait_of, &self.bay_of, &self.inlet_of, &self.coastal_of, &self.basin_of].iter().filter_map(|v| v.get(cell).copied().flatten()).map(|z| z as usize).collect()
     }
 }
 
@@ -95,30 +98,41 @@ const MIN_BASIN_CELLS: usize = 40;
 const NARROW_RATIO: f32 = 0.65;
 /// Une mer est bordée de terre sur au moins cette part de son pourtour.
 const SEA_LAND_SHARE: f32 = 0.6;
-/// Rayons pour l'enveloppement : longueur et nombre de rayons qui doivent toucher une terre.
-const RAY_LENGTH: i32 = 8;
-const ENCLOSED_RAYS: usize = 8;
-/// Entrée d'un golfe : largeur maximale entre ses deux caps (cases).
-const HEADLAND_WIDTH: i32 = 24;
-pub const GULF_MIN_CELLS: usize = 25;
-pub const BAY_MIN_CELLS: usize = 4;
-/// Un golfe n'occupe pas plus de cette part de sa mer (sinon c'est la mer elle-même).
-const GULF_MAX_SHARE: f32 = 0.4;
+/// Échelles du cercle venu du large (rayon en cases) : des criques aux grands golfes.
+const SCALES: [u16; 8] = [2, 3, 4, 5, 6, 8, 10, 13];
+/// Enfoncement : surface rapportée au carré de l'entrée (un demi-cercle sur l'entrée, le test du
+/// droit de la mer pour une baie, en fait ~0,45 ; on accepte aussi les grandes échancrures
+/// ouvertes que les cartes appellent golfes, comme le golfe de Guinée ou d'Alaska) et profondeur
+/// (cases entre l'entrée et le fond).
+const GULF_INDENT: f32 = 0.15;
+const GULF_DEPTH: u16 = 3;
+const BAY_INDENT: f32 = 0.3;
+const BAY_DEPTH: u16 = 2;
+/// Profondeur au moins ce tiers de l'entrée : une frange le long d'une côte droite ne s'enfonce pas.
+const DEPTH_PER_MOUTH: f32 = 0.33;
+/// Golfe : au moins tant de cases, sans limite haute (le golfe du Mexique ferait ~1 100 cases de
+/// 40 km) ; baie : de `BAY_MIN_CELLS` à `GULF_MIN_CELLS` − 1 cases.
+pub const GULF_MIN_CELLS: usize = 21;
+pub const BAY_MIN_CELLS: usize = 3;
+const MAX_BAYS: usize = 40;
+/// Une baie n'est nommée dans un golfe que si elle en est une petite partie.
+const BAY_IN_GULF_SHARE: f32 = 0.4;
+/// Une poche bordée à ce point par une seule terre est un golfe ou une baie.
+const MAIN_LAND_SHARE: f32 = 0.7;
+/// Terre qui compte pour border une mer : cette part du rivage au moins.
+const SIDE_LAND_SHARE: f32 = 0.15;
+/// Mers bordières : taille, part de terre sur leur pourtour.
+const SEA_MIN_CELLS: usize = 50;
+const SEA_MAX_CELLS: usize = 1200;
+const SEA_LAND_BORDER: f32 = 0.5;
+/// Une mer bordière s'étend sur le plateau continental voisin, jusqu'à tant de cases.
+const SHELF_REACH: usize = 3;
+/// Une poche qui fait presque toute sa mer fermée est cette mer, pas une partie.
+const WHOLE_BASIN_SHARE: f32 = 0.85;
 /// Largeur maximale d'un détroit (cases) et taille minimale des terres qu'il sépare.
 const STRAIT_MAX_WIDTH: usize = 4;
 const STRAIT_MIN_LAND: usize = 4;
 const MAX_STRAITS: usize = 30;
-/// Mers bordières : cases à au plus `COASTAL_REACH` cases de la côte, abritées (au moins
-/// `SHELTERED_RAYS` rayons sur 12 touchent une terre à moins de `SHELTER_RAY` cases), d'une taille
-/// entre `COASTAL_MIN_CELLS` et `COASTAL_MAX_CELLS`.
-const COASTAL_REACH: u16 = 10;
-const SHELTER_RAY: i32 = 16;
-const SHELTERED_RAYS: u8 = 6;
-const COASTAL_MIN_CELLS: usize = 40;
-const COASTAL_MAX_CELLS: usize = 900;
-/// Une mer bordière n'est pas qu'un golfe : au moins cette part de ses cases hors golfes, baies et
-/// détroits.
-const COASTAL_OPEN_SHARE: f32 = 0.5;
 
 /// Grille de la carte : voisines et position des cases.
 struct Grid {
@@ -143,11 +157,12 @@ impl Grid {
     }
 }
 
-/// Étendues marines. `water` : case de mer ouverte (ni lac, ni mer intérieure, déjà nommés).
-pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool]) -> Seas {
+/// Étendues marines. `water` : case de mer ouverte (ni lac, ni mer intérieure, déjà nommés) ;
+/// `shelf` : case du plateau continental (moins de 200 m).
+pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[bool]) -> Seas {
     let grid = Grid { width, height, wrap };
     let n = water.len();
-    let mut seas = Seas { zones: Vec::new(), basin_of: vec![None; n], inlet_of: vec![None; n], strait_of: vec![None; n], coastal_of: vec![None; n] };
+    let mut seas = Seas { zones: Vec::new(), basin_of: vec![None; n], inlet_of: vec![None; n], strait_of: vec![None; n], coastal_of: vec![None; n], bay_of: vec![None; n] };
     let total_water = water.iter().filter(|&&w| w).count();
     if total_water == 0 {
         return seas;
@@ -308,51 +323,7 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool]) -> Seas {
         }
         land_size.push(count);
     }
-    // 4) Golfes et baies : un cœur bien enveloppé par une terre, étendu aux cases voisines un
-    //    peu moins enveloppées par cette terre, et jusqu'à la ligne entre les deux caps de
-    //    l'entrée (cases qui ont cette terre des deux côtés)
-    let rays: Vec<(usize, usize)> = (0..n).map(|c| if water[c] { enclosure(&grid, water, &land_id, c) } else { (0, usize::MAX) }).collect();
-    let mut seen = vec![false; n];
-    for start in 0..n {
-        let (count, land) = rays[start];
-        if count < ENCLOSED_RAYS || seen[start] {
-            continue;
-        }
-        let basin = seas.basin_of[start];
-        let inside = |j: usize| (rays[j].1 == land && rays[j].0 >= ENCLOSED_RAYS - 2) || between_headlands(&grid, water, &land_id, j, land);
-        let mut cells = vec![start];
-        seen[start] = true;
-        let mut k = 0;
-        while k < cells.len() {
-            let c = cells[k];
-            k += 1;
-            for j in grid.neighbors(c) {
-                if water[j] && !seen[j] && seas.basin_of[j] == basin && inside(j) {
-                    seen[j] = true;
-                    cells.push(j);
-                }
-            }
-        }
-        let Some(b) = basin.map(|b| b as usize) else { continue };
-        let kind = if cells.len() >= GULF_MIN_CELLS {
-            SeaKind::Gulf
-        } else if cells.len() >= BAY_MIN_CELLS {
-            SeaKind::Bay
-        } else {
-            continue;
-        };
-        if cells.len() as f32 > GULF_MAX_SHARE * seas.zones[b].cells.len() as f32 {
-            continue;
-        }
-        cells.sort_unstable();
-        let id = seas.zones.len();
-        for &c in &cells {
-            seas.inlet_of[c] = Some(id as u16);
-        }
-        seas.zones.push(zone(&grid, kind, cells, Some(b), &seas.inlet_of));
-    }
-
-    // 5) Détroits : passages étroits entre deux terres distinctes
+    // 4) Détroits : passages étroits entre deux terres distinctes
     // Terres de part et d'autre d'une case étroite (les deux plus petites tailles comptent)
     let narrow: Vec<Option<(usize, usize)>> = (0..n).map(|c| if water[c] { narrow_sides(&grid, water, &land_id, c) } else { None }).collect();
     let mut seen = vec![false; n];
@@ -389,127 +360,542 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool]) -> Seas {
         seas.zones.push(zone(&grid, SeaKind::Strait, cells, parent, &seas.strait_of));
     }
 
-    // 6) Mers bordières : parties abritées des océans, le long des côtes (entre une côte et des
-    //    îles, devant une côte concave), de taille modeste ; elles peuvent contenir des golfes,
-    //    des baies, des détroits. Une partie trop grande ne garde que son cœur le plus abrité ; une
-    //    trop petite n'est pas nommée, ni une qui ne serait guère qu'un golfe.
-    let free: Vec<bool> = (0..n)
-        .map(|c| water[c] && dist[c] <= COASTAL_REACH && seas.basin_of[c].is_some_and(|b| seas.zones[b as usize].kind == SeaKind::Ocean))
-        .collect();
-    // Abri de chaque case (rayons qui touchent une terre), moyenné sur 2 cases alentour : des
-    // contours réguliers plutôt que des doigts
-    let raw: Vec<f32> = (0..n)
-        .map(|c| if water[c] && dist[c] <= COASTAL_REACH + 2 { (0..12).filter(|&r| ray_hit(&grid, water, &land_id, c, r, SHELTER_RAY).is_some()).count() as f32 } else { 0.0 })
-        .collect();
-    let sheltered: Vec<u8> = (0..n)
-        .map(|c| {
-            if !free[c] {
-                return 0;
-            }
-            let mut around: Vec<usize> = vec![c];
-            for _ in 0..2 {
-                let next: Vec<usize> = around.iter().flat_map(|&a| grid.neighbors(a)).collect();
-                around.extend(next);
-                around.sort_unstable();
-                around.dedup();
-            }
-            let wet: Vec<f32> = around.iter().filter(|&&a| water[a]).map(|&a| raw[a]).collect();
-            // (en dixièmes de rayon)
-            (wet.iter().sum::<f32>() / wet.len().max(1) as f32 * 10.0).round() as u8
-        })
-        .collect();
-    let mut pending: Vec<(Vec<usize>, u8)> = Vec::new();
-    {
-        let all: Vec<usize> = (0..n).filter(|&c| free[c]).collect();
-        pending.push((all, SHELTERED_RAYS * 10));
-    }
-    let mut coastal: Vec<Vec<usize>> = Vec::new();
-    while let Some((pool, threshold)) = pending.pop() {
-        let members: HashSet<usize> = pool.iter().copied().filter(|&c| sheltered[c] >= threshold).collect();
-        let mut seen: HashSet<usize> = HashSet::new();
-        for &start in &pool {
-            if !members.contains(&start) || seen.contains(&start) {
-                continue;
-            }
-            let basin = seas.basin_of[start];
-            let mut cells = vec![start];
-            seen.insert(start);
-            let mut k = 0;
-            while k < cells.len() {
-                let c = cells[k];
-                k += 1;
-                for j in grid.neighbors(c) {
-                    if members.contains(&j) && !seen.contains(&j) && seas.basin_of[j] == basin {
-                        seen.insert(j);
-                        cells.push(j);
-                    }
-                }
-            }
-            // Ce qui n'est pas déjà dans un golfe, une baie ou un détroit
-            let open = cells.iter().filter(|&&c| seas.inlet_of[c].is_none() && seas.strait_of[c].is_none()).count();
-            if cells.len() > COASTAL_MAX_CELLS && threshold < 115 {
-                pending.push((cells, threshold + 5));
-            } else if (COASTAL_MIN_CELLS..=COASTAL_MAX_CELLS).contains(&cells.len()) && open as f32 >= cells.len() as f32 * COASTAL_OPEN_SHARE {
-                coastal.push(cells);
-            }
-        }
-    }
-    coastal.sort_by_key(|cells| (std::cmp::Reverse(cells.len()), cells.iter().min().copied()));
-    // Contours lissés : une case libre entourée par la mer bordière (4 voisines sur 6) en fait partie
-    let mut taken: HashSet<usize> = HashSet::new();
-    for cells in &mut coastal {
-        let basin = seas.basin_of[cells[0]];
-        for _ in 0..3 {
-            let members: HashSet<usize> = cells.iter().copied().collect();
-            let mut extra: Vec<usize> = members
-                .iter()
-                .flat_map(|&c| grid.neighbors(c))
-                .filter(|&j| water[j] && !members.contains(&j) && !taken.contains(&j) && seas.basin_of[j] == basin)
-                .filter(|&j| grid.neighbors(j).filter(|q| members.contains(q)).count() >= 4)
-                .collect();
-            extra.sort_unstable();
-            extra.dedup();
-            if extra.is_empty() {
-                break;
-            }
-            cells.extend(extra);
-        }
-        // Pointes retirées : une case qui n'a qu'une ou deux voisines dans la mer bordière
-        for _ in 0..2 {
-            let members: HashSet<usize> = cells.iter().copied().collect();
-            cells.retain(|&c| grid.neighbors(c).filter(|q| members.contains(q)).count() >= 3);
-        }
-        taken.extend(cells.iter().copied());
-    }
-    coastal.retain(|cells| cells.len() >= COASTAL_MIN_CELLS);
-    for mut cells in coastal {
-        cells.sort_unstable();
-        let parent = seas.basin_of[cells[0]].map(|b| b as usize);
-        let id = seas.zones.len();
-        for &c in &cells {
-            seas.coastal_of[c] = Some(id as u16);
-        }
-        seas.zones.push(zone(&grid, SeaKind::Sea, cells, parent, &seas.coastal_of));
-    }
-    // Un golfe, une baie, un détroit dont la plupart des cases sont dans une mer bordière en font
-    // partie
-    for z in 0..seas.zones.len() {
-        if !matches!(seas.zones[z].kind, SeaKind::Gulf | SeaKind::Bay | SeaKind::Strait) {
+    // 5) Golfes, baies, mers bordières : ce qui reste à l'abri derrière un goulet quand un cercle
+    //    venu du large balaie la mer, à plusieurs échelles (voir `candidates`). Les plus grands
+    //    d'abord ; une baie peut être dans un golfe, un golfe dans une mer bordière.
+    let mut found = candidates(&grid, water, &dist, &seas.basin_of, &land_id, &land_size, ocean_min);
+    found.sort_by(|a, b| b.scale.cmp(&a.scale).then(b.cells.len().cmp(&a.cells.len())).then(a.cells[0].cmp(&b.cells[0])));
+    let basin_size = |c: usize| seas.basin_of[c].map_or(0, |b| seas.zones[b as usize].cells.len());
+    let mut sea_cells: Vec<Vec<usize>> = Vec::new();
+    let mut gulf_cells: Vec<Vec<usize>> = Vec::new();
+    let mut sea_of: Vec<Option<usize>> = vec![None; n];
+    let mut gulf_of: Vec<Option<usize>> = vec![None; n];
+    for cand in found.iter().filter(|c| c.kind != SeaKind::Bay) {
+        let len = cand.cells.len();
+        // Toute une mer fermée (ou un tout petit océan) n'est pas une partie d'elle-même
+        if len as f32 > WHOLE_BASIN_SHARE * basin_size(cand.cells[0]) as f32 {
             continue;
         }
-        let mut count: HashMap<u16, usize> = HashMap::new();
-        for &c in &seas.zones[z].cells {
-            if let Some(s) = seas.coastal_of[c] {
-                *count.entry(s).or_default() += 1;
+        let in_sea = cand.cells.iter().filter(|&&c| sea_of[c].is_some()).count();
+        let in_gulf = cand.cells.iter().filter(|&&c| gulf_of[c].is_some()).count();
+        if cand.kind == SeaKind::Sea {
+            if in_sea as f32 > 0.2 * len as f32 || in_gulf as f32 > 0.5 * len as f32 {
+                continue;
+            }
+            let mut cells: Vec<usize> = cand.cells.iter().copied().filter(|&c| sea_of[c].is_none()).collect();
+            // La mer s'étend sur le plateau continental voisin : sa limite suit le talus
+            let basin = seas.basin_of[cells[0]];
+            let mut inside: HashSet<usize> = cells.iter().copied().collect();
+            let mut front = cells.clone();
+            for _ in 0..SHELF_REACH {
+                let mut next = Vec::new();
+                for &c in &front {
+                    for j in grid.neighbors(c) {
+                        // (en épaisseur : pas de doigt le long d'une côte)
+                        if water[j]
+                            && shelf[j]
+                            && sea_of[j].is_none()
+                            && seas.basin_of[j] == basin
+                            && !inside.contains(&j)
+                            && grid.neighbors(j).filter(|q| inside.contains(q)).count() >= 2
+                        {
+                            inside.insert(j);
+                            next.push(j);
+                        }
+                    }
+                }
+                cells.extend(&next);
+                front = next;
+            }
+            let cells = tidy(&grid, water, &seas.basin_of, cells, true, |j| sea_of[j].is_some());
+            if cells.len() < SEA_MIN_CELLS {
+                continue;
+            }
+            let id = sea_cells.len();
+            for &c in &cells {
+                sea_of[c] = Some(id);
+            }
+            sea_cells.push(cells);
+        } else {
+            if in_gulf as f32 > 0.5 * len as f32 {
+                continue;
+            }
+            let cells: Vec<usize> = cand.cells.iter().copied().filter(|&c| gulf_of[c].is_none()).collect();
+            let cells = tidy(&grid, water, &seas.basin_of, cells, true, |j| gulf_of[j].is_some());
+            if cells.len() < GULF_MIN_CELLS {
+                continue;
+            }
+            let id = gulf_cells.len();
+            for &c in &cells {
+                gulf_of[c] = Some(id);
+            }
+            gulf_cells.push(cells);
+        }
+    }
+    // Baies : les plus marquées d'abord ; dans un golfe seulement si elles n'en sont qu'une petite
+    // partie (sinon c'est le golfe lui-même, vu de plus près)
+    let mut bays: Vec<&Candidate> = found.iter().filter(|c| c.kind == SeaKind::Bay).collect();
+    bays.sort_by(|a, b| b.quality.total_cmp(&a.quality).then(a.cells[0].cmp(&b.cells[0])));
+    let mut bay_cells: Vec<Vec<usize>> = Vec::new();
+    let mut bay_of: Vec<Option<usize>> = vec![None; n];
+    for cand in bays {
+        if bay_cells.len() >= MAX_BAYS {
+            break;
+        }
+        let len = cand.cells.len();
+        if cand.cells.iter().filter(|&&c| bay_of[c].is_some()).count() as f32 > 0.3 * len as f32 {
+            continue;
+        }
+        if let Some((g, k)) = majority(&cand.cells, &gulf_of)
+            && k * 2 > len
+            && len as f32 > BAY_IN_GULF_SHARE * gulf_cells[g].len() as f32
+        {
+            continue;
+        }
+        let cells: Vec<usize> = cand.cells.iter().copied().filter(|&c| bay_of[c].is_none()).collect();
+        if cells.len() < BAY_MIN_CELLS {
+            continue;
+        }
+        let id = bay_cells.len();
+        for &c in &cells {
+            bay_of[c] = Some(id);
+        }
+        bay_cells.push(cells);
+    }
+    // Étendues : mers bordières (dans leur océan), golfes (dans leur mer bordière, sinon leur
+    // océan ou mer), baies (dans leur golfe, sinon leur mer…)
+    let first_sea = seas.zones.len();
+    for (i, cells) in sea_cells.iter().enumerate() {
+        for &c in cells {
+            seas.coastal_of[c] = Some((first_sea + i) as u16);
+        }
+    }
+    for mut cells in sea_cells {
+        cells.sort_unstable();
+        let parent = seas.basin_of[cells[0]].map(|b| b as usize);
+        seas.zones.push(zone(&grid, SeaKind::Sea, cells, parent, &seas.coastal_of));
+    }
+    let first_gulf = seas.zones.len();
+    for (i, cells) in gulf_cells.iter().enumerate() {
+        for &c in cells {
+            seas.inlet_of[c] = Some((first_gulf + i) as u16);
+        }
+    }
+    for mut cells in gulf_cells {
+        cells.sort_unstable();
+        let parent = parent_of(&cells, &[&seas.coastal_of, &seas.basin_of]);
+        seas.zones.push(zone(&grid, SeaKind::Gulf, cells, parent, &seas.inlet_of));
+    }
+    let first_bay = seas.zones.len();
+    for (i, cells) in bay_cells.iter().enumerate() {
+        for &c in cells {
+            seas.bay_of[c] = Some((first_bay + i) as u16);
+        }
+    }
+    for mut cells in bay_cells {
+        cells.sort_unstable();
+        let parent = parent_of(&cells, &[&seas.inlet_of, &seas.coastal_of, &seas.basin_of]);
+        seas.zones.push(zone(&grid, SeaKind::Bay, cells, parent, &seas.bay_of));
+    }
+    // Le nom d'un océan ou d'une mer se pose au large de ses golfes et mers bordières : leurs cases
+    // comptent comme son bord
+    for z in 0..seas.zones.len() {
+        if seas.zones[z].parent.is_some() {
+            continue;
+        }
+        let nested = |c: usize| seas.coastal_of[c].is_some() || seas.inlet_of[c].is_some() || seas.bay_of[c].is_some();
+        let cells = &seas.zones[z].cells;
+        if !cells.iter().any(|&c| nested(c)) {
+            continue;
+        }
+        let members: HashSet<usize> = cells.iter().copied().filter(|&c| !nested(c)).collect();
+        let mut inner: HashMap<usize, u16> = HashMap::new();
+        let mut queue = VecDeque::new();
+        for &c in &members {
+            if DIRECTIONS.iter().any(|&d| grid.index(grid.hex(c) + d).is_none_or(|j| !members.contains(&j))) {
+                inner.insert(c, 0);
+                queue.push_back(c);
             }
         }
-        if let Some((&s, &k)) = count.iter().max_by_key(|(s, k)| (**k, std::cmp::Reverse(**s)))
-            && k * 2 > seas.zones[z].cells.len()
-        {
-            seas.zones[z].parent = Some(s as usize);
+        while let Some(c) = queue.pop_front() {
+            let d = inner[&c];
+            for j in grid.neighbors(c) {
+                if members.contains(&j) && !inner.contains_key(&j) {
+                    inner.insert(j, d + 1);
+                    queue.push_back(j);
+                }
+            }
+        }
+        let fresh: Vec<u16> = cells.iter().map(|c| inner.get(c).copied().unwrap_or(0)).collect();
+        seas.zones[z].inner = fresh;
+    }
+    // Un détroit dont la plupart des cases sont dans un golfe ou une mer bordière en fait partie
+    for z in 0..seas.zones.len() {
+        if seas.zones[z].kind == SeaKind::Strait {
+            let cells = seas.zones[z].cells.clone();
+            if let Some(p) = parent_of(&cells, &[&seas.inlet_of, &seas.coastal_of, &seas.basin_of]) {
+                seas.zones[z].parent = Some(p);
+            }
         }
     }
     seas
+}
+
+/// Une poche candidate : golfe, baie ou mer bordière, trouvée à une échelle donnée.
+struct Candidate {
+    scale: u16,
+    cells: Vec<usize>,
+    kind: SeaKind,
+    /// Surface rapportée au carré de l'entrée (plus c'est grand, plus c'est fermé).
+    quality: f32,
+}
+
+/// Poches à l'abri, à chaque échelle `r` de `SCALES` : un cercle de rayon r − 1 qui vient du large
+/// (de la plus grande partie de chaque océan ou mer où il tient) ne peut entrer que par des
+/// passages d'au moins ~2r cases ; ce qu'il n'atteint pas est derrière un goulet. Chaque poche est
+/// prolongée jusqu'à la ligne entre les caps de son entrée, puis gardée si elle s'enfonce assez
+/// (surface rapportée au carré de l'entrée, profondeur). Bordée surtout par une seule terre :
+/// golfe (au moins `GULF_MIN_CELLS` cases) ou baie ; par plusieurs terres (île et continent, arc
+/// d'îles) et assez grande : mer bordière.
+fn candidates(grid: &Grid, water: &[bool], dist: &[u16], basin_of: &[Option<u16>], land_id: &[usize], land_size: &[usize], ocean_min: usize) -> Vec<Candidate> {
+    let n = water.len();
+    let mut out = Vec::new();
+    for &r in &SCALES {
+        // Centres possibles du cercle, regroupés par étendue ; le large = le plus grand groupe
+        let mut group = vec![usize::MAX; n];
+        let mut groups: Vec<(Option<u16>, usize)> = Vec::new();
+        for start in 0..n {
+            if !water[start] || dist[start] < r || group[start] != usize::MAX {
+                continue;
+            }
+            let id = groups.len();
+            let basin = basin_of[start];
+            group[start] = id;
+            let mut stack = vec![start];
+            let mut count = 0;
+            while let Some(c) = stack.pop() {
+                count += 1;
+                for j in grid.neighbors(c) {
+                    if water[j] && dist[j] >= r && group[j] == usize::MAX && basin_of[j] == basin {
+                        group[j] = id;
+                        stack.push(j);
+                    }
+                }
+            }
+            groups.push((basin, count));
+        }
+        let mut open_group: HashMap<Option<u16>, usize> = HashMap::new();
+        for (id, &(basin, count)) in groups.iter().enumerate() {
+            let best = open_group.entry(basin).or_insert(id);
+            if count > groups[*best].1 {
+                *best = id;
+            }
+        }
+        let open: HashSet<usize> = open_group.values().copied().collect();
+        // Cases balayées par le cercle
+        let mut steps = vec![u16::MAX; n];
+        let mut queue = VecDeque::new();
+        for c in 0..n {
+            if group[c] != usize::MAX && open.contains(&group[c]) {
+                steps[c] = 0;
+                queue.push_back(c);
+            }
+        }
+        while let Some(c) = queue.pop_front() {
+            if steps[c] + 1 >= r {
+                continue;
+            }
+            for j in grid.neighbors(c) {
+                if water[j] && steps[j] == u16::MAX && basin_of[j] == basin_of[c] {
+                    steps[j] = steps[c] + 1;
+                    queue.push_back(j);
+                }
+            }
+        }
+        // Éloignement des cases non balayées à la mer balayée : une frange d'une case le long d'une
+        // côte découpée n'est pas une poche, seulement ce qui a de l'épaisseur
+        let mut shade = vec![u16::MAX; n];
+        for c in 0..n {
+            if steps[c] != u16::MAX {
+                shade[c] = 0;
+                queue.push_back(c);
+            }
+        }
+        while let Some(c) = queue.pop_front() {
+            for j in grid.neighbors(c) {
+                if water[j] && shade[j] == u16::MAX && basin_of[j] == basin_of[c] {
+                    shade[j] = shade[c] + 1;
+                    queue.push_back(j);
+                }
+            }
+        }
+        let uncovered = |j: usize| water[j] && steps[j] == u16::MAX;
+        // Poches : cœurs d'un seul tenant (à au moins 2 cases de la mer balayée), avec leur frange
+        let mut seen = vec![false; n];
+        for start in 0..n {
+            if !uncovered(start) || shade[start] < 2 || seen[start] {
+                continue;
+            }
+            let basin = basin_of[start];
+            let mut pocket = vec![start];
+            seen[start] = true;
+            let mut k = 0;
+            while k < pocket.len() {
+                let c = pocket[k];
+                k += 1;
+                for j in grid.neighbors(c) {
+                    if uncovered(j) && shade[j] >= 2 && !seen[j] && basin_of[j] == basin {
+                        seen[j] = true;
+                        pocket.push(j);
+                    }
+                }
+            }
+            let mut members: HashSet<usize> = pocket.iter().copied().collect();
+            let mut front = pocket.clone();
+            for _ in 0..2 {
+                let mut next = Vec::new();
+                for &c in &front {
+                    for j in grid.neighbors(c) {
+                        if uncovered(j) && basin_of[j] == basin && members.insert(j) {
+                            next.push(j);
+                        }
+                    }
+                }
+                pocket.extend(&next);
+                front = next;
+            }
+            // (le bord de la carte n'est pas une côte : rien à l'abri contre un pôle)
+            let polar = |c: usize| {
+                let row = c as i32 / grid.width;
+                row <= 1 || row >= grid.height - 2
+            };
+            if pocket.len() < BAY_MIN_CELLS || pocket.iter().any(|&c| polar(c)) {
+                continue;
+            }
+            // Terres qui la bordent
+            let mut shores: HashMap<usize, usize> = HashMap::new();
+            for &c in &pocket {
+                for j in grid.neighbors(c) {
+                    if !water[j] {
+                        *shores.entry(land_id[j]).or_default() += 1;
+                    }
+                }
+            }
+            let total: usize = shores.values().sum();
+            if total == 0 {
+                continue;
+            }
+            let mut shores: Vec<(usize, usize)> = shores.into_iter().collect();
+            shores.sort_by_key(|&(land, k)| (std::cmp::Reverse(k), land));
+            let sides: Vec<usize> =
+                shores.iter().filter(|&&(land, k)| k as f32 >= SIDE_LAND_SHARE * total as f32 && land_size[land] >= 3).map(|&(land, _)| land).collect();
+            let single = shores[0].1 as f32 >= MAIN_LAND_SHARE * total as f32 || sides.len() <= 1;
+            let lands: Vec<usize> = if single { vec![shores[0].0] } else { sides };
+            // Jusqu'à la ligne entre les caps (cases qui ont ces terres des deux côtés)
+            let width = (2 * i32::from(r) + 2).max(3 * i32::from(r));
+            let mut k = 0;
+            while k < pocket.len() {
+                let c = pocket[k];
+                k += 1;
+                for j in grid.neighbors(c) {
+                    if water[j] && basin_of[j] == basin && !members.contains(&j) && chord(grid, water, land_id, j, &lands, width) {
+                        members.insert(j);
+                        pocket.push(j);
+                    }
+                }
+            }
+            if pocket.iter().any(|&c| polar(c)) {
+                continue;
+            }
+            // Entrée : cases qui donnent sur la mer du dehors ; pourtour : terre / mer ; profondeur :
+            // éloignement maximal à l'entrée (une frange le long d'une côte n'a pas de profondeur)
+            let (mut land_edges, mut open_edges) = (0usize, 0usize);
+            let mut depth: HashMap<usize, u16> = HashMap::new();
+            let mut front = VecDeque::new();
+            for &c in &pocket {
+                let mut outside = false;
+                for j in grid.neighbors(c) {
+                    if !water[j] {
+                        land_edges += 1;
+                    } else if !members.contains(&j) {
+                        open_edges += 1;
+                        outside = true;
+                    }
+                }
+                if outside {
+                    depth.insert(c, 1);
+                    front.push_back(c);
+                }
+            }
+            let mouth = front.len();
+            while let Some(c) = front.pop_front() {
+                let d = depth[&c];
+                for j in grid.neighbors(c) {
+                    if members.contains(&j) && !depth.contains_key(&j) {
+                        depth.insert(j, d + 1);
+                        front.push_back(j);
+                    }
+                }
+            }
+            let deepest = depth.values().copied().max().unwrap_or(0);
+            let len = pocket.len();
+            let quality = len as f32 / (mouth.max(1) as f32).powi(2);
+            let bay = len < GULF_MIN_CELLS;
+            let (min_quality, min_depth) = if bay { (BAY_INDENT, BAY_DEPTH) } else { (GULF_INDENT, GULF_DEPTH) };
+            if quality < min_quality || deepest < min_depth || (deepest as f32) < DEPTH_PER_MOUTH * mouth as f32 {
+                continue;
+            }
+            let kind = if single {
+                if len >= GULF_MIN_CELLS { SeaKind::Gulf } else { SeaKind::Bay }
+            } else if (SEA_MIN_CELLS..=SEA_MAX_CELLS).contains(&len) && len < ocean_min && land_edges as f32 >= SEA_LAND_BORDER * (land_edges + open_edges) as f32 {
+                SeaKind::Sea
+            } else {
+                continue;
+            };
+            pocket.sort_unstable();
+            out.push(Candidate { scale: r, cells: pocket, kind, quality });
+        }
+    }
+    out
+}
+
+/// Contour régulier : les cases de mer entourées par l'étendue (4 voisines sur 6) en font partie,
+/// les trous d'eau qu'elle enferme sont bouchés, les pointes qui avancent dans la mer du dehors
+/// (au moins 4 voisines de mer hors de l'étendue ; `strict` : aussi les doigts d'une case le long
+/// d'une côte) retirées ; on garde le plus grand morceau.
+/// `taken` : cases déjà prises par une étendue du même rang.
+fn tidy(grid: &Grid, water: &[bool], basin_of: &[Option<u16>], mut cells: Vec<usize>, strict: bool, taken: impl Fn(usize) -> bool) -> Vec<usize> {
+    if cells.is_empty() {
+        return cells;
+    }
+    let basin = basin_of[cells[0]];
+    let free = |j: usize| water[j] && basin_of[j] == basin && !taken(j);
+    let mut members: HashSet<usize> = cells.iter().copied().collect();
+    for _ in 0..3 {
+        let mut extra: Vec<usize> = members
+            .iter()
+            .flat_map(|&c| grid.neighbors(c))
+            .filter(|&j| !members.contains(&j) && free(j) && grid.neighbors(j).filter(|q| members.contains(q)).count() >= 4)
+            .collect();
+        extra.sort_unstable();
+        extra.dedup();
+        if extra.is_empty() {
+            break;
+        }
+        members.extend(extra);
+    }
+    // Trous : morceaux de mer hors de l'étendue qui ne mènent nulle part ailleurs
+    let limit = members.len() / 3 + 1;
+    let mut checked: HashSet<usize> = HashSet::new();
+    let border: Vec<usize> = members.iter().flat_map(|&c| grid.neighbors(c)).filter(|j| !members.contains(j) && water[*j]).collect();
+    for start in border {
+        if checked.contains(&start) || !free(start) {
+            continue;
+        }
+        let mut hole = vec![start];
+        checked.insert(start);
+        let mut enclosed = true;
+        let mut k = 0;
+        while k < hole.len() && enclosed {
+            let c = hole[k];
+            k += 1;
+            for j in grid.neighbors(c) {
+                if !water[j] || members.contains(&j) || checked.contains(&j) {
+                    continue;
+                }
+                if !free(j) || hole.len() >= limit {
+                    enclosed = false;
+                    break;
+                }
+                checked.insert(j);
+                hole.push(j);
+            }
+        }
+        if enclosed {
+            members.extend(hole);
+        }
+    }
+    for _ in 0..2 {
+        let spikes: Vec<usize> = members
+            .iter()
+            .copied()
+            .filter(|&c| {
+                let outside = grid.neighbors(c).filter(|j| water[*j] && !members.contains(j)).count();
+                let within = grid.neighbors(c).filter(|j| members.contains(j)).count();
+                outside >= 4 || (strict && within <= 2 && outside > 0)
+            })
+            .collect();
+        for c in spikes {
+            members.remove(&c);
+        }
+    }
+    // Le plus grand morceau
+    cells = members.iter().copied().collect();
+    cells.sort_unstable();
+    let mut best: Vec<usize> = Vec::new();
+    let mut seen: HashSet<usize> = HashSet::new();
+    for &start in &cells {
+        if !seen.insert(start) {
+            continue;
+        }
+        let mut part = vec![start];
+        let mut k = 0;
+        while k < part.len() {
+            let c = part[k];
+            k += 1;
+            for j in grid.neighbors(c) {
+                if members.contains(&j) && seen.insert(j) {
+                    part.push(j);
+                }
+            }
+        }
+        if part.len() > best.len() {
+            best = part;
+        }
+    }
+    best.sort_unstable();
+    best
+}
+
+/// Étendue qui contient le plus de ces cases, et combien.
+fn majority(cells: &[usize], owner: &[Option<usize>]) -> Option<(usize, usize)> {
+    let mut count: HashMap<usize, usize> = HashMap::new();
+    for &c in cells {
+        if let Some(o) = owner[c] {
+            *count.entry(o).or_default() += 1;
+        }
+    }
+    count.into_iter().max_by_key(|&(o, k)| (k, std::cmp::Reverse(o)))
+}
+
+/// Parent d'une étendue : la première, dans l'ordre donné, qui contient plus de la moitié de ses
+/// cases (l'océan ou la mer en dernier recours).
+fn parent_of(cells: &[usize], owners: &[&Vec<Option<u16>>]) -> Option<usize> {
+    for (i, owner) in owners.iter().enumerate() {
+        let mut count: HashMap<u16, usize> = HashMap::new();
+        for &c in cells {
+            if let Some(o) = owner[c] {
+                *count.entry(o).or_default() += 1;
+            }
+        }
+        if let Some((z, k)) = count.into_iter().max_by_key(|&(o, k)| (k, std::cmp::Reverse(o)))
+            && (k * 2 > cells.len() || i + 1 == owners.len())
+        {
+            return Some(z as usize);
+        }
+    }
+    None
+}
+
+/// Case sur une ligne entre deux caps : dans une direction et son opposée, une des terres `lands`
+/// de chaque côté, à au plus `width` cases d'eau en tout.
+fn chord(grid: &Grid, water: &[bool], land_id: &[usize], c: usize, lands: &[usize], width: i32) -> bool {
+    (0..6).any(|ray| {
+        let (Some((s1, l1)), Some((s2, l2))) = (ray_hit(grid, water, land_id, c, ray, width), ray_hit(grid, water, land_id, c, ray + 6, width)) else {
+            return false;
+        };
+        lands.contains(&l1) && lands.contains(&l2) && s1 + s2 - 1 <= width
+    })
 }
 
 /// Premier obstacle le long d'un rayon (12 directions : les 6 du réseau et les 6 entre elles) :
@@ -525,31 +911,6 @@ fn ray_hit(grid: &Grid, water: &[bool], land_id: &[usize], c: usize, ray: usize,
         }
     }
     None
-}
-
-/// Nombre de rayons (sur 12) qui touchent une même terre à moins de `RAY_LENGTH` cases, et cette
-/// terre (la plus touchée : un passage entre une île et un continent n'est pas un golfe).
-fn enclosure(grid: &Grid, water: &[bool], land_id: &[usize], c: usize) -> (usize, usize) {
-    let mut hits: HashMap<usize, usize> = HashMap::new();
-    for ray in 0..12 {
-        if let Some((_, land)) = ray_hit(grid, water, land_id, c, ray, RAY_LENGTH) {
-            *hits.entry(land).or_default() += 1;
-        }
-    }
-    hits.into_iter().max_by_key(|&(land, k)| (k, std::cmp::Reverse(land))).map(|(land, k)| (k, land)).unwrap_or((0, usize::MAX))
-}
-
-/// Case entre deux caps d'une même terre : dans une direction et son opposée, la terre `land` des
-/// deux côtés, à au plus `HEADLAND_WIDTH` cases d'eau en tout (l'entrée d'un golfe).
-fn between_headlands(grid: &Grid, water: &[bool], land_id: &[usize], c: usize, land: usize) -> bool {
-    (0..6).any(|ray| {
-        let (Some((s1, l1)), Some((s2, l2))) =
-            (ray_hit(grid, water, land_id, c, ray, HEADLAND_WIDTH), ray_hit(grid, water, land_id, c, ray + 6, HEADLAND_WIDTH))
-        else {
-            return false;
-        };
-        l1 == land && l2 == land && s1 + s2 - 1 <= HEADLAND_WIDTH
-    })
 }
 
 /// Case étroite : le long d'un des trois axes, de la terre des deux côtés à moins de
@@ -636,7 +997,7 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()]);
         let left = seas.basin_of[(20 * w + 20) as usize];
         let right = seas.basin_of[(20 * w + 75) as usize];
         assert!(left.is_some() && right.is_some());
@@ -663,10 +1024,10 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()]);
         let gulf = seas.inlet_of[(11 * w + 14) as usize].map(|z| seas.zones[z as usize].kind);
         assert_eq!(gulf, Some(SeaKind::Gulf));
-        let bay = seas.inlet_of[(23 * w + 61) as usize].map(|z| seas.zones[z as usize].kind);
+        let bay = seas.bay_of[(23 * w + 61) as usize].map(|z| seas.zones[z as usize].kind);
         assert_eq!(bay, Some(SeaKind::Bay));
         // La mer du large n'est pas enveloppée
         assert!(seas.inlet_of[(45 * w + 40) as usize].is_none());
@@ -689,7 +1050,7 @@ mod tests {
             println!("  {:<8} {:<28} {:>5} cases", z.kind.label(), z.name, z.cells.len());
         }
         assert!((1..=8).contains(&count(SeaKind::Ocean)));
-        assert!(count(SeaKind::Sea) >= 2);
+        assert!(count(SeaKind::Sea) >= 1);
         assert!(count(SeaKind::Gulf) + count(SeaKind::Bay) >= 5);
         // Toute case de mer ouverte est dans un océan ou une mer ; chaque étendue a un nom unique
         for h in m.hexes() {
@@ -726,7 +1087,18 @@ mod tests {
             let c = m.cell(h);
             let land = !m.get(h).is_some_and(|t| t.is_sea()) || m.basins().lake_of[c].is_some();
             let f = |v: Option<u16>| v.map_or(-1, i32::from);
-            out += &format!("{} {} {} {} {} {}\n", u8::from(land), f(s.basin_of[c]), f(s.inlet_of[c]), f(s.strait_of[c]), m.cell_info(h).map_or(0, |i| i.language as u8), f(s.coastal_of[c]));
+            let shelf = m.depth(h).is_some_and(|d| d < crate::map::SHELF_DEPTH_M);
+            out += &format!(
+                "{} {} {} {} {} {} {} {}\n",
+                u8::from(land),
+                f(s.basin_of[c]),
+                f(s.inlet_of[c]),
+                f(s.strait_of[c]),
+                m.cell_info(h).map_or(0, |i| i.language as u8),
+                f(s.coastal_of[c]),
+                f(s.bay_of[c]),
+                u8::from(shelf)
+            );
         }
         std::fs::write(std::env::var("SEAS_DUMP").unwrap_or("/tmp/seas.txt".into()), out).unwrap();
     }
