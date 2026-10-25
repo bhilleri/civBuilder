@@ -20,6 +20,7 @@ mod map;
 mod options;
 mod menu;
 mod pathfinding;
+mod plates;
 mod render;
 mod relief;
 mod rules;

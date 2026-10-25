@@ -177,6 +177,7 @@ fn setup_ui(mut commands: Commands) {
             basin_legend(),
             flow_legend(),
             network_legend(),
+            plates_legend(),
             (
                 MapLayerMenu,
                 panel(Node {
@@ -194,6 +195,7 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Basins, "Carte des bassins versants"),
                     map_option(MapLayer::Flow, "Carte des débits"),
                     map_option(MapLayer::Network, "Carte du réseau hydrographique"),
+                    map_option(MapLayer::Plates, "Carte des plaques tectoniques"),
                 ],
             ),
             (
@@ -492,6 +494,41 @@ fn network_legend() -> impl Bundle {
             Spawn(legend_row(NETWORK_LAKE, "Lac (rang du cours qui en sort)".into())),
             Spawn(legend_row(NETWORK_OCEAN, "Mer".into())),
             Spawn(text("Traits épais : fleuves ; fins : rivières ; chevrons : sens du courant", 12.0)),
+        )),
+    )
+}
+
+/// Légende de la carte des plaques tectoniques.
+fn plates_legend() -> impl Bundle {
+    use crate::plates::Boundary;
+    use crate::render::{HOTSPOT, PLATE_CONTINENTAL, PLATE_OCEANIC};
+    let swatch = |c: Color| {
+        let s = c.to_srgba();
+        (s.red, s.green, s.blue)
+    };
+    (
+        Legend(MapLayer::Plates),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(330.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Plaques tectoniques", 14.0)),
+            Spawn(legend_row(PLATE_CONTINENTAL[0], "Plaque continentale (teintes chaudes)".into())),
+            Spawn(legend_row(PLATE_OCEANIC[0], "Plaque océanique (teintes froides)".into())),
+            Spawn(text("Frontières : les plaques…", 13.0)),
+            Spawn(legend_row(Boundary::Collision.color(), "se percutent : collision de continents".into())),
+            Spawn(legend_row(Boundary::Subduction.color(), "se rapprochent : subduction (océan sous continent)".into())),
+            Spawn(legend_row(Boundary::IslandArc.color(), "se rapprochent : arc d'îles (deux océans)".into())),
+            Spawn(legend_row(Boundary::Rift.color(), "s'écartent : rift continental".into())),
+            Spawn(legend_row(Boundary::Ridge.color(), "s'écartent : dorsale".into())),
+            Spawn(legend_row(Boundary::Transform.color(), "glissent : faille transformante".into())),
+            Spawn(legend_row(swatch(HOTSPOT), "Point chaud (volcans loin des frontières)".into())),
+            Spawn(text("Flèches : sens et vitesse du mouvement (1 à 9 cm/an). Le relief ne suit pas encore les plaques.", 12.0)),
         )),
     )
 }
@@ -894,6 +931,9 @@ fn update_hover_text(
             if shows(Info::Network) {
                 line += &network_note(m, &fog, feature.0);
             }
+            if shows(Info::Plate) {
+                line += &plate_note(m, h);
+            }
             line.trim_start_matches('\n').to_string()
         }
         Some(_) => "Inexploré (terrain inconnu, supposé franchissable : 2 PM)".into(),
@@ -1031,6 +1071,29 @@ fn network_note(map: &crate::map::WorldMap, fog: &crate::game::ShownFog, feature
 }
 
 /// Bassin versant d'une case pour le survol.
+/// Infobulle : plaque de la case, son mouvement, la frontière qui la touche, un point chaud.
+fn plate_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
+    let Some(plate) = map.plate(h) else { return String::new() };
+    let v = plate.velocity;
+    let heading = ["l'est", "le nord-est", "le nord", "le nord-ouest", "l'ouest", "le sud-ouest", "le sud", "le sud-est"]
+        [((v.y.atan2(v.x).to_degrees() + 22.5).rem_euclid(360.0) / 45.0) as usize % 8];
+    let name = plate.name;
+    let mut note = format!(
+        "\n{}{} ({}), {:.0} cm/an vers {heading}",
+        name[..1].to_uppercase(),
+        &name[1..],
+        plate.kind.name(),
+        v.length()
+    );
+    if let Some(b) = map.plate_boundary(h) {
+        note += &format!(" ; frontière : {}", b.name());
+    }
+    if map.plates().hotspots.contains(&h) {
+        note += " ; point chaud";
+    }
+    note
+}
+
 fn basin_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
     let Some(basin) = map.basin(h) else { return String::new() };
     let basins = map.basins();

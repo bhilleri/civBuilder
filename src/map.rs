@@ -1,6 +1,7 @@
 //! Terrains, carte du monde et génération procédurale (logique pure).
 
 use crate::hex::{Hex, Wrap};
+use crate::plates::{self, Plate, Plates};
 use crate::climate::{self, Climate, Region};
 use crate::basins::{self, Basin, Basins, NamedRiver};
 use crate::hydro::{self, Hydrology};
@@ -535,6 +536,8 @@ pub struct WorldMap {
     basins: Basins,
     /// Tour d'est en ouest (planète) ou bords.
     wrap: Wrap,
+    /// Plaques tectoniques (vides pour une carte remplie à la main).
+    plates: Plates,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -557,6 +560,7 @@ impl WorldMap {
             region: Region::for_seed(0),
             basins: Basins::empty(n),
             wrap: Wrap::NONE,
+            plates: Plates::default(),
             step_cache: std::sync::OnceLock::new(),
         }
     }
@@ -565,6 +569,21 @@ impl WorldMap {
         let (col, row) = self.wrap.hex(hex).to_offset();
         (col >= 0 && col < self.width && row >= 0 && row < self.height)
             .then(|| (row * self.width + col) as usize)
+    }
+
+    /// Plaques tectoniques.
+    pub fn plates(&self) -> &Plates {
+        &self.plates
+    }
+
+    /// Plaque d'une case.
+    pub fn plate(&self, hex: Hex) -> Option<&Plate> {
+        self.index(hex).and_then(|i| self.plates.plate(i))
+    }
+
+    /// Frontière de plaques la plus active qui touche la case.
+    pub fn plate_boundary(&self, hex: Hex) -> Option<plates::Boundary> {
+        self.index(hex).and_then(|i| self.plates.boundary.get(i).copied().flatten())
     }
 
     /// Tour d'est en ouest de la carte.
@@ -995,6 +1014,8 @@ impl WorldMap {
         let mut map = Self::filled(width, height, Terrain::Ocean);
         map.wrap = Wrap::new(width, region.wraps);
         let wrap = map.wrap;
+        // 0) Plaques tectoniques (décrites seulement, pour l'instant : carte « Plaques »)
+        map.plates = plates::generate(width, height, wrap, seed);
         let scale = 4.0 / width as f64;
         // Bruit lu sur un cylindre quand la carte boucle : pas de couture entre les bords est et
         // ouest (même échelle qu'à plat : le tour fait `width` colonnes)

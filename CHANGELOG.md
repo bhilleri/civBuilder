@@ -18,6 +18,13 @@
 - Génération sans couture (relief lu sur un cylindre) et sans océan forcé à l'est et à l'ouest : des continents peuvent chevaucher le raccord ; cours d'eau, lacs, bassins et noms le traversent.
 - Règles : déplacements, plus court chemin, zone de contrôle, portée de tir, vision, exploration automatique, villages et camps, IA hostile tiennent compte du raccord (distances par le plus court côté).
 - Affichage : défilement sans fin en 2D comme en 3D, sans raccord visible (relief, lits, tracés, frontières, étiquettes).
+- Le relief 3D se prépare aussi pendant qu'on joue en 2D (autour de la caméra) : en passant en 3D, les cases explorées sont déjà prêtes.
+
+### Plaques tectoniques
+- La planète est découpée en 10 à 14 **plaques** nommées (plaque pacifique, de Nazca, eurasienne…), continentales ou océaniques, chacune avec son mouvement (1 à 9 cm/an).
+- **Frontières** classées selon le mouvement relatif : collision de continents, subduction, arc d'îles, rift continental, dorsale, faille transformante ; **points chauds** loin des frontières.
+- Nouvelle **carte « Plaques »** (2D et 3D) : couleur par plaque (chaude : continentale, froide : océanique), frontières colorées, flèches des mouvements, points chauds ; légende ; infobulle « plaque de Nazca (océanique), 5 cm/an vers le nord-est ; frontière : subduction ».
+- Les plaques ne façonnent pas encore le relief (étape suivante : continents et chaînes de montagnes).
 
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 

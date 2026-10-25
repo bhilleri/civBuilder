@@ -343,6 +343,16 @@ fn terrain() -> Article {
                d'une case à l'autre, roche sur les pentes raides, neige en hauteur (plus bas dans le froid), arbres \
                sur les versants jusqu'à la limite des arbres. Les cours d'eau coulent dans des vallées. Les côtes \
                basses descendent en plage jusqu'à la mer, les plus hautes tombent en falaise."),
+            h("Plaques tectoniques"),
+            p("La planète est découpée en une douzaine de plaques (carte des plaques, touche T) : continentales \
+               (teintes chaudes, épaisses, elles portent les continents) ou océaniques (teintes froides). Chacune se \
+               déplace de 1 à 9 cm par an (flèches). Le long d'une frontière, deux plaques qui se rapprochent \
+               forment une collision (deux continents : grande chaîne de montagnes et haut plateau), une \
+               subduction (l'océan plonge sous le continent : chaîne côtière, fosse au large) ou un arc d'îles \
+               (deux océans) ; deux plaques qui s'écartent ouvrent un rift continental ou une dorsale ; deux \
+               plaques qui glissent l'une contre l'autre forment une faille transformante. Les points chauds, loin \
+               des frontières, sont des volcans isolés. Pour l'instant, les plaques sont seulement décrites : le \
+               relief et les continents en découleront."),
             h("Brouillard de guerre"),
             p("Une case inexplorée est noire. Une fois découverte, elle reste connue mais apparaît assombrie hors de \
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \

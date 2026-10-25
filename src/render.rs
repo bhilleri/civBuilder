@@ -60,6 +60,14 @@ struct ReachGizmos;
 
 const REACH_OUTLINE: Color = Color::srgb(1.0, 0.97, 0.75);
 
+/// Groupe de gizmos des frontières de plaques (trait épais).
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct PlateGizmos;
+
+/// Flèches des mouvements de plaques et points chauds.
+pub const PLATE_ARROW: Color = Color::srgba(1.0, 1.0, 1.0, 0.85);
+pub const HOTSPOT: Color = Color::srgb(1.0, 0.55, 0.1);
+
 /// Pastille « nombre de tours » affichée sur le chemin prévisualisé.
 #[derive(Component)]
 struct TurnLabel;
@@ -120,6 +128,9 @@ struct Palette {
     basins_dim: Vec<Handle<ColorMaterial>>,
     flow: Vec<Handle<ColorMaterial>>,
     flow_dim: Vec<Handle<ColorMaterial>>,
+    /// Carte des plaques : terre et mer de chaque plaque (voir `plate_index`).
+    plates: Vec<Handle<ColorMaterial>>,
+    plates_dim: Vec<Handle<ColorMaterial>>,
     unexplored: Handle<ColorMaterial>,
     unit: Handle<ColorMaterial>,
     hostile_unit: Handle<ColorMaterial>,
@@ -155,11 +166,21 @@ pub enum MapLayer {
     Basins,
     Flow,
     Network,
+    /// Plaques tectoniques, leurs frontières et leurs mouvements.
+    Plates,
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 7] =
-        [MapLayer::Normal, MapLayer::Altitude, MapLayer::Relief, MapLayer::Climate, MapLayer::Basins, MapLayer::Flow, MapLayer::Network];
+    pub const ALL: [MapLayer; 8] = [
+        MapLayer::Normal,
+        MapLayer::Altitude,
+        MapLayer::Relief,
+        MapLayer::Climate,
+        MapLayer::Basins,
+        MapLayer::Flow,
+        MapLayer::Network,
+        MapLayer::Plates,
+    ];
 
     /// Nom court (bouton « Carte »).
     pub fn short_name(self) -> &'static str {
@@ -171,6 +192,7 @@ impl MapLayer {
             MapLayer::Basins => "bassins versants",
             MapLayer::Flow => "débits",
             MapLayer::Network => "réseau hydrographique",
+            MapLayer::Plates => "plaques tectoniques",
         }
     }
 
@@ -361,6 +383,82 @@ pub fn hydro_color(map: &crate::map::WorldMap, hex: Hex, layer: MapLayer) -> (f3
 /// Couleur d'un indice de couleur de bassin.
 pub fn basin_color(index: usize) -> (f32, f32, f32) {
     BASIN_VIVID.get(index).copied().unwrap_or_else(|| BASIN_MUTED[(index - BASIN_VIVID.len()) % BASIN_MUTED.len()])
+}
+
+/// Carte des plaques : teintes chaudes des plaques continentales, froides des plaques océaniques
+/// (attribuées dans l'ordre des plaques de chaque nature) ; la mer est assombrie pour garder
+/// le dessin des côtes.
+pub const PLATE_CONTINENTAL: [(f32, f32, f32); 8] = [
+    (0.84, 0.68, 0.42),
+    (0.62, 0.72, 0.38),
+    (0.88, 0.52, 0.36),
+    (0.76, 0.60, 0.80),
+    (0.92, 0.80, 0.44),
+    (0.62, 0.52, 0.38),
+    (0.84, 0.50, 0.60),
+    (0.50, 0.68, 0.50),
+];
+pub const PLATE_OCEANIC: [(f32, f32, f32); 8] = [
+    (0.22, 0.42, 0.72),
+    (0.26, 0.62, 0.74),
+    (0.36, 0.34, 0.70),
+    (0.20, 0.54, 0.56),
+    (0.42, 0.54, 0.86),
+    (0.18, 0.32, 0.54),
+    (0.46, 0.68, 0.84),
+    (0.30, 0.46, 0.62),
+];
+/// Assombrissement de la mer sur la carte des plaques.
+const PLATE_SEA: f32 = 0.62;
+
+/// Couleur de chaque plaque.
+pub fn plate_colors(plates: &crate::plates::Plates) -> Vec<(f32, f32, f32)> {
+    use crate::plates::PlateKind;
+    let (mut c, mut o) = (0, 0);
+    plates
+        .plates
+        .iter()
+        .map(|p| match p.kind {
+            PlateKind::Continental => {
+                c += 1;
+                PLATE_CONTINENTAL[(c - 1) % PLATE_CONTINENTAL.len()]
+            }
+            PlateKind::Oceanic => {
+                o += 1;
+                PLATE_OCEANIC[(o - 1) % PLATE_OCEANIC.len()]
+            }
+        })
+        .collect()
+}
+
+/// Couleurs de la carte des plaques, par paire (terre, mer) de chaque plaque.
+fn plate_shades(plates: &crate::plates::Plates) -> Vec<(f32, f32, f32)> {
+    plate_colors(plates).into_iter().flat_map(|(r, g, b)| [(r, g, b), (r * PLATE_SEA, g * PLATE_SEA, b * PLATE_SEA)]).collect()
+}
+
+/// Teinte (indice) d'une case sur la carte des plaques.
+fn plate_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
+    let p = map.contains(hex).then(|| map.plates().plate_of.get(map.cell(hex)).copied()).flatten().map_or(0, usize::from);
+    2 * p + usize::from(map.get(hex).is_some_and(|t| t.is_water()))
+}
+
+/// Couleur d'une case sur la carte des plaques (3D).
+pub fn plate_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
+    plate_shades(map.plates()).get(plate_index(map, hex)).copied().unwrap_or((0.5, 0.5, 0.5))
+}
+
+/// Flèche du mouvement de la plaque d'une case (cases en quinconce comme les vents) : départ et
+/// arrivée (monde 2D), longueur selon la vitesse.
+pub fn plate_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2)> {
+    let plate = map.plate(hex)?;
+    let speed = plate.velocity.length();
+    if speed < 0.1 {
+        return None;
+    }
+    let (x, y) = hex.to_world();
+    let half = HEX_SIZE * (0.3 + 0.07 * speed.min(9.0)) / 2.0;
+    let d = plate.velocity / speed * half;
+    Some((Vec2::new(x, y) - d, Vec2::new(x, y) + d))
 }
 
 /// Carte de l'altitude (sRGB) : eau, puis teintes hypsométriques selon l'altitude (m).
@@ -698,7 +796,8 @@ impl Plugin for RenderPlugin {
         app.init_resource::<ReachArea>()
             .init_resource::<MapLayer>()
             .init_gizmo_group::<ReachGizmos>()
-            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay))
+            .init_gizmo_group::<PlateGizmos>()
+            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_plate_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay))
             .add_systems(
             Update,
             (
@@ -714,6 +813,7 @@ impl Plugin for RenderPlugin {
                 draw_reach_outline.after(update_reach_overlay),
                 draw_overlays,
                 draw_wind_2d,
+                draw_plates_2d,
                 update_slope_overlay,
                 update_water_overlay,
                 update_hatch_overlay,
@@ -761,6 +861,7 @@ fn setup_map_visuals(
     let (relief, relief_dim) = pair(Relief::ALL.iter().map(|r| r.color()).chain([TOPO_OCEAN, TOPO_COAST]).collect());
     let flow_shades = (0..FLOW_SHADES).map(|i| flow_scale_color((i as f32 + 0.5) / FLOW_SHADES as f32));
     let (flow, flow_dim) = pair(flow_shades.chain([HYDRO_OCEAN, HYDRO_LAKE, NETWORK_LAND, NETWORK_LAKE, NETWORK_OCEAN]).collect());
+    let (plates, plates_dim) = pair(plate_shades(map.0.plates()));
     // Hexagone à peine plus petit que la case : la grille reste discrète.
     let tile_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.99, 6));
     let palette = Palette {
@@ -777,6 +878,8 @@ fn setup_map_visuals(
         basins_dim,
         flow,
         flow_dim,
+        plates,
+        plates_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
         unit: mat(PLAYER_COLOR),
         hostile_unit: mat(HOSTILE_COLOR),
@@ -909,6 +1012,7 @@ fn update_tile_fog(
         MapLayer::Relief => Some((&palette.relief, &palette.relief_dim)),
         MapLayer::Basins => Some((&palette.basins, &palette.basins_dim)),
         MapLayer::Flow | MapLayer::Network => Some((&palette.flow, &palette.flow_dim)),
+        MapLayer::Plates if !palette.plates.is_empty() => Some((&palette.plates, &palette.plates_dim)),
         _ => None,
     };
     let shade_index = |hex: Hex| match (*layer, map.0.get(hex)) {
@@ -917,6 +1021,7 @@ fn update_tile_fog(
         (MapLayer::Climate, _) => climate_shade(map.0.rain(hex).unwrap_or(500.0)),
         (MapLayer::Altitude, _) => altitude_index(&map.0, hex),
         (MapLayer::Relief, _) => relief_index(&map.0, hex),
+        (MapLayer::Plates, _) => plate_index(&map.0, hex),
         _ => hydro_index(&map.0, hex, *layer),
     };
     for (mark, mut vis) in &mut marks {
@@ -1344,5 +1449,39 @@ fn draw_wind_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, mut
         if let Some((from, to)) = wind_arrow(&map.0, hex) {
             gizmos.arrow_2d(from, to, WIND_ARROW).with_tip_length(7.0);
         }
+    }
+}
+
+fn setup_plate_gizmos(mut store: ResMut<GizmoConfigStore>) {
+    let (config, _) = store.config_mut::<PlateGizmos>();
+    config.line.width = 4.0;
+}
+
+/// Carte des plaques : frontières colorées selon leur nature (arêtes dont les deux cases sont
+/// explorées), flèches du mouvement des plaques, points chauds.
+fn draw_plates_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, view: Res<crate::view3d::ViewMode>, mut lines: Gizmos<PlateGizmos>, mut gizmos: Gizmos) {
+    if *layer != MapLayer::Plates || view.is_3d {
+        return;
+    }
+    let m = &map.0;
+    for e in &m.plates().edges {
+        let h = m.hex_at(e.cell);
+        let other = m.canonical(h + DIRECTIONS[usize::from(e.dir)]);
+        if !fog.explored.contains(&h) || !fog.explored.contains(&other) {
+            continue;
+        }
+        let ((ax, ay), (bx, by)) = h.edge_corners(usize::from(e.dir));
+        let (r, g, b) = e.kind.color();
+        lines.line_2d(Vec2::new(ax, ay), Vec2::new(bx, by), Color::srgb(r, g, b));
+    }
+    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+        if let Some((from, to)) = plate_arrow(m, hex) {
+            gizmos.arrow_2d(from, to, PLATE_ARROW).with_tip_length(6.0);
+        }
+    }
+    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(h)) {
+        let (x, y) = h.to_world();
+        gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.45, HOTSPOT);
+        gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.2, HOTSPOT);
     }
 }

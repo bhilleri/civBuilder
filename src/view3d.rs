@@ -12,7 +12,7 @@ use crate::input::{HoverPath, OrderPath};
 use crate::map::{Relief as CellRelief, Terrain};
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::PrimitiveTopology;
-use crate::render::{MapLayer, ReachArea, climate_color, elevation_layer_color, hydro_color, wind_arrow, wind_arrow_site};
+use crate::render::{MapLayer, ReachArea, climate_color, elevation_layer_color, hydro_color, plate_arrow, plate_color, wind_arrow, wind_arrow_site};
 use crate::units::UnitKind;
 use bevy::camera::visibility::RenderLayers;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
@@ -349,6 +349,7 @@ impl Plugin for View3dPlugin {
                     sync_mirrors,
                     draw_overlays_3d,
                     draw_wind_3d,
+                    draw_plates_3d,
                     sync_seam_copies,
                 )
                     .chain(),
@@ -1027,6 +1028,7 @@ fn update_relief_3d(
             let (r, g, b) = match thematic {
                 MapLayer::Altitude | MapLayer::Relief => elevation_layer_color(&map.0, hex, thematic),
                 MapLayer::Climate => climate_color(t, map.0.rain(hex).unwrap_or(500.0)),
+                MapLayer::Plates => plate_color(&map.0, hex),
                 _ => hydro_color(&map.0, hex, thematic),
             };
             let c = Color::srgb(r, g, b).to_linear();
@@ -1685,6 +1687,50 @@ fn sync_seam_copies(
         }
         if *vis != *source_vis {
             *vis = *source_vis;
+        }
+    }
+}
+
+/// Carte des plaques en 3D : frontières (traits épais posés sur le relief), mouvements des
+/// plaques et points chauds, comme en 2D.
+fn draw_plates_3d(
+    mode: Res<ViewMode>,
+    layer: Res<MapLayer>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    relief: Option<Res<Relief>>,
+    mut gizmos: Gizmos<Gizmos3d>,
+) {
+    let Some(relief) = relief else { return };
+    if !mode.is_3d || *layer != MapLayer::Plates {
+        return;
+    }
+    let m = &map.0;
+    let lift = |p: Vec2, up: f32| relief.on_ground(p.x, p.y, up);
+    for e in &m.plates().edges {
+        let h = m.hex_at(e.cell);
+        let other = m.canonical(h + DIRECTIONS[usize::from(e.dir)]);
+        if !fog.explored.contains(&h) || !fog.explored.contains(&other) {
+            continue;
+        }
+        let ((ax, ay), (bx, by)) = h.edge_corners(usize::from(e.dir));
+        let (a, b) = (Vec2::new(ax, ay), Vec2::new(bx, by));
+        let (r, g, bl) = e.kind.color();
+        // Deux traits côte à côte : plus épais que les autres lignes
+        for up in [1.5, 2.5] {
+            gizmos.linestrip((0..=4).map(|k| lift(a.lerp(b, k as f32 / 4.0), up)), Color::srgb(r, g, bl));
+        }
+    }
+    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+        if let Some((from, to)) = plate_arrow(m, hex) {
+            gizmos.arrow(lift(from, 6.0), lift(to, 6.0), crate::render::PLATE_ARROW).with_tip_length(7.0);
+        }
+    }
+    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(h)) {
+        let (x, y) = h.to_world();
+        for radius in [0.45, 0.2] {
+            let points = (0..=24).map(|k| lift(Vec2::new(x, y) + Vec2::from_angle(k as f32 / 24.0 * std::f32::consts::TAU) * HEX_SIZE * radius, 3.0));
+            gizmos.linestrip(points, crate::render::HOTSPOT);
         }
     }
 }
