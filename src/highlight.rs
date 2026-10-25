@@ -10,7 +10,8 @@
 //! et des chevrons qui descendent le courant en montrent le sens.
 //!
 //! Selon l'option choisie, la surbrillance suit le survol du cours d'eau sur la carte, le survol
-//! de son étiquette, ou rien.
+//! de son étiquette, ou rien ; un élément montré depuis l'interface (recherche, légende) passe
+//! avant.
 
 use crate::basins::{Basins, CoursePoint, NamedRiver};
 use crate::game::{GameMap, ShownFog};
@@ -76,6 +77,11 @@ pub struct HoveredFeature(pub Option<Feature>);
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub struct HoveredLabel(pub Option<Feature>);
 
+/// Élément montré depuis l'interface (résultat de recherche, ligne de légende survolée) : il
+/// passe avant le survol de la carte, quelle que soit l'option de surbrillance.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PointedFeature(pub Option<Feature>);
+
 /// Lignes de surbrillance en 2D (plus épaisses que les lignes ordinaires).
 #[derive(Default, Reflect, GizmoConfigGroup)]
 struct RiverGizmos2d;
@@ -91,6 +97,7 @@ impl Plugin for HighlightPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HoveredFeature>()
             .init_resource::<HoveredLabel>()
+            .init_resource::<PointedFeature>()
             .init_resource::<HighlightMode>()
             .init_gizmo_group::<RiverGizmos2d>()
             .init_gizmo_group::<NetworkGizmos2d>()
@@ -192,19 +199,23 @@ pub fn network(basins: &Basins, main: Feature) -> Network {
     Network { receiver: first, downstream, direct, deeper }
 }
 
-fn update_hovered_feature(
+/// Élément en surbrillance : celui montré par l'interface, sinon selon l'option (survol de la
+/// carte ou de l'étiquette ; une étiquette survolée compte aussi en mode « survol de la carte »,
+/// puisqu'elle cache la carte en dessous).
+pub fn update_hovered_feature(
     mode: Res<HighlightMode>,
     hovered: Res<HoveredHex>,
     label: Res<HoveredLabel>,
+    pointed: Res<PointedFeature>,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     mut feature: ResMut<HoveredFeature>,
 ) {
-    let wanted = match *mode {
-        HighlightMode::OnFeature => hovered.0.filter(|h| fog.explored.contains(h)).and_then(|h| feature_at(&map.0, h)),
+    let wanted = pointed.0.or(match *mode {
+        HighlightMode::OnFeature => label.0.or_else(|| hovered.0.filter(|h| fog.explored.contains(h)).and_then(|h| feature_at(&map.0, h))),
         HighlightMode::OnLabel => label.0,
         HighlightMode::Off => None,
-    };
+    });
     if feature.0 != wanted {
         feature.0 = wanted;
     }

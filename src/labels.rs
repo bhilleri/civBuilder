@@ -11,6 +11,7 @@ use crate::rules::MAX_HP;
 use crate::hex::Hex;
 use crate::input::{HoverPath, OrderPath};
 use crate::highlight::{Feature, HighlightMode, HoveredLabel};
+use crate::search::{MapTarget, TargetButton};
 use crate::view3d::{CITY_HEIGHT, ViewMode, shown_height, to_3d};
 use bevy::camera::CameraUpdateSystems;
 use bevy::prelude::*;
@@ -129,7 +130,7 @@ impl Plugin for LabelsPlugin {
             ),
         )
         .init_resource::<LabelFilter>()
-        .add_systems(Update, (label_interaction, update_hovered_label).chain())
+        .add_systems(Update, update_hovered_label)
         .add_systems(
             PostUpdate,
             (place_labels, place_river_names).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
@@ -142,6 +143,8 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
         commands
             .spawn((
                 CityBanner(entity),
+                // Survol : le territoire de la ville ressort ; clic : la caméra y va
+                (TargetButton::new(MapTarget::City(entity)), Interaction::default()),
                 // Au-dessus du jeton d'une unité en garnison
                 Anchor::new(pos.0, 24.0, CITY_HEIGHT + 14.0, false),
                 Node {
@@ -204,6 +207,8 @@ fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entit
         let spots = lake.cells.iter().map(|&c| (map.0.hex_at(c), map.0.hex_at(c))).collect();
         commands.spawn((
             RiverName { rank: rank(lake.tier, true, i), tier: lake.tier, spots, ordered: true, feature: Feature::Lake(i) },
+            // Clic : la caméra va au lac (le survol passe par `HoveredLabel`, selon l'option)
+            (TargetButton::click_only(MapTarget::Lake(i)), Interaction::default()),
             Node {
                 position_type: PositionType::Absolute,
                 padding: UiRect::axes(Val::Px(7.0), Val::Px(1.0)),
@@ -222,6 +227,7 @@ fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entit
         let spots = river.spots.iter().map(|&(a, b)| (map.0.hex_at(a), map.0.hex_at(b))).collect();
         commands.spawn((
             RiverName { rank: rank(river.tier, false, i), tier: river.tier, spots, ordered: false, feature: Feature::River(i) },
+            (TargetButton::click_only(MapTarget::River(i)), Interaction::default()),
             Node {
                 position_type: PositionType::Absolute,
                 padding: UiRect::axes(Val::Px(6.0), Val::Px(1.0)),
@@ -572,33 +578,15 @@ fn place_river_names(
     }
 }
 
-/// Les étiquettes des noms ne réagissent à la souris qu'en mode « survol de l'étiquette » (sinon
-/// elles laisseraient passer le survol de la carte en dessous).
-fn label_interaction(
-    mut commands: Commands,
-    mode: Res<HighlightMode>,
-    names: Query<(Entity, Has<Interaction>), With<RiverName>>,
-    added: Query<(), Added<RiverName>>,
-) {
-    if !mode.is_changed() && added.is_empty() {
-        return;
-    }
-    let wanted = *mode == HighlightMode::OnLabel;
-    for (e, has) in &names {
-        if wanted && !has {
-            commands.entity(e).insert(Interaction::default());
-        } else if !wanted && has {
-            commands.entity(e).remove::<Interaction>();
-        }
-    }
-}
-
-/// Cours d'eau ou lac dont l'étiquette est sous la souris.
-fn update_hovered_label(names: Query<(&RiverName, &Interaction, &Visibility)>, mut hovered: ResMut<HoveredLabel>) {
+/// Cours d'eau ou lac dont l'étiquette est sous la souris (les étiquettes réagissent toujours à
+/// la souris : un clic y amène la caméra ; leur survol ne met en surbrillance que si l'option le
+/// permet).
+fn update_hovered_label(mode: Res<HighlightMode>, names: Query<(&RiverName, &Interaction, &Visibility)>, mut hovered: ResMut<HoveredLabel>) {
     let wanted = names
         .iter()
         .find(|(_, i, v)| **i != Interaction::None && **v != Visibility::Hidden)
-        .map(|(n, _, _)| n.feature);
+        .map(|(n, _, _)| n.feature)
+        .filter(|_| *mode != HighlightMode::Off);
     if hovered.0 != wanted {
         hovered.0 = wanted;
     }

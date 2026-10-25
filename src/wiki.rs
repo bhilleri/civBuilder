@@ -376,6 +376,16 @@ fn terrain() -> Article {
                étiquette, ou aucune) et les rubriques de l'infobulle, pour chaque carte : par défaut le terrain, le \
                climat, les rendements et le coût de déplacement, plus ce qui concerne la carte affichée (débit sur la \
                carte des débits, bassin et affluents sur celle des bassins versants…)."),
+            h("Trouver un lieu"),
+            p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
+               ne comptent pas) ; les puces filtrent par catégorie (villes, cours d'eau, lacs et mers, bassins \
+               versants, plaques) et donnent le nombre de résultats de chacune. Flèches pour choisir, Entrée pour y \
+               aller, Tab pour changer de filtre, Échap pour fermer. Le lieu choisi ressort sur la carte (pourtour \
+               doré d'une zone, surbrillance d'un cours d'eau ou d'un lac) et la caméra le cadre. Seuls les lieux \
+               déjà explorés sont listés (tous en mode debug)."),
+            p("Les étiquettes de la carte mènent aussi à leur lieu : un clic sur le nom d'un cours d'eau, d'un lac \
+               ou sur la bannière d'une ville y amène la caméra. Sur la carte des bassins versants, survoler un \
+               bassin de la légende le fait ressortir, cliquer dessus le montre."),
         ],
     }
 }

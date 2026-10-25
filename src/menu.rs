@@ -6,9 +6,11 @@
 
 use crate::game::{DebugMode, GameLog};
 use crate::hostile::WorldSeed;
-use bevy::input::keyboard::{Key, KeyboardInput};
 use crate::wiki::WikiState;
+use bevy::input::keyboard::Key;
+use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
+use bevy::text::{EditableText, EditableTextFilter, TextCursorStyle, TextEdit};
 
 /// Menu ouvert ou fermé.
 #[derive(Resource, Default)]
@@ -26,20 +28,16 @@ enum MenuButton {
     Regenerate,
     /// Nouveau monde, graine au hasard.
     NewWorld,
+    /// Copier la graine saisie dans le presse-papiers.
+    CopySeed,
+    /// Coller le presse-papiers dans le champ (remplace la graine).
+    PasteSeed,
     Quit,
 }
 
-/// Champ de saisie de la graine.
+/// Champ de saisie de la graine (chiffres seulement ; Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A).
 #[derive(Component)]
 struct SeedField;
-#[derive(Component)]
-struct SeedText;
-/// Graine en cours de saisie (chiffres seulement).
-#[derive(Resource, Default)]
-struct SeedInput {
-    text: String,
-    ready: bool,
-}
 /// Bandeau rappelant que le mode debug est actif.
 #[derive(Component)]
 struct DebugBanner;
@@ -59,10 +57,9 @@ pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameMenu>()
-            .init_resource::<SeedInput>()
             .add_systems(Startup, setup_menu)
             // Avant le wiki : Échap ferme d'abord le wiki s'il est ouvert, sans ouvrir le menu
-            .add_systems(Update, (toggle_menu.before(crate::wiki::WikiSet), seed_typing, menu_buttons, show_menu, update_fps).chain());
+            .add_systems(Update, (toggle_menu.before(crate::wiki::WikiSet), seed_field, menu_buttons, show_menu, update_fps).chain());
     }
 }
 
@@ -84,6 +81,23 @@ fn button(kind: MenuButton, text: &str, bg: Color) -> impl Bundle + use<> {
         },
         BackgroundColor(bg),
         Children::spawn(Spawn((label(text, 17.0), DebugLabelIf(is_debug)))),
+    )
+}
+
+/// Petit bouton à côté du champ de la graine.
+fn small_button(kind: MenuButton, text: &str) -> impl Bundle + use<> {
+    (
+        kind,
+        Button,
+        Node {
+            padding: UiRect::axes(Val::Px(8.0), Val::Px(7.0)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border_radius: BorderRadius::all(Val::Px(6.0)),
+            ..default()
+        },
+        BackgroundColor(BUTTON_BG),
+        children![label(text, 14.0)],
     )
 }
 
@@ -129,21 +143,35 @@ fn setup_menu(mut commands: Commands) {
                 (Node { height: Val::Px(8.0), ..default() }),
                 (label("Graine du monde", 16.0)),
                 (
-                    SeedField,
-                    Node {
-                        width: Val::Px(280.0),
-                        padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
-                        border: UiRect::all(Val::Px(1.0)),
-                        border_radius: BorderRadius::all(Val::Px(6.0)),
-                        justify_content: JustifyContent::Center,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.02, 0.02, 0.04)),
-                    BorderColor::all(Color::srgb(0.35, 0.38, 0.46)),
-                    children![(SeedText, label("", 18.0))],
+                    Node { width: Val::Px(280.0), column_gap: Val::Px(6.0), ..default() },
+                    children![
+                        (
+                            Node {
+                                flex_grow: 1.0,
+                                padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
+                                border: UiRect::all(Val::Px(1.0)),
+                                border_radius: BorderRadius::all(Val::Px(6.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgb(0.02, 0.02, 0.04)),
+                            BorderColor::all(Color::srgb(0.35, 0.38, 0.46)),
+                            children![(
+                                SeedField,
+                                EditableText { max_characters: Some(10), ..default() },
+                                EditableTextFilter::new(|c| c.is_ascii_digit()),
+                                TextFont::from_font_size(18.0),
+                                TextColor(Color::srgb(0.95, 0.95, 0.97)),
+                                TextLayout::no_wrap(),
+                                TextCursorStyle { color: Color::WHITE, selection_color: Color::srgb(0.20, 0.40, 0.75), ..default() },
+                                Node { width: Val::Percent(100.0), ..default() },
+                            )],
+                        ),
+                        small_button(MenuButton::CopySeed, "Copier"),
+                        small_button(MenuButton::PasteSeed, "Coller"),
+                    ],
                 ),
                 (
-                    Text::new("Tapez une graine (chiffres), puis Entrée ou le bouton : même graine, même monde."),
+                    Text::new("Tapez ou collez une graine (chiffres), puis Entrée ou le bouton : même graine, même monde. Ctrl+C / Ctrl+V : copier, coller."),
                     TextFont::from_font_size(13.0),
                     TextColor(Color::srgb(0.65, 0.67, 0.72)),
                     Node { max_width: Val::Px(300.0), ..default() },
@@ -188,45 +216,38 @@ fn toggle_menu(keys: Res<ButtonInput<KeyCode>>, wiki: Res<WikiState>, mut menu: 
     }
 }
 
-/// Saisie de la graine quand le menu est ouvert : chiffres, effacement, Entrée pour regénérer.
-/// À l'ouverture du menu, le champ montre la graine du monde actuel.
-fn seed_typing(
+/// Champ de la graine : à l'ouverture du menu, il montre la graine du monde actuel, toute
+/// sélectionnée (on peut la copier aussitôt, ou taper par-dessus) ; Entrée regénère.
+fn seed_field(
     menu: Res<GameMenu>,
     seed: Res<WorldSeed>,
-    mut input: ResMut<SeedInput>,
-    mut keys: MessageReader<KeyboardInput>,
-    mut text: Single<&mut Text, With<SeedText>>,
+    keys: Res<ButtonInput<Key>>,
+    mut focus: ResMut<InputFocus>,
+    mut was_open: Local<bool>,
+    mut field: Single<(Entity, &mut EditableText), With<SeedField>>,
     mut log: ResMut<GameLog>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if !menu.open {
-        input.ready = false;
-        keys.clear();
-        return;
+    let (entity, ref mut editable) = *field;
+    if menu.open && !*was_open {
+        editable.editor_mut().set_text(&seed.0.to_string());
+        editable.queue_edit(TextEdit::SelectAll);
+        focus.set(entity, FocusCause::Navigated);
     }
-    if !input.ready {
-        input.text = seed.0.to_string();
-        input.ready = true;
+    if !menu.open && *was_open && focus.get() == Some(entity) {
+        focus.clear();
     }
-    for key in keys.read().filter(|k| k.state.is_pressed()) {
-        match &key.logical_key {
-            Key::Character(c) => {
-                for ch in c.chars().filter(char::is_ascii_digit) {
-                    if input.text.len() < 10 {
-                        input.text.push(ch);
-                    }
-                }
-            }
-            Key::Backspace => {
-                input.text.pop();
-            }
-            Key::Enter => regenerate(input.text.parse().ok(), &mut log, &mut exit),
-            _ => {}
-        }
+    *was_open = menu.open;
+    if menu.open && focus.get() == Some(entity) && keys.just_pressed(Key::Enter) {
+        regenerate_with(&editable.value().to_string(), &mut log, &mut exit);
     }
-    let shown = format!("{}▏", input.text);
-    if text.0 != shown {
-        text.0 = shown;
+}
+
+/// Regénère avec la graine écrite (vérifiée).
+fn regenerate_with(text: &str, log: &mut GameLog, exit: &mut MessageWriter<AppExit>) {
+    match text.parse::<u32>() {
+        Ok(seed) => regenerate(Some(seed), log, exit),
+        Err(_) => log.push("Graine invalide : entre 0 et 4 294 967 295."),
     }
 }
 
@@ -253,7 +274,9 @@ fn regenerate(seed: Option<u32>, log: &mut GameLog, exit: &mut MessageWriter<App
 fn menu_buttons(
     mut menu: ResMut<GameMenu>,
     mut debug: ResMut<DebugMode>,
-    input: Res<SeedInput>,
+    mut field: Single<(Entity, &mut EditableText), With<SeedField>>,
+    mut focus: ResMut<InputFocus>,
+    mut clipboard: ResMut<bevy::clipboard::Clipboard>,
     mut log: ResMut<GameLog>,
     mut buttons: Query<(Ref<Interaction>, &MenuButton, &mut BackgroundColor)>,
     mut exit: MessageWriter<AppExit>,
@@ -263,10 +286,21 @@ fn menu_buttons(
             match kind {
                 MenuButton::Resume => menu.open = false,
                 MenuButton::Debug => debug.0 = !debug.0,
-                MenuButton::Regenerate => match input.text.parse::<u32>() {
-                    Ok(seed) => regenerate(Some(seed), &mut log, &mut exit),
-                    Err(_) => log.push("Graine invalide : entre 0 et 4 294 967 295."),
-                },
+                MenuButton::Regenerate => regenerate_with(&field.1.value().to_string(), &mut log, &mut exit),
+                MenuButton::CopySeed => {
+                    let value = field.1.value().to_string();
+                    match clipboard.set_text(value.clone()) {
+                        Ok(()) => log.push(format!("Graine {value} copiée dans le presse-papiers.")),
+                        Err(e) => log.push(format!("Impossible de copier la graine : {e:?}")),
+                    }
+                    focus.set(field.0, FocusCause::Navigated);
+                }
+                MenuButton::PasteSeed => {
+                    // Remplace tout le champ (les caractères autres que des chiffres sont ignorés)
+                    field.1.queue_edit(TextEdit::SelectAll);
+                    field.1.queue_edit(TextEdit::Paste);
+                    focus.set(field.0, FocusCause::Navigated);
+                }
                 MenuButton::NewWorld => regenerate(None, &mut log, &mut exit),
                 MenuButton::Quit => {
                     exit.write(AppExit::Success);

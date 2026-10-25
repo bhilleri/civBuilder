@@ -34,6 +34,16 @@
 ### Graine du monde
 - Le menu (Échap) affiche la **graine** du monde ; on peut en taper une et **regénérer** le monde avec (même graine, même monde), ou créer un **nouveau monde** au hasard. Le jeu repart de zéro avec les mêmes réglages.
 
+### Trouver les lieux
+- **Recherche** (bouton « Rechercher » ou Ctrl+F) : villes, cours d'eau, lacs et mers intérieures, bassins versants, plaques. Résultats au fil de la frappe, sans tenir compte des accents ni des majuscules, classés (début du nom, début d'un mot, ailleurs), passage trouvé en gras ; **filtres** en puces avec le nombre de résultats de chaque catégorie ; clavier : ↑ ↓, Entrée, Tab (filtre suivant), Échap. Seuls les lieux explorés sont listés (tous en mode debug).
+- Le lieu choisi **ressort sur la carte** (pourtour doré qui pulse pour une zone, surbrillance du réseau pour un cours d'eau ou un lac) et la **caméra le cadre** (vol court, zoom adapté, en 2D comme en 3D, à travers le raccord).
+- **Étiquettes cliquables** : nom d'un cours d'eau ou d'un lac, bannière d'une ville (la ville est aussi sélectionnée).
+- **Légende des bassins versants interactive** : survol d'un bassin pour le faire ressortir, clic pour y aller.
+- Pendant la saisie dans un champ, les raccourcis du jeu sont coupés (les touches vont au champ).
+
+### Graine du monde
+- Champ de la graine éditable (curseur, sélection) : la graine actuelle est sélectionnée à l'ouverture du menu ; **Ctrl+C / Ctrl+V** (presse-papiers du système) et boutons **Copier** / **Coller**.
+
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 
 Les saisons du climat façonnent maintenant les paysages  : 7 nouveaux terrains, de la jungle à la taïga.

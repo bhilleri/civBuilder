@@ -210,6 +210,17 @@ fn setup_ui(mut commands: Commands) {
                 children![text("Wiki (F1)", 16.0)],
             ),
             (
+                crate::search::SearchButton,
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
+                    ..default()
+                },
+                BackgroundColor(PRODUCE_BG),
+                children![text("Rechercher (Ctrl+F)", 16.0)],
+            ),
+            (
                 MapLayerButton,
                 Button,
                 Node {
@@ -397,6 +408,7 @@ fn basin_legend() -> impl Bundle {
             Spawn(legend_row(HYDRO_LAKE, "Lac".into())),
             Spawn(legend_row(HYDRO_OCEAN, "Mer".into())),
             Spawn(text("Une couleur : toute l'eau qui y tombe rejoint la même sortie", 12.0)),
+            Spawn(text("Survol d'un nom : le bassin ressort ; clic : la carte y va", 12.0)),
         )),
     )
 }
@@ -436,11 +448,38 @@ fn update_basin_legend(
     for &b in found.iter().take(BASIN_LEGEND_ROWS) {
         let basin = &basins.basins[b];
         let name = basins.basin_name(basin).unwrap_or("?");
-        commands.entity(entity).with_child(legend_row(basin_color(basin.color), format!("{name} ({} cases)", basin.cells)));
+        commands.entity(entity).with_child(basin_row(b, basin_color(basin.color), format!("{name} ({} cases)", basin.cells)));
     }
     if found.len() > BASIN_LEGEND_ROWS {
         commands.entity(entity).with_child(text(&format!("… et {} autres", found.len() - BASIN_LEGEND_ROWS), 12.0));
     }
+}
+
+/// Ligne d'un grand bassin dans la légende : son survol fait ressortir le bassin sur la carte,
+/// son clic y amène la caméra.
+fn basin_row(basin: usize, (r, g, b): (f32, f32, f32), label: String) -> impl Bundle {
+    use crate::search::{HoverColors, MapTarget, TargetButton};
+    (
+        TargetButton::new(MapTarget::Basin(basin)),
+        Button,
+        HoverColors { normal: Color::NONE, hover: PRODUCE_HOVER },
+        BackgroundColor(Color::NONE),
+        Node {
+            column_gap: Val::Px(8.0),
+            align_items: AlignItems::Center,
+            padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
+            margin: UiRect::horizontal(Val::Px(-4.0)),
+            border_radius: BorderRadius::all(Val::Px(3.0)),
+            ..default()
+        },
+        children![
+            (
+                Node { width: Val::Px(14.0), height: Val::Px(14.0), border_radius: BorderRadius::all(Val::Px(3.0)), ..default() },
+                BackgroundColor(Color::srgb(r, g, b)),
+            ),
+            (Text::new(label), TextFont::from_font_size(13.0), TextColor(Color::srgb(0.92, 0.92, 0.95))),
+        ],
+    )
 }
 
 /// Légende de la carte des débits.

@@ -7,7 +7,7 @@ edition = "2024"
 # Bevy (2D + 3D), sans l'audio (inutile pour l'instant) ni la police par défaut
 # (remplacée par Inter, voir src/fonts.rs)
 bevy = { version = "0.19", default-features = false, features = [
-    "default_app", "std", "multi_threaded", "bevy_winit", "bevy_clipboard",
+    "default_app", "std", "multi_threaded", "bevy_winit", "bevy_clipboard", "system_clipboard",
     "x11", "custom_cursor", "sysinfo_plugin",
     "2d_bevy_render", "3d_bevy_render", "ui_api", "ui_bevy_render", "bevy_ui_widgets", "scene", "picking",
 ] }

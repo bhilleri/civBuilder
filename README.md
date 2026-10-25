@@ -78,7 +78,9 @@ Tests unitaires de la logique (hexagones, carte, climat, hydrologie, pathfinding
 | Choisir la production (ville) | Panneau de gauche (clic) ou touches 1 à 9 |
 | Fin du tour | Entrée ou bouton en bas à droite |
 | Désélectionner | Clic gauche sur une case vide |
-| Menu du jeu : reprendre, mode debug (carte révélée), quitter | Échap |
+| Menu du jeu : reprendre, mode debug (carte révélée), graine du monde (copier/coller avec Ctrl+C / Ctrl+V ou les boutons, regénérer), quitter | Échap |
+| Rechercher un lieu (ville, cours d'eau, lac ou mer, bassin versant, plaque) avec filtres | Bouton « Rechercher » ou Ctrl+F ; ↑ ↓ choisir, Entrée y aller, Tab filtre suivant, Échap fermer |
+| Aller à un lieu depuis la carte | Clic sur le nom d'un cours d'eau, d'un lac ou sur la bannière d'une ville ; légende des bassins : survol pour le faire ressortir, clic pour y aller |
 | Basculer vue 2D / vue 3D | Bouton au-dessus de « Fin du tour » ou touche V |
 | Choisir la carte : normale, altitude, relief, climat, bassins versants, débits ou réseau hydrographique | Bouton « Carte » (menu) ou touche T |
 | Options de carte : étiquettes (cours d'eau, lacs, villes), surbrillance des cours d'eau, rubriques de l'infobulle par carte | Bouton « Options de carte » ou touche O ; touche N : toutes les étiquettes |
@@ -144,6 +146,7 @@ src/
 ├── ui.rs           Interface (barre du haut, panneaux, journal, boutons)
 ├── wiki.rs         Wiki du jeu : contenu tiré des données et des règles, fenêtre de lecture
 ├── labels.rs       Étiquettes ancrées sur la carte (bannières des villes, tours d'arrivée en 3D)
+├── search.rs       Accès aux lieux : recherche (index, filtres), légendes et étiquettes cliquables, cadrage de la caméra
 ├── relief.rs       Relief continu de la vue 3D : profil des cases, raccords, maillage (pur, testé)
 └── view3d.rs       Vue 3D optionnelle (relief, forêts, pions), synchronisée avec la vue 2D
 ```
