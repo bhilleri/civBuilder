@@ -328,12 +328,15 @@ fn terrain() -> Article {
                profondeur ; la carte de l'altitude montre eaux peu profondes, haute mer et abysses. Comme sur Terre, \
                où les mers de plateau donnent l'essentiel de la pêche, les eaux peu profondes nourrissent mieux (2 \
                nourriture) que la haute mer (1)."),
-            p("Certaines eaux sont poissonneuses (+1 nourriture, teinte un peu plus verte) : les remontées d'eaux \
+            p("Certaines eaux sont poissonneuses (+1 nourriture) : les remontées d'eaux \
                froides, là où le vent pousse l'eau de surface vers le large et où l'eau profonde, riche, remonte \
                (surtout les côtes ouest des continents sous les alizés) ; les monts sous-marins, volcans qui montent \
                vers la surface en pleine mer (chaînes des points chauds, arcs d'îles), où courants et remous \
                concentrent le plancton et les thons ; les eaux des îles volcaniques isolées en haute mer. Les \
-               dorsales et les fosses, trop profondes, ne changent rien à la pêche. Plus tard, la profondeur et la \
+               dorsales et les fosses, trop profondes, ne changent rien à la pêche. Les eaux poissonneuses d'un seul \
+               tenant forment des bancs de poissons nommés (Bancs des Sardines, Banc de Kaldvik…) : la carte des \
+               ressources les montre par une icône de poisson (la zone apparaît au survol, l'infobulle dit d'où vient \
+               leur richesse), et la recherche les trouve (filtre « Bancs de poissons »). Plus tard, la profondeur et la \
                distance à la côte décideront aussi de la navigation : barques et galères près des côtes et sur le \
                plateau, caravelles en haute mer."),
             h("Relief"),
@@ -388,7 +391,8 @@ fn terrain() -> Article {
                la cavalerie légère et l'archer monté)."),
             h("Cartes et vues"),
             p("Le bouton « Carte » (touche T) choisit la carte : normale, de l'altitude (couleur selon les mètres), du \
-               relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau ou du réseau hydrographique. \
+               relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau, du réseau hydrographique, \
+               des plaques tectoniques ou des ressources (bancs de poissons). \
                Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. Le bouton \
                « Options de carte » (touche O) règle les noms affichés (cours d'eau, lacs, villes ; la touche N les \
                masque ou les remet tous), la surbrillance des cours d'eau (au survol du cours d'eau, au survol de son \

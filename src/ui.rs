@@ -178,6 +178,7 @@ fn setup_ui(mut commands: Commands) {
             flow_legend(),
             network_legend(),
             plates_legend(),
+            resources_legend(),
             (
                 MapLayerMenu,
                 panel(Node {
@@ -196,6 +197,7 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Flow, "Carte des débits"),
                     map_option(MapLayer::Network, "Carte du réseau hydrographique"),
                     map_option(MapLayer::Plates, "Carte des plaques tectoniques"),
+                    map_option(MapLayer::Resources, "Carte des ressources"),
                 ],
             ),
             (
@@ -534,6 +536,32 @@ fn network_legend() -> impl Bundle {
             Spawn(legend_row(NETWORK_LAKE, "Lac (rang du cours qui en sort)".into())),
             Spawn(legend_row(NETWORK_OCEAN, "Mer".into())),
             Spawn(text("Traits épais : fleuves ; fins : rivières ; chevrons : sens du courant", 12.0)),
+        )),
+    )
+}
+
+/// Légende de la carte des ressources.
+fn resources_legend() -> impl Bundle {
+    (
+        Legend(MapLayer::Resources),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(4.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(320.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Ressources", 14.0)),
+            Spawn((
+                Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() },
+                children![
+                    (crate::labels::FishIcon, Node { width: Val::Px(18.0), height: Val::Px(18.0), ..default() }),
+                    (Text::new(format!("Banc de poissons : +{} nourriture", crate::map::RICH_WATERS_FOOD)), TextFont::from_font_size(13.0), TextColor(Color::srgb(0.92, 0.92, 0.95))),
+                ],
+            )),
+            Spawn(text("Survol de l'icône ou du banc : sa zone ; clic : la carte y va", 12.0)),
         )),
     )
 }
@@ -963,25 +991,37 @@ fn update_hover_text(
             if !place.is_empty() {
                 parts.push(place.join(", "));
             }
-            // Eaux poissonneuses
-            let rich = m.marine(h);
-            if rich != 0 {
+            // Banc de poissons : son nom (et, sur la carte des ressources, d'où vient sa richesse)
+            let bank = m.bank(h).map(|b| &m.banks()[b]);
+            if let Some(bank) = bank
+                && shows(Info::Fishing)
+            {
                 use crate::map::marine;
                 let mut why = Vec::new();
-                if rich & marine::UPWELLING != 0 {
+                if bank.origins & marine::UPWELLING != 0 {
                     why.push("remontée d'eaux froides");
                 }
-                if rich & marine::SEAMOUNT != 0 {
+                if bank.origins & marine::SEAMOUNT != 0 {
                     why.push("mont sous-marin");
                 }
-                if rich & marine::ISLAND != 0 {
+                if bank.origins & marine::ISLAND != 0 {
                     why.push("eaux d'île volcanique");
                 }
-                parts.push(format!("Eaux poissonneuses ({}) : +{} nourriture", why.join(", "), crate::map::RICH_WATERS_FOOD));
+                parts.push(format!(
+                    "{} : banc de poissons ({}), {} cases, +{} nourriture",
+                    bank.name,
+                    why.join(", "),
+                    bank.cells.len(),
+                    crate::map::RICH_WATERS_FOOD
+                ));
             }
             if shows(Info::Yields) {
                 let y = m.yields(h).unwrap_or_default();
-                parts.push(format!("nourriture {}, production {}, or {}", y.food, y.production, y.gold));
+                let fish = match bank {
+                    Some(b) if !shows(Info::Fishing) => format!(" (dont +{} : {})", crate::map::RICH_WATERS_FOOD, b.name),
+                    _ => String::new(),
+                };
+                parts.push(format!("nourriture {}{fish}, production {}, or {}", y.food, y.production, y.gold));
             }
             if shows(Info::Moves) {
                 parts.push(m.move_cost(h).map(|c| format!("{c} PM")).unwrap_or_else(|| "infranchissable".into()));

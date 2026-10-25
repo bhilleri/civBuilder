@@ -143,13 +143,15 @@ impl Plugin for LabelsPlugin {
                 spawn_site_labels,
                 despawn_site_labels,
                 spawn_sea_names,
+                spawn_bank_icons,
+                attach_fish_images,
             ),
         )
         .init_resource::<LabelFilter>()
         .add_systems(Update, update_hovered_label)
         .add_systems(
             PostUpdate,
-            (place_labels, place_river_names, place_sea_names).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
+            (place_labels, place_river_names, place_sea_names, place_bank_icons).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
         );
     }
 }
@@ -366,6 +368,146 @@ fn place_sea_names(
             None => {
                 if *vis != Visibility::Hidden {
                     *vis = Visibility::Hidden;
+                }
+            }
+        }
+    }
+}
+
+/// Icône de poisson (carte des ressources, légende).
+#[derive(Component)]
+pub struct FishIcon;
+/// Icône d'un banc de poissons (carte des ressources) : un poisson discret et le nom du banc ;
+/// la zone apparaît au survol (et à la sélection).
+#[derive(Component)]
+struct BankIcon {
+    bank: usize,
+}
+#[derive(Component)]
+struct BankName;
+/// Rayon d'une case à l'écran (pixels) à partir duquel l'icône d'un banc, puis son nom, se montrent.
+const BANK_ICON_PX: f32 = 5.0;
+const BANK_NAME_PX: f32 = 12.0;
+
+/// Image des icônes de poisson.
+fn attach_fish_images(mut commands: Commands, assets: Res<AssetServer>, icons: Query<Entity, Added<FishIcon>>) {
+    for e in &icons {
+        commands.entity(e).insert(ImageNode::new(assets.load("icons/fish.png")));
+    }
+}
+
+/// Une icône par banc de poissons (refaites si la carte change de monde).
+fn spawn_bank_icons(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<BankIcon>>) {
+    if !map.is_added() {
+        return;
+    }
+    for e in &old {
+        commands.entity(e).despawn();
+    }
+    for (b, bank) in map.0.banks().iter().enumerate() {
+        commands.spawn((
+            BankIcon { bank: b },
+            (TargetButton::new(MapTarget::Bank(b)), Interaction::default()),
+            Node { position_type: PositionType::Absolute, flex_direction: FlexDirection::Column, align_items: AlignItems::Center, ..default() },
+            UiTransform::from_translation(Val2::percent(-50.0, -30.0)),
+            GlobalZIndex(-3),
+            Visibility::Hidden,
+            children![
+                (FishIcon, Node { width: Val::Px(20.0), height: Val::Px(20.0), ..default() }),
+                (
+                    BankName,
+                    Text::new(bank.name.clone()),
+                    TextFont::from_font_size(11.0),
+                    TextColor(Color::srgb(0.98, 0.92, 0.75)),
+                    TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::srgba(0.0, 0.0, 0.0, 0.85) },
+                ),
+            ],
+        ));
+    }
+}
+
+/// Icônes des bancs : seulement sur la carte des ressources (ou quand le banc est mis en avant,
+/// par la recherche par exemple), au centre de leur partie explorée ; poisson
+/// discret (plus net au survol), nom en zoom plus fin.
+#[allow(clippy::too_many_arguments)]
+fn place_bank_icons(
+    mode: Res<ViewMode>,
+    layer: Res<crate::render::MapLayer>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    pointed: Res<crate::search::PointedTarget>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
+    mut icons: Query<(&BankIcon, &Interaction, &mut Node, &mut Visibility, &Children), (Without<RiverName>, Without<SeaName>, Without<Anchor>)>,
+    mut images: Query<&mut ImageNode>,
+    mut names: Query<&mut Node, (With<BankName>, Without<BankIcon>)>,
+    mut spots: Local<Vec<Option<Hex>>>,
+) {
+    let banks = map.0.banks();
+    if fog.is_changed() || spots.len() != banks.len() {
+        // Case de l'icône : la case explorée la plus proche du centre de la partie explorée (un
+        // banc en anneau autour d'une île a son icône sur l'anneau, au plus près du centre)
+        *spots = banks
+            .iter()
+            .map(|b| {
+                let known: Vec<Hex> = b.cells.iter().map(|&c| map.0.hex_at(c)).filter(|h| fog.explored.contains(h)).collect();
+                let first = *known.first()?;
+                // (planète : chaque case prise du côté du raccord le plus proche de la première)
+                let points: Vec<Vec2> = known.iter().map(|&h| Vec2::from(map.0.wrap().nearest(first, h).to_world())).collect();
+                let center = points.iter().sum::<Vec2>() / points.len() as f32;
+                known.iter().zip(&points).min_by(|a, b| a.1.distance(center).total_cmp(&b.1.distance(center))).map(|(h, _)| *h)
+            })
+            .collect();
+    }
+    let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
+    for (icon, interaction, mut node, mut vis, children) in &mut icons {
+        let lit = pointed.current() == Some(MapTarget::Bank(icon.bank));
+        let mut shown = None;
+        if let (Some((camera, transform, _)), Some(Some(hex))) = (camera, spots.get(icon.bank))
+            && (*layer == crate::render::MapLayer::Resources || lit)
+        {
+            let cam_global = GlobalTransform::from(*transform);
+            let world = if mode.is_3d {
+                to_3d(*hex, shown_height(&map, &fog, *hex) + 3.0)
+            } else {
+                let (x, y) = hex.to_world();
+                Vec3::new(x, y, 0.0)
+            };
+            let world = near_camera(&map, world, transform.translation.x);
+            if let Ok(center) = camera.world_to_viewport(&cam_global, world)
+                && let Ok(edge) = camera.world_to_viewport(&cam_global, world + transform.right() * crate::hex::HEX_SIZE)
+            {
+                let px = edge.distance(center);
+                if px >= BANK_ICON_PX || lit {
+                    shown = Some((center, px));
+                }
+            }
+        }
+        let Some((p, px)) = shown else {
+            if *vis != Visibility::Hidden {
+                *vis = Visibility::Hidden;
+            }
+            continue;
+        };
+        let (left, top) = (Val::Px(p.x.round()), Val::Px(p.y.round()));
+        if node.left != left || node.top != top {
+            node.left = left;
+            node.top = top;
+        }
+        if *vis != Visibility::Inherited {
+            *vis = Visibility::Inherited;
+        }
+        let alpha = if lit || *interaction != Interaction::None { 1.0 } else { 0.55 };
+        for &child in children {
+            if let Ok(mut image) = images.get_mut(child) {
+                let c = Color::srgba(1.0, 0.95, 0.80, alpha);
+                if image.color != c {
+                    image.color = c;
+                }
+            }
+            if let Ok(mut name) = names.get_mut(child) {
+                let display = if px >= BANK_NAME_PX || lit { Display::Flex } else { Display::None };
+                if name.display != display {
+                    name.display = display;
                 }
             }
         }

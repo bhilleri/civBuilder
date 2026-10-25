@@ -22,10 +22,11 @@ pub enum Info {
     Basin,
     Network,
     Plate,
+    Fishing,
 }
 
 impl Info {
-    pub const ALL: [Info; 14] = [
+    pub const ALL: [Info; 15] = [
         Info::Terrain,
         Info::Altitude,
         Info::Climate,
@@ -40,6 +41,7 @@ impl Info {
         Info::Basin,
         Info::Network,
         Info::Plate,
+        Info::Fishing,
     ];
 
     pub fn label(self) -> &'static str {
@@ -58,6 +60,7 @@ impl Info {
             Info::Basin => "Bassin versant",
             Info::Network => "Affluents et embouchure",
             Info::Plate => "Plaque tectonique",
+            Info::Fishing => "Banc de poissons (origine)",
         }
     }
 
@@ -75,6 +78,7 @@ impl Info {
             Info::Discharge => layer == MapLayer::Flow,
             Info::Basin => layer == MapLayer::Basins,
             Info::Plate => layer == MapLayer::Plates,
+            Info::Fishing => layer == MapLayer::Resources,
         }
     }
 }

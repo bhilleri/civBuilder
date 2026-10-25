@@ -168,10 +168,12 @@ pub enum MapLayer {
     Network,
     /// Plaques tectoniques, leurs frontières et leurs mouvements.
     Plates,
+    /// Ressources : bancs de poissons (une icône par banc, la zone au survol).
+    Resources,
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 8] = [
+    pub const ALL: [MapLayer; 9] = [
         MapLayer::Normal,
         MapLayer::Altitude,
         MapLayer::Relief,
@@ -180,6 +182,7 @@ impl MapLayer {
         MapLayer::Flow,
         MapLayer::Network,
         MapLayer::Plates,
+        MapLayer::Resources,
     ];
 
     /// Nom court (bouton « Carte »).
@@ -193,6 +196,7 @@ impl MapLayer {
             MapLayer::Flow => "débits",
             MapLayer::Network => "réseau hydrographique",
             MapLayer::Plates => "plaques tectoniques",
+            MapLayer::Resources => "ressources",
         }
     }
 
@@ -209,7 +213,7 @@ impl MapLayer {
 
     /// Les cartes thématiques masquent la végétation 3D, pour lire les couleurs.
     pub fn thematic(self) -> bool {
-        self != MapLayer::Normal
+        !matches!(self, MapLayer::Normal | MapLayer::Resources)
     }
 }
 
@@ -466,10 +470,7 @@ pub const TOPO_OCEAN: (f32, f32, f32) = (0.12, 0.25, 0.50);
 pub const TOPO_COAST: (f32, f32, f32) = (0.35, 0.56, 0.80);
 /// Abysses (plus de 3 000 m) sur la carte de l'altitude.
 pub const TOPO_ABYSS: (f32, f32, f32) = (0.06, 0.13, 0.32);
-/// Teinte des eaux poissonneuses (plancton : un peu plus vert).
-fn rich_tint((r, g, b): (f32, f32, f32)) -> (f32, f32, f32) {
-    (r * 0.80, (g * 1.12 + 0.05).min(1.0), b * 0.88)
-}
+
 pub const ALTITUDE_STOPS: [(f32, (f32, f32, f32)); 7] = [
     (0.0, (0.28, 0.55, 0.30)),
     (300.0, (0.52, 0.71, 0.38)),
@@ -847,13 +848,8 @@ fn setup_map_visuals(
     let mut terrain_dim = HashMap::new();
     for t in Terrain::ALL {
         for level in 0..=MAX_LEVEL {
-            // L'eau d'un lac garde sa couleur à toute altitude ; pour la mer, le « niveau » 1 marque
-            // les eaux poissonneuses
-            let (r, g, b) = match (t.is_sea(), level) {
-                (true, 1) => rich_tint(t.color()),
-                (true, _) => t.color(),
-                _ => level_tint(t.color(), if t.is_water() { 0 } else { level }),
-            };
+            // L'eau d'un lac garde sa couleur à toute altitude
+            let (r, g, b) = level_tint(t.color(), if t.is_water() { 0 } else { level });
             terrain.insert((t, level), mat(Color::srgb(r, g, b)));
             terrain_dim.insert((t, level), mat(Color::srgb(r * 0.5, g * 0.5, b * 0.55)));
         }
@@ -1044,9 +1040,7 @@ fn update_tile_fog(
         }
     }
     for (tile, mut material) in &mut tiles {
-        let terrain = map.0.get(tile.0).unwrap();
-        let level = if terrain.is_sea() { u8::from(map.0.marine(tile.0) != 0) } else { map.0.level(tile.0).unwrap_or(0) };
-        let key = (terrain, level);
+        let key = (map.0.get(tile.0).unwrap(), map.0.level(tile.0).unwrap_or(0));
         let wanted = if fog.visible.contains(&tile.0) {
             if let Some((shades, _)) = indexed { &shades[shade_index(tile.0)] } else { &lit[&key] }
         } else if fog.explored.contains(&tile.0) {

@@ -45,6 +45,8 @@ pub enum MapTarget {
     Basin(usize),
     /// Étendue marine (indice dans `Seas::zones`).
     Sea(usize),
+    /// Banc de poissons (indice dans `WorldMap::banks`).
+    Bank(usize),
     /// Indice de la plaque.
     Plate(usize),
 }
@@ -57,12 +59,13 @@ pub enum Category {
     River,
     Lake,
     Sea,
+    Bank,
     Basin,
     Plate,
 }
 
 impl Category {
-    pub const ALL: [Category; 7] = [Category::City, Category::Sea, Category::River, Category::Lake, Category::Basin, Category::Plate, Category::Site];
+    pub const ALL: [Category; 8] = [Category::City, Category::Sea, Category::River, Category::Lake, Category::Bank, Category::Basin, Category::Plate, Category::Site];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -71,6 +74,7 @@ impl Category {
             Category::River => "Cours d'eau",
             Category::Lake => "Lacs",
             Category::Sea => "Mers et océans",
+            Category::Bank => "Bancs de poissons",
             Category::Basin => "Bassins versants",
             Category::Plate => "Plaques",
         }
@@ -83,6 +87,7 @@ impl Category {
             Category::River => Color::srgb(0.45, 0.78, 1.0),
             Category::Lake => Color::srgb(0.20, 0.70, 0.75),
             Category::Sea => Color::srgb(0.25, 0.45, 0.90),
+            Category::Bank => Color::srgb(0.95, 0.78, 0.35),
             Category::Basin => Color::srgb(0.45, 0.80, 0.35),
             Category::Plate => Color::srgb(0.95, 0.60, 0.25),
         }
@@ -107,7 +112,7 @@ impl MapTarget {
     /// Le lieu est une zone dont on dessine le pourtour (un cours d'eau ou un lac a déjà sa
     /// surbrillance).
     fn outlined(self) -> bool {
-        matches!(self, MapTarget::City(_) | MapTarget::Site(_) | MapTarget::Basin(_) | MapTarget::Plate(_) | MapTarget::Sea(_))
+        matches!(self, MapTarget::City(_) | MapTarget::Site(_) | MapTarget::Basin(_) | MapTarget::Plate(_) | MapTarget::Sea(_) | MapTarget::Bank(_))
     }
 }
 
@@ -142,13 +147,15 @@ pub struct HoverColors {
 #[derive(Resource, Default)]
 pub struct PointedTarget {
     hover: Option<MapTarget>,
+    /// Banc de poissons survolé sur la carte des ressources.
+    map_hover: Option<MapTarget>,
     keyboard: Option<MapTarget>,
     flash: Option<(MapTarget, f32)>,
 }
 
 impl PointedTarget {
     pub fn current(&self) -> Option<MapTarget> {
-        self.hover.or(self.keyboard).or(self.flash.map(|(t, _)| t))
+        self.hover.or(self.map_hover).or(self.keyboard).or(self.flash.map(|(t, _)| t))
     }
 }
 
@@ -254,7 +261,7 @@ impl Plugin for SearchPlugin {
                 Update,
                 (
                     (open_search, close_search, build_index, read_query, search_keys, chip_buttons, refresh_results).chain(),
-                    (target_buttons, sync_pointed_feature).chain().before(crate::highlight::update_hovered_feature),
+                    (target_buttons, hovered_bank, sync_pointed_feature).chain().before(crate::highlight::update_hovered_feature),
                     focus_camera,
                     draw_pointed_area,
                 ),
@@ -379,6 +386,14 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
         let category = if lake.kind == crate::basins::WaterBody::InlandSea { Category::Sea } else { Category::Lake };
         push(&lake.name, category, detail, MapTarget::Lake(l), lake.cells.len() as f32);
     }
+    // Bancs de poissons dont une case est explorée
+    for (b, bank) in map.banks().iter().enumerate() {
+        if !bank.cells.iter().any(|&c| known(c)) {
+            continue;
+        }
+        let detail = format!("Banc de poissons · {} cases · +{} nourriture", bank.cells.len(), crate::map::RICH_WATERS_FOOD);
+        push(&bank.name, Category::Bank, detail, MapTarget::Bank(b), bank.cells.len() as f32);
+    }
     // Étendues marines dont une case est explorée
     let seas = map.seas();
     for (z, zone) in seas.zones.iter().enumerate() {
@@ -475,6 +490,7 @@ fn target_hexes(map: &WorldMap, fog: &ShownFog, territory: &Territory, entity_he
             river.spots.iter().flat_map(|&(a, b)| [a, b]).map(|c| map.hex_at(c)).filter(explored).collect()
         }),
         MapTarget::Lake(l) => basins.lakes.get(l).map_or_else(Vec::new, |lake| lake.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
+        MapTarget::Bank(b) => map.banks().get(b).map_or_else(Vec::new, |bank| bank.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Sea(z) => map.seas().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Basin(b) => fog.explored.iter().copied().filter(|&h| map.contains(h) && basins.basin_of[map.cell(h)] == Some(b as u32)).collect(),
         MapTarget::Plate(p) => {
@@ -633,6 +649,17 @@ fn target_buttons(
         if bg.0 != c {
             bg.0 = c;
         }
+    }
+}
+
+/// Sur la carte des ressources, le banc de poissons sous la souris est mis en avant (sa zone).
+fn hovered_bank(layer: Res<crate::render::MapLayer>, hovered: Res<crate::input::HoveredHex>, map: Res<GameMap>, fog: Res<ShownFog>, mut pointed: ResMut<PointedTarget>) {
+    let wanted = (*layer == crate::render::MapLayer::Resources)
+        .then(|| hovered.0.filter(|h| fog.explored.contains(h)).and_then(|h| map.0.bank(h)))
+        .flatten()
+        .map(MapTarget::Bank);
+    if pointed.map_hover != wanted {
+        pointed.map_hover = wanted;
     }
 }
 
@@ -820,7 +847,7 @@ fn setup_search(mut commands: Commands) {
                         children![
                             (
                                 SearchPlaceholder,
-                                text("Ville, camp, mer, fleuve, lac, bassin…", 16.0, MUTED),
+                                text("Ville, camp, mer, banc, fleuve, lac…", 16.0, MUTED),
                                 Node { position_type: PositionType::Absolute, left: Val::Px(0.0), ..default() },
                             ),
                             (
@@ -852,6 +879,7 @@ fn setup_search(mut commands: Commands) {
                     chip(Some(Category::City)),
                     chip(Some(Category::Site)),
                     chip(Some(Category::Sea)),
+                    chip(Some(Category::Bank)),
                     chip(Some(Category::River)),
                     chip(Some(Category::Lake)),
                     chip(Some(Category::Basin)),

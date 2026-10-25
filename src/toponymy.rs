@@ -785,6 +785,36 @@ pub fn sea_name(
     (name, fem, Some(e))
 }
 
+/// Nom d'un banc de poissons, d'après ce qui le rend riche (`origins`, voir `map::marine`) et
+/// l'eau du lieu : souvent les poissons qu'on y pêche (« Bancs des Sardines » dans une remontée
+/// d'eaux chaude, « Bancs des Morues » au froid, « Bancs des Thons » sur un mont sous-marin),
+/// sinon « Banc de Kaldvik ».
+pub fn bank_name(info: &CellInfo, origins: u8, namer: &mut Namer) -> String {
+    use crate::map::marine;
+    let cold = info.temperature < 8.0;
+    let fish: &[&str] = if origins & marine::SEAMOUNT != 0 {
+        &["Bancs des Thons", "Haut-fond des Thons", "Bancs des Espadons"]
+    } else if origins & marine::UPWELLING != 0 && !cold {
+        &["Bancs des Sardines", "Bancs des Anchois", "Bancs des Maquereaux"]
+    } else if cold {
+        &["Bancs des Morues", "Bancs des Harengs", "Bancs des Flétans"]
+    } else {
+        &["Bancs des Bonites", "Bancs des Daurades", "Bancs des Mérous"]
+    };
+    if namer.chance(0.45) {
+        let pick = namer.choose(fish);
+        if namer.claim(pick) {
+            return pick.to_string();
+        }
+    }
+    let hint = namer.chance(0.3).then_some(if cold { Froid } else { Eau });
+    let (w, _) = namer.proper(info.language, hint);
+    let generic = if namer.chance(0.5) { "Banc" } else { "Bancs" };
+    let name = format!("{generic} {}", de(&w, feminine(&w), false));
+    let _ = namer.claim(&name);
+    name
+}
+
 /// Nom d'une plaque tectonique : « plaque de Vaskar », dans la langue de son centre.
 pub fn plate_name(language: Language, namer: &mut Namer) -> String {
     let (w, _) = namer.proper(language, None);

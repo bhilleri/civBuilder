@@ -535,6 +535,15 @@ pub const SHELF_DEPTH_M: f32 = 200.0;
 pub const ABYSS_DEPTH_M: f32 = 3_000.0;
 pub const TRENCH_DEPTH_M: f32 = 6_000.0;
 
+/// Banc de poissons : eaux poissonneuses d'un seul tenant.
+#[derive(Clone, Debug)]
+pub struct FishingBank {
+    pub cells: Vec<usize>,
+    /// Origines de la richesse (voir `marine`).
+    pub origins: u8,
+    pub name: String,
+}
+
 /// Eaux poissonneuses (en plus du plateau continental) : chacune donne +1 nourriture (une seule
 /// fois par case).
 pub mod marine {
@@ -584,6 +593,9 @@ pub struct WorldMap {
     depth: Vec<f32>,
     /// Eaux poissonneuses de chaque case de mer (voir `marine`).
     marine: Vec<u8>,
+    /// Bancs de poissons : eaux poissonneuses d'un seul tenant, nommées.
+    banks: Vec<FishingBank>,
+    bank_of: Vec<Option<u16>>,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -611,6 +623,8 @@ impl WorldMap {
             seas: crate::seas::Seas::default(),
             depth: vec![0.0; n],
             marine: vec![0; n],
+            banks: Vec::new(),
+            bank_of: vec![None; n],
             step_cache: std::sync::OnceLock::new(),
         }
     }
@@ -630,6 +644,7 @@ impl WorldMap {
             .chain(self.basins.lakes.iter().map(|l| l.name.clone()))
             .chain(self.plates.plates.iter().map(|p| p.name.clone()))
             .chain(self.seas.zones.iter().map(|z| z.name.clone()))
+            .chain(self.banks.iter().map(|b| b.name.clone()))
             .collect()
     }
 
@@ -728,7 +743,7 @@ impl WorldMap {
     /// Eaux poissonneuses : remontées d'eaux froides le long des côtes où le vent pousse l'eau de
     /// surface vers le large, monts sous-marins (volcans qui montent vers la surface), eaux des
     /// îles volcaniques isolées en haute mer.
-    fn add_marine_life(&mut self) {
+    fn add_marine_life(&mut self, seed: u32) {
         let n = self.tiles.len();
         let open_sea = |i: usize| self.tiles[i].is_sea() && self.basins.lake_of[i].is_none();
         let pos = |i: usize| {
@@ -824,6 +839,50 @@ impl WorldMap {
             }
         }
         self.marine = marine;
+        // Bancs de poissons : eaux poissonneuses voisines, d'un seul tenant, nommées dans la langue
+        // du lieu
+        let mut namer = crate::toponymy::Namer::with_taken(seed ^ 0xF15B, self.names_taken());
+        let mut bank_of: Vec<Option<u16>> = vec![None; n];
+        let mut banks = Vec::new();
+        for start in 0..n {
+            if self.marine[start] == 0 || bank_of[start].is_some() {
+                continue;
+            }
+            let id = banks.len() as u16;
+            let mut cells = vec![start];
+            bank_of[start] = Some(id);
+            let mut k = 0;
+            while k < cells.len() {
+                for nb in self.neighbors(self.hex_at(cells[k])) {
+                    if let Some(j) = self.index(nb)
+                        && self.marine[j] != 0
+                        && bank_of[j].is_none()
+                    {
+                        bank_of[j] = Some(id);
+                        cells.push(j);
+                    }
+                }
+                k += 1;
+            }
+            cells.sort_unstable();
+            let origins = cells.iter().fold(0u8, |acc, &c| acc | self.marine[c]);
+            // (langue et eau du lieu : celles de la case du milieu de la liste)
+            let info = self.cell_info(self.hex_at(cells[cells.len() / 2])).expect("banc sur la carte");
+            let name = crate::toponymy::bank_name(&info, origins, &mut namer);
+            banks.push(FishingBank { cells, origins, name });
+        }
+        self.banks = banks;
+        self.bank_of = bank_of;
+    }
+
+    /// Bancs de poissons.
+    pub fn banks(&self) -> &[FishingBank] {
+        &self.banks
+    }
+
+    /// Banc de poissons d'une case.
+    pub fn bank(&self, hex: Hex) -> Option<usize> {
+        self.index(hex).and_then(|i| self.bank_of[i]).map(usize::from)
     }
 
     /// Étendues marines nommées.
@@ -1597,7 +1656,7 @@ impl WorldMap {
             // 7) Langues des régions et noms des lieux (voir toponymy.rs)
             map.add_names(seed);
             // 8) Eaux poissonneuses (remontées d'eaux, monts sous-marins, îles volcaniques)
-            map.add_marine_life();
+            map.add_marine_life(seed);
         }
         map
     }

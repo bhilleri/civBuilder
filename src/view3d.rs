@@ -535,11 +535,7 @@ fn setup_3d(
     // Relief interne de toutes les cases (pour placer les arbres sous la limite des arbres)
     let wrap = map.0.wrap();
     let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect::<BumpMap>().with_wrap(wrap);
-    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| {
-        // Eaux poissonneuses : un peu plus vertes (plancton)
-        let c = terrain_color(t);
-        (h, if t.is_sea() && map.0.marine(h) != 0 { Vec3::new(c.x * 0.8, c.y * 1.15 + 0.01, c.z * 0.88) } else { c })
-    })).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
+    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
     let fresh_water = [
         materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.25, ..default() }),
         materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.45, 0.5), perceptual_roughness: 0.25, ..default() }),
@@ -1023,10 +1019,10 @@ fn update_relief_3d(
     let hex_color = |hex: Hex| match (fog.explored.contains(&map.0.canonical(hex)), *layer) {
         (false, _) => Vec3::ONE,
         // Lit d'un fleuve en forêt : prairie de berge (pas d'arbres dans le lit)
-        (true, MapLayer::Normal) if map.0.is_fleuve(hex) && map.0.get(hex).is_some_and(|t| t.is_wooded()) => {
+        (true, MapLayer::Normal | MapLayer::Resources) if map.0.is_fleuve(hex) && map.0.get(hex).is_some_and(|t| t.is_wooded()) => {
             terrain_color(Terrain::Grassland)
         }
-        (true, MapLayer::Normal) => terrain_color(map.0.get(hex).unwrap()),
+        (true, MapLayer::Normal | MapLayer::Resources) => terrain_color(map.0.get(hex).unwrap()),
         (true, thematic) => {
             let t = map.0.get(hex).unwrap();
             let (r, g, b) = match thematic {
