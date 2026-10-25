@@ -21,7 +21,8 @@
 - Le relief 3D se prépare aussi pendant qu'on joue en 2D (autour de la caméra) : en passant en 3D, les cases explorées sont déjà prêtes.
 
 ### Plaques tectoniques
-- La planète est découpée en 10 à 14 **plaques** nommées (plaque pacifique, de Nazca, eurasienne…), continentales ou océaniques, chacune avec son mouvement (1 à 9 cm/an).
+- La planète est découpée en 10 à 14 **plaques** nommées (plaque pacifique, de Nazca, eurasienne…), continentales ou océaniques, **calculées sur la sphère** (distances et surfaces réelles, calottes polaires possibles) puis projetées sur la carte.
+- Chaque plaque **tourne autour de son pôle d'Euler** (1 à 9 cm/an) : sa vitesse change d'un endroit à l'autre.
 - **Frontières** classées selon le mouvement relatif : collision de continents, subduction, arc d'îles, rift continental, dorsale, faille transformante ; **points chauds** loin des frontières.
 - Nouvelle **carte « Plaques »** (2D et 3D) : couleur par plaque (chaude : continentale, froide : océanique), frontières colorées, flèches des mouvements, points chauds ; légende ; infobulle « plaque de Nazca (océanique), 5 cm/an vers le nord-est ; frontière : subduction ».
 - Les plaques ne façonnent pas encore le relief (étape suivante : continents et chaînes de montagnes).

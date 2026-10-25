@@ -345,8 +345,10 @@ fn terrain() -> Article {
                basses descendent en plage jusqu'à la mer, les plus hautes tombent en falaise."),
             h("Plaques tectoniques"),
             p("La planète est découpée en une douzaine de plaques (carte des plaques, touche T) : continentales \
-               (teintes chaudes, épaisses, elles portent les continents) ou océaniques (teintes froides). Chacune se \
-               déplace de 1 à 9 cm par an (flèches). Le long d'une frontière, deux plaques qui se rapprochent \
+               (teintes chaudes, épaisses, elles portent les continents) ou océaniques (teintes froides). Chacune tourne \
+               autour de son propre pôle de rotation, à 1 à 9 cm par an (flèches) : sa vitesse change d'un endroit \
+               à l'autre. Les plaques sont calculées sur la sphère : près des pôles, la carte les étire en largeur, \
+               comme un planisphère. Le long d'une frontière, deux plaques qui se rapprochent \
                forment une collision (deux continents : grande chaîne de montagnes et haut plateau), une \
                subduction (l'océan plonge sous le continent : chaîne côtière, fosse au large) ou un arc d'îles \
                (deux océans) ; deux plaques qui s'écartent ouvrent un rift continental ou une dorsale ; deux \

@@ -581,6 +581,11 @@ impl WorldMap {
         self.index(hex).and_then(|i| self.plates.plate(i))
     }
 
+    /// Vitesse de la plaque à la case (cm/an ; x vers l'est, y vers le nord).
+    pub fn plate_velocity(&self, hex: Hex) -> Option<bevy::math::Vec2> {
+        self.index(hex).and_then(|i| self.plates.velocity.get(i).copied())
+    }
+
     /// Frontière de plaques la plus active qui touche la case.
     pub fn plate_boundary(&self, hex: Hex) -> Option<plates::Boundary> {
         self.index(hex).and_then(|i| self.plates.boundary.get(i).copied().flatten())
@@ -1015,7 +1020,7 @@ impl WorldMap {
         map.wrap = Wrap::new(width, region.wraps);
         let wrap = map.wrap;
         // 0) Plaques tectoniques (décrites seulement, pour l'instant : carte « Plaques »)
-        map.plates = plates::generate(width, height, wrap, seed);
+        map.plates = plates::generate(width, height, wrap, seed, &|row| region.latitude_deg(row, height), region.cell_km);
         let scale = 4.0 / width as f64;
         // Bruit lu sur un cylindre quand la carte boucle : pas de couture entre les bords est et
         // ouest (même échelle qu'à plat : le tour fait `width` colonnes)

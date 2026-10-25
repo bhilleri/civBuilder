@@ -450,14 +450,14 @@ pub fn plate_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
 /// Flèche du mouvement de la plaque d'une case (cases en quinconce comme les vents) : départ et
 /// arrivée (monde 2D), longueur selon la vitesse.
 pub fn plate_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2)> {
-    let plate = map.plate(hex)?;
-    let speed = plate.velocity.length();
+    let velocity = map.plate_velocity(hex)?;
+    let speed = velocity.length();
     if speed < 0.1 {
         return None;
     }
     let (x, y) = hex.to_world();
     let half = HEX_SIZE * (0.3 + 0.07 * speed.min(9.0)) / 2.0;
-    let d = plate.velocity / speed * half;
+    let d = velocity / speed * half;
     Some((Vec2::new(x, y) - d, Vec2::new(x, y) + d))
 }
 

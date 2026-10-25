@@ -1073,8 +1073,7 @@ fn network_note(map: &crate::map::WorldMap, fog: &crate::game::ShownFog, feature
 /// Bassin versant d'une case pour le survol.
 /// Infobulle : plaque de la case, son mouvement, la frontière qui la touche, un point chaud.
 fn plate_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
-    let Some(plate) = map.plate(h) else { return String::new() };
-    let v = plate.velocity;
+    let (Some(plate), Some(v)) = (map.plate(h), map.plate_velocity(h)) else { return String::new() };
     let heading = ["l'est", "le nord-est", "le nord", "le nord-ouest", "l'ouest", "le sud-ouest", "le sud", "le sud-est"]
         [((v.y.atan2(v.x).to_degrees() + 22.5).rem_euclid(360.0) / 45.0) as usize % 8];
     let name = plate.name;
