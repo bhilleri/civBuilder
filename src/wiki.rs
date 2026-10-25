@@ -335,7 +335,7 @@ fn terrain() -> Article {
                concentrent le plancton et les thons ; les eaux des îles volcaniques isolées en haute mer. Les \
                dorsales et les fosses, trop profondes, ne changent rien à la pêche. Les eaux poissonneuses d'un seul \
                tenant forment des bancs de poissons nommés (Bancs des Sardines, Banc de Kaldvik…) : la carte des \
-               ressources les montre par une icône de poisson (la zone apparaît au survol, l'infobulle dit d'où vient \
+               ressources montre leur zone, voilée de turquoise, et une icône de poisson par banc (contour doré au survol, l'infobulle dit d'où vient \
                leur richesse), et la recherche les trouve (filtre « Bancs de poissons »). Plus tard, la profondeur et la \
                distance à la côte décideront aussi de la navigation : barques et galères près des côtes et sur le \
                plateau, caravelles en haute mer."),

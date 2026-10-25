@@ -19,6 +19,7 @@ const Z_HILLS: f32 = 0.3;
 /// Hachures des cases partagées entre deux bassins (carte des bassins versants).
 const Z_HATCH: f32 = 0.35;
 const Z_WATER: f32 = 0.4;
+const Z_BANK: f32 = 0.45;
 const Z_SLOPE: f32 = 0.5;
 const Z_REACH: f32 = 1.0;
 const Z_CITY: f32 = 2.0;
@@ -746,6 +747,61 @@ fn update_hatch_overlay(fog: Res<ShownFog>, layer: Res<MapLayer>, map: Res<GameM
     }
 }
 
+/// Surcouche 2D des bancs de poissons (carte des ressources).
+#[derive(Resource)]
+struct BankOverlay {
+    mesh: Handle<Mesh>,
+}
+
+/// Teinte des bancs de poissons (sRGB) : voile sur la zone, liseré plus franc au bord.
+const BANK_2D: Color = Color::srgb(0.30, 0.90, 0.85);
+const BANK_FILL_ALPHA: f32 = 0.22;
+const BANK_EDGE_ALPHA: f32 = 0.85;
+
+fn setup_bank_overlay(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>) {
+    let mesh = meshes.add(SlopeMeshBuilder::default().build());
+    let material = materials.add(ColorMaterial { alpha_mode: bevy::sprite_render::AlphaMode2d::Blend, ..ColorMaterial::from_color(Color::WHITE) });
+    commands.spawn((Mesh2d(mesh.clone()), MeshMaterial2d(material), Transform::from_xyz(0.0, 0.0, Z_BANK)));
+    commands.insert_resource(BankOverlay { mesh });
+}
+
+/// Carte des ressources : zone connue de chaque banc de poissons, voilée et bordée.
+fn update_bank_overlay(fog: Res<ShownFog>, layer: Res<MapLayer>, map: Res<GameMap>, overlay: Res<BankOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
+    if !fog.is_changed() && !layer.is_changed() && !map.is_changed() {
+        return;
+    }
+    let mut builder = SlopeMeshBuilder::default();
+    if *layer == MapLayer::Resources {
+        let c = BANK_2D.to_linear();
+        let rgba = |a: f32| [c.red, c.green, c.blue, a];
+        let known = |h: Hex| fog.explored.contains(&h);
+        for (b, bank) in map.0.banks().iter().enumerate() {
+            for &cell in &bank.cells {
+                let hex = map.0.hex_at(cell);
+                if !known(hex) {
+                    continue;
+                }
+                let (x, y) = hex.to_world();
+                let center = Vec2::new(x, y);
+                for (d, &step) in DIRECTIONS.iter().enumerate() {
+                    let (a, e) = hex.edge_corners(d);
+                    let (a, e) = (Vec2::new(a.0, a.1), Vec2::new(e.0, e.1));
+                    builder.tri([(center, rgba(BANK_FILL_ALPHA)), (a, rgba(BANK_FILL_ALPHA)), (e, rgba(BANK_FILL_ALPHA))]);
+                    // Bord du banc (ou de la partie connue) : liseré fondu vers l'intérieur
+                    let n = map.0.canonical(hex + step);
+                    let inside = map.0.contains(n) && known(n) && map.0.bank(n) == Some(b);
+                    if !inside {
+                        builder.band(a, e, center, 0.16, rgba(BANK_EDGE_ALPHA), rgba(0.0));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(mut mesh) = meshes.get_mut(&overlay.mesh) {
+        *mesh = builder.build();
+    }
+}
+
 /// Couleurs (sRGB) de l'eau douce en 2D.
 const RIVER_2D: Color = Color::srgb(0.20, 0.45, 0.80);
 const FLEUVE_2D: Color = Color::srgb(0.18, 0.40, 0.72);
@@ -806,7 +862,7 @@ impl Plugin for RenderPlugin {
             .init_resource::<MapLayer>()
             .init_gizmo_group::<ReachGizmos>()
             .init_gizmo_group::<PlateGizmos>()
-            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_plate_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay))
+            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_plate_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay, setup_bank_overlay))
             .add_systems(
             Update,
             (
@@ -826,6 +882,7 @@ impl Plugin for RenderPlugin {
                 update_slope_overlay,
                 update_water_overlay,
                 update_hatch_overlay,
+                update_bank_overlay,
             ),
         );
     }

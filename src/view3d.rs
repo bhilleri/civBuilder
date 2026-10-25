@@ -850,6 +850,9 @@ fn camera_3d_controls(
     }
 }
 
+/// Teinte des bancs de poissons sur la carte des ressources (linéaire).
+const BANK_TINT: Vec3 = Vec3::new(0.04, 0.42, 0.38);
+
 /// Couleur d'un terrain en 3D (linéaire, atténuée), portée par les sommets du sol.
 fn terrain_color(t: Terrain) -> Vec3 {
     let (r, g, b) = t.color();
@@ -1022,6 +1025,8 @@ fn update_relief_3d(
         (true, MapLayer::Normal | MapLayer::Resources) if map.0.is_fleuve(hex) && map.0.get(hex).is_some_and(|t| t.is_wooded()) => {
             terrain_color(Terrain::Grassland)
         }
+        // Carte des ressources : les bancs de poissons teintés
+        (true, MapLayer::Resources) if map.0.bank(hex).is_some() => terrain_color(map.0.get(hex).unwrap()).lerp(BANK_TINT, 0.45),
         (true, MapLayer::Normal | MapLayer::Resources) => terrain_color(map.0.get(hex).unwrap()),
         (true, thematic) => {
             let t = map.0.get(hex).unwrap();
