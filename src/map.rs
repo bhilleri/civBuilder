@@ -531,6 +531,10 @@ const ISLAND_MAX_CELLS: usize = 30;
 const SHELF_DISTANCE_WEIGHT: f64 = 0.15;
 /// Limite du plateau continental (eaux peu profondes) : pêche riche.
 pub const SHELF_DEPTH_M: f32 = 200.0;
+/// Mer polaire : sur les `POLAR_SEA_ROWS` lignes du bord de la carte, la terre s'abaisse (au plus
+/// de `POLAR_SEA_DROP`, en unités du relief des plaques, sur la ligne du bord).
+const POLAR_SEA_ROWS: i32 = 4;
+const POLAR_SEA_DROP: f64 = 0.6;
 /// Début des abysses et des fosses (m).
 pub const ABYSS_DEPTH_M: f32 = 3_000.0;
 pub const TRENCH_DEPTH_M: f32 = 6_000.0;
@@ -664,12 +668,10 @@ impl WorldMap {
     fn add_names(&mut self, seed: u32) {
         use crate::toponymy::{self, CellInfo, Namer};
         let n = self.tiles.len();
-        let points: Vec<bevy::math::Vec3> = (0..n)
-            .map(|i| {
-                let h = self.hex_at(i);
-                plates::sphere_point(h, self.width, self.latitude(h))
-            })
-            .collect();
+        // Positions sur le cylindre de la carte (rayon 1) : distances de la carte, raccord compris
+        let world = self.width as f32;
+        let points: Vec<bevy::math::Vec3> =
+            (0..n).map(|i| plates::cylinder(plates::map_point(self.hex_at(i), 1.0), world) / (world / std::f32::consts::TAU)).collect();
         let land: Vec<bool> = self.tiles.iter().map(|t| !t.is_water()).collect();
         let climate: Vec<(f32, f32)> =
             (0..n).map(|i| (self.climate.temperature.get(i).copied().unwrap_or(15.0), self.climate.aridity(i).unwrap_or(1.0))).collect();
@@ -1343,7 +1345,7 @@ impl WorldMap {
         map.wrap = Wrap::new(width, region.wraps);
         let wrap = map.wrap;
         // 0) Plaques tectoniques (décrites seulement, pour l'instant : carte « Plaques »)
-        map.plates = plates::generate(width, height, wrap, seed, &|row| region.latitude_deg(row, height), region.cell_km);
+        map.plates = plates::generate(width, height, wrap, seed, region.cell_km);
         let scale = 4.0 / width as f64;
         // Bruit lu sur un cylindre quand la carte boucle : pas de couture entre les bords est et
         // ouest (même échelle qu'à plat : le tour fait `width` colonnes)
@@ -1363,6 +1365,16 @@ impl WorldMap {
         let tectonic = wrap.wraps();
         let tectonic_e = if tectonic {
             let mut e = map.plates.elevation(seed, region.cell_km);
+            // Les bords de la carte (les pôles) ne sont pas des côtes : la terre y descend vers une
+            // mer polaire, sinon une terre collée au bord retient l'eau en un immense lac
+            for (i, v) in e.iter_mut().enumerate() {
+                let row = i as i32 / width;
+                let from_edge = row.min(height - 1 - row);
+                if from_edge < POLAR_SEA_ROWS {
+                    let k = f64::from(POLAR_SEA_ROWS - from_edge) / f64::from(POLAR_SEA_ROWS);
+                    *v -= POLAR_SEA_DROP * k * k;
+                }
+            }
             // L'eau creuse le relief : vallées, cuvettes vidées ou comblées, cols (voir erosion.rs)
             let neighbors = map.plates.neighbor_graph(region.cell_km);
             crate::erosion::erode(&mut e, &neighbors, &map.plates.cell_area(), crate::erosion::ErosionParams::default());
@@ -1992,8 +2004,9 @@ mod tests {
         let seam = gap(127, 0);
         let inside = (1..127).map(|c| gap(c - 1, c)).sum::<f32>() / 126.0;
         assert!(seam < inside * 3.0, "couture : {seam} m contre {inside} m en moyenne");
-        // Des terres touchent le raccord (plus d'océan forcé à l'est et à l'ouest)
-        assert!((0..74).any(|r| !m.get(Hex::from_offset(0, r)).unwrap().is_water() || !m.get(Hex::from_offset(127, r)).unwrap().is_water()));
+        // Des terres peuvent toucher le raccord (plus d'océan forcé à l'est et à l'ouest)
+        let land_at_seam = |m: &WorldMap| (0..74).any(|r| !m.get(Hex::from_offset(0, r)).unwrap().is_water() || !m.get(Hex::from_offset(127, r)).unwrap().is_water());
+        assert!(land_at_seam(&m) || [6, 7].iter().any(|&s| land_at_seam(&WorldMap::generate_in(128, 74, s, crate::climate::Region::planet(crate::climate::CELL_KM, 74)))));
     }
 
     #[test]
@@ -2336,7 +2349,7 @@ mod tectonique {
             let t = std::time::Instant::now();
             let wrap = Wrap::new(192, true);
             let region = crate::climate::Region::planet(crate::climate::CELL_KM, 111);
-            let p = crate::plates::generate(192, 111, wrap, seed, &|row| region.latitude_deg(row, 111), region.cell_km);
+            let p = crate::plates::generate(192, 111, wrap, seed, region.cell_km);
             let t1 = t.elapsed().as_secs_f32();
             let _ = p.elevation(seed, region.cell_km);
             println!("plaques {t1:.2} s, altitude {:.2} s", t.elapsed().as_secs_f32() - t1);

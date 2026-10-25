@@ -9,7 +9,10 @@
 //! - elles glissent l'une contre l'autre : faille transformante.
 //!
 //! Des points chauds, fixes sous les plaques, percent la croûte loin des frontières (chapelets
-//! d'îles volcaniques). La carte boucle d'est en ouest : les plaques passent le raccord.
+//! d'îles volcaniques). Tout se calcule sur la carte elle-même, le monde du jeu : elle boucle
+//! d'est en ouest (les plaques passent le raccord), les pôles sont ses bords, une case a la même
+//! taille partout (pas de plaques étirées en bandes près des pôles comme sur une sphère
+//! projetée).
 //! Sur une planète, le relief en découle (`Plates::elevation`) : continents sur les plaques
 //! continentales, chaînes, fosses, arcs d'îles, rifts et chapelets d'îles le long des frontières
 //! et au-dessus des points chauds.
@@ -43,6 +46,8 @@ const WARP_CELLS: f64 = 9.0;
 const BOUNDARY_SMOOTH: f32 = 3.5;
 /// Passes d'adoucissement du relief des frontières.
 const LIFT_SMOOTHING: usize = 4;
+/// Rotation d'une plaque sur elle-même : au plus cette part de sa vitesse par 1 000 km.
+const SPIN_SHARE: f32 = 0.35;
 
 /// Nature d'une plaque.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,19 +65,31 @@ impl PlateKind {
     }
 }
 
-/// Une plaque : nom, nature, rotation (vecteur de rotation autour de son pôle d'Euler : la
-/// vitesse en un point p de la sphère unité est `rotation × p`, en cm/an), taille (cases) et case
-/// de départ de sa croissance.
+/// Une plaque : nom, nature, mouvement (dérive et rotation autour de son centre, sur la carte),
+/// taille (cases) et case de départ de sa croissance.
 #[derive(Clone, Debug)]
 pub struct Plate {
     /// Nom (« plaque de Vaskar »), donné par la toponymie.
     pub name: String,
     pub kind: PlateKind,
-    pub rotation: Vec3,
+    /// Dérive (cm/an ; x vers l'est, y vers le nord).
+    pub drift: Vec2,
+    /// Rotation autour de son centre (cm/an par 1 000 km d'éloignement, sens trigonométrique).
+    pub spin: f32,
+    /// Centre de la rotation (km sur la carte).
+    pub center: Vec2,
     #[cfg_attr(not(test), allow(dead_code))]
     pub cells: usize,
     #[cfg_attr(not(test), allow(dead_code))]
     pub seed: Hex,
+}
+
+impl Plate {
+    /// Vitesse (cm/an) de la plaque au point `p` (km) d'une carte large de `world_km`.
+    pub fn velocity_at(&self, p: Vec2, world_km: f32) -> Vec2 {
+        let d = offset(self.center, p, world_km);
+        self.drift + Vec2::new(-d.y, d.x) * (self.spin / 1000.0)
+    }
 }
 
 /// Nature d'une frontière entre deux plaques.
@@ -151,16 +168,17 @@ pub struct Plates {
     pub edges: Vec<BoundaryEdge>,
     /// Frontière la plus active qui touche chaque case.
     pub boundary: Vec<Option<Boundary>>,
-    /// Distance de chaque case à la frontière la plus proche (km, sur la sphère).
+    /// Distance de chaque case à la frontière la plus proche (km, sur la carte).
     #[cfg_attr(not(test), allow(dead_code))]
     pub boundary_km: Vec<f32>,
     /// Points chauds (cases).
     pub hotspots: Vec<Hex>,
     /// Arête de frontière la plus proche de chaque case (indice dans `edges`).
     pub nearest_edge: Vec<u32>,
-    /// Position de chaque case sur la sphère (vecteur unitaire) et rayon de la planète (km).
-    pub points: Vec<Vec3>,
-    pub radius_km: f32,
+    /// Position de chaque case sur la carte (km ; x vers l'est, y vers le nord) et tour de la
+    /// planète (km : la largeur de la carte).
+    pub pos: Vec<Vec2>,
+    pub world_km: f32,
     /// Largeur de la carte (cases).
     pub width: i32,
 }
@@ -172,27 +190,35 @@ impl Plates {
     }
 }
 
-/// Position d'une case sur la sphère (vecteur unitaire) : longitude d'après sa position d'ouest
-/// en est (un tour = la largeur de la carte), latitude d'après sa ligne. La ligne du haut est le
-/// pôle Nord (un seul point), celle du bas le pôle Sud.
-pub fn sphere_point(hex: Hex, width: i32, latitude_deg: f32) -> Vec3 {
-    let (x, _) = hex.to_world();
-    let lon = x / (width as f32 * crate::hex::COLUMN_WIDTH) * std::f32::consts::TAU;
-    let lat = latitude_deg.to_radians();
-    Vec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin())
+/// Position d'une case sur la carte (km ; x vers l'est, y vers le nord, la ligne du haut à 0),
+/// pour des cases de `cell_km` d'un centre à l'autre. Le monde du jeu est la carte elle-même :
+/// elle boucle d'est en ouest (un cylindre) et les pôles sont ses bords. Une case a la même
+/// taille partout ; seule la latitude (le climat) dit qu'on approche d'un pôle.
+pub fn map_point(hex: Hex, cell_km: f32) -> Vec2 {
+    let (x, y) = hex.to_world();
+    Vec2::new(x, y) * (cell_km / crate::hex::COLUMN_WIDTH)
 }
 
-/// Directions locales est et nord au point `p` de la sphère.
-fn east_north(p: Vec3) -> (Vec3, Vec3) {
-    let east = Vec3::new(-p.y, p.x, 0.0);
-    let east = if east.length_squared() < 1e-10 { Vec3::Y } else { east.normalize() };
-    (east, p.cross(east).normalize())
+/// Décalage de `a` à `b` (km) par le plus court côté du raccord est-ouest.
+pub fn offset(a: Vec2, b: Vec2, world_km: f32) -> Vec2 {
+    let mut d = b - a;
+    if world_km > 0.0 {
+        d.x -= (d.x / world_km).round() * world_km;
+    }
+    d
 }
 
-/// Génère les plaques d'une carte de `width` × `height` cases (calcul sur la sphère :
-/// `latitude` donne la latitude de chaque ligne en degrés, `cell_km` la taille d'une case à
-/// l'équateur).
-pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn Fn(i32) -> f32, cell_km: f32) -> Plates {
+/// Point du cylindre (km) qui porte la carte : les bruits y sont lus sans couture au raccord et à
+/// la même échelle partout.
+pub fn cylinder(p: Vec2, world_km: f32) -> Vec3 {
+    let r = world_km / std::f32::consts::TAU;
+    let a = p.x / r;
+    Vec3::new(r * a.cos(), r * a.sin(), p.y)
+}
+
+/// Génère les plaques d'une carte de `width` × `height` cases de `cell_km` (calcul sur la carte,
+/// qui boucle d'est en ouest).
+pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) -> Plates {
     let n = (width * height) as usize;
     let mut rng = StdRng::seed_from_u64(u64::from(seed).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x51A7E5);
     let hex_of = |i: usize| Hex::from_offset(i as i32 % width, i as i32 / width);
@@ -200,37 +226,32 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         let (c, r) = wrap.hex(h).to_offset();
         (c >= 0 && c < width && r >= 0 && r < height).then(|| (r * width + c) as usize)
     };
-    let points: Vec<Vec3> = (0..n).map(|i| sphere_point(hex_of(i), width, latitude(i as i32 / width))).collect();
-    // Rayon de la planète (km) : un tour à l'équateur = la largeur de la carte
-    let radius_km = width as f32 * cell_km / std::f32::consts::TAU;
-    let arc_km = |a: Vec3, b: Vec3| a.dot(b).clamp(-1.0, 1.0).acos() * radius_km;
-    // Case la plus proche d'un point de la sphère
-    let cell_at = |p: Vec3| -> usize {
-        let lat = p.z.clamp(-1.0, 1.0).asin().to_degrees();
-        let row = (0..height).min_by(|&a, &b| (latitude(a) - lat).abs().total_cmp(&(latitude(b) - lat).abs())).unwrap_or(0);
-        let lon = p.y.atan2(p.x).rem_euclid(std::f32::consts::TAU);
-        let x = lon / std::f32::consts::TAU * width as f32 * crate::hex::COLUMN_WIDTH;
-        let (_, y) = Hex::from_offset(0, row).to_world();
-        index(Hex::from_world(x, y)).unwrap_or(0)
+    let pos: Vec<Vec2> = (0..n).map(|i| map_point(hex_of(i), cell_km)).collect();
+    let world_km = width as f32 * cell_km;
+    let (y_lo, y_hi) = pos.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.y), hi.max(p.y)));
+    let dist = |a: Vec2, b: Vec2| offset(a, b, world_km).length();
+    // Case la plus proche d'un point de la carte (au-delà d'un pôle : le bord)
+    let to_world = crate::hex::COLUMN_WIDTH / cell_km;
+    let cell_at = |p: Vec2| -> usize {
+        let y = p.y.clamp(y_lo, y_hi);
+        index(Hex::from_world(p.x.rem_euclid(world_km) * to_world, y * to_world)).unwrap_or(0)
     };
-    // Surface relative de chaque case (proportionnelle au cosinus de la latitude)
-    let area: Vec<f32> = (0..n).map(|i| latitude(i as i32 / width).to_radians().cos().max(0.02)).collect();
-    let total_area: f32 = area.iter().sum();
+    // Bruits lus sur le cylindre de rayon 1 (une longueur d'onde de zoom⁻¹ × rayon)
+    let radius = world_km / std::f32::consts::TAU;
+    let unit: Vec<Vec3> = pos.iter().map(|&p| cylinder(p, world_km) / radius).collect();
+    let at = |f: &Fbm<Perlin>, p: Vec3, zoom: f64| f.get([f64::from(p.x) * zoom, f64::from(p.y) * zoom, f64::from(p.z) * zoom]);
 
-    // Germes : tirés uniformément sur la sphère, bien répartis (distance minimale, relâchée si
-    // on n'en trouve pas)
+    // Germes : tirés uniformément sur la carte, bien répartis (distance minimale, relâchée si on
+    // n'en trouve pas)
     let count = rng.random_range(MIN_PLATES..=MAX_PLATES);
     let mut seeds: Vec<Hex> = Vec::with_capacity(count);
-    let full_km = std::f32::consts::PI * radius_km;
-    let mut spacing = full_km / (count as f32).sqrt() * 0.9;
+    let mut spacing = (world_km * (y_hi - y_lo) / count as f32).sqrt() * 0.9;
     while seeds.len() < count {
         let mut placed = false;
         for _ in 0..200 {
-            let z: f32 = rng.random_range(-1.0..1.0);
-            let lon: f32 = rng.random_range(0.0..std::f32::consts::TAU);
-            let r = (1.0 - z * z).sqrt();
-            let c = cell_at(Vec3::new(r * lon.cos(), r * lon.sin(), z));
-            if seeds.iter().all(|&s| arc_km(points[index(s).unwrap_or(0)], points[c]) >= spacing) {
+            let p = Vec2::new(rng.random_range(0.0..world_km), rng.random_range(y_lo..=y_hi));
+            let c = cell_at(p);
+            if seeds.iter().all(|&s| dist(pos[index(s).unwrap_or(0)], pos[c]) >= spacing) {
                 seeds.push(hex_of(c));
                 placed = true;
                 break;
@@ -241,13 +262,10 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         }
     }
 
-    // Croissance : chaque plaque s'étend depuis son germe à sa vitesse propre, aux distances
-    // réelles sur la sphère (vers les pôles, les cases sont plus étroites ; toute la ligne du
-    // pôle est un seul point : une plaque qui l'atteint en fait une calotte), sur un sol au coût
+    // Croissance : chaque plaque s'étend depuis son germe à sa vitesse propre, sur un sol au coût
     // bruité (frontières sinueuses) ; une case revient à la plaque qui l'atteint d'abord
     let noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(271_828)).set_octaves(4).set_frequency(1.0);
-    let at = |f: &Fbm<Perlin>, p: Vec3, zoom: f64| f.get([f64::from(p.x) * zoom, f64::from(p.y) * zoom, f64::from(p.z) * zoom]);
-    let roughness: Vec<f32> = points.iter().map(|&p| (at(&noise, p, 3.0) as f32 * 0.5 + 0.5).clamp(0.0, 1.0)).collect();
+    let roughness: Vec<f32> = unit.iter().map(|&p| (at(&noise, p, 3.0) as f32 * 0.5 + 0.5).clamp(0.0, 1.0)).collect();
     let growth: Vec<f32> = (0..count).map(|_| rng.random_range(0.6..1.5)).collect();
     let mut plate_of = vec![u8::MAX; n];
     let mut best = vec![f32::MAX; n];
@@ -258,18 +276,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         best[i] = 0.0;
         queue.push(Reverse((0, i, p as u8)));
     }
-    let neighbors_of = |i: usize| -> Vec<usize> {
-        let mut v: Vec<usize> = wrap.neighbors(hex_of(i)).into_iter().filter_map(index).collect();
-        // Lignes des pôles : un seul point, toutes leurs cases se touchent
-        let row = i as i32 / width;
-        if row == 0 || row == height - 1 {
-            let c = i as i32 % width;
-            for dc in [-1, 1] {
-                v.push((row * width + (c + dc).rem_euclid(width)) as usize);
-            }
-        }
-        v
-    };
+    let neighbors_of = |i: usize| -> Vec<usize> { wrap.neighbors(hex_of(i)).into_iter().filter_map(index).collect() };
     while let Some(Reverse((_, i, p))) = queue.pop() {
         if plate_of[i] != u8::MAX {
             continue;
@@ -279,7 +286,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
             if plate_of[j] != u8::MAX {
                 continue;
             }
-            let step = arc_km(points[i], points[j]) / cell_km * (1.0 + 2.5 * roughness[j]);
+            let step = dist(pos[i], pos[j]) / cell_km * (1.0 + 2.5 * roughness[j]);
             let c = best[i] + step / growth[usize::from(p)];
             if c < best[j] {
                 best[j] = c;
@@ -287,18 +294,15 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
             }
         }
     }
-    // Frontières sinueuses : chaque case prend la plaque du point de la sphère décalé par un
-    // bruit lent (quelques centaines de km), puis les morceaux détachés d'une plaque rejoignent
-    // la plaque qui les entoure
-    let warp: [Fbm<Perlin>; 3] = [31_415u32, 92_653, 58_979].map(|k| Fbm::new(seed.wrapping_add(k)).set_octaves(3).set_frequency(1.0));
-    let warp_angle = WARP_CELLS as f32 * cell_km / radius_km;
+    // Frontières sinueuses : chaque case prend la plaque du point décalé par un bruit lent
+    // (quelques centaines de km), puis les morceaux détachés d'une plaque rejoignent la plaque
+    // qui les entoure
+    let warp: [Fbm<Perlin>; 2] = [31_415u32, 92_653].map(|k| Fbm::new(seed.wrapping_add(k)).set_octaves(3).set_frequency(1.0));
+    let reach_km = WARP_CELLS as f32 * cell_km;
     let warped: Vec<u8> = (0..n)
         .map(|i| {
-            let p = points[i];
-            let d = Vec3::new(at(&warp[0], p, 1.6) as f32, at(&warp[1], p, 1.6) as f32, at(&warp[2], p, 1.6) as f32);
-            // (déplacement dans le plan tangent)
-            let d = d - p * d.dot(p);
-            plate_of[cell_at((p + d * warp_angle).normalize())]
+            let d = Vec2::new(at(&warp[0], unit[i], 1.6) as f32, at(&warp[1], unit[i], 1.6) as f32);
+            plate_of[cell_at(pos[i] + d * reach_km)]
         })
         .collect();
     let mut plate_of = warped;
@@ -324,62 +328,46 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
     let seeds: Vec<Hex> = seeds.iter().zip(&alive).filter(|(_, a)| **a).map(|(s, _)| *s).collect();
     let count = seeds.len();
     let mut sizes = vec![0usize; count];
-    let mut areas = vec![0f32; count];
-    for (i, &p) in plate_of.iter().enumerate() {
+    for &p in &plate_of {
         sizes[usize::from(p)] += 1;
-        areas[usize::from(p)] += area[i];
     }
 
     // Nature : des plaques tirées au hasard deviennent continentales jusqu'à couvrir la part
-    // visée de la surface réelle (pondérée par la latitude), les autres sont océaniques
+    // visée de la carte, les autres sont océaniques
     let mut order: Vec<usize> = (0..count).collect();
     order.shuffle(&mut rng);
     let mut kinds = vec![PlateKind::Oceanic; count];
-    let mut covered = 0f32;
+    let mut covered = 0usize;
     for &p in &order {
-        if covered < CONTINENTAL_SHARE * total_area && covered + areas[p] <= (CONTINENTAL_SHARE + 0.12) * total_area {
+        if (covered as f32) < CONTINENTAL_SHARE * n as f32 && (covered + sizes[p]) as f32 <= (CONTINENTAL_SHARE + 0.12) * n as f32 {
             kinds[p] = PlateKind::Continental;
-            covered += areas[p];
+            covered += sizes[p];
         }
     }
 
-    // Noms, puis mouvements : chaque plaque tourne autour de son pôle d'Euler (axe tiré au
-    // hasard) ; sa vitesse maximale (à 90° du pôle) est tirée selon sa nature
-    // (tirages gardés : les mondes ne changent pas ; les noms sont donnés ensuite par la
-    // toponymie, dans la langue de chaque plaque)
-    let mut oceanic: Vec<usize> = (0..9).collect();
-    let mut continental: Vec<usize> = (0..16).collect();
-    oceanic.shuffle(&mut rng);
-    continental.shuffle(&mut rng);
+    // Mouvements : chaque plaque dérive dans une direction tirée au hasard, à une vitesse selon
+    // sa nature, en tournant un peu sur elle-même (les noms sont donnés ensuite par la toponymie)
     let plates: Vec<Plate> = (0..count)
         .map(|p| {
             let (lo, hi) = if kinds[p] == PlateKind::Oceanic { OCEANIC_SPEED } else { CONTINENTAL_SPEED };
             let speed = rng.random_range(lo..hi);
-            let z: f32 = rng.random_range(-1.0..1.0);
-            let lon: f32 = rng.random_range(0.0..std::f32::consts::TAU);
-            let r = (1.0 - z * z).sqrt();
-            let axis = Vec3::new(r * lon.cos(), r * lon.sin(), z);
-            Plate { name: format!("plaque {}", p + 1), kind: kinds[p], rotation: axis * speed, cells: sizes[p], seed: seeds[p] }
+            let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+            let spin = rng.random_range(-1.0..1.0) * speed * SPIN_SHARE;
+            let center = pos[index(seeds[p]).unwrap_or(0)];
+            Plate { name: format!("plaque {}", p + 1), kind: kinds[p], drift: Vec2::from_angle(angle) * speed, spin, center, cells: sizes[p], seed: seeds[p] }
         })
         .collect();
-    // Vitesse (cm/an) de chaque case : ω × p, décomposée en est et nord
-    let velocity3 = |i: usize| plates[usize::from(plate_of[i])].rotation.cross(points[i]);
-    let velocity: Vec<Vec2> = (0..n)
-        .map(|i| {
-            let (east, north) = east_north(points[i]);
-            let v = velocity3(i);
-            Vec2::new(v.dot(east), v.dot(north))
-        })
-        .collect();
+    let speed_at = |p: u8, at: Vec2| plates[usize::from(p)].velocity_at(at, world_km);
+    let velocity: Vec<Vec2> = (0..n).map(|i| speed_at(plate_of[i], pos[i])).collect();
 
     // Frontières : arêtes entre deux plaques (chacune une fois : directions 0 à 2), milieu et
-    // direction de la case vers la voisine, dans le plan tangent à la sphère
+    // direction de la case vers la voisine
     struct Raw {
         cell: usize,
         neighbor: usize,
         dir: u8,
-        mid: Vec3,
-        normal: Vec3,
+        mid: Vec2,
+        normal: Vec2,
     }
     let mut raw: Vec<Raw> = Vec::new();
     for i in 0..n {
@@ -387,10 +375,8 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         for (d, &step) in DIRECTIONS.iter().enumerate().take(3) {
             let Some(j) = index(h + step) else { continue };
             if plate_of[i] != plate_of[j] {
-                let mid = (points[i] + points[j]).normalize();
-                let along = points[j] - points[i];
-                let normal = (along - mid * along.dot(mid)).try_normalize().unwrap_or(Vec3::X);
-                raw.push(Raw { cell: i, neighbor: j, dir: d as u8, mid, normal });
+                let along = offset(pos[i], pos[j], world_km);
+                raw.push(Raw { cell: i, neighbor: j, dir: d as u8, mid: pos[i] + along / 2.0, normal: along.normalize_or(Vec2::X) });
             }
         }
     }
@@ -408,18 +394,18 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
     let mut cell_edge = vec![u32::MAX; n];
     for e in &raw {
         let (a, b) = (plate_of[e.cell], plate_of[e.neighbor]);
-        let mut normal = Vec3::ZERO;
+        let mut normal = Vec2::ZERO;
         for &o in &by_pair[&(a.min(b), a.max(b))] {
             let other = &raw[o];
-            if arc_km(other.mid, e.mid) <= reach {
+            if dist(other.mid, e.mid) <= reach {
                 let flip = if plate_of[other.cell] == a { 1.0 } else { -1.0 };
                 normal += other.normal * flip;
             }
         }
-        let normal = (normal - e.mid * normal.dot(e.mid)).try_normalize().unwrap_or(e.normal);
+        let normal = normal.try_normalize().unwrap_or(e.normal);
         let (pa, pb) = (usize::from(a), usize::from(b));
-        let relative = plates[pb].rotation.cross(e.mid) - plates[pa].rotation.cross(e.mid);
-        let closing = -relative.dot(normal);
+        let (va, vb) = (speed_at(a, e.mid), speed_at(b, e.mid));
+        let closing = -(vb - va).dot(normal);
         let kind = classify(plates[pa].kind, plates[pb].kind, closing);
         for c in [e.cell, e.neighbor] {
             if boundary[c].is_none_or(|(_, s)| closing.abs() > s) {
@@ -431,10 +417,9 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
             Boundary::Subduction => {
                 if plates[pa].kind == PlateKind::Oceanic { a } else { b }
             }
+            // Celle qui avance le plus vite vers la frontière
             Boundary::IslandArc => {
-                // Vitesse de chaque plaque vers la frontière
-                let (ta, tb) = (plates[pa].rotation.cross(e.mid).dot(normal), -plates[pb].rotation.cross(e.mid).dot(normal));
-                if ta >= tb { a } else { b }
+                if va.dot(normal) >= -vb.dot(normal) { a } else { b }
             }
             _ => u8::MAX,
         };
@@ -442,7 +427,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
     }
     let boundary: Vec<Option<Boundary>> = boundary.into_iter().map(|b| b.map(|(k, _)| k)).collect();
 
-    // Distance (km, sur la sphère) de chaque case à la frontière la plus proche
+    // Distance (km) de chaque case à la frontière la plus proche
     let mut boundary_km = vec![f32::MAX; n];
     let mut nearest_edge = cell_edge;
     let mut queue: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
@@ -457,7 +442,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
             continue;
         }
         for j in neighbors_of(i) {
-            let d = boundary_km[i] + arc_km(points[i], points[j]);
+            let d = boundary_km[i] + dist(pos[i], pos[j]);
             if d < boundary_km[j] {
                 boundary_km[j] = d;
                 nearest_edge[j] = nearest_edge[i];
@@ -466,17 +451,10 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         }
     }
 
-    // Points chauds : loin des frontières, de préférence sous un océan, espacés ; tirés
-    // uniformément sur la sphère (pas plus nombreux vers les pôles)
-    // (tirage pondéré par la surface : clé u^(1/surface), les plus grandes d'abord)
+    // Points chauds : loin des frontières, de préférence sous un océan, espacés
     let far: Vec<usize> = (0..n).filter(|&i| boundary_km[i] >= HOTSPOT_FROM_BOUNDARY as f32 * cell_km).collect();
-    let mut keyed: Vec<(bool, f32, usize)> = far
-        .into_iter()
-        .map(|i| {
-            let u: f32 = rng.random_range(1e-6..1.0);
-            (plates[usize::from(plate_of[i])].kind == PlateKind::Continental, -u.powf(1.0 / area[i]), i)
-        })
-        .collect();
+    let mut keyed: Vec<(bool, f32, usize)> =
+        far.into_iter().map(|i| (plates[usize::from(plate_of[i])].kind == PlateKind::Continental, rng.random_range(0.0..1.0f32), i)).collect();
     keyed.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
     let far: Vec<usize> = keyed.into_iter().map(|(_, _, i)| i).collect();
     let wanted = rng.random_range(HOTSPOTS.0..=HOTSPOTS.1);
@@ -485,12 +463,12 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
         if hotspots.len() >= wanted {
             break;
         }
-        if hotspots.iter().all(|&o| arc_km(points[index(o).unwrap_or(0)], points[i]) >= 2.0 * HOTSPOT_FROM_BOUNDARY as f32 * cell_km) {
+        if hotspots.iter().all(|&o| dist(pos[index(o).unwrap_or(0)], pos[i]) >= 2.0 * HOTSPOT_FROM_BOUNDARY as f32 * cell_km) {
             hotspots.push(hex_of(i));
         }
     }
 
-    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, hotspots, nearest_edge, points, radius_km, width }
+    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, hotspots, nearest_edge, pos, world_km, width }
 }
 
 /// Profil en cloche : 1 en 0, ≈ 0,37 à `width`.
@@ -508,20 +486,20 @@ impl Plates {
     /// - chapelets d'îles des points chauds, vieillissant dans le sens du mouvement de la plaque ;
     /// - collines et vieux massifs à l'intérieur des continents.
     ///
-    /// Tous les bruits sont lus sur la sphère : même échelle partout, pôles compris.
+    /// Tous les bruits sont lus sur le cylindre de la carte : même échelle partout.
     pub fn elevation(&self, seed: u32, cell_km: f32) -> Vec<f64> {
         let n = self.plate_of.len();
         let fbm = |k: u32, octaves: usize| -> Fbm<Perlin> { Fbm::new(seed.wrapping_add(k)).set_octaves(octaves).set_frequency(1.0) };
         let (coast, shelf, hills, arc) = (fbm(101, 5), fbm(202, 3), fbm(303, 4), fbm(404, 3));
         let old = noise::RidgedMulti::<Perlin>::new(seed.wrapping_add(505)).set_octaves(4);
-        // Bruit au point p, pour une longueur d'onde donnée (km)
+        // Bruit au point p (km, sur le cylindre), pour une longueur d'onde donnée (km)
         let at = |f: &dyn NoiseFn<f64, 3>, p: Vec3, wavelength_km: f32| {
-            let z = f64::from(self.radius_km / wavelength_km);
+            let z = 1.0 / f64::from(wavelength_km);
             f.get([f64::from(p.x) * z, f64::from(p.y) * z, f64::from(p.z) * z]) as f32
         };
         let parts: Vec<(f32, f32)> = (0..n)
             .map(|i| {
-                let p = self.points[i];
+                let p = cylinder(self.pos[i], self.world_km);
                 let plate = &self.plates[usize::from(self.plate_of[i])];
                 let continental = plate.kind == PlateKind::Continental;
                 // Socle
@@ -565,20 +543,7 @@ impl Plates {
         // Le relief des frontières vient de la frontière la plus proche : là où la plus proche
         // change (à mi-chemin de deux frontières), il saute. On l'adoucit (moyenne avec les
         // voisines, quelques passes) : plus d'arêtes droites au milieu des continents
-        let wrap = Wrap::new(self.width, true);
-        let height = n as i32 / self.width.max(1);
-        let neighbors: Vec<Vec<usize>> = (0..n)
-            .map(|i| {
-                let h = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
-                wrap.neighbors(h)
-                    .into_iter()
-                    .filter_map(|nb| {
-                        let (c, r) = nb.to_offset();
-                        (0..height).contains(&r).then_some((r * self.width + c) as usize)
-                    })
-                    .collect()
-            })
-            .collect();
+        let neighbors: Vec<Vec<usize>> = self.neighbor_graph(cell_km).into_iter().map(|v| v.into_iter().map(|(j, _)| j).collect()).collect();
         let mut lift: Vec<f32> = parts.iter().map(|&(_, l)| l).collect();
         for _ in 0..LIFT_SMOOTHING {
             lift = (0..n)
@@ -591,19 +556,18 @@ impl Plates {
         let mut out: Vec<f64> = (0..n).map(|i| f64::from(parts[i].0 + lift[i])).collect();
         // Points chauds : une île sur le point chaud, puis d'anciennes îles de plus en plus basses
         // là où la plaque les a emportées (dans le sens de son mouvement)
-        let step = 2.6 * cell_km / self.radius_km;
+        let step = 2.6 * cell_km;
         for h in &self.hotspots {
             let (c, r) = h.to_offset();
             let Some(i) = self.cell_of(c, r) else { continue };
-            let p = self.points[i];
-            let v = self.plates[usize::from(self.plate_of[i])].rotation.cross(p);
-            let dir = (v - p * v.dot(p)).try_normalize().unwrap_or(Vec3::Z.cross(p).normalize_or(Vec3::X));
+            let p = self.pos[i];
+            let dir = self.velocity[i].normalize_or(Vec2::X);
             for k in 0..6 {
-                let q = (p + dir * (step * k as f32)).normalize();
+                let q = p + dir * (step * k as f32);
                 let height = 0.75 * (1.0 - k as f32 / 6.5);
                 let reach = (1.3 - 0.1 * k as f32) * cell_km;
-                for (j, &pj) in self.points.iter().enumerate() {
-                    let dist = pj.dot(q).clamp(-1.0, 1.0).acos() * self.radius_km;
+                for (j, &pj) in self.pos.iter().enumerate() {
+                    let dist = offset(q, pj, self.world_km).length();
                     if dist < 3.0 * reach {
                         out[j] = out[j].max(out[j] * 0.3 + f64::from(height * bell(dist, reach)) - 0.05);
                     }
@@ -613,8 +577,7 @@ impl Plates {
         out
     }
 
-    /// Voisines de chaque case et distance (en tailles de case de `cell_km`) sur la sphère ; les
-    /// cases d'une ligne polaire se touchent toutes (le pôle est un seul point).
+    /// Voisines de chaque case et distance (en tailles de case de `cell_km`) sur la carte.
     pub fn neighbor_graph(&self, cell_km: f32) -> Vec<Vec<(usize, f32)>> {
         let n = self.plate_of.len();
         let width = self.width.max(1);
@@ -623,34 +586,21 @@ impl Plates {
         (0..n)
             .map(|i| {
                 let h = Hex::from_offset(i as i32 % width, i as i32 / width);
-                let mut v: Vec<usize> = wrap
-                    .neighbors(h)
+                wrap.neighbors(h)
                     .into_iter()
                     .filter_map(|nb| {
                         let (c, r) = nb.to_offset();
                         (0..height).contains(&r).then_some((r * width + c) as usize)
                     })
-                    .collect();
-                let row = i as i32 / width;
-                if row == 0 || row == height - 1 {
-                    let c = i as i32 % width;
-                    for dc in [-1, 1] {
-                        let j = (row * width + (c + dc).rem_euclid(width)) as usize;
-                        if !v.contains(&j) {
-                            v.push(j);
-                        }
-                    }
-                }
-                v.into_iter()
-                    .map(|j| (j, self.points[i].dot(self.points[j]).clamp(-1.0, 1.0).acos() * self.radius_km / cell_km))
+                    .map(|j| (j, offset(self.pos[i], self.pos[j], self.world_km).length() / cell_km))
                     .collect()
             })
             .collect()
     }
 
-    /// Surface relative de chaque case (cosinus de la latitude, au moins 0,02).
+    /// Surface relative de chaque case : toutes égales (le monde du jeu est la carte).
     pub fn cell_area(&self) -> Vec<f32> {
-        self.points.iter().map(|p| (1.0 - p.z * p.z).max(0.0).sqrt().max(0.02)).collect()
+        vec![1.0; self.plate_of.len()]
     }
 
     /// Indice d'une case (colonne, ligne).
@@ -748,7 +698,7 @@ mod tests {
     use super::*;
 
     fn planet(seed: u32) -> Plates {
-        generate(192, 111, Wrap::new(192, true), seed, &|row| 90.0 - row as f32 * 180.0 / 110.0, 40.0)
+        generate(192, 111, Wrap::new(192, true), seed, 40.0)
     }
 
     #[test]
@@ -810,29 +760,27 @@ mod tests {
     }
 
     #[test]
-    fn rotation_sur_la_sphere() {
-        let lat = |row: i32| 90.0 - row as f32 * 180.0 / 110.0;
+    fn mouvement_sur_la_carte() {
         for seed in [3, 777] {
             let p = planet(seed);
-            // Le pôle est un seul point : toute la ligne du haut (et du bas) est d'une seule plaque
-            for row in [0, 110] {
-                let first = p.plate_of[(row * 192) as usize];
-                assert!((0..192).all(|c| p.plate_of[(row * 192 + c) as usize] == first), "graine {seed} : pôle partagé");
-            }
-            // Vitesse de chaque case = rotation de sa plaque autour de son pôle d'Euler
+            // Les cases ont toutes la même taille : une case et sa voisine sont à 40 km, raccord
+            // compris
+            let graph = p.neighbor_graph(40.0);
+            assert!(graph.iter().flatten().all(|&(_, d)| (d - 1.0).abs() < 0.01));
+            // Vitesse de chaque case = mouvement de sa plaque (dérive et rotation)
             for i in (0..192 * 111).step_by(37) {
-                let h = Hex::from_offset(i as i32 % 192, i as i32 / 192);
-                let point = sphere_point(h, 192, lat(i as i32 / 192));
                 let plate = p.plate(i).unwrap();
-                let expected = plate.rotation.cross(point).length();
-                assert!((p.velocity[i].length() - expected).abs() < 1e-3, "{h:?}");
-                assert!(p.velocity[i].length() <= OCEANIC_SPEED.1 + 1e-3);
+                assert!((p.velocity[i] - plate.velocity_at(p.pos[i], p.world_km)).length() < 1e-4);
             }
-            // Une même plaque n'a pas la même vitesse partout (rotation, pas translation)
-            let big = (0..p.plates.len()).max_by_key(|&k| p.plates[k].cells).unwrap();
-            let speeds: Vec<f32> = (0..192 * 111).filter(|&i| usize::from(p.plate_of[i]) == big).map(|i| p.velocity[i].length()).collect();
-            let (lo, hi) = speeds.iter().fold((f32::MAX, 0f32), |(a, b), &v| (a.min(v), b.max(v)));
-            assert!(hi - lo > 0.3, "graine {seed} : {lo}..{hi}");
+            // Une plaque n'a pas la même vitesse partout (elle tourne un peu sur elle-même)
+            let spread = (0..p.plates.len())
+                .map(|k| {
+                    let speeds: Vec<f32> = (0..192 * 111).filter(|&i| usize::from(p.plate_of[i]) == k).map(|i| p.velocity[i].length()).collect();
+                    let (lo, hi) = speeds.iter().fold((f32::MAX, 0f32), |(a, b), &v| (a.min(v), b.max(v)));
+                    hi - lo
+                })
+                .fold(0f32, f32::max);
+            assert!(spread > 0.3, "graine {seed} : {spread}");
             // Distance aux frontières : nulle sur elles, et les points chauds en sont loin
             for i in 0..192 * 111 {
                 assert_eq!(p.boundary_km[i] == 0.0, p.boundary[i].is_some());

@@ -397,7 +397,8 @@ pub struct CellInfo {
     pub terrain: Terrain,
 }
 
-/// Langue de chaque case. `points` : position de chaque case sur la sphère ; `land` : terre ;
+/// Langue de chaque case. `points` : position de chaque case sur le cylindre de la carte (rayon 1) ;
+/// `land` : terre ;
 /// `climate` : (température, aridité) de chaque case.
 pub fn languages(points: &[Vec3], land: &[bool], climate: &[(f32, f32)], seed: u32) -> Vec<Language> {
     let n = points.len();
@@ -411,7 +412,7 @@ pub fn languages(points: &[Vec3], land: &[bool], climate: &[(f32, f32)], seed: u
         .iter()
         .map(|p| {
             let q = [f64::from(p.x) * 2.5, f64::from(p.y) * 2.5, f64::from(p.z) * 2.5];
-            (*p + Vec3::new(warp[0].get(q) as f32, warp[1].get(q) as f32, warp[2].get(q) as f32) * 0.22).normalize_or_zero()
+            *p + Vec3::new(warp[0].get(q) as f32, warp[1].get(q) as f32, warp[2].get(q) as f32) * 0.22
         })
         .collect();
     // Graines : des cases de terre au hasard (une île isolée n'a pas sa propre graine : elle
@@ -428,12 +429,17 @@ pub fn languages(points: &[Vec3], land: &[bool], climate: &[(f32, f32)], seed: u
     // va au centre des terres qui lui reviennent)
     let nearest_seed = |p: Vec3, seeds: &[usize]| (0..seeds.len()).min_by(|&a, &b| p.distance(points[seeds[a]]).total_cmp(&p.distance(points[seeds[b]]))).unwrap();
     for _ in 0..12 {
-        let mut centers = vec![Vec3::ZERO; seeds.len()];
+        let mut centers = vec![(Vec3::ZERO, 0usize); seeds.len()];
         for &c in &candidates {
-            centers[nearest_seed(points[c], &seeds)] += points[c];
+            let s = &mut centers[nearest_seed(points[c], &seeds)];
+            s.0 += points[c];
+            s.1 += 1;
         }
-        for (k, center) in centers.into_iter().enumerate() {
-            let Some(center) = center.try_normalize() else { continue };
+        for (k, (sum, count)) in centers.into_iter().enumerate() {
+            if count == 0 {
+                continue;
+            }
+            let center = sum / count as f32;
             seeds[k] = *candidates.iter().min_by(|&&a, &&b| points[a].distance(center).total_cmp(&points[b].distance(center))).unwrap();
         }
     }

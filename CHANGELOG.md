@@ -27,6 +27,8 @@
 - Nouvelle **carte « Plaques »** (2D et 3D) : couleur par plaque (chaude : continentale, froide : océanique), frontières colorées, flèches des mouvements, points chauds ; légende ; infobulle « plaque de Nazca (océanique), 5 cm/an vers le nord-est ; frontière : subduction ».
 - **Le relief découle des plaques** : continents sur les plaques continentales, grandes chaînes et hauts plateaux des collisions, cordillères côtières et fosses des subductions, arcs d'îles, rifts, dorsales, chapelets d'îles volcaniques des points chauds (les mondes changent, à graine égale).
 
+- **Plaques calculées sur la carte, plus sur la sphère** : près des pôles, la projection étirait les plaques et les continents en bandes sur toute la largeur de la carte. Le monde du jeu est la carte elle-même (elle boucle d'est en ouest, une case a la même taille partout) : les plaques, leurs frontières, le relief, les points chauds et les aires de langue sont désormais calculés en distances sur la carte. Chaque plaque dérive dans une direction en tournant un peu sur elle-même. Sur les 4 lignes du bord, la terre s'abaisse vers une mer polaire (sinon une terre collée au bord retenait l'eau : un lac de 650 cases à la graine 2). Les mondes changent, à graine égale.
+
 ### Érosion
 - Avant d'y faire couler les cours d'eau, l'eau **creuse le relief** (10 passes) : vallées le long des grands cours d'eau, profils réguliers, seuils des cuvettes usés et cuvettes en partie comblées, cols aux points bas des crêtes ; les montagnes, peu drainées, gardent leur hauteur.
 - Beaucoup moins de lacs (graine 777 : ≈ 270 cases au lieu de ≈ 900) et moins de ruptures de pente sur les fleuves (≈ 7 % des cases de fleuve au lieu de 13 %).

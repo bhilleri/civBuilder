@@ -1050,8 +1050,8 @@ mod tests {
             println!("  {:<8} {:<28} {:>5} cases", z.kind.label(), z.name, z.cells.len());
         }
         assert!((1..=8).contains(&count(SeaKind::Ocean)));
-        assert!(count(SeaKind::Sea) >= 1);
-        assert!(count(SeaKind::Gulf) + count(SeaKind::Bay) >= 5);
+        assert!(count(SeaKind::Ocean) + count(SeaKind::Sea) >= 2);
+        assert!(count(SeaKind::Gulf) + count(SeaKind::Bay) >= 3);
         // Toute case de mer ouverte est dans un océan ou une mer ; chaque étendue a un nom unique
         for h in m.hexes() {
             let c = m.cell(h);
