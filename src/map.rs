@@ -1038,7 +1038,15 @@ impl WorldMap {
         //    d'îles, points chauds ; la mer sous 0) ; sur une carte régionale, bruit fractal atténué
         //    vers les bords
         let tectonic = wrap.wraps();
-        let tectonic_e = if tectonic { map.plates.elevation(seed, region.cell_km) } else { Vec::new() };
+        let tectonic_e = if tectonic {
+            let mut e = map.plates.elevation(seed, region.cell_km);
+            // L'eau creuse le relief : vallées, cuvettes vidées ou comblées, cols (voir erosion.rs)
+            let neighbors = map.plates.neighbor_graph(region.cell_km);
+            crate::erosion::erode(&mut e, &neighbors, &map.plates.cell_area(), crate::erosion::ErosionParams::default());
+            e
+        } else {
+            Vec::new()
+        };
         let elevations: Vec<(Hex, f64)> = map
             .hexes()
             .enumerate()
@@ -1958,10 +1966,21 @@ mod tectonique {
             let land_area: f32 = land.iter().map(|&h| area(h)).sum();
             let count = |r: Relief| land.iter().filter(|&&h| m.relief(h) == r).count();
             let lake = |h: Hex| m.get(h) == Some(Terrain::Lake);
+            // Ruptures de pente le long des cours d'eau (cascades probables) : plus de 300 m de
+            // dénivelée entre une case et sa case aval
+            let drop_over = |h: Hex, limit: f32| {
+                m.downstream(h).is_some_and(|d| {
+                    let down = m.wrap().neighbor(h, d);
+                    m.elevation(h).unwrap_or(0.0) - m.elevation(down).unwrap_or(0.0).max(0.0) > limit && !m.get(down).unwrap().is_water()
+                })
+            };
+            let river_steps = m.hexes().filter(|&h| !m.is_fleuve(h) && (0..6).any(|d| m.river_flow(h, d) > 0.0) && drop_over(h, 300.0)).count();
+            let fleuve_steps = m.hexes().filter(|&h| m.is_fleuve(h) && drop_over(h, 150.0)).count();
+            let steps = format!("rivières {river_steps}, fleuves {fleuve_steps} / {}", m.hexes().filter(|&h| m.is_fleuve(h)).count());
             let lakes = format!("{} (au-delà de 55° : {})", m.hexes().filter(|&h| lake(h)).count(), m.hexes().filter(|&h| lake(h) && m.latitude(h).abs() > 55.0).count());
             let cont_land = land.iter().filter(|&&h| m.plate(h).is_some_and(|p| p.kind == crate::plates::PlateKind::Continental)).count();
             println!(
-                "graine {seed} ({:.1} s) : terres {:.0} % des cases, {:.0} % de la surface ; sur plaques continentales {:.0} % ; montagnes {} pics {} accidenté {} ; lacs {} ; départ {:?}",
+                "graine {seed} ({:.1} s) : ruptures {steps} ; terres {:.0} % des cases, {:.0} % de la surface ; sur plaques continentales {:.0} % ; montagnes {} pics {} accidenté {} ; lacs {} ; départ {:?}",
                 t.elapsed().as_secs_f32(),
                 land.len() as f32 / n * 100.0,
                 land_area / total * 100.0,

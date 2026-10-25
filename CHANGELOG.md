@@ -27,6 +27,13 @@
 - Nouvelle **carte « Plaques »** (2D et 3D) : couleur par plaque (chaude : continentale, froide : océanique), frontières colorées, flèches des mouvements, points chauds ; légende ; infobulle « plaque de Nazca (océanique), 5 cm/an vers le nord-est ; frontière : subduction ».
 - **Le relief découle des plaques** : continents sur les plaques continentales, grandes chaînes et hauts plateaux des collisions, cordillères côtières et fosses des subductions, arcs d'îles, rifts, dorsales, chapelets d'îles volcaniques des points chauds (les mondes changent, à graine égale).
 
+### Érosion
+- Avant d'y faire couler les cours d'eau, l'eau **creuse le relief** (10 passes) : vallées le long des grands cours d'eau, profils réguliers, seuils des cuvettes usés et cuvettes en partie comblées, cols aux points bas des crêtes ; les montagnes, peu drainées, gardent leur hauteur.
+- Beaucoup moins de lacs (graine 777 : ≈ 270 cases au lieu de ≈ 900) et moins de ruptures de pente sur les fleuves (≈ 7 % des cases de fleuve au lieu de 13 %).
+
+### Graine du monde
+- Le menu (Échap) affiche la **graine** du monde ; on peut en taper une et **regénérer** le monde avec (même graine, même monde), ou créer un **nouveau monde** au hasard. Le jeu repart de zéro avec les mêmes réglages.
+
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 
 Les saisons du climat façonnent maintenant les paysages  : 7 nouveaux terrains, de la jungle à la taïga.

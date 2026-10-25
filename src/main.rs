@@ -8,6 +8,7 @@ mod basins;
 mod battle;
 mod climate;
 mod combat;
+mod erosion;
 mod explore;
 mod game;
 mod hex;

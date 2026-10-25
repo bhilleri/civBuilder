@@ -1,9 +1,12 @@
-//! Menu du jeu (touche Échap) : reprendre, mode debug, quitter.
+//! Menu du jeu (touche Échap) : reprendre, mode debug, graine du monde (regénérer le même monde
+//! ou un nouveau), quitter.
 //!
 //! Le mode debug révèle toute la carte à l'affichage (brouillard de guerre levé). Il ne change
 //! pas ce que le joueur sait : en le désactivant, on revoit uniquement ce qui a été exploré.
 
-use crate::game::DebugMode;
+use crate::game::{DebugMode, GameLog};
+use crate::hostile::WorldSeed;
+use bevy::input::keyboard::{Key, KeyboardInput};
 use crate::wiki::WikiState;
 use bevy::prelude::*;
 
@@ -19,7 +22,23 @@ struct MenuBackdrop;
 enum MenuButton {
     Resume,
     Debug,
+    /// Regénérer le monde avec la graine saisie.
+    Regenerate,
+    /// Nouveau monde, graine au hasard.
+    NewWorld,
     Quit,
+}
+
+/// Champ de saisie de la graine.
+#[derive(Component)]
+struct SeedField;
+#[derive(Component)]
+struct SeedText;
+/// Graine en cours de saisie (chiffres seulement).
+#[derive(Resource, Default)]
+struct SeedInput {
+    text: String,
+    ready: bool,
 }
 /// Bandeau rappelant que le mode debug est actif.
 #[derive(Component)]
@@ -40,9 +59,10 @@ pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameMenu>()
+            .init_resource::<SeedInput>()
             .add_systems(Startup, setup_menu)
             // Avant le wiki : Échap ferme d'abord le wiki s'il est ouvert, sans ouvrir le menu
-            .add_systems(Update, (toggle_menu.before(crate::wiki::WikiSet), menu_buttons, show_menu, update_fps).chain());
+            .add_systems(Update, (toggle_menu.before(crate::wiki::WikiSet), seed_typing, menu_buttons, show_menu, update_fps).chain());
     }
 }
 
@@ -107,6 +127,35 @@ fn setup_menu(mut commands: Commands) {
                     TextColor(Color::srgb(0.65, 0.67, 0.72)),
                 ),
                 (Node { height: Val::Px(8.0), ..default() }),
+                (label("Graine du monde", 16.0)),
+                (
+                    SeedField,
+                    Node {
+                        width: Val::Px(280.0),
+                        padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(6.0)),
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.02, 0.02, 0.04)),
+                    BorderColor::all(Color::srgb(0.35, 0.38, 0.46)),
+                    children![(SeedText, label("", 18.0))],
+                ),
+                (
+                    Text::new("Tapez une graine (chiffres), puis Entrée ou le bouton : même graine, même monde."),
+                    TextFont::from_font_size(13.0),
+                    TextColor(Color::srgb(0.65, 0.67, 0.72)),
+                    Node { max_width: Val::Px(300.0), ..default() },
+                ),
+                button(MenuButton::Regenerate, "Regénérer avec cette graine", BUTTON_BG),
+                button(MenuButton::NewWorld, "Nouveau monde (graine au hasard)", BUTTON_BG),
+                (
+                    Text::new("La partie en cours sera perdue."),
+                    TextFont::from_font_size(13.0),
+                    TextColor(Color::srgb(0.65, 0.67, 0.72)),
+                ),
+                (Node { height: Val::Px(8.0), ..default() }),
                 button(MenuButton::Quit, "Quitter le jeu", QUIT_BG),
             ],
         )],
@@ -139,9 +188,73 @@ fn toggle_menu(keys: Res<ButtonInput<KeyCode>>, wiki: Res<WikiState>, mut menu: 
     }
 }
 
+/// Saisie de la graine quand le menu est ouvert : chiffres, effacement, Entrée pour regénérer.
+/// À l'ouverture du menu, le champ montre la graine du monde actuel.
+fn seed_typing(
+    menu: Res<GameMenu>,
+    seed: Res<WorldSeed>,
+    mut input: ResMut<SeedInput>,
+    mut keys: MessageReader<KeyboardInput>,
+    mut text: Single<&mut Text, With<SeedText>>,
+    mut log: ResMut<GameLog>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    if !menu.open {
+        input.ready = false;
+        keys.clear();
+        return;
+    }
+    if !input.ready {
+        input.text = seed.0.to_string();
+        input.ready = true;
+    }
+    for key in keys.read().filter(|k| k.state.is_pressed()) {
+        match &key.logical_key {
+            Key::Character(c) => {
+                for ch in c.chars().filter(char::is_ascii_digit) {
+                    if input.text.len() < 10 {
+                        input.text.push(ch);
+                    }
+                }
+            }
+            Key::Backspace => {
+                input.text.pop();
+            }
+            Key::Enter => regenerate(input.text.parse().ok(), &mut log, &mut exit),
+            _ => {}
+        }
+    }
+    let shown = format!("{}▏", input.text);
+    if text.0 != shown {
+        text.0 = shown;
+    }
+}
+
+/// Relance le jeu sur un nouveau monde : avec la graine donnée, ou au hasard. Le jeu repart de
+/// zéro (nouveau processus, mêmes réglages), la fenêtre actuelle se ferme.
+fn regenerate(seed: Option<u32>, log: &mut GameLog, exit: &mut MessageWriter<AppExit>) {
+    let launched = std::env::current_exe().and_then(|exe| {
+        let mut command = std::process::Command::new(exe);
+        command.args(std::env::args_os().skip(1));
+        match seed {
+            Some(s) => command.env("CIVBUILDER_SEED", s.to_string()),
+            None => command.env_remove("CIVBUILDER_SEED"),
+        };
+        command.spawn()
+    });
+    match launched {
+        Ok(_) => {
+            exit.write(AppExit::Success);
+        }
+        Err(e) => log.push(format!("Impossible de relancer le jeu : {e}")),
+    }
+}
+
 fn menu_buttons(
     mut menu: ResMut<GameMenu>,
     mut debug: ResMut<DebugMode>,
+    input: Res<SeedInput>,
+    mut log: ResMut<GameLog>,
     mut buttons: Query<(Ref<Interaction>, &MenuButton, &mut BackgroundColor)>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -150,6 +263,11 @@ fn menu_buttons(
             match kind {
                 MenuButton::Resume => menu.open = false,
                 MenuButton::Debug => debug.0 = !debug.0,
+                MenuButton::Regenerate => match input.text.parse::<u32>() {
+                    Ok(seed) => regenerate(Some(seed), &mut log, &mut exit),
+                    Err(_) => log.push("Graine invalide : entre 0 et 4 294 967 295."),
+                },
+                MenuButton::NewWorld => regenerate(None, &mut log, &mut exit),
                 MenuButton::Quit => {
                     exit.write(AppExit::Success);
                 }

@@ -359,6 +359,10 @@ fn terrain() -> Article {
                un arc d'îles ; un rift creuse un fossé bordé d'épaulements, une dorsale soulève le fond marin ; un \
                point chaud fait une île volcanique, suivie d'un chapelet d'îles plus anciennes là où la plaque \
                les a emportées."),
+            p("Puis l'eau creuse ce relief (érosion) : les grands cours d'eau s'enfoncent dans des vallées au \
+               profil régulier, les cuvettes s'ouvrent ou se comblent (peu de lacs, sauf dans les fossés et les \
+               régions sèches), les crêtes sont découpées et leurs points bas forment des cols. Les montagnes, peu \
+               drainées, gardent leur hauteur. Une même graine (menu Échap) redonne exactement le même monde."),
             h("Brouillard de guerre"),
             p("Une case inexplorée est noire. Une fois découverte, elle reste connue mais apparaît assombrie hors de \
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \

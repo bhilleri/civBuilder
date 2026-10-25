@@ -650,6 +650,46 @@ impl Plates {
         out
     }
 
+    /// Voisines de chaque case et distance (en tailles de case de `cell_km`) sur la sphère ; les
+    /// cases d'une ligne polaire se touchent toutes (le pôle est un seul point).
+    pub fn neighbor_graph(&self, cell_km: f32) -> Vec<Vec<(usize, f32)>> {
+        let n = self.plate_of.len();
+        let width = self.width.max(1);
+        let height = n as i32 / width;
+        let wrap = Wrap::new(width, true);
+        (0..n)
+            .map(|i| {
+                let h = Hex::from_offset(i as i32 % width, i as i32 / width);
+                let mut v: Vec<usize> = wrap
+                    .neighbors(h)
+                    .into_iter()
+                    .filter_map(|nb| {
+                        let (c, r) = nb.to_offset();
+                        (0..height).contains(&r).then_some((r * width + c) as usize)
+                    })
+                    .collect();
+                let row = i as i32 / width;
+                if row == 0 || row == height - 1 {
+                    let c = i as i32 % width;
+                    for dc in [-1, 1] {
+                        let j = (row * width + (c + dc).rem_euclid(width)) as usize;
+                        if !v.contains(&j) {
+                            v.push(j);
+                        }
+                    }
+                }
+                v.into_iter()
+                    .map(|j| (j, self.points[i].dot(self.points[j]).clamp(-1.0, 1.0).acos() * self.radius_km / cell_km))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Surface relative de chaque case (cosinus de la latitude, au moins 0,02).
+    pub fn cell_area(&self) -> Vec<f32> {
+        self.points.iter().map(|p| (1.0 - p.z * p.z).max(0.0).sqrt().max(0.02)).collect()
+    }
+
     /// Indice d'une case (colonne, ligne).
     fn cell_of(&self, col: i32, row: i32) -> Option<usize> {
         let width = self.width;
