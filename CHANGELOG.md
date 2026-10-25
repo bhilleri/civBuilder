@@ -50,6 +50,12 @@
 - **Villages tribaux et camps barbares nommés** (Repaire des Loups, Antre des Scorpions, Camp de Kaldvik…) : nom affiché sous l'icône de près, cliquable, dans le journal et dans la recherche (filtre « Villages et camps »).
 - L'infobulle donne l'origine d'un nom (« nom nordique, « froid » »).
 
+### Mers et océans
+- La mer est **partagée en étendues nommées**, de la plus vaste à la plus précise : océans (découpés là où la mer se resserre ; le nom d'un grand océan est répété en plusieurs endroits), mers (fermées ou presque, ou parties abritées d'un océan le long d'une côte, de taille modeste), golfes et baies (jusqu'à la ligne entre les deux caps de leur entrée), détroits (passages entre deux terres, précieux à tenir). Un golfe peut être dans une mer, elle-même dans un océan. Noms d'après la langue et la nature des côtes (Mer des Glaces, Golfe Ardent, Baie des Phoques, Passe des Vents) ; un golfe à l'embouchure d'un fleuve peut en porter le nom (Golfe de la Vaska).
+- **Noms à leur échelle** : océans de très loin, mers de loin, golfes en s'approchant, baies et détroits de près ; fondu à l'apparition ; capitales espacées pour océans et mers ; un nom n'apparaît que si l'étendue est assez large à l'écran et en partie explorée.
+- Correction : sur une planète aux pôles couverts de terre, l'océan ne touche aucun bord de la carte et était pris pour une mer intérieure géante (rangée parmi les lacs, bassins des fleuves comptés comme fermés) ; une mer intérieure fait désormais au plus 800 cases.
+- Cliquables comme les autres noms (pourtour doré au survol, la caméra y va), dans la recherche (filtre « Mers et océans », qui reprend les mers intérieures) et dans l'infobulle (« Côte — Baie des Phoques, Mer de Vodava ») ; option d'affichage « Mers et océans ».
+
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 
 Les saisons du climat façonnent maintenant les paysages  : 7 nouveaux terrains, de la jungle à la taïga.

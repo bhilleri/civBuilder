@@ -695,6 +695,96 @@ pub fn camp_name(info: &CellInfo, namer: &mut Namer) -> String {
     format!("{generic} {}", de(&w, false, false))
 }
 
+/// Nom d'une étendue marine, d'après ses côtes (`coast` : cases de terre qui la bordent), sa
+/// latitude moyenne, son rang (le plus grand océan) et le fleuve qui s'y jette (golfe, baie).
+/// Rend le nom, son genre et l'origine du nom propre.
+pub fn sea_name(
+    kind: crate::seas::SeaKind,
+    coast: &[&CellInfo],
+    latitude: f32,
+    largest: bool,
+    river: Option<(&str, bool)>,
+    namer: &mut Namer,
+) -> (String, bool, Option<Etymology>) {
+    use crate::seas::SeaKind;
+    let language = if coast.is_empty() { Language::Polynesienne } else { main_language(coast) };
+    let k = if coast.is_empty() { Character::Plain } else { dominant(coast) };
+    let cold = k == Character::Cold || latitude.abs() > 60.0;
+    let (generic, fem) = match kind {
+        SeaKind::Ocean => ("Océan", false),
+        SeaKind::Sea => ("Mer", true),
+        SeaKind::Gulf => ("Golfe", false),
+        SeaKind::Bay => ("Baie", true),
+        SeaKind::Strait => ("Détroit", false),
+    };
+    // Golfe ou baie à l'embouchure d'un fleuve : son nom (une fois sur deux)
+    if let Some((name, river_fem)) = river
+        && matches!(kind, SeaKind::Gulf | SeaKind::Bay)
+        && namer.chance(0.5)
+    {
+        let full = format!("{generic} {}", de(name, river_fem, true));
+        if namer.claim(&full) {
+            return (full, fem, None);
+        }
+    }
+    let descriptive: Vec<&str> = match kind {
+        SeaKind::Ocean if latitude > 45.0 => vec!["Océan Boréal"],
+        SeaKind::Ocean if latitude < -45.0 => vec!["Océan Austral"],
+        SeaKind::Ocean if largest => vec!["Grand Océan"],
+        SeaKind::Ocean => vec![],
+        SeaKind::Sea if cold && latitude >= 0.0 => vec!["Mer des Glaces", "Mer Boréale"],
+        SeaKind::Sea if cold => vec!["Mer des Glaces", "Mer Australe"],
+        SeaKind::Sea => match k {
+            Character::Desert => vec!["Mer Ardente", "Mer de Sel"],
+            Character::Jungle => vec!["Mer Émeraude", "Mer des Moussons"],
+            Character::Forest => vec!["Mer des Brumes", "Mer Sombre"],
+            _ => vec!["Mer des Tempêtes", "Mer Calme", "Mer des Brumes"],
+        },
+        SeaKind::Gulf if cold => vec!["Golfe Gelé", "Golfe des Glaces"],
+        SeaKind::Gulf => match k {
+            Character::Desert => vec!["Golfe Ardent"],
+            Character::Jungle => vec!["Golfe des Moussons"],
+            _ => vec!["Golfe Profond", "Golfe des Tempêtes", "Golfe des Brumes"],
+        },
+        SeaKind::Bay if cold => vec!["Baie des Phoques", "Baie Gelée"],
+        SeaKind::Bay => match k {
+            Character::Desert => vec!["Baie des Tortues", "Baie Ardente"],
+            Character::Jungle => vec!["Baie des Tortues", "Baie des Palétuviers"],
+            Character::Forest => vec!["Baie des Pins"],
+            Character::High => vec!["Baie des Falaises"],
+            _ => vec!["Baie Calme", "Baie des Naufrages", "Baie des Mouettes"],
+        },
+        SeaKind::Strait if cold => vec!["Détroit des Glaces"],
+        SeaKind::Strait => vec!["Détroit des Brumes", "Passe des Vents", "Détroit des Courants", "Passe Étroite"],
+    };
+    // Océans polaires et le plus grand : nom descriptif d'office ; ailleurs, 4 fois sur 10
+    let p = if kind == SeaKind::Ocean { 0.85 } else { 0.4 };
+    if !descriptive.is_empty() && namer.chance(p) {
+        let pick = namer.choose(&descriptive);
+        if namer.claim(pick) {
+            return (pick.to_string(), pick.starts_with("Passe") || fem, None);
+        }
+    }
+    let hint = if namer.chance(0.35) {
+        Some(match k {
+            _ if cold => Glace,
+            Character::Desert => Sable,
+            Character::High => Montagne,
+            _ if kind == SeaKind::Strait => Vent,
+            _ => Eau,
+        })
+    } else {
+        None
+    };
+    let (w, e) = namer.proper(language, hint);
+    let name = match kind {
+        SeaKind::Ocean => format!("Océan {w}"),
+        _ => format!("{generic} {}", de(&w, feminine(&w), false)),
+    };
+    let _ = namer.claim(&name);
+    (name, fem, Some(e))
+}
+
 /// Nom d'une plaque tectonique : « plaque de Vaskar », dans la langue de son centre.
 pub fn plate_name(language: Language, namer: &mut Namer) -> String {
     let (w, _) = namer.proper(language, None);

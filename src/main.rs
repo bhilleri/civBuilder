@@ -27,6 +27,7 @@ mod relief;
 mod rules;
 mod seam;
 mod search;
+mod seas;
 mod sites;
 mod tooltip;
 mod toponymy;

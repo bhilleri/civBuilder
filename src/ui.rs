@@ -909,12 +909,19 @@ fn update_hover_text(
             let altitude = (shows(Info::Altitude) && land_here)
                 .then(|| format!("{} m", round_meters(m.elevation(h).unwrap_or(0.0))));
             // Lac ou mer intérieure nommés : leur nom et leur nature plutôt que « Lac » ou « Océan »
+            // Étendues marines de la case : « Côte — Baie des Phoques, Mer de Vaskar »
+            let seas_here = if m.contains(h) { m.seas().chain(m.cell(h)) } else { Vec::new() };
+            let sea_note = if seas_here.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", seas_here.iter().map(|&z| m.seas().zones[z].name.as_str()).collect::<Vec<_>>().join(", "))
+            };
             let terrain = match m.contains(h).then(|| m.basins().lake(m.cell(h))).flatten() {
                 Some(body) => match body.etymology {
                     Some(e) => format!("{} ({} ; {})", body.name, body.kind.short(), e.describe()),
                     None => format!("{} ({})", body.name, body.kind.short()),
                 },
-                None => m.describe(h),
+                None => format!("{}{sea_note}", m.describe(h)),
             };
             match (shows(Info::Terrain), altitude) {
                 (true, Some(a)) => place.push(format!("{terrain} ({a})")),

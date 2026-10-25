@@ -20,6 +20,9 @@ pub const PASS_LAKE_CELLS: usize = 2;
 /// Une étendue de mer fermée (sans contact avec le bord de la carte) d'au moins autant de cases est
 /// une mer intérieure.
 pub const MIN_INLAND_SEA_CELLS: usize = 3;
+/// … et d'au plus autant de cases : sur une planète aux pôles couverts de terre, l'océan ne touche
+/// aucun bord de la carte, ce n'est pas pour autant une mer intérieure.
+pub const MAX_INLAND_SEA_CELLS: usize = 800;
 /// Coins d'une case qui doivent envoyer leur eau vers un autre bassin pour qu'elle le dessert
 /// (moitié : hachurée) ; au-delà, la case appartient à cet autre bassin.
 pub const SHARED_MIN_CORNERS: usize = 3;
@@ -551,7 +554,8 @@ pub fn compute(input: &BasinInput) -> Basins {
         }
         seas.push(group);
     }
-    let inland: Vec<bool> = seas.iter().map(|g| g.len() >= MIN_INLAND_SEA_CELLS && !g.iter().any(|&c| on_border(c))).collect();
+    let inland: Vec<bool> =
+        seas.iter().map(|g| (MIN_INLAND_SEA_CELLS..=MAX_INLAND_SEA_CELLS).contains(&g.len()) && !g.iter().any(|&c| on_border(c))).collect();
     // Lac traversé par un fleuve : ses cases sont dans un tronçon
     let crossed = |g: usize| {
         lake_groups[g].len() <= PASS_LAKE_CELLS

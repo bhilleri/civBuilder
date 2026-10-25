@@ -381,6 +381,18 @@ fn terrain() -> Article {
                étiquette, ou aucune) et les rubriques de l'infobulle, pour chaque carte : par défaut le terrain, le \
                climat, les rendements et le coût de déplacement, plus ce qui concerne la carte affichée (débit sur la \
                carte des débits, bassin et affluents sur celle des bassins versants…)."),
+            h("Mers et océans"),
+            p("La mer est partagée en étendues nommées, d'après ses côtes, de la plus vaste à la plus précise : les \
+               océans (découpés là où la mer se resserre entre les terres ; le nom d'un grand océan est répété en \
+               plusieurs endroits) ; les mers, fermées ou presque, ou parties abritées d'un océan le long d'une côte \
+               (entre une côte et des îles, devant une côte concave) ; les golfes et les baies (eaux enveloppées par \
+               une même terre, jusqu'à la ligne entre les deux caps de leur entrée ; un golfe où se jette un fleuve \
+               peut en porter le nom : « Golfe de la Vaska ») ; les détroits (passages de 1 à 4 cases entre deux \
+               terres distinctes, précieux à tenir). Un golfe peut être dans une mer, elle-même dans un océan. Les \
+               noms s'affichent à leur échelle : océans de très loin, mers de loin, golfes en s'approchant, baies et \
+               détroits de près, en capitales espacées pour les plus grandes ; un nom n'apparaît que si l'étendue est \
+               assez large à l'écran et qu'une partie en est explorée. L'infobulle d'une case de mer donne ses \
+               étendues (« Côte — Baie des Phoques, Mer de Vodava, Grand Océan »)."),
             h("Trouver un lieu"),
             p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
                ne comptent pas) ; les puces filtrent par catégorie (villes, cours d'eau, lacs et mers, bassins \

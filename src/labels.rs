@@ -81,12 +81,14 @@ struct BannerPop;
 pub struct LabelFilter {
     pub rivers: bool,
     pub lakes: bool,
+    pub seas: bool,
     pub cities: bool,
+    pub sites: bool,
 }
 
 impl Default for LabelFilter {
     fn default() -> Self {
-        Self { rivers: true, lakes: true, cities: true }
+        Self { rivers: true, lakes: true, seas: true, cities: true, sites: true }
     }
 }
 
@@ -140,13 +142,14 @@ impl Plugin for LabelsPlugin {
                 update_hp_bars_3d,
                 spawn_site_labels,
                 despawn_site_labels,
+                spawn_sea_names,
             ),
         )
         .init_resource::<LabelFilter>()
         .add_systems(Update, update_hovered_label)
         .add_systems(
             PostUpdate,
-            (place_labels, place_river_names).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
+            (place_labels, place_river_names, place_sea_names).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
         );
     }
 }
@@ -201,6 +204,171 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
                     TextColor(Color::WHITE),
                 ));
             });
+    }
+}
+
+/// Nom d'une étendue marine (océan, mer, golfe, baie, détroit).
+#[derive(Component)]
+struct SeaName {
+    zone: usize,
+    /// Un grand océan a son nom répété en plusieurs endroits (copie 0, 1…).
+    copy: usize,
+    /// Rayon d'une case à l'écran (pixels) entre lesquels le nom se montre (fondu aux bords).
+    min_px: f32,
+    max_px: f32,
+    /// Priorité de placement (0 : océans d'abord).
+    rank: u8,
+}
+
+/// Style d'un nom d'étendue marine : capitales espacées pour les océans et les mers, italique
+/// bleu pour toutes ; taille et zoom selon l'importance.
+fn sea_style(kind: crate::seas::SeaKind) -> (f32, f32, bool, f32, f32, u8) {
+    use crate::seas::SeaKind;
+    // (taille, espacement des lettres en rem, capitales, zoom min, zoom max, rang)
+    match kind {
+        SeaKind::Ocean => (22.0, 0.35, true, 0.0, 12.0, 0),
+        SeaKind::Sea => (17.0, 0.22, true, 4.0, 22.0, 1),
+        SeaKind::Gulf => (14.0, 0.06, false, 9.0, 55.0, 2),
+        SeaKind::Bay => (12.5, 0.03, false, 15.0, 120.0, 3),
+        SeaKind::Strait => (12.5, 0.03, false, 15.0, 120.0, 3),
+    }
+}
+const SEA_NAME_COLOR: (f32, f32, f32) = (0.66, 0.82, 0.97);
+/// Un océan a son nom répété une fois par tranche de tant de cases (4 fois au plus), à au moins
+/// `SEA_NAME_SPACING` cases d'écart.
+const SEA_NAME_REPEAT_CELLS: usize = 2_500;
+const SEA_NAME_SPACING: i32 = 35;
+
+/// Une étiquette par étendue marine (refaites si la carte change de monde).
+fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<SeaName>>) {
+    if !map.is_added() {
+        return;
+    }
+    for e in &old {
+        commands.entity(e).despawn();
+    }
+    for (z, zone) in map.0.seas().zones.iter().enumerate() {
+        let (size, spacing, caps, min_px, max_px, rank) = sea_style(zone.kind);
+        let text = if caps { zone.name.to_uppercase() } else { zone.name.clone() };
+        let copies = if zone.kind == crate::seas::SeaKind::Ocean { (zone.cells.len() / SEA_NAME_REPEAT_CELLS).clamp(1, 4) } else { 1 };
+        for copy in 0..copies {
+            commands.spawn((
+                SeaName { zone: z, copy, min_px, max_px, rank },
+                (TargetButton::new(MapTarget::Sea(z)), Interaction::default()),
+                Node { position_type: PositionType::Absolute, ..default() },
+                UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
+                Text::new(text.clone()),
+                TextFont { font_size: size.into(), style: bevy::text::FontStyle::Italic, ..TextFont::from_font_size(size) },
+                bevy::text::LetterSpacing::Rem(spacing),
+                TextColor(Color::srgba(SEA_NAME_COLOR.0, SEA_NAME_COLOR.1, SEA_NAME_COLOR.2, 0.0)),
+                TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::srgba(0.0, 0.03, 0.08, 0.8) },
+                GlobalZIndex(-4),
+                Visibility::Hidden,
+            ));
+        }
+    }
+}
+
+/// Noms des étendues marines : sur la partie explorée la plus éloignée de leurs bords, à leur
+/// niveau de zoom (fondu aux bords de la plage), si l'étendue est assez large à l'écran pour son
+/// nom, sans chevaucher un nom plus important.
+#[allow(clippy::too_many_arguments)]
+fn place_sea_names(
+    mode: Res<ViewMode>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    filter: Res<LabelFilter>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
+    mut names: Query<(&SeaName, &mut Node, &mut Visibility, &mut TextColor, &ComputedNode), Without<RiverName>>,
+    mut spots: Local<Vec<Vec<Hex>>>,
+) {
+    let seas = map.0.seas();
+    // Cases du nom de chaque étendue, parmi ses cases explorées (refaites quand le brouillard
+    // change) : la plus éloignée de ses bords, puis, pour un grand océan, d'autres cases bien au
+    // large, loin des précédentes
+    if fog.is_changed() || spots.len() != seas.zones.len() {
+        *spots = seas
+            .zones
+            .iter()
+            .map(|z| {
+                let known: Vec<(usize, u16)> = z.cells.iter().zip(&z.inner).filter(|(c, _)| fog.explored.contains(&map.0.hex_at(**c))).map(|(c, d)| (*c, *d)).collect();
+                // (assez de l'étendue connue pour la nommer)
+                if known.len() < z.cells.len().min(4) {
+                    return Vec::new();
+                }
+                let Some(&(first, best)) = known.iter().max_by_key(|(c, d)| (*d, std::cmp::Reverse(*c))) else { return Vec::new() };
+                let mut anchors = vec![map.0.hex_at(first)];
+                let wanted = if z.kind == crate::seas::SeaKind::Ocean { (z.cells.len() / SEA_NAME_REPEAT_CELLS).clamp(1, 4) } else { 1 };
+                let offshore: Vec<Hex> = known.iter().filter(|(_, d)| u32::from(*d) * 5 >= u32::from(best) * 3).map(|(c, _)| map.0.hex_at(*c)).collect();
+                while anchors.len() < wanted {
+                    let far = offshore
+                        .iter()
+                        .map(|&h| (anchors.iter().map(|&a| map.0.distance(a, h)).min().unwrap_or(0), h))
+                        .max_by_key(|(d, h)| (*d, std::cmp::Reverse((h.q, h.r))));
+                    match far {
+                        Some((d, h)) if d >= SEA_NAME_SPACING => anchors.push(h),
+                        _ => break,
+                    }
+                }
+                anchors
+            })
+            .collect();
+    }
+    let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
+    let mut order: Vec<_> = names.iter_mut().collect();
+    order.sort_by_key(|(n, ..)| (n.rank, n.copy, n.zone));
+    let mut placed: Vec<ScreenRect> = Vec::new();
+    for (name, mut node, mut vis, mut color, computed) in order {
+        let mut shown = None;
+        if let (Some((camera, transform, _)), true, Some(hex)) = (camera, filter.seas, spots.get(name.zone).and_then(|a| a.get(name.copy))) {
+            let cam_global = GlobalTransform::from(*transform);
+            let world = if mode.is_3d {
+                to_3d(*hex, shown_height(&map, &fog, *hex) + 2.0)
+            } else {
+                let (x, y) = hex.to_world();
+                Vec3::new(x, y, 0.0)
+            };
+            let world = near_camera(&map, world, transform.translation.x);
+            if let Ok(center) = camera.world_to_viewport(&cam_global, world)
+                && let Ok(edge) = camera.world_to_viewport(&cam_global, world + transform.right() * crate::hex::HEX_SIZE)
+            {
+                let px = edge.distance(center).max(0.01);
+                // Fondu aux bords de la plage de zoom
+                let fade_in = if name.min_px <= 0.0 { 1.0 } else { ((px - name.min_px * 0.8) / (name.min_px * 0.4)).clamp(0.0, 1.0) };
+                let fade_out = ((name.max_px * 1.2 - px) / (name.max_px * 0.4)).clamp(0.0, 1.0);
+                let alpha = fade_in.min(fade_out);
+                let size = logical_size(computed, Vec2::new(80.0, 20.0));
+                // L'étendue doit être assez large à l'écran pour son nom
+                let half_width = seas.zones[name.zone].half_width / crate::hex::HEX_SIZE * px;
+                let fits = half_width * 2.0 >= size.x * 0.7;
+                let rect = ScreenRect { min: center - size / 2.0, size };
+                if alpha > 0.02 && fits && !placed.iter().any(|r| r.overlaps(&rect)) {
+                    placed.push(rect);
+                    shown = Some((center, alpha));
+                }
+            }
+        }
+        match shown {
+            Some((p, alpha)) => {
+                let (left, top) = (Val::Px(p.x.round()), Val::Px(p.y.round()));
+                if node.left != left || node.top != top {
+                    node.left = left;
+                    node.top = top;
+                }
+                let c = Color::srgba(SEA_NAME_COLOR.0, SEA_NAME_COLOR.1, SEA_NAME_COLOR.2, alpha * 0.9);
+                if color.0 != c {
+                    color.0 = c;
+                }
+                if *vis != Visibility::Inherited {
+                    *vis = Visibility::Inherited;
+                }
+            }
+            None => {
+                if *vis != Visibility::Hidden {
+                    *vis = Visibility::Hidden;
+                }
+            }
+        }
     }
 }
 
@@ -447,7 +615,7 @@ fn place_labels(
     fog: Res<ShownFog>,
     cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     filter: Res<LabelFilter>,
-    mut labels: Query<(&Anchor, &mut Node, &mut Visibility, Has<CityBanner>), Without<RiverName>>,
+    mut labels: Query<(&Anchor, &mut Node, &mut Visibility, Has<CityBanner>, Has<SiteLabel>), (Without<RiverName>, Without<SeaName>)>,
 ) {
     let Some((camera, transform, _)) = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active) else {
         return;
@@ -455,7 +623,7 @@ fn place_labels(
     let cam_global = GlobalTransform::from(*transform);
     // Inclinaison de la caméra : écrase verticalement le disque d'un jeton à l'écran
     let tilt = (-transform.forward().y).clamp(0.2, 1.0);
-    for (anchor, mut node, mut vis, is_city) in &mut labels {
+    for (anchor, mut node, mut vis, is_city, is_site) in &mut labels {
         let world = if mode.is_3d {
             to_3d(anchor.hex, shown_height(&map, &fog, anchor.hex) + anchor.up_3d)
         } else {
@@ -466,6 +634,7 @@ fn place_labels(
         let shown = !anchor.hidden
             && (mode.is_3d || !anchor.only_3d)
             && (filter.cities || !is_city)
+            && (filter.sites || !is_site)
             && (!anchor.explored_only || fog.explored.contains(&anchor.hex));
         let mut screen = if shown { camera.world_to_viewport(&cam_global, world).ok() } else { None };
         // Assez de zoom (rayon d'une case à l'écran)

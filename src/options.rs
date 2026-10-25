@@ -19,7 +19,9 @@ struct CloseButton;
 enum LabelToggle {
     Rivers,
     Lakes,
+    Seas,
     Cities,
+    Sites,
 }
 /// Choix du comportement de la surbrillance.
 #[derive(Component, Clone, Copy)]
@@ -108,7 +110,13 @@ fn setup_panel(mut commands: Commands) {
 
         p.spawn(section("Étiquettes (N : tout masquer / tout afficher)"));
         p.spawn(row()).with_children(|r| {
-            for (toggle, label) in [(LabelToggle::Rivers, "Cours d'eau"), (LabelToggle::Lakes, "Lacs et mers"), (LabelToggle::Cities, "Villes")] {
+            for (toggle, label) in [
+                (LabelToggle::Rivers, "Cours d'eau"),
+                (LabelToggle::Lakes, "Lacs"),
+                (LabelToggle::Seas, "Mers et océans"),
+                (LabelToggle::Cities, "Villes"),
+                (LabelToggle::Sites, "Villages et camps"),
+            ] {
                 r.spawn((toggle, button(None), children![text(label, 14.0, TEXT)]));
             }
         });
@@ -211,21 +219,25 @@ fn label_toggles(
     mut buttons: Query<(Ref<Interaction>, &LabelToggle, &mut BackgroundColor)>,
 ) {
     if keys.just_pressed(KeyCode::KeyN) {
-        let any = filter.rivers || filter.lakes || filter.cities;
-        *filter = LabelFilter { rivers: !any, lakes: !any, cities: !any };
+        let any = filter.rivers || filter.lakes || filter.seas || filter.cities || filter.sites;
+        *filter = LabelFilter { rivers: !any, lakes: !any, seas: !any, cities: !any, sites: !any };
     }
     for (interaction, toggle, mut bg) in &mut buttons {
         if interaction.is_changed() && *interaction == Interaction::Pressed {
             match toggle {
                 LabelToggle::Rivers => filter.rivers = !filter.rivers,
                 LabelToggle::Lakes => filter.lakes = !filter.lakes,
+                LabelToggle::Seas => filter.seas = !filter.seas,
                 LabelToggle::Cities => filter.cities = !filter.cities,
+                LabelToggle::Sites => filter.sites = !filter.sites,
             }
         }
         let on = match toggle {
             LabelToggle::Rivers => filter.rivers,
             LabelToggle::Lakes => filter.lakes,
+            LabelToggle::Seas => filter.seas,
             LabelToggle::Cities => filter.cities,
+            LabelToggle::Sites => filter.sites,
         };
         let c = if *interaction == Interaction::Hovered { HOVER } else if on { ACTIVE } else { IDLE };
         if bg.0 != c {

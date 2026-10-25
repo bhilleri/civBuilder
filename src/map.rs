@@ -540,6 +540,8 @@ pub struct WorldMap {
     plates: Plates,
     /// Langue parlée sur chaque case (noms des lieux ; vide pour une carte remplie à la main).
     languages: Vec<crate::toponymy::Language>,
+    /// Étendues marines nommées : océans, mers, golfes, baies, détroits.
+    seas: crate::seas::Seas,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -564,6 +566,7 @@ impl WorldMap {
             wrap: Wrap::NONE,
             plates: Plates::default(),
             languages: Vec::new(),
+            seas: crate::seas::Seas::default(),
             step_cache: std::sync::OnceLock::new(),
         }
     }
@@ -576,7 +579,14 @@ impl WorldMap {
 
     /// Noms déjà donnés aux lieux de la carte (cours d'eau, lacs, plaques).
     pub fn names_taken(&self) -> Vec<String> {
-        self.basins.rivers.iter().map(|r| r.name.clone()).chain(self.basins.lakes.iter().map(|l| l.name.clone())).chain(self.plates.plates.iter().map(|p| p.name.clone())).collect()
+        self.basins
+            .rivers
+            .iter()
+            .map(|r| r.name.clone())
+            .chain(self.basins.lakes.iter().map(|l| l.name.clone()))
+            .chain(self.plates.plates.iter().map(|p| p.name.clone()))
+            .chain(self.seas.zones.iter().map(|z| z.name.clone()))
+            .collect()
     }
 
     /// Ce qu'il faut savoir d'une case pour nommer un lieu qui s'y trouve.
@@ -625,6 +635,45 @@ impl WorldMap {
             let language = self.index(self.plates.plates[p].seed).map_or(toponymy::Language::Latine, |i| self.languages[i]);
             self.plates.plates[p].name = toponymy::plate_name(language, &mut namer);
         }
+        // Étendues marines (hors lacs et mers intérieures, déjà nommés), nommées d'après leurs côtes
+        let water: Vec<bool> = (0..n).map(|i| self.tiles[i].is_sea() && self.basins.lake_of[i].is_none()).collect();
+        self.seas = crate::seas::compute(self.width, self.height, self.wrap, &water);
+        // Embouchure de chaque fleuve qui se jette dans la mer : la case de mer voisine
+        let mut mouths: Vec<(usize, usize)> = Vec::new();
+        for (r, river) in self.basins.rivers.iter().enumerate() {
+            if !river.fleuve || river.flows_into.is_some() || river.into_lake.is_some() || river.etymology.is_none() {
+                continue;
+            }
+            let first = self.hex_at(river.first_cell());
+            if let Some(sea) = self.neighbors(first).iter().filter_map(|&nb| self.index(nb)).find(|&j| water[j]) {
+                mouths.push((sea, r));
+            }
+        }
+        for z in 0..self.seas.zones.len() {
+            let zone = &self.seas.zones[z];
+            let mut coast: Vec<usize> = zone.cells.iter().flat_map(|&c| self.neighbors(self.hex_at(c))).filter_map(|nb| self.index(nb)).filter(|&j| !water[j]).collect();
+            coast.sort_unstable();
+            coast.dedup();
+            let coast: Vec<&CellInfo> = coast.iter().map(|&j| &cells[j]).collect();
+            let latitude = zone.cells.iter().map(|&c| self.latitude(self.hex_at(c))).sum::<f32>() / zone.cells.len() as f32;
+            let members: std::collections::HashSet<usize> = zone.cells.iter().copied().collect();
+            let river = mouths
+                .iter()
+                .filter(|(sea, _)| members.contains(sea))
+                .map(|&(_, r)| &self.basins.rivers[r])
+                .max_by(|a, b| a.discharge.total_cmp(&b.discharge))
+                .map(|r| (r.name.as_str(), r.feminine));
+            let (name, feminine, etymology) = toponymy::sea_name(zone.kind, &coast, latitude, z == 0, river, &mut namer);
+            let zone = &mut self.seas.zones[z];
+            zone.name = name;
+            zone.feminine = feminine;
+            zone.etymology = etymology;
+        }
+    }
+
+    /// Étendues marines nommées.
+    pub fn seas(&self) -> &crate::seas::Seas {
+        &self.seas
     }
 
     /// Plaques tectoniques.
