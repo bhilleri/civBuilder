@@ -910,7 +910,10 @@ fn update_hover_text(
                 .then(|| format!("{} m", round_meters(m.elevation(h).unwrap_or(0.0))));
             // Lac ou mer intérieure nommés : leur nom et leur nature plutôt que « Lac » ou « Océan »
             let terrain = match m.contains(h).then(|| m.basins().lake(m.cell(h))).flatten() {
-                Some(body) => format!("{} ({})", body.name, body.kind.short()),
+                Some(body) => match body.etymology {
+                    Some(e) => format!("{} ({} ; {})", body.name, body.kind.short(), e.describe()),
+                    None => format!("{} ({})", body.name, body.kind.short()),
+                },
                 None => m.describe(h),
             };
             match (shows(Info::Terrain), altitude) {
@@ -1055,7 +1058,13 @@ fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
     let flow = |q: f32| format!("≈ {} m³/s", round_flow(q));
     let mut note = String::new();
     if map.is_fleuve(h) {
-        let name = map.named_river(h).map(|r| format!(" {}", r.name)).unwrap_or_default();
+        let name = map
+            .named_river(h)
+            .map(|r| match r.etymology {
+                Some(e) => format!(" {} ({})", r.name, e.describe()),
+                None => format!(" {}", r.name),
+            })
+            .unwrap_or_default();
         note += &format!(
             "\nFleuve{name} ({}) : une unité à pied y entre à gué ou en barque ({FLEUVE_MOVE_COST} PM) ; pas de ville dans son lit",
             flow(map.discharge(h))
@@ -1115,7 +1124,7 @@ fn plate_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
     let (Some(plate), Some(v)) = (map.plate(h), map.plate_velocity(h)) else { return String::new() };
     let heading = ["l'est", "le nord-est", "le nord", "le nord-ouest", "l'ouest", "le sud-ouest", "le sud", "le sud-est"]
         [((v.y.atan2(v.x).to_degrees() + 22.5).rem_euclid(360.0) / 45.0) as usize % 8];
-    let name = plate.name;
+    let name = &plate.name;
     let mut note = format!(
         "\n{}{} ({}), {:.0} cm/an vers {heading}",
         name[..1].to_uppercase(),

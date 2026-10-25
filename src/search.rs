@@ -35,6 +35,8 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MapTarget {
     City(Entity),
+    /// Village tribal ou camp barbare (entité).
+    Site(Entity),
     /// Indice dans `Basins::rivers`.
     River(usize),
     /// Indice dans `Basins::lakes` (lacs et mers intérieures).
@@ -49,6 +51,7 @@ pub enum MapTarget {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Category {
     City,
+    Site,
     River,
     Lake,
     Basin,
@@ -56,11 +59,12 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 5] = [Category::City, Category::River, Category::Lake, Category::Basin, Category::Plate];
+    pub const ALL: [Category; 6] = [Category::City, Category::River, Category::Lake, Category::Basin, Category::Plate, Category::Site];
 
     pub fn label(self) -> &'static str {
         match self {
             Category::City => "Villes",
+            Category::Site => "Villages et camps",
             Category::River => "Cours d'eau",
             Category::Lake => "Lacs et mers",
             Category::Basin => "Bassins versants",
@@ -71,6 +75,7 @@ impl Category {
     fn color(self) -> Color {
         match self {
             Category::City => Color::srgb(0.30, 0.55, 1.0),
+            Category::Site => Color::srgb(0.85, 0.35, 0.25),
             Category::River => Color::srgb(0.45, 0.78, 1.0),
             Category::Lake => Color::srgb(0.20, 0.70, 0.75),
             Category::Basin => Color::srgb(0.45, 0.80, 0.35),
@@ -97,7 +102,7 @@ impl MapTarget {
     /// Le lieu est une zone dont on dessine le pourtour (un cours d'eau ou un lac a déjà sa
     /// surbrillance).
     fn outlined(self) -> bool {
-        matches!(self, MapTarget::City(_) | MapTarget::Basin(_) | MapTarget::Plate(_))
+        matches!(self, MapTarget::City(_) | MapTarget::Site(_) | MapTarget::Basin(_) | MapTarget::Plate(_))
     }
 }
 
@@ -334,7 +339,7 @@ fn thousands(n: u64) -> String {
 
 /// Index des lieux connus : villes du joueur, cours d'eau et lacs dont une partie est explorée,
 /// bassins versants et plaques qui ont une case explorée.
-pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity, String, i32)]) -> Vec<Entry> {
+pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity, String, i32)], sites: &[(Entity, String, bool)]) -> Vec<Entry> {
     let mut entries = Vec::new();
     let mut push = |name: &str, category: Category, detail: String, target: MapTarget, importance: f32| {
         entries.push(Entry { name: name.to_string(), norm: normalize(name), category, detail, target, importance });
@@ -342,16 +347,20 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
     for (e, name, population) in cities {
         push(name, Category::City, format!("Ville · {population} hab."), MapTarget::City(*e), *population as f32);
     }
+    for (e, name, camp) in sites {
+        let detail = if *camp { "Camp barbare" } else { "Village tribal" };
+        push(name, Category::Site, detail.to_string(), MapTarget::Site(*e), 0.0);
+    }
     let basins = map.basins();
     let known = |c: usize| explored.contains(&map.hex_at(c));
     for (r, river) in basins.rivers.iter().enumerate() {
         if !river.spots.iter().any(|&(a, b)| known(a) || known(b)) {
             continue;
         }
-        let into = river.flows_into.map(|f| basins.rivers[f].name).or(river.into_lake.map(|l| basins.lakes[l].name)).unwrap_or("la mer");
+        let into = river.flows_into.map(|f| basins.rivers[f].name.as_str()).or(river.into_lake.map(|l| basins.lakes[l].name.as_str())).unwrap_or("la mer");
         let kind = if river.fleuve { "Fleuve" } else { "Rivière" };
         let detail = format!("{kind} → {into} · {} m³/s", thousands(river.discharge.round() as u64));
-        push(river.name, Category::River, detail, MapTarget::River(r), river.discharge);
+        push(&river.name, Category::River, detail, MapTarget::River(r), river.discharge);
     }
     for (l, lake) in basins.lakes.iter().enumerate() {
         if !lake.cells.iter().any(|&c| known(c)) {
@@ -362,7 +371,7 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
             first.make_ascii_uppercase();
         }
         let detail = format!("{kind} · {} cases", lake.cells.len());
-        push(lake.name, Category::Lake, detail, MapTarget::Lake(l), lake.cells.len() as f32);
+        push(&lake.name, Category::Lake, detail, MapTarget::Lake(l), lake.cells.len() as f32);
     }
     // Bassins et plaques : ceux qui ont une case explorée
     let plates = map.plates();
@@ -384,10 +393,10 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
     seen_basins.sort_unstable();
     for b in seen_basins {
         let basin = &basins.basins[b];
-        let Some(name) = basins.basin_name(basin) else { continue };
+        let Some(title) = basins.basin_title(basin) else { continue };
         let closed = if basin.closed { " fermé" } else { "" };
         let detail = format!("Bassin versant{closed} · {} cases", thousands(u64::from(basin.cells)));
-        push(&format!("Bassin {name}"), Category::Basin, detail, MapTarget::Basin(b), basin.cells as f32);
+        push(&title, Category::Basin, detail, MapTarget::Basin(b), basin.cells as f32);
     }
     let mut seen_plates: Vec<usize> = seen_plates.into_iter().collect();
     seen_plates.sort_unstable();
@@ -398,7 +407,11 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
             crate::plates::PlateKind::Oceanic => "Plaque océanique",
         };
         let detail = format!("{kind} · {} cases", thousands(plate.cells as u64));
-        push(&format!("Plaque {}", plate.name), Category::Plate, detail, MapTarget::Plate(p), plate.cells as f32);
+        let mut name = plate.name.clone();
+        if let Some(first) = name.get_mut(0..1) {
+            first.make_ascii_uppercase();
+        }
+        push(&name, Category::Plate, detail, MapTarget::Plate(p), plate.cells as f32);
     }
     entries
 }
@@ -430,11 +443,12 @@ fn run_query(entries: &[Entry], query: &str, filter: Option<Category>) -> (Vec<H
 // ------------------------------------------------------------------ Zones et cadrage
 
 /// Cases connues d'un lieu (explorées ; le territoire d'une ville en entier).
-fn target_hexes(map: &WorldMap, fog: &ShownFog, territory: &Territory, city_hex: Option<Hex>, target: MapTarget) -> Vec<Hex> {
+fn target_hexes(map: &WorldMap, fog: &ShownFog, territory: &Territory, entity_hex: Option<Hex>, target: MapTarget) -> Vec<Hex> {
     let explored = |h: &Hex| fog.explored.contains(h);
     let basins = map.basins();
     let mut hexes: Vec<Hex> = match target {
-        MapTarget::City(e) => territory.0.iter().filter(|(_, owner)| **owner == e).map(|(h, _)| *h).chain(city_hex).collect(),
+        MapTarget::City(e) => territory.0.iter().filter(|(_, owner)| **owner == e).map(|(h, _)| *h).chain(entity_hex).collect(),
+        MapTarget::Site(_) => entity_hex.into_iter().collect(),
         MapTarget::River(r) => basins.rivers.get(r).map_or_else(Vec::new, |river| {
             river.spots.iter().flat_map(|&(a, b)| [a, b]).map(|c| map.hex_at(c)).filter(explored).collect()
         }),
@@ -497,7 +511,7 @@ fn focus_camera(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     territory: Res<Territory>,
-    cities: Query<&HexPos, With<City>>,
+    positions: Query<&HexPos>,
     mode: Res<ViewMode>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -508,11 +522,11 @@ fn focus_camera(
     camera2d: Single<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
 ) {
     for &FocusTarget(target) in requests.read() {
-        let city_hex = match target {
-            MapTarget::City(e) => cities.get(e).ok().map(|p| p.0),
+        let entity_hex = match target {
+            MapTarget::City(e) | MapTarget::Site(e) => positions.get(e).ok().map(|p| p.0),
             _ => None,
         };
-        let points: Vec<Vec2> = target_hexes(&map.0, &fog, &territory, city_hex, target).into_iter().map(|h| Vec2::from(h.to_world())).collect();
+        let points: Vec<Vec2> = target_hexes(&map.0, &fog, &territory, entity_hex, target).into_iter().map(|h| Vec2::from(h.to_world())).collect();
         if let Some((center, half)) = area_bounds(&points, map.0.wrap().world_width()) {
             flight.0 = Some(Flight { center, half: half + Vec2::splat(HEX_SIZE), elapsed: 0.0 });
             pointed.flash = Some((target, FLASH_SECONDS));
@@ -633,7 +647,7 @@ fn draw_pointed_area(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     territory: Res<Territory>,
-    cities: Query<&HexPos, With<City>>,
+    positions: Query<&HexPos>,
     mode: Res<ViewMode>,
     relief: Option<Res<Relief>>,
     time: Res<Time>,
@@ -646,11 +660,11 @@ fn draw_pointed_area(
         return;
     };
     if cache.as_ref().is_none_or(|(t, _)| *t != target) || fog.is_changed() || territory.is_changed() {
-        let city_hex = match target {
-            MapTarget::City(e) => cities.get(e).ok().map(|p| p.0),
+        let entity_hex = match target {
+            MapTarget::City(e) | MapTarget::Site(e) => positions.get(e).ok().map(|p| p.0),
             _ => None,
         };
-        let hexes = target_hexes(&map.0, &fog, &territory, city_hex, target);
+        let hexes = target_hexes(&map.0, &fog, &territory, entity_hex, target);
         *cache = Some((target, outline(&map.0, &hexes)));
     }
     let Some((_, edges)) = cache.as_ref() else { return };
@@ -783,7 +797,7 @@ fn setup_search(mut commands: Commands) {
                         children![
                             (
                                 SearchPlaceholder,
-                                text("Ville, fleuve, lac, bassin, plaque…", 16.0, MUTED),
+                                text("Ville, camp, fleuve, lac, bassin, plaque…", 16.0, MUTED),
                                 Node { position_type: PositionType::Absolute, left: Val::Px(0.0), ..default() },
                             ),
                             (
@@ -813,6 +827,7 @@ fn setup_search(mut commands: Commands) {
                 children![
                     chip(None),
                     chip(Some(Category::City)),
+                    chip(Some(Category::Site)),
                     chip(Some(Category::River)),
                     chip(Some(Category::Lake)),
                     chip(Some(Category::Basin)),
@@ -902,6 +917,8 @@ fn build_index(
     debug: Res<DebugMode>,
     cities: Query<(Entity, &City)>,
     changed_cities: Query<(), Changed<City>>,
+    sites: Query<(Entity, &crate::hostile::SiteName, &HexPos, Has<crate::hostile::Camp>)>,
+    mut site_count: Local<usize>,
     mut was_open: Local<bool>,
 ) {
     let opened = search.open && !*was_open;
@@ -909,12 +926,17 @@ fn build_index(
     if !search.open {
         return;
     }
-    if !(opened || search.stale || fog.is_changed() || debug.is_changed() || !changed_cities.is_empty()) {
+    let count = sites.iter().count();
+    let sites_changed = count != *site_count;
+    *site_count = count;
+    if !(opened || search.stale || sites_changed || fog.is_changed() || debug.is_changed() || !changed_cities.is_empty()) {
         return;
     }
+    let site_list: Vec<(Entity, String, bool)> =
+        sites.iter().filter(|(_, _, p, _)| fog.explored.contains(&p.0)).map(|(e, n, _, camp)| (e, n.0.clone(), camp)).collect();
     let mut list: Vec<(Entity, String, i32)> = cities.iter().map(|(e, c)| (e, c.state.name.clone(), c.state.population)).collect();
     list.sort_by(|a, b| a.1.cmp(&b.1));
-    search.entries = build_entries(&map.0, &fog.explored, &list);
+    search.entries = build_entries(&map.0, &fog.explored, &list, &site_list);
     search.stale = false;
     let (hits, counts) = run_query(&search.entries, &search.query, search.filter);
     search.hits = hits;
@@ -1207,10 +1229,10 @@ mod tests {
     #[test]
     fn index_des_lieux_connus() {
         let m = WorldMap::generate_in(96, 56, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
-        let none = build_entries(&m, &HashSet::new(), &[]);
+        let none = build_entries(&m, &HashSet::new(), &[], &[]);
         assert!(none.is_empty(), "rien d'exploré : rien à chercher");
         let all: HashSet<Hex> = m.hexes().collect();
-        let entries = build_entries(&m, &all, &[]);
+        let entries = build_entries(&m, &all, &[], &[]);
         let count = |c: Category| entries.iter().filter(|e| e.category == c).count();
         assert_eq!(count(Category::River), m.basins().rivers.len());
         assert_eq!(count(Category::Lake), m.basins().lakes.len());

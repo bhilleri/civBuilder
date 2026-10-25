@@ -32,6 +32,10 @@ pub const CAMP_CAPTURE_GOLD: i32 = 25;
 #[derive(Component)]
 pub struct Village;
 
+/// Nom d'un village tribal ou d'un camp barbare (« Kaldvik », « Repaire des Loups »).
+#[derive(Component, Clone)]
+pub struct SiteName(pub String);
+
 #[derive(Component)]
 pub struct Camp {
     pub cooldown: u32,
@@ -100,11 +104,16 @@ fn spawn_hostile(commands: &mut Commands, at: Hex, home: Hex) {
 fn spawn_sites(mut commands: Commands, map: Res<GameMap>, seed: Res<WorldSeed>) {
     let start = map.0.find_start().expect("aucun emplacement de départ");
     let placed = sites::place_sites(&map.0, start, seed.0);
+    // Noms dans la langue du lieu, jamais ceux d'un autre lieu de la carte
+    let mut namer = crate::toponymy::Namer::with_taken(seed.0 as u32 ^ 0x5173, map.0.names_taken());
+    let info = |h: Hex| map.0.cell_info(h).expect("site sur la carte");
     for &v in &placed.villages {
-        commands.spawn((Village, HexPos(v)));
+        let name = crate::toponymy::village_name(&info(v), &mut namer);
+        commands.spawn((Village, SiteName(name), HexPos(v)));
     }
     for &c in &placed.camps {
-        commands.spawn((Camp { cooldown: CAMP_SPAWN_INTERVAL }, HexPos(c)));
+        let name = crate::toponymy::camp_name(&info(c), &mut namer);
+        commands.spawn((Camp { cooldown: CAMP_SPAWN_INTERVAL }, SiteName(name), HexPos(c)));
         // Un premier guerrier sur une case voisine
         if let Some(&at) = map.0.neighbors(c).iter().find(|&&h| map.0.move_cost(h).is_some()) {
             spawn_hostile(&mut commands, at, c);
@@ -121,8 +130,8 @@ pub fn visit_sites(
     mut territory: ResMut<Territory>,
     mut log: ResMut<GameLog>,
     movers: Query<(&Unit, &HexPos), (Without<Hostile>, Changed<HexPos>)>,
-    villages: Query<(Entity, &HexPos), With<Village>>,
-    camps: Query<(Entity, &HexPos), With<Camp>>,
+    villages: Query<(Entity, &HexPos, &SiteName), With<Village>>,
+    camps: Query<(Entity, &HexPos, &SiteName), With<Camp>>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
     others: Query<&HexPos, Or<(With<Unit>, With<Camp>, With<Village>)>>,
 ) {
@@ -136,15 +145,15 @@ pub fn visit_sites(
     let mut rng = rand::rng();
     let mut taken: HashSet<Hex> = others.iter().map(|p| p.0).chain(cities.iter().map(|(_, p, _)| p.0)).collect();
 
-    for (camp, pos) in &camps {
+    for (camp, pos, name) in &camps {
         if touched.contains(&pos.0) {
             commands.entity(camp).despawn();
             state.gold += CAMP_CAPTURE_GOLD;
-            log.push(format!("Camp hostile dispersé : +{CAMP_CAPTURE_GOLD} or."));
+            log.push(format!("{} dispersé : +{CAMP_CAPTURE_GOLD} or.", name.0));
         }
     }
 
-    for (village, pos) in &villages {
+    for (village, pos, name) in &villages {
         if !touched.contains(&pos.0) {
             continue;
         }
@@ -157,11 +166,11 @@ pub fn visit_sites(
                 city.state.population += 1;
                 let radius = rules::territory_radius(city.state.population);
                 claim_territory(&mut territory.0, entity, center.0, radius, &map.0);
-                log.push(format!("Village : les habitants rejoignent {} (+1 habitant).", city.state.name));
+                log.push(format!("Village de {} : les habitants rejoignent {} (+1 habitant).", name.0, city.state.name));
             }
             VillageEvent::Trade { gold } => {
                 state.gold += gold;
-                log.push(format!("Village : échanges commerciaux, +{gold} or."));
+                log.push(format!("Village de {} : échanges commerciaux, +{gold} or.", name.0));
             }
             VillageEvent::Hostile { warriors } => {
                 let mut free: Vec<Hex> = map
@@ -178,7 +187,7 @@ pub fn visit_sites(
                     spawn_hostile(&mut commands, at, pos.0);
                     spawned += 1;
                 }
-                log.push(format!("Village hostile : {spawned} milice(s) hostile(s) surgissent !"));
+                log.push(format!("Village de {} hostile : {spawned} milice(s) hostile(s) surgissent !", name.0));
             }
         }
     }

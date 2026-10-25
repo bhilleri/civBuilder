@@ -36,13 +36,24 @@ struct Anchor {
     hidden: bool,
     /// Barre de PV : posée sous le jeton, à une taille qui suit le zoom.
     under_token: bool,
+    /// Montrée seulement si sa case est explorée et assez grande à l'écran (rayon en pixels).
+    explored_only: bool,
+    min_px: f32,
 }
 
 impl Anchor {
     fn new(hex: Hex, up_2d: f32, up_3d: f32, only_3d: bool) -> Self {
-        Anchor { hex, up_2d, up_3d, only_3d, hidden: false, under_token: false }
+        Anchor { hex, up_2d, up_3d, only_3d, hidden: false, under_token: false, explored_only: false, min_px: 0.0 }
     }
 }
+
+/// Nom d'un village tribal ou d'un camp barbare, sous son icône.
+#[derive(Component)]
+struct SiteLabel(Entity);
+const CAMP_LABEL_BG: Color = Color::srgba(0.35, 0.06, 0.05, 0.85);
+const VILLAGE_LABEL_BG: Color = Color::srgba(0.30, 0.22, 0.10, 0.85);
+/// Rayon d'une case à l'écran (pixels) à partir duquel les noms des sites apparaissent.
+const SITE_LABEL_PX: f32 = 16.0;
 
 /// Barre de PV d'une unité en vue 3D.
 #[derive(Component)]
@@ -127,6 +138,8 @@ impl Plugin for LabelsPlugin {
                 update_turn_labels_3d,
                 spawn_hp_bars_3d,
                 update_hp_bars_3d,
+                spawn_site_labels,
+                despawn_site_labels,
             ),
         )
         .init_resource::<LabelFilter>()
@@ -191,6 +204,38 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
     }
 }
 
+/// Nom des villages et des camps (cliquable : la caméra y va), une fois leur case explorée.
+fn spawn_site_labels(mut commands: Commands, sites: Query<(Entity, &crate::hostile::SiteName, &HexPos, Has<crate::hostile::Camp>), Added<crate::hostile::SiteName>>) {
+    for (entity, name, pos, camp) in &sites {
+        commands.spawn((
+            SiteLabel(entity),
+            (TargetButton::new(MapTarget::Site(entity)), Interaction::default()),
+            Anchor { explored_only: true, min_px: SITE_LABEL_PX, ..Anchor::new(pos.0, -17.0, 6.0, false) },
+            Node {
+                position_type: PositionType::Absolute,
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(7.0)),
+                ..default()
+            },
+            // Ancre au milieu du bord supérieur (sous l'icône)
+            UiTransform::from_translation(Val2::percent(-50.0, 0.0)),
+            BackgroundColor(if camp { CAMP_LABEL_BG } else { VILLAGE_LABEL_BG }),
+            GlobalZIndex(-2),
+            Visibility::Hidden,
+            children![(Text::new(name.0.clone()), TextFont::from_font_size(11.0), TextColor(Color::srgb(0.96, 0.92, 0.85)))],
+        ));
+    }
+}
+
+/// Le nom disparaît avec son site (camp dispersé, village visité).
+fn despawn_site_labels(mut commands: Commands, labels: Query<(Entity, &SiteLabel)>, sites: Query<(), With<crate::hostile::SiteName>>) {
+    for (label, site) in &labels {
+        if sites.get(site.0).is_err() {
+            commands.entity(label).despawn();
+        }
+    }
+}
+
 /// Une étiquette par grand lac et par cours d'eau nommé (refaites si la carte change de
 /// monde) ; les plus importants en plus gros.
 fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<RiverName>>) {
@@ -219,7 +264,7 @@ fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entit
             BackgroundColor(LAKE_NAME_BG),
             GlobalZIndex(-3),
             Visibility::Hidden,
-            children![(Text::new(lake.name), TextFont::from_font_size(size), TextColor(color))],
+            children![(Text::new(lake.name.clone()), TextFont::from_font_size(size), TextColor(color))],
         ));
     }
     for (i, river) in basins.rivers.iter().enumerate() {
@@ -238,7 +283,7 @@ fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entit
             BackgroundColor(if river.fleuve { RIVER_NAME_BG } else { STREAM_NAME_BG }),
             GlobalZIndex(-3),
             Visibility::Hidden,
-            children![(Text::new(river.name), TextFont::from_font_size(size), TextColor(color))],
+            children![(Text::new(river.name.clone()), TextFont::from_font_size(size), TextColor(color))],
         ));
     }
 }
@@ -418,8 +463,20 @@ fn place_labels(
             Vec3::new(x, y + anchor.up_2d, 0.0)
         };
         let world = near_camera(&map, world, transform.translation.x);
-        let shown = !anchor.hidden && (mode.is_3d || !anchor.only_3d) && (filter.cities || !is_city);
+        let shown = !anchor.hidden
+            && (mode.is_3d || !anchor.only_3d)
+            && (filter.cities || !is_city)
+            && (!anchor.explored_only || fog.explored.contains(&anchor.hex));
         let mut screen = if shown { camera.world_to_viewport(&cam_global, world).ok() } else { None };
+        // Assez de zoom (rayon d'une case à l'écran)
+        if anchor.min_px > 0.0
+            && let Some(center) = screen
+        {
+            let edge = camera.world_to_viewport(&cam_global, world + transform.right() * crate::hex::HEX_SIZE).ok();
+            if edge.is_none_or(|e| e.distance(center) < anchor.min_px) {
+                screen = None;
+            }
+        }
         if anchor.under_token
             && let Some(center) = screen
         {

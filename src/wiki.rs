@@ -134,20 +134,25 @@ fn waters() -> Article {
                de plus en plus lointains ; le principal cours qui entre dans un lac garde le rang du lac. Des chevrons \
                y montrent le sens du courant."),
             p(format!(
-                "Les fleuves portent le nom d'un grand fleuve réel qui coule à une latitude voisine : les plus \
-                 abondants reçoivent les plus grands noms (Amazone sous l'équateur, Mississippi ou Danube aux latitudes \
-                 moyennes, Ienisseï ou Léna dans le Grand Nord). Chaque affluent porte son propre nom (un long affluent \
-                 compte au moins {} cases de fleuve), et les rivières prennent des noms de rivières réelles plus modestes \
-                 (Garonne, Tage, Ohio…) ; un nom peut resservir loin de son premier emploi. Le nom apparaît sur la carte une fois une partie de son cours découverte, près de son \
-                 milieu ; de loin, seuls les grands fleuves sont nommés (en plus gros), les longs affluents apparaissent \
-                 en s'approchant, toutes les rivières en zoom fin, et un nom qui en chevaucherait un plus important est décalé le long du cours ou masqué.",
+                "Les noms des lieux viennent de huit langues en partie inventées (nordique, latine, slave, turque, \
+                 berbère, bantoue, nahua, polynésienne) : les mots n'existent pas, mais ils ont les sons de la vraie famille \
+                 de langues, et parfois une vraie racine choisie d'après le lieu (Kaldvik : « froid » en nordique ; \
+                 Kumseydag : « sable » en turc). Chaque région du monde parle sa langue, là où le climat lui ressemble \
+                 (nordique au froid, berbère au chaud et sec…) ; l'infobulle donne l'origine d'un nom. Certains lieux ont un \
+                 nom descriptif tiré de leur nature : Lac Gelé, Grand Lac Salé, Rivière Noire (jungle ou marais), Rivière \
+                 Blanche (née dans la neige) ; un affluent presque aussi abondant que le fleuve qu'il rejoint en devient le \
+                 jumeau (Vaska Blanche, Petit Taldor). Un nom ne sert qu'une fois. Chaque affluent porte son propre nom (un \
+                 long affluent compte au moins {} cases de fleuve). Le nom apparaît sur la carte une fois une partie de son \
+                 cours découverte, près de son milieu ; de loin, seuls les grands fleuves sont nommés (en plus gros), les \
+                 longs affluents apparaissent en s'approchant, toutes les rivières en zoom fin, et un nom qui en \
+                 chevaucherait un plus important est décalé le long du cours ou masqué. Les villages tribaux et les camps \
+                 barbares ont aussi leur nom (Repaire des Loups, Antre des Scorpions…), affiché de près.",
                 crate::basins::MIN_NAMED_CELLS
             )),
             p("Un fleuve garde son nom de l'embouchure à sa source, à travers les petits lacs d'une ou deux cases ; ses \
-               petits bras portent le nom du cours où ils se jettent. Les étendues d'eau portent le nom d'une étendue \
-               réelle de latitude voisine, selon leur nature : un lac d'eau douce se déverse dans un cours d'eau (lac \
-               Supérieur, Victoria, Baïkal…) ; un lac salé n'a pas d'issue, l'eau s'en évapore (lac Tchad, Grand Lac \
-               Salé…) ; une mer intérieure est une étendue de mer enclavée dans les terres (mer Caspienne, mer d'Aral…). \
+               petits bras portent le nom du cours où ils se jettent. Les étendues d'eau sont de trois natures : un lac \
+               d'eau douce se déverse dans un cours d'eau ; un lac salé n'a pas d'issue, l'eau s'en évapore ; une mer \
+               intérieure est une étendue de mer enclavée dans les terres. \
                Un fleuve presque entouré par un lac en fait partie, et un petit lac qu'un fleuve traverse porte le nom du \
                fleuve. Survoler un cours d'eau ou un \
                lac le trace en rouge, ses affluents en orange, les affluents de ses affluents (de proche en proche) en \

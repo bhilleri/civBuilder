@@ -49,10 +49,10 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub fn name(self, basins: &Basins) -> &'static str {
+    pub fn name(self, basins: &Basins) -> &str {
         match self {
-            Feature::River(r) => basins.rivers[r].name,
-            Feature::Lake(l) => basins.lakes[l].name,
+            Feature::River(r) => &basins.rivers[r].name,
+            Feature::Lake(l) => &basins.lakes[l].name,
         }
     }
 }

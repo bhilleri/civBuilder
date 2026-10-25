@@ -29,6 +29,7 @@ mod seam;
 mod search;
 mod sites;
 mod tooltip;
+mod toponymy;
 mod ui;
 mod units;
 mod view3d;

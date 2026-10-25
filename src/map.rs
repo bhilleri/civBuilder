@@ -538,6 +538,8 @@ pub struct WorldMap {
     wrap: Wrap,
     /// Plaques tectoniques (vides pour une carte remplie à la main).
     plates: Plates,
+    /// Langue parlée sur chaque case (noms des lieux ; vide pour une carte remplie à la main).
+    languages: Vec<crate::toponymy::Language>,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -561,6 +563,7 @@ impl WorldMap {
             basins: Basins::empty(n),
             wrap: Wrap::NONE,
             plates: Plates::default(),
+            languages: Vec::new(),
             step_cache: std::sync::OnceLock::new(),
         }
     }
@@ -569,6 +572,59 @@ impl WorldMap {
         let (col, row) = self.wrap.hex(hex).to_offset();
         (col >= 0 && col < self.width && row >= 0 && row < self.height)
             .then(|| (row * self.width + col) as usize)
+    }
+
+    /// Noms déjà donnés aux lieux de la carte (cours d'eau, lacs, plaques).
+    pub fn names_taken(&self) -> Vec<String> {
+        self.basins.rivers.iter().map(|r| r.name.clone()).chain(self.basins.lakes.iter().map(|l| l.name.clone())).chain(self.plates.plates.iter().map(|p| p.name.clone())).collect()
+    }
+
+    /// Ce qu'il faut savoir d'une case pour nommer un lieu qui s'y trouve.
+    pub fn cell_info(&self, hex: Hex) -> Option<crate::toponymy::CellInfo> {
+        let i = self.index(hex)?;
+        Some(crate::toponymy::CellInfo {
+            language: self.languages.get(i).copied().unwrap_or(crate::toponymy::Language::Latine),
+            temperature: self.climate.temperature.get(i).copied().unwrap_or(15.0),
+            aridity: self.climate.aridity(i).unwrap_or(1.0),
+            elevation: self.elevation[i],
+            terrain: self.tiles[i],
+        })
+    }
+
+    /// Langues des régions, puis noms des cours d'eau, des lacs et des plaques.
+    fn add_names(&mut self, seed: u32) {
+        use crate::toponymy::{self, CellInfo, Namer};
+        let n = self.tiles.len();
+        let points: Vec<bevy::math::Vec3> = (0..n)
+            .map(|i| {
+                let h = self.hex_at(i);
+                plates::sphere_point(h, self.width, self.latitude(h))
+            })
+            .collect();
+        let land: Vec<bool> = self.tiles.iter().map(|t| !t.is_water()).collect();
+        let climate: Vec<(f32, f32)> =
+            (0..n).map(|i| (self.climate.temperature.get(i).copied().unwrap_or(15.0), self.climate.aridity(i).unwrap_or(1.0))).collect();
+        self.languages = toponymy::languages(&points, &land, &climate, seed);
+        let cells: Vec<CellInfo> = (0..n)
+            .map(|i| {
+                let h = self.hex_at(i);
+                let mut terrain = self.tiles[i];
+                // Un lac est caractérisé par ses rives (forêt, désert…)
+                if terrain == Terrain::Lake {
+                    let shore: Vec<Terrain> = self.neighbors(h).iter().filter_map(|&nb| self.get(nb)).filter(|t| !t.is_water()).collect();
+                    if let Some(t) = shore.iter().max_by_key(|t| shore.iter().filter(|u| u == t).count()) {
+                        terrain = *t;
+                    }
+                }
+                CellInfo { language: self.languages[i], temperature: climate[i].0, aridity: climate[i].1, elevation: self.elevation[i], terrain }
+            })
+            .collect();
+        let mut namer = Namer::new(seed);
+        toponymy::name_waters(&mut self.basins, &cells, &mut namer);
+        for p in 0..self.plates.plates.len() {
+            let language = self.index(self.plates.plates[p].seed).map_or(toponymy::Language::Latine, |i| self.languages[i]);
+            self.plates.plates[p].name = toponymy::plate_name(language, &mut namer);
+        }
     }
 
     /// Plaques tectoniques.
@@ -1275,6 +1331,8 @@ impl WorldMap {
             // 6) Cours d'eau et lacs (voir hydro.rs)
             map.add_hydrology();
             map.add_marshes();
+            // 7) Langues des régions et noms des lieux (voir toponymy.rs)
+            map.add_names(seed);
         }
         map
     }

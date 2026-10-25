@@ -6,8 +6,8 @@
 //!
 //! Noms : chaque fleuve est découpé en tronçons, du plus fort débit vers l'amont (le cours
 //! principal remonte toujours l'affluent le plus abondant ; un affluent assez long porte son
-//! propre nom). Les tronçons reçoivent, du plus abondant au moins abondant, le nom du plus
-//! grand fleuve réel encore libre coulant à une latitude voisine.
+//! propre nom). Les noms eux-mêmes sont donnés ensuite (voir toponymy.rs), d'après la langue et
+//! le caractère des lieux.
 
 use crate::hex::{DIRECTIONS, Hex, Wrap};
 use crate::hydro::RiverSegment;
@@ -15,8 +15,6 @@ use std::collections::HashMap;
 
 /// Un affluent de fleuve d'au moins autant de cases est un « long affluent » (nommé de plus loin).
 pub const MIN_NAMED_CELLS: usize = 3;
-/// Distance minimale (cases) entre deux cours d'eau qui portent le même nom.
-const REUSE_DISTANCE: i32 = 30;
 /// Un fleuve garde son nom à travers un lac d'au plus autant de cases.
 pub const PASS_LAKE_CELLS: usize = 2;
 /// Une étendue de mer fermée (sans contact avec le bord de la carte) d'au moins autant de cases est
@@ -25,213 +23,9 @@ pub const MIN_INLAND_SEA_CELLS: usize = 3;
 /// Coins d'une case qui doivent envoyer leur eau vers un autre bassin pour qu'elle le dessert
 /// (moitié : hachurée) ; au-delà, la case appartient à cet autre bassin.
 pub const SHARED_MIN_CORNERS: usize = 3;
-/// Écarts de latitude (degrés) essayés successivement pour trouver un nom.
-const LATITUDE_WINDOWS: [f32; 3] = [8.0, 16.0, 30.0];
 /// Nombre de couleurs vives (grands bassins, ceux d'un fleuve nommé) et sobres (les autres).
 pub const VIVID_COLORS: usize = 12;
 pub const MUTED_COLORS: usize = 4;
-
-/// Grands fleuves de la Terre : nom, latitude moyenne de leur cours (degrés, nord positif) et
-/// débit moyen à l'embouchure (m³/s, ordre de grandeur).
-pub const REAL_RIVERS: &[(&str, f32, f32)] = &[
-    ("Amazone", -3.0, 209_000.0),
-    ("Congo", -2.0, 41_000.0),
-    ("Orénoque", 7.0, 33_000.0),
-    ("Madeira", -9.0, 31_000.0),
-    ("Yangtsé", 30.0, 30_000.0),
-    ("Brahmapoutre", 27.0, 20_000.0),
-    ("Ienisseï", 62.0, 19_600.0),
-    ("Paraná", -27.0, 17_000.0),
-    ("Léna", 64.0, 17_000.0),
-    ("Mississippi", 36.0, 16_800.0),
-    ("Gange", 25.0, 16_000.0),
-    ("Mékong", 17.0, 16_000.0),
-    ("Tocantins", -8.0, 13_600.0),
-    ("Irrawaddy", 20.0, 13_000.0),
-    ("Ob", 60.0, 12_500.0),
-    ("Amour", 51.0, 11_400.0),
-    ("Mackenzie", 64.0, 10_300.0),
-    ("Saint-Laurent", 47.0, 10_100.0),
-    ("Rivière des Perles", 23.0, 9_500.0),
-    ("Volga", 53.0, 8_000.0),
-    ("Columbia", 46.0, 7_500.0),
-    ("Magdalena", 7.0, 7_000.0),
-    ("Sepik", -4.0, 7_000.0),
-    ("Indus", 30.0, 6_600.0),
-    ("Danube", 46.0, 6_500.0),
-    ("Yukon", 63.0, 6_400.0),
-    ("Fly", -7.0, 6_000.0),
-    ("Kapuas", 0.0, 6_000.0),
-    ("Niger", 12.0, 5_600.0),
-    ("Essequibo", 5.0, 5_600.0),
-    ("Salouen", 22.0, 4_900.0),
-    ("Ogooué", -1.0, 4_700.0),
-    ("Uruguay", -30.0, 4_600.0),
-    ("Petchora", 65.0, 4_100.0),
-    ("Zambèze", -16.0, 4_000.0),
-    ("Kolyma", 67.0, 3_800.0),
-    ("Fleuve Rouge", 22.0, 3_700.0),
-    ("Godavari", 18.0, 3_500.0),
-    ("Fraser", 52.0, 3_500.0),
-    ("Dvina", 63.0, 3_300.0),
-    ("Khatanga", 72.0, 3_000.0),
-    ("São Francisco", -12.0, 2_900.0),
-    ("Nil", 15.0, 2_800.0),
-    ("Usumacinta", 17.0, 2_700.0),
-    ("Fleuve Jaune", 36.0, 2_500.0),
-    ("Nelson", 56.0, 2_400.0),
-    ("Rhin", 49.0, 2_300.0),
-    ("Sanaga", 4.0, 2_000.0),
-    ("Indigirka", 68.0, 1_800.0),
-    ("Rhône", 45.0, 1_700.0),
-    ("Anadyr", 65.0, 1_700.0),
-    ("Dniepr", 50.0, 1_670.0),
-    ("Krishna", 16.0, 1_600.0),
-    ("Pô", 45.0, 1_500.0),
-    ("Amou-Daria", 40.0, 1_400.0),
-    ("Narmada", 22.0, 1_400.0),
-    ("Olenek", 70.0, 1_200.0),
-    ("Volta", 8.0, 1_200.0),
-    ("Chari", 11.0, 1_100.0),
-    ("Vistule", 52.0, 1_080.0),
-    ("Kouanza", -9.0, 1_000.0),
-    ("Tigre", 35.0, 1_000.0),
-    ("Biobío", -37.0, 960.0),
-    ("Don", 49.0, 935.0),
-    ("Loire", 47.0, 900.0),
-    ("Ménam", 15.0, 900.0),
-    ("Rufiji", -8.0, 900.0),
-    ("Río Negro", -40.0, 900.0),
-    ("Baker", -47.0, 900.0),
-    ("Elbe", 52.0, 870.0),
-    ("Euphrate", 35.0, 850.0),
-    ("Murray", -35.0, 770.0),
-    ("Syr-Daria", 42.0, 700.0),
-    ("Santa Cruz", -50.0, 700.0),
-    ("Glomma", 61.0, 700.0),
-    ("Sénégal", 15.0, 680.0),
-    ("Colorado", 36.0, 600.0),
-    ("Clutha", -46.0, 600.0),
-    ("Oder", 52.0, 570.0),
-    ("Seine", 49.0, 560.0),
-    ("Colville", 70.0, 500.0),
-    ("Oural", 50.0, 400.0),
-    ("Orange", -29.0, 365.0),
-    ("Waikato", -38.0, 340.0),
-    ("Okavango", -18.0, 300.0),
-    ("Taïmyra", 75.0, 300.0),
-    ("Limpopo", -23.0, 170.0),
-    ("Rio Grande", 29.0, 150.0),
-];
-
-/// Rivières réelles plus modestes (affluents, fleuves côtiers) : nom français et latitude
-/// moyenne de leur cours (degrés, nord positif). Les plus connues d'abord.
-pub const REAL_STREAMS: &[(&str, f32)] = &[
-    ("Garonne", 44.5), ("Tamise", 51.5), ("Tage", 39.5), ("Tibre", 42.5), ("Missouri", 44.0), ("Ohio", 38.5),
-    ("Jourdain", 32.0), ("Xingu", -6.0), ("Tapajós", -5.0), ("Oubangui", 3.0), ("Kasaï", -5.0), ("Irtych", 57.0),
-    ("Angara", 57.0), ("Oka", 55.0), ("Kama", 57.0), ("Dordogne", 45.0), ("Charente", 45.8), ("Meuse", 50.0),
-    ("Moselle", 49.5), ("Marne", 49.0), ("Saône", 47.0), ("Douro", 41.2), ("Èbre", 42.0), ("Guadalquivir", 37.5),
-    ("Arno", 43.7), ("Escaut", 50.8), ("Somme", 50.0), ("Oise", 49.5), ("Isère", 45.3), ("Durance", 44.0),
-    ("Lot", 44.5), ("Tarn", 44.0), ("Allier", 46.0), ("Cher", 47.0), ("Vienne", 46.5), ("Adour", 43.7),
-    ("Vilaine", 47.8), ("Doubs", 47.0), ("Aude", 43.0), ("Hérault", 43.5), ("Orne", 49.0), ("Ardèche", 44.5),
-    ("Guadiana", 38.5), ("Minho", 42.0), ("Adige", 46.0), ("Severn", 52.0), ("Trent", 53.0), ("Shannon", 53.0),
-    ("Tay", 56.5), ("Clyde", 55.8), ("Weser", 52.5), ("Main", 50.0), ("Neckar", 49.0), ("Ems", 52.5),
-    ("Inn", 47.5), ("Drave", 46.0), ("Save", 45.0), ("Tisza", 47.0), ("Morava", 49.0), ("Vltava", 50.0),
-    ("Warta", 52.5), ("Bug", 52.0), ("Niémen", 54.5), ("Daugava", 56.5), ("Narva", 59.0), ("Tornio", 66.0),
-    ("Kemi", 66.5), ("Oulu", 65.0), ("Dalälven", 60.5), ("Göta", 58.0), ("Neva", 59.9), ("Svir", 61.0),
-    ("Onega", 63.0), ("Mezen", 65.0), ("Dniestr", 48.0), ("Boug", 47.5), ("Desna", 51.5), ("Pripiat", 52.0),
-    ("Viatka", 58.0), ("Belaïa", 54.5), ("Donets", 49.0), ("Kouban", 45.0), ("Terek", 43.5), ("Koura", 41.0),
-    ("Araxe", 39.5), ("Tobol", 56.0), ("Vilioui", 63.5), ("Aldan", 60.0), ("Vitim", 57.0), ("Selenga", 50.0),
-    ("Toura", 58.0), ("Tom", 55.0), ("Ichim", 56.0), ("Kotouï", 70.0), ("Piassina", 72.0), ("Iana", 69.0),
-    ("Alazeïa", 69.0), ("Omolon", 66.0), ("Ili", 44.0), ("Tchou", 44.0), ("Zeravchan", 39.5), ("Helmand", 31.0),
-    ("Kaboul", 34.5), ("Karoun", 31.5), ("Oronte", 35.0), ("Kızılırmak", 40.0), ("Sakarya", 40.5), ("Litani", 33.3),
-    ("Yamuna", 27.0), ("Ghaghara", 27.0), ("Kosi", 26.5), ("Sutlej", 30.5), ("Chenab", 32.0), ("Jhelum", 33.0),
-    ("Ravi", 31.0), ("Mahanadi", 21.0), ("Kaveri", 11.5), ("Tapti", 21.5), ("Teesta", 26.5), ("Sabarmati", 23.0),
-    ("Han", 37.5), ("Yalou", 40.5), ("Liao", 42.0), ("Songhua", 46.0), ("Oussouri", 47.0), ("Huai", 33.0),
-    ("Min", 26.0), ("Tone", 36.0), ("Shinano", 37.0), ("Ishikari", 43.3), ("Kitakami", 39.0), ("Tumen", 42.5),
-    ("Nen", 48.0), ("Wei", 34.5), ("Mun", 15.0), ("Tonlé Sap", 12.5), ("Sittang", 18.0), ("Chindwin", 23.0),
-    ("Pahang", 3.5), ("Rajang", 2.0), ("Mahakam", -0.5), ("Barito", -2.0), ("Musi", -3.0), ("Batang Hari", -1.5),
-    ("Cagayan", 17.5), ("Agusan", 8.0), ("Darling", -31.0), ("Murrumbidgee", -34.5), ("Burdekin", -20.0),
-    ("Fitzroy", -23.0), ("Victoria", -16.0), ("Ord", -16.0), ("Gascoyne", -24.8), ("Swan", -32.0),
-    ("Whanganui", -39.5), ("Rakaia", -43.5), ("Purari", -7.5), ("Digul", -6.5), ("Mamberamo", -2.5),
-    ("Lualaba", -6.0), ("Sangha", 1.0), ("Bénoué", 8.5), ("Bani", 13.0), ("Gambie", 13.5), ("Comoé", 7.0),
-    ("Bandama", 7.0), ("Sassandra", 6.5), ("Mono", 7.0), ("Ouémé", 8.0), ("Cross", 5.5), ("Atbara", 16.0),
-    ("Nil Bleu", 12.0), ("Sobat", 8.5), ("Omo", 6.0), ("Juba", 2.0), ("Chébéli", 4.0), ("Tana", -1.0),
-    ("Ruvuma", -11.0), ("Shire", -15.0), ("Sabi", -21.0), ("Kafue", -15.5), ("Luangwa", -13.0), ("Cuando", -16.0),
-    ("Cunene", -17.0), ("Vaal", -27.0), ("Tugela", -28.7), ("Fish", -27.0), ("Sebou", 34.0), ("Moulouya", 34.5),
-    ("Chélif", 36.0), ("Medjerda", 36.5), ("Draa", 29.5), ("Mangoky", -21.8), ("Betsiboka", -16.5),
-    ("Logone", 10.0), ("Ogun", 7.5), ("Arkansas", 36.0), ("Tennessee", 35.0), ("Rivière Rouge", 32.0),
-    ("Platte", 41.0), ("Yellowstone", 46.0), ("Snake", 44.0), ("Sacramento", 39.5), ("Hudson", 42.0),
-    ("Delaware", 40.5), ("Potomac", 39.0), ("Susquehanna", 40.5), ("Connecticut", 43.0), ("Outaouais", 46.0),
-    ("Saguenay", 48.5), ("Churchill", 57.0), ("Athabasca", 56.0), ("Saskatchewan", 53.5), ("Peace", 57.0),
-    ("Liard", 60.0), ("Porcupine", 67.0), ("Kuskokwim", 61.5), ("Susitna", 62.0), ("Stikine", 57.0),
-    ("Skeena", 54.5), ("Thompson", 50.0), ("Wabash", 39.5), ("Illinois", 40.0), ("Cumberland", 36.5),
-    ("Brazos", 31.0), ("Pecos", 32.0), ("Gila", 33.0), ("Alabama", 32.0), ("Savannah", 33.0), ("Neches", 31.0),
-    ("Chattahoochee", 32.5), ("Rupert", 51.5), ("Moose", 51.0), ("Albany", 51.5), ("Thelon", 64.0),
-    ("Coppermine", 67.5), ("Back", 66.0), ("Kazan", 63.0), ("George", 57.0), ("Koksoak", 58.0),
-    ("Grande Rivière", 53.7), ("Balsas", 18.0), ("Lerma", 20.5), ("Grijalva", 17.5), ("Papaloapan", 18.0),
-    ("Yaqui", 28.0), ("Fuerte", 26.0), ("Motagua", 15.0), ("Coco", 14.5), ("San Juan", 11.0), ("Chagres", 9.0),
-    ("Purus", -7.0), ("Juruá", -6.0), ("Japurá", -2.0), ("Içá", -2.5), ("Rio Branco", 2.0), ("Trombetas", -1.0),
-    ("Ucayali", -8.0), ("Marañón", -5.0), ("Huallaga", -7.0), ("Napo", -1.5), ("Caquetá", 0.5),
-    ("Putumayo", -1.5), ("Guaviare", 3.0), ("Meta", 5.0), ("Apure", 7.5), ("Caroní", 6.0), ("Cauca", 7.0),
-    ("Atrato", 7.0), ("Paraguay", -22.0), ("Pilcomayo", -22.0), ("Bermejo", -24.0), ("Salado", -28.0),
-    ("Iguaçu", -25.5), ("Tietê", -22.0), ("Paranaíba", -18.0), ("Araguaia", -12.0), ("Parnaíba", -6.0),
-    ("Jequitinhonha", -16.5), ("Doce", -19.5), ("Paraíba", -22.0), ("Itajaí", -27.0), ("Jacuí", -30.0),
-    ("Chubut", -43.5), ("Deseado", -47.5), ("Chico", -49.0), ("Gallegos", -51.6), ("Maule", -35.5),
-    ("Loa", -22.0), ("Valdivia", -39.8), ("Aconcagua", -32.8), ("Mantaro", -12.0), ("Madre de Dios", -12.0),
-    ("Beni", -13.0), ("Mamoré", -14.0), ("Guaporé", -13.0), ("Thjórsá", 64.0), ("Lagarfljót", 65.0),
-];
-
-/// Grands lacs de la Terre : nom français et latitude, du plus grand au plus petit (à peu près).
-pub const REAL_LAKES: &[(&str, f32)] = &[
-    ("Lac Supérieur", 47.5), ("Lac Victoria", -1.0), ("Lac Huron", 44.8), ("Lac Michigan", 44.0),
-    ("Lac Tanganyika", -6.0), ("Lac Baïkal", 53.5), ("Grand lac de l'Ours", 66.0), ("Lac Malawi", -12.0),
-    ("Grand lac des Esclaves", 61.5), ("Lac Érié", 42.2), ("Lac Winnipeg", 52.5), ("Lac Ontario", 43.7),
-    ("Lac Ladoga", 61.0), ("Lac Onega", 61.7), ("Lac Titicaca", -15.8),
-    ("Lac Nicaragua", 11.5), ("Lac Athabasca", 59.2), ("Lac Taymyr", 74.5), ("Lac Vänern", 59.0), ("Lac Albert", 1.7),
-    ("Lac Nasser", 23.0), ("Lac Volta", 7.5), ("Lac Toba", 2.6), ("Lac Kivu", -2.0), ("Lac Tana", 12.0),
-    ("Lac Poyang", 29.0), ("Lac Dongting", 29.3),
-    ("Lac Khanka", 45.0), ("Lac Khövsgöl", 51.0), ("Lac Taupo", -38.8), ("Lac Argentino", -50.3), ("Lac Buenos Aires", -46.6),
-    ("Lac Nahuel Huapi", -41.0), ("Lac Llanquihue", -41.1), ("Lac Maracaibo", 9.8),
-    ("Lac Okeechobee", 27.0), ("Lac Tahoe", 39.0), ("Lac Léman", 46.4),
-    ("Lac de Constance", 47.6), ("Lac Balaton", 46.8), ("Lac Peïpous", 58.7), ("Lac Inari", 69.0),
-    ("Lac Saimaa", 61.2), ("Lac Mälar", 59.4), ("Lac Vättern", 58.3), ("Lac Sevan", 40.3),
-    ("Lac Bangweulu", -11.0), ("Lac Moero", -9.0), ("Lac Kariba", -17.0), ("Lac Mistassini", 51.0),
-    ("Lac Nipigon", 49.8), ("Lac Reindeer", 57.3), ("Lac Manitoba", 51.0), ("Lac Wollaston", 58.3),
-    ("Lac Dubawnt", 63.1), ("Lac Nettilling", 66.5), ("Lac Amadjuak", 65.0), ("Lac Hazen", 81.7),
-    ("Lac Inle", 20.5), ("Lac Biwa", 35.3), ("Lac Dian", 24.8), ("Lac Erhai", 25.8), ("Lac Hulun", 49.0),
-    ("Lac Zaïssan", 48.0), ("Lac Rukwa", -8.0), ("Lac Mweru", -9.5),
-    ("Lac Kyoga", 1.5), ("Lac Édouard", -0.3), ("Lac Pukaki", -44.0), ("Lac Viedma", -49.6), ("Lac General Carrera", -46.5),
-];
-
-/// Lacs salés (sans issue) de la Terre : nom et latitude, des plus grands aux plus petits.
-pub const REAL_SALT_LAKES: &[(&str, f32)] = &[
-    ("Lac Balkhach", 46.5), ("Lac Tchad", 13.0), ("Lac Turkana", 3.5), ("Lac Issyk-Koul", 42.4),
-    ("Lac Ourmia", 37.7), ("Lac Van", 38.6), ("Lac Qinghai", 36.9), ("Lac Eyre", -28.4), ("Lac Torrens", -31.0),
-    ("Lac Poopó", -18.8), ("Grand Lac Salé", 41.0), ("Lac Alakol", 46.2), ("Lac Gairdner", -31.6),
-    ("Lac Chilwa", -15.3), ("Lac Abaya", 6.3), ("Lac Natron", -2.4), ("Lac Assal", 11.6), ("Lac Mono", 38.0),
-    ("Lac Pyramid", 40.0), ("Salar d'Uyuni", -20.0), ("Lac Tuz", 38.8), ("Lac Elton", 49.1),
-    ("Lac Baskountchak", 48.2), ("Lac Manyara", -3.6), ("Lac Magadi", -1.9), ("Chott el-Jérid", 33.7),
-    ("Lac Mackay", -22.5), ("Lac Amadeus", -24.8), ("Lac Frome", -30.8),
-    ("Lac Mar Chiquita", -30.7), ("Mer Morte", 31.5), ("Mer de Salton", 33.3),
-];
-
-/// Mers intérieures et mers presque fermées de la Terre : nom et latitude.
-pub const REAL_INLAND_SEAS: &[(&str, f32)] = &[
-    ("Mer Caspienne", 42.0), ("Mer Méditerranée", 38.0), ("Mer Noire", 43.0), ("Mer Baltique", 58.0),
-    ("Mer Rouge", 20.0), ("Golfe Persique", 27.0), ("Baie d'Hudson", 60.0), ("Mer d'Aral", 45.0),
-    ("Mer Blanche", 65.5), ("Mer d'Azov", 46.0), ("Mer de Bohai", 38.5), ("Mer de Marmara", 40.7),
-    ("Mer Intérieure de Seto", 34.3), ("Mer Égée", 38.5), ("Mer Adriatique", 43.0), ("Mer Tyrrhénienne", 40.0),
-    ("Mer du Japon", 40.0), ("Mer d'Okhotsk", 55.0), ("Golfe de Botnie", 63.0), ("Mer du Nord", 56.0),
-    ("Golfe du Saint-Laurent", 48.0), ("Mer Jaune", 35.0), ("Golfe du Mexique", 25.0), ("Golfe de Californie", 28.0),
-    ("Mer des Caraïbes", 15.0), ("Mer d'Oman", 20.0), ("Golfe d'Aden", 12.0), ("Mer d'Andaman", 10.0),
-    ("Golfe de Thaïlande", 10.0), ("Mer de Sulu", 8.0), ("Mer de Célèbes", 3.0), ("Golfe de Guinée", 2.0),
-    ("Mer de Java", -5.0), ("Mer de Banda", -5.5), ("Mer de Bismarck", -4.0), ("Mer de Flores", -8.0),
-    ("Mer des Salomon", -8.0), ("Mer d'Arafura", -10.0), ("Mer de Timor", -11.0), ("Golfe de Carpentarie", -14.0),
-    ("Mer de Corail", -18.0), ("Golfe Spencer", -34.0), ("Golfe de Saint-Vincent", -35.0), ("Mer de Tasmanie", -40.0),
-    ("Golfe de San Matías", -41.5), ("Mer de Scotia", -57.0), ("Mer de Weddell", -70.0), ("Mer de Bellingshausen", -70.0),
-    ("Mer d'Amundsen", -73.0), ("Mer de Ross", -75.0),
-];
 
 /// Ce que la simulation hydrologique fournit.
 pub struct BasinInput<'a> {
@@ -325,7 +119,12 @@ impl WaterBody {
 /// Un cours d'eau nommé : tronçon de fleuve (cases) ou de rivière (arêtes).
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamedRiver {
-    pub name: &'static str,
+    /// Nom (vide tant que la toponymie ne l'a pas donné).
+    pub name: String,
+    /// Genre du nom (« la Vaska », « le Taldor »).
+    pub feminine: bool,
+    /// Origine du nom propre (rien pour un nom descriptif : « Rivière Noire »).
+    pub etymology: Option<crate::toponymy::Etymology>,
     /// Fleuve (dans les cases) ou rivière (sur les arêtes).
     pub fleuve: bool,
     /// Importance pour l'affichage : 0 long cours principal d'un fleuve, 1 long affluent de
@@ -362,7 +161,10 @@ impl NamedRiver {
 /// Un lac ou une mer intérieure nommés.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamedLake {
-    pub name: &'static str,
+    /// Nom complet (« Lac Kaldvik », « Mer d'Ilmar », « Lac Gelé »).
+    pub name: String,
+    pub feminine: bool,
+    pub etymology: Option<crate::toponymy::Etymology>,
     pub kind: WaterBody,
     /// Cases du lac, de la plus proche de son centre à la plus lointaine.
     pub cells: Vec<usize>,
@@ -405,8 +207,19 @@ impl Basin {
 
 impl Basins {
     /// Nom d'un bassin : le lac ou la mer intérieure où il finit, sinon son fleuve principal.
-    pub fn basin_name(&self, basin: &Basin) -> Option<&'static str> {
-        basin.lake.map(|l| self.lakes[l].name).or(basin.river.map(|r| self.rivers[r].name))
+    pub fn basin_name(&self, basin: &Basin) -> Option<&str> {
+        basin.lake.map(|l| self.lakes[l].name.as_str()).or(basin.river.map(|r| self.rivers[r].name.as_str()))
+    }
+
+    /// Titre d'un bassin : « Bassin de la Vaska », « Bassin du Lac Gelé », « Bassin de la Mer
+    /// d'Ilmar ».
+    pub fn basin_title(&self, basin: &Basin) -> Option<String> {
+        let (name, fem) = match (basin.lake, basin.river) {
+            (Some(l), _) => (&self.lakes[l].name, self.lakes[l].feminine),
+            (None, Some(r)) => (&self.rivers[r].name, self.rivers[r].feminine),
+            _ => return None,
+        };
+        Some(format!("Bassin {}", crate::toponymy::de(name, fem, true)))
     }
 
     pub fn empty(n: usize) -> Self {
@@ -756,7 +569,6 @@ pub fn compute(input: &BasinInput) -> Basins {
         .chain((0..seas.len()).filter(|&g| inland[g]).map(|g| (seas[g].clone(), WaterBody::InlandSea)))
         .collect();
     bodies.sort_by_key(|(cells, _)| (std::cmp::Reverse(cells.len()), cells[0]));
-    let mut lake_uses: HashMap<&'static str, Vec<Hex>> = HashMap::new();
     let mut lakes = Vec::new();
     let mut lake_of = vec![None; n];
     for (group, kind) in bodies {
@@ -779,12 +591,6 @@ pub fn compute(input: &BasinInput) -> Basins {
             d(a).total_cmp(&d(b)).then(a.cmp(&b))
         });
         let latitude = group.iter().map(|&c| lat_of(c)).sum::<f32>() / group.len() as f32;
-        let tables: [&[(&'static str, f32)]; 2] = match kind {
-            WaterBody::FreshLake => [REAL_LAKES, REAL_SALT_LAKES],
-            WaterBody::SaltLake => [REAL_SALT_LAKES, REAL_LAKES],
-            WaterBody::InlandSea => [REAL_INLAND_SEAS, REAL_SALT_LAKES],
-        };
-        let Some(name) = pick_name(&tables, latitude, hex(cells[0]), wrap, &mut lake_uses) else { continue };
         let id = lakes.len();
         for &c in &group {
             lake_of[c] = Some(id as u16);
@@ -796,7 +602,7 @@ pub fn compute(input: &BasinInput) -> Basins {
         } else {
             2
         };
-        lakes.push(NamedLake { name, kind, cells, tier, latitude, outflow: None, level: 0 });
+        lakes.push(NamedLake { name: String::new(), feminine: false, etymology: None, kind, cells, tier, latitude, outflow: None, level: 0 });
     }
     let lake_at = |cell: usize| lake_of[cell].map(|l| l as usize);
     // Une mer intérieure ferme les bassins qui s'y jettent ; un bassin fermé prend le nom du lac
@@ -812,8 +618,6 @@ pub fn compute(input: &BasinInput) -> Basins {
     }
 
     // --- Noms des cours d'eau
-    let big: Vec<(&'static str, f32)> = REAL_RIVERS.iter().map(|r| (r.0, r.1)).collect();
-    let mut uses: HashMap<&'static str, Vec<Hex>> = HashMap::new();
     let mut rivers: Vec<NamedRiver> = Vec::new();
     let mut river_of = vec![None; n];
     let mut river_on_edge = HashMap::new();
@@ -847,12 +651,11 @@ pub fn compute(input: &BasinInput) -> Basins {
         let cells = fleuve_cells(all);
         let spots: Vec<(usize, usize)> = cells.iter().map(|&c| (c, c)).collect();
         let latitude = cells.iter().map(|&c| lat_of(c)).sum::<f32>() / cells.len() as f32;
-        let Some(name) = pick_name(&[&big, REAL_STREAMS], latitude, hex(cells[cells.len() / 2]), wrap, &mut uses) else { continue };
         river_of_branch.insert(b, rivers.len());
         let course = fleuve_course(all);
         let tier = fleuve_tier(all);
         let discharge = input.discharge[cells[0]];
-        rivers.push(NamedRiver { name, fleuve: true, tier, spots, course, arms: Vec::new(), level: 0, flows_into: None, into_lake: None, discharge, latitude });
+        rivers.push(NamedRiver { name: String::new(), feminine: false, etymology: None, fleuve: true, tier, spots, course, arms: Vec::new(), level: 0, flows_into: None, into_lake: None, discharge, latitude });
     }
     // Cases de fleuve : nom de leur tronçon, ou de celui où se jette leur petit bras (dont le
     // tracé s'ajoute à celui du cours qui lui donne son nom)
@@ -881,8 +684,6 @@ pub fn compute(input: &BasinInput) -> Basins {
         }
         let spots: Vec<(usize, usize)> = branch.iter().map(|&k| edge_cells(k)).collect();
         let latitude = spots.iter().map(|&(a, b)| (lat_of(a) + lat_of(b)) / 2.0).sum::<f32>() / spots.len() as f32;
-        let mid = hex(spots[spots.len() / 2].0);
-        let Some(name) = pick_name(&[REAL_STREAMS, &big], latitude, mid, wrap, &mut uses) else { continue };
         let id = rivers.len() as u16;
         stream_river.push((si, rivers.len()));
         let mut course = Vec::with_capacity(branch.len() + 2);
@@ -905,7 +706,9 @@ pub fn compute(input: &BasinInput) -> Basins {
             river_on_edge.insert((b as u32, (x.dir + 3) % 6), id);
         }
         rivers.push(NamedRiver {
-            name,
+            name: String::new(),
+            feminine: false,
+            etymology: None,
             fleuve: false,
             tier: 2,
             spots,
@@ -1051,28 +854,6 @@ pub fn compute(input: &BasinInput) -> Basins {
     Basins { basin_of, basins, river_of, river_on_edge, rivers, lakes, lake_of, basin_also }
 }
 
-/// Nom d'un cours d'eau de latitude moyenne `latitude` (degrés), milieu `mid` : le premier nom
-/// libre de la première table à ±8°, puis ±16°, ±30°, puis de même dans les tables suivantes ; à défaut, le nom de latitude la plus
-/// proche dont tous les emplois sont à au moins `REUSE_DISTANCE` cases ; sinon aucun.
-fn pick_name(tables: &[&[(&'static str, f32)]], latitude: f32, mid: Hex, wrap: Wrap, uses: &mut HashMap<&'static str, Vec<Hex>>) -> Option<&'static str> {
-    // Sa propre table d'abord (à tous les écarts de latitude), puis les suivantes
-    let fresh = tables.iter().find_map(|t| {
-        LATITUDE_WINDOWS
-            .iter()
-            .find_map(|&window| t.iter().find(|(name, lat)| (lat - latitude).abs() <= window && !uses.contains_key(name)).map(|e| e.0))
-    });
-    let name = fresh.or_else(|| {
-        tables
-            .iter()
-            .flat_map(|t| t.iter())
-            .filter(|(name, _)| uses.get(name).is_none_or(|v| v.iter().all(|&h| wrap.distance(h, mid) >= REUSE_DISTANCE)))
-            .min_by(|a, b| (a.1 - latitude).abs().total_cmp(&(b.1 - latitude).abs()))
-            .map(|e| e.0)
-    })?;
-    uses.entry(name).or_default().push(mid);
-    Some(name)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1133,7 +914,7 @@ mod tests {
         let sea = [false, false, false, false, false, false, false, false, true];
         let discharge = [2_100.0, 2_200.0, 2_300.0, 2_400.0, 2_400.0, 2_500.0, 2_600.0, 2_700.0, 0.0];
         let b = lake_input(9, &downstream, &fleuve, &sea, &lake, &discharge, &[]);
-        assert_eq!(b.rivers.len(), 1, "{:?}", b.rivers.iter().map(|r| r.name).collect::<Vec<_>>());
+        assert_eq!(b.rivers.len(), 1);
         assert_eq!(b.rivers[0].spots.len(), 6);
         // (les 6 cases de fleuve, les 2 du lac, et le bord de la mer à l'embouchure)
         assert_eq!(b.rivers[0].course.len(), 9);
@@ -1151,10 +932,9 @@ mod tests {
         let b = lake_input(6, &downstream, &fleuve, &sea, &lake, &discharge, &[]);
         assert_eq!(b.lakes.len(), 1);
         assert_eq!(b.lakes[0].cells.len(), 3);
-        // Lac sans issue à 45° : un lac salé, le lac Balkhach (le premier de la table à ±8°)
+        // Lac sans issue : un lac salé
         assert_eq!(b.lakes[0].kind, WaterBody::SaltLake);
-        assert_eq!(b.lakes[0].name, "Lac Balkhach");
-        assert_eq!(b.lake(4).map(|l| l.name), Some("Lac Balkhach"));
+        assert_eq!(b.lake_of[4], Some(0));
         assert_eq!(b.rivers.len(), 1);
         assert_eq!(b.rivers[0].into_lake, Some(0));
         assert_eq!(b.lakes[0].outflow, None);
@@ -1191,8 +971,7 @@ mod tests {
         let b = lake_input(w, &downstream, &[false; 35], &sea, &[false; 35], &[1.0; 35], &[]);
         assert_eq!(b.lakes.len(), 1);
         assert_eq!(b.lakes[0].kind, WaterBody::InlandSea);
-        assert_eq!(b.lakes[0].name, "Mer Caspienne");
-        assert_eq!(b.lake(17).map(|l| l.name), Some("Mer Caspienne"));
+        assert_eq!(b.lake_of[17], Some(0));
     }
 
     #[test]
@@ -1217,7 +996,7 @@ mod tests {
         discharge[arm] = 2_000.0;
         let b = line_input(w, &downstream, &fleuve, &sea, &discharge, &[]);
         assert_eq!(b.rivers.len(), 1);
-        assert_eq!(b.river(arm).map(|r| r.name), b.river(0).map(|r| r.name));
+        assert_eq!(b.river_of[arm], b.river_of[0]);
     }
 
     #[test]
@@ -1232,10 +1011,9 @@ mod tests {
         assert_eq!(b.basins[0].outlet, 4);
         assert_eq!(b.basins[0].cells, 5);
         assert!(b.basin_of[5].is_none());
-        // Un seul fleuve nommé, d'aval en amont, à 45° : l'Amour (le plus grand à ±8°)
+        // Un seul fleuve nommé, d'aval en amont
         assert_eq!(b.rivers.len(), 1);
         assert_eq!(b.rivers[0].spots, vec![(4, 4), (3, 3), (2, 2), (1, 1)]);
-        assert_eq!(b.rivers[0].name, "Amour");
         assert_eq!(b.rivers[0].tier, 0);
         assert_eq!(b.basins[0].river, Some(0));
         assert!(b.basins[0].color < VIVID_COLORS);
@@ -1253,12 +1031,10 @@ mod tests {
         assert_eq!(b.rivers.len(), 1);
         let r = &b.rivers[0];
         assert!(!r.fleuve && r.tier == 2 && r.spots.len() == 3);
-        // Nom de rivière à 45° : la Garonne (première de la table à ±8°)
-        assert_eq!(r.name, "Garonne");
         // Visible des deux cases de chaque arête
-        assert_eq!(b.river_on_edge(1, 5).map(|r| r.name), Some("Garonne"));
+        assert_eq!(b.river_on_edge(1, 5), Some(r));
         let other = r.spots[0].1;
-        assert_eq!(b.river_on_edge(other, 2).map(|r| r.name), Some("Garonne"));
+        assert_eq!(b.river_on_edge(other, 2), Some(r));
         assert!(b.river_on_edge(4, 2).is_none());
     }
 
@@ -1272,24 +1048,6 @@ mod tests {
         assert_ne!(b.basin_of[1], b.basin_of[2]);
         assert_ne!(b.basins[0].color, b.basins[1].color);
         assert!(b.basins.iter().all(|x| x.color >= VIVID_COLORS && x.river.is_none()));
-    }
-
-    #[test]
-    fn noms_uniques_et_par_latitude() {
-        let names: std::collections::HashSet<_> = REAL_RIVERS.iter().map(|r| r.0).chain(REAL_STREAMS.iter().map(|r| r.0)).collect();
-        assert_eq!(names.len(), REAL_RIVERS.len() + REAL_STREAMS.len());
-        assert!(REAL_RIVERS.windows(2).all(|w| w[0].2 >= w[1].2), "rangés par débit décroissant");
-    }
-
-    #[test]
-    fn nom_reutilise_loin() {
-        let table: &[(&str, f32)] = &[("Seule", 45.0)];
-        let mut uses = HashMap::new();
-        let a = Hex::from_offset(0, 0);
-        assert_eq!(pick_name(&[table], 45.0, a, Wrap::NONE, &mut uses), Some("Seule"));
-        // Trop près : pas de nom ; assez loin : le nom resservit
-        assert_eq!(pick_name(&[table], 45.0, Hex::from_offset(5, 0), Wrap::NONE, &mut uses), None);
-        assert_eq!(pick_name(&[table], 45.0, Hex::from_offset(REUSE_DISTANCE + 2, 0), Wrap::NONE, &mut uses), Some("Seule"));
     }
 
     #[test]
@@ -1326,7 +1084,7 @@ mod tests {
             if let Some(l) = basin.lake {
                 assert!(basin.closed);
                 assert_ne!(b.lakes[l].kind, WaterBody::FreshLake, "{}", b.lakes[l].name);
-                assert_eq!(b.basin_name(basin), Some(b.lakes[l].name));
+                assert_eq!(b.basin_name(basin), Some(b.lakes[l].name.as_str()));
             }
         }
         for lake in &b.lakes {
@@ -1352,10 +1110,10 @@ mod tests {
             if !m.is_fleuve(down) {
                 continue;
             }
-            let (mine, theirs) = (b.river(m.cell(h)).map(|r| r.name), b.river(m.cell(down)).map(|r| r.name));
+            let (mine, theirs) = (b.river_of[m.cell(h)], b.river_of[m.cell(down)]);
             if mine != theirs {
                 let continued = m.neighbors(down).iter().any(|&u| {
-                    m.is_fleuve(u) && m.downstream(u).is_some_and(|du| m.canonical(u + crate::hex::DIRECTIONS[du]) == down) && b.river(m.cell(u)).map(|r| r.name) == theirs
+                    m.is_fleuve(u) && m.downstream(u).is_some_and(|du| m.canonical(u + crate::hex::DIRECTIONS[du]) == down) && b.river_of[m.cell(u)] == theirs
                 });
                 assert!(continued, "{h:?} : {mine:?} se jette dans {theirs:?} sans confluent");
             }
@@ -1370,14 +1128,11 @@ mod tests {
             let lakes = h.neighbors().iter().filter(|&&nb| m.get(nb) == Some(crate::map::Terrain::Lake)).count();
             assert!(lakes < crate::map::FLEUVE_IN_LAKE, "{h:?}");
         }
-        // Un nom n'est jamais porté par deux cours d'eau proches
-        for (i, r) in b.rivers.iter().enumerate() {
-            for s in &b.rivers[i + 1..] {
-                if r.name == s.name {
-                    let (a, c) = (m.hex_at(r.spots[r.spots.len() / 2].0), m.hex_at(s.spots[s.spots.len() / 2].0));
-                    assert!(m.distance(a, c) >= REUSE_DISTANCE, "{} répété", r.name);
-                }
-            }
+        // Chaque cours d'eau et chaque lac a un nom, jamais le même qu'un autre
+        let mut names = std::collections::HashSet::new();
+        for name in b.rivers.iter().map(|r| &r.name).chain(b.lakes.iter().map(|l| &l.name)) {
+            assert!(!name.is_empty());
+            assert!(names.insert(name.to_lowercase()), "{name} répété");
         }
         // Le fleuve principal d'un bassin est son cours principal
         for (k, r) in b.rivers.iter().enumerate().filter(|(_, r)| r.tier == 0) {

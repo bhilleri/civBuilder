@@ -44,6 +44,12 @@
 ### Graine du monde
 - Champ de la graine éditable (curseur, sélection) : la graine actuelle est sélectionnée à l'ouverture du menu ; **Ctrl+C / Ctrl+V** (presse-papiers du système) et boutons **Copier** / **Coller**.
 
+### Noms des lieux
+- **Huit langues en partie inventées** (nordique, latine, slave, turque, berbère, bantoue, nahua, polynésienne) : des mots qui n'existent pas, avec les sons d'une vraie famille de langues et parfois une vraie racine choisie d'après le lieu (« Kaldvik » : *froid* en nordique). Chaque région du monde parle sa langue, selon son climat.
+- Fini les noms réels (Amazone affluent du Congo…) : cours d'eau, lacs, mers intérieures, bassins et plaques sont nommés dans la langue de leur région, sans doublon. Noms descriptifs tirés de la nature des lieux (Lac Gelé, Grand Lac Salé, Rivière Noire), affluents jumeaux (Vaska Blanche), grammaire française (bassin de la Vaska, du Taldor, de l'Ilmar).
+- **Villages tribaux et camps barbares nommés** (Repaire des Loups, Antre des Scorpions, Camp de Kaldvik…) : nom affiché sous l'icône de près, cliquable, dans le journal et dans la recherche (filtre « Villages et camps »).
+- L'infobulle donne l'origine d'un nom (« nom nordique, « froid » »).
+
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 
 Les saisons du climat façonnent maintenant les paysages  : 7 nouveaux terrains, de la jungle à la taïga.

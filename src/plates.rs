@@ -65,7 +65,8 @@ impl PlateKind {
 /// de départ de sa croissance.
 #[derive(Clone, Debug)]
 pub struct Plate {
-    pub name: &'static str,
+    /// Nom (« plaque de Vaskar »), donné par la toponymie.
+    pub name: String,
     pub kind: PlateKind,
     pub rotation: Vec3,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -163,37 +164,6 @@ pub struct Plates {
     /// Largeur de la carte (cases).
     pub width: i32,
 }
-
-/// Noms (réels) des plaques océaniques, puis continentales.
-const OCEANIC_NAMES: [&str; 9] = [
-    "plaque pacifique",
-    "plaque de Nazca",
-    "plaque de Cocos",
-    "plaque des Philippines",
-    "plaque de Juan de Fuca",
-    "plaque de Scotia",
-    "plaque caraïbe",
-    "plaque de Rivera",
-    "plaque des Mariannes",
-];
-const CONTINENTAL_NAMES: [&str; 16] = [
-    "plaque eurasienne",
-    "plaque africaine",
-    "plaque nord-américaine",
-    "plaque sud-américaine",
-    "plaque indienne",
-    "plaque australienne",
-    "plaque antarctique",
-    "plaque arabique",
-    "plaque somalienne",
-    "plaque anatolienne",
-    "plaque d'Okhotsk",
-    "plaque de l'Amour",
-    "plaque de la Sonde",
-    "plaque du Yangtsé",
-    "plaque iranienne",
-    "plaque égéenne",
-];
 
 impl Plates {
     /// Plaque d'une case (indice dans `plates`).
@@ -375,19 +345,12 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
 
     // Noms, puis mouvements : chaque plaque tourne autour de son pôle d'Euler (axe tiré au
     // hasard) ; sa vitesse maximale (à 90° du pôle) est tirée selon sa nature
-    let mut oceanic: Vec<&'static str> = OCEANIC_NAMES.to_vec();
-    let mut continental: Vec<&'static str> = CONTINENTAL_NAMES.to_vec();
+    // (tirages gardés : les mondes ne changent pas ; les noms sont donnés ensuite par la
+    // toponymie, dans la langue de chaque plaque)
+    let mut oceanic: Vec<usize> = (0..9).collect();
+    let mut continental: Vec<usize> = (0..16).collect();
     oceanic.shuffle(&mut rng);
     continental.shuffle(&mut rng);
-    // La plus grande plaque océanique porte le nom de la plus grande plaque réelle
-    oceanic.sort_by_key(|&nm| nm != "plaque pacifique");
-    let mut by_size: Vec<usize> = (0..count).collect();
-    by_size.sort_by(|&a, &b| areas[b].total_cmp(&areas[a]));
-    let mut names = vec![""; count];
-    for &p in &by_size {
-        let pool = if kinds[p] == PlateKind::Oceanic { &mut oceanic } else { &mut continental };
-        names[p] = if pool.is_empty() { "plaque sans nom" } else { pool.remove(0) };
-    }
     let plates: Vec<Plate> = (0..count)
         .map(|p| {
             let (lo, hi) = if kinds[p] == PlateKind::Oceanic { OCEANIC_SPEED } else { CONTINENTAL_SPEED };
@@ -396,7 +359,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, latitude: &dyn F
             let lon: f32 = rng.random_range(0.0..std::f32::consts::TAU);
             let r = (1.0 - z * z).sqrt();
             let axis = Vec3::new(r * lon.cos(), r * lon.sin(), z);
-            Plate { name: names[p], kind: kinds[p], rotation: axis * speed, cells: sizes[p], seed: seeds[p] }
+            Plate { name: format!("plaque {}", p + 1), kind: kinds[p], rotation: axis * speed, cells: sizes[p], seed: seeds[p] }
         })
         .collect();
     // Vitesse (cm/an) de chaque case : ω × p, décomposée en est et nord
@@ -826,7 +789,7 @@ mod tests {
             let share = cont as f32 / (192.0 * 111.0);
             assert!((0.25..0.6).contains(&share), "graine {seed} : {share}");
             // Noms tous différents
-            let mut names: Vec<_> = p.plates.iter().map(|pl| pl.name).collect();
+            let mut names: Vec<_> = p.plates.iter().map(|pl| pl.name.as_str()).collect();
             names.sort_unstable();
             names.dedup();
             assert_eq!(names.len(), p.plates.len());
