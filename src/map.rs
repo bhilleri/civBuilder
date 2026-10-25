@@ -393,8 +393,8 @@ impl std::ops::AddAssign for Yields {
 impl Terrain {
     pub fn name(self) -> &'static str {
         match self {
-            Terrain::Ocean => "Océan",
-            Terrain::Coast => "Côte",
+            Terrain::Ocean => "Haute mer",
+            Terrain::Coast => "Eaux peu profondes",
             Terrain::Grassland => "Prairie",
             Terrain::Plains => "Plaine",
             Terrain::Desert => "Désert",
@@ -509,6 +509,44 @@ pub const FLEUVE_IN_LAKE: usize = 3;
 /// Altitude (m) d'une ancienne mare de mer devenue cuvette : assez creuse pour qu'un lac
 /// l'occupe toute dès que l'eau y arrive en quantité.
 const POND_DEPTH_M: f32 = -60.0;
+
+/// Fond marin : part des cases de mer (des moins profondes aux plus profondes) et profondeur (m)
+/// atteinte à cette part. Plateau continental jusqu'à 200 m (≈ 14 % des mers : un peu plus que sur Terre, à cause des cases de 40 km), talus jusqu'à
+/// 3 000 m, plaines abyssales jusqu'à 6 000 m ; les fosses (au-delà) suivent les subductions.
+const DEPTH_KNOTS: [(f32, f32); 4] = [(0.0, 10.0), (0.14, SHELF_DEPTH_M), (0.34, ABYSS_DEPTH_M), (1.0, 5_800.0)];
+/// Eaux poissonneuses : nourriture en plus.
+pub const RICH_WATERS_FOOD: i32 = 1;
+/// Remontée d'eaux : latitude maximale (degrés) et force minimale du transport vers le large
+/// (vent de 0 à 1).
+const UPWELLING_MAX_LATITUDE: f32 = 45.0;
+const UPWELLING_MIN: f32 = 0.25;
+/// Mont sous-marin : sommet à au plus cette profondeur, au moins tant au-dessus du fond alentour.
+const SEAMOUNT_MAX_DEPTH_M: f32 = 2_000.0;
+const SEAMOUNT_RISE_M: f32 = 900.0;
+/// … et à au moins autant de cases du plateau continental et des terres.
+const SEAMOUNT_FROM_SHELF: i32 = 2;
+/// Île volcanique isolée : au plus autant de cases.
+const ISLAND_MAX_CELLS: usize = 30;
+/// Fond marin : écart de rang par case d'éloignement de la côte (le plateau longe les côtes).
+const SHELF_DISTANCE_WEIGHT: f64 = 0.15;
+/// Limite du plateau continental (eaux peu profondes) : pêche riche.
+pub const SHELF_DEPTH_M: f32 = 200.0;
+/// Début des abysses et des fosses (m).
+pub const ABYSS_DEPTH_M: f32 = 3_000.0;
+pub const TRENCH_DEPTH_M: f32 = 6_000.0;
+
+/// Eaux poissonneuses (en plus du plateau continental) : chacune donne +1 nourriture (une seule
+/// fois par case).
+pub mod marine {
+    /// Remontée d'eaux froides : le vent pousse l'eau de surface vers le large (côtes ouest des
+    /// continents sous les alizés), l'eau profonde riche remonte.
+    pub const UPWELLING: u8 = 1;
+    /// Mont sous-marin : un volcan qui monte vers la surface (chaînes des points chauds, arcs
+    /// d'îles, abords des dorsales) ; courants et remous y concentrent le plancton et les thons.
+    pub const SEAMOUNT: u8 = 2;
+    /// Eaux d'une île volcanique isolée en haute mer (« effet de masse d'île »).
+    pub const ISLAND: u8 = 4;
+}
 /// Passes climat → cours d'eau : à partir de la deuxième, le climat tient compte des lacs.
 pub const CLIMATE_PASSES: usize = 3;
 
@@ -542,6 +580,10 @@ pub struct WorldMap {
     languages: Vec<crate::toponymy::Language>,
     /// Étendues marines nommées : océans, mers, golfes, baies, détroits.
     seas: crate::seas::Seas,
+    /// Profondeur du fond de chaque case de mer (m, positive ; 0 sur terre).
+    depth: Vec<f32>,
+    /// Eaux poissonneuses de chaque case de mer (voir `marine`).
+    marine: Vec<u8>,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -567,6 +609,8 @@ impl WorldMap {
             plates: Plates::default(),
             languages: Vec::new(),
             seas: crate::seas::Seas::default(),
+            depth: vec![0.0; n],
+            marine: vec![0; n],
             step_cache: std::sync::OnceLock::new(),
         }
     }
@@ -669,6 +713,117 @@ impl WorldMap {
             zone.feminine = feminine;
             zone.etymology = etymology;
         }
+    }
+
+    /// Profondeur du fond (m) d'une case de mer.
+    pub fn depth(&self, hex: Hex) -> Option<f32> {
+        self.index(hex).filter(|&i| self.tiles[i].is_sea()).map(|i| self.depth[i])
+    }
+
+    /// Eaux poissonneuses d'une case (voir `marine`).
+    pub fn marine(&self, hex: Hex) -> u8 {
+        self.index(hex).map_or(0, |i| self.marine[i])
+    }
+
+    /// Eaux poissonneuses : remontées d'eaux froides le long des côtes où le vent pousse l'eau de
+    /// surface vers le large, monts sous-marins (volcans qui montent vers la surface), eaux des
+    /// îles volcaniques isolées en haute mer.
+    fn add_marine_life(&mut self) {
+        let n = self.tiles.len();
+        let open_sea = |i: usize| self.tiles[i].is_sea() && self.basins.lake_of[i].is_none();
+        let pos = |i: usize| {
+            let (x, y) = self.hex_at(i).to_world();
+            bevy::math::Vec2::new(x, y)
+        };
+        let mut marine = vec![0u8; n];
+        // Remontées d'eaux : transport d'Ekman (90° à droite du vent au nord, à gauche au sud)
+        // dirigé vers le large
+        if self.climate.wind.len() == n {
+            for i in (0..n).filter(|&i| open_sea(i)) {
+                let h = self.hex_at(i);
+                let latitude = self.latitude(h);
+                if latitude.abs() < 3.0 || latitude.abs() > UPWELLING_MAX_LATITUDE {
+                    continue;
+                }
+                let me = pos(i);
+                let mut offshore = bevy::math::Vec2::ZERO;
+                for land in self.range(h, 2).filter_map(|nb| self.index(nb)).filter(|&j| !self.tiles[j].is_water()) {
+                    let mut d = me - pos(land);
+                    let world = self.wrap.world_width();
+                    if world > 0.0 {
+                        d.x -= (d.x / world).round() * world;
+                    }
+                    offshore += d.normalize_or_zero();
+                }
+                let Some(offshore) = offshore.try_normalize() else { continue };
+                let (wx, wy) = self.climate.wind[i];
+                let ekman = if latitude >= 0.0 { bevy::math::Vec2::new(wy, -wx) } else { bevy::math::Vec2::new(-wy, wx) };
+                if ekman.dot(offshore) >= UPWELLING_MIN {
+                    marine[i] |= marine::UPWELLING;
+                }
+            }
+        }
+        // Monts sous-marins : fond de haute mer qui remonte nettement au-dessus du fond alentour
+        for i in (0..n).filter(|&i| open_sea(i) && self.depth[i] >= SHELF_DEPTH_M && self.depth[i] <= SEAMOUNT_MAX_DEPTH_M) {
+            let h = self.hex_at(i);
+            // (en pleine mer : le rebord du plateau n'est pas un mont)
+            if self.range(h, SEAMOUNT_FROM_SHELF).filter_map(|nb| self.index(nb)).any(|j| self.depth[j] < SHELF_DEPTH_M || !self.tiles[j].is_sea()) {
+                continue;
+            }
+            let ring: Vec<f32> = self.range(h, 2).filter(|&nb| self.distance(h, nb) == 2).filter_map(|nb| self.index(nb)).filter(|&j| open_sea(j)).map(|j| self.depth[j]).collect();
+            if ring.len() >= 8 && ring.iter().sum::<f32>() / ring.len() as f32 - self.depth[i] >= SEAMOUNT_RISE_M {
+                marine[i] |= marine::SEAMOUNT;
+            }
+        }
+        // Îles volcaniques isolées : petite terre sur une plaque océanique ; ses eaux de haute mer
+        let mut seen = vec![false; n];
+        for start in 0..n {
+            if seen[start] || self.tiles[start].is_water() {
+                continue;
+            }
+            let mut island = vec![start];
+            seen[start] = true;
+            let mut k = 0;
+            while k < island.len() && island.len() <= ISLAND_MAX_CELLS {
+                for nb in self.neighbors(self.hex_at(island[k])) {
+                    if let Some(j) = self.index(nb)
+                        && !seen[j]
+                        && !self.tiles[j].is_water()
+                    {
+                        seen[j] = true;
+                        island.push(j);
+                    }
+                }
+                k += 1;
+            }
+            let oceanic = island.iter().any(|&c| self.plates.plate(c).is_some_and(|p| p.kind == plates::PlateKind::Oceanic));
+            if island.len() > ISLAND_MAX_CELLS || !oceanic {
+                // (grande terre : finir de la marquer)
+                while k < island.len() {
+                    for nb in self.neighbors(self.hex_at(island[k])) {
+                        if let Some(j) = self.index(nb)
+                            && !seen[j]
+                            && !self.tiles[j].is_water()
+                        {
+                            seen[j] = true;
+                            island.push(j);
+                        }
+                    }
+                    k += 1;
+                }
+                continue;
+            }
+            for &c in &island {
+                for nb in self.neighbors(self.hex_at(c)) {
+                    if let Some(j) = self.index(nb)
+                        && open_sea(j)
+                    {
+                        marine[j] |= marine::ISLAND;
+                    }
+                }
+            }
+        }
+        self.marine = marine;
     }
 
     /// Étendues marines nommées.
@@ -804,6 +959,9 @@ impl WorldMap {
         if !t.is_water() && self.fresh_water(hex) {
             // (pas sur une montagne ni un pic : sortis plus haut)
             y.food += FRESH_WATER_FOOD;
+        }
+        if t.is_sea() && self.marine(hex) != 0 {
+            y.food += RICH_WATERS_FOOD;
         }
         Some(y)
     }
@@ -1253,6 +1411,62 @@ impl WorldMap {
             map.tiles[i] = Terrain::Plains;
             map.levels[i] = land_levels[&h];
         }
+        // Fond marin : les cases de mer, rangées de la plus haute à la plus basse, prennent la
+        // profondeur de leur rang (plateau continental là où le socle est haut : continents
+        // submergés ; fosses au pied des subductions)
+        {
+            let mut sea_cells: Vec<(usize, f64)> = elevations.iter().filter(|&&(h, e)| is_sea(h, e)).map(|&(h, e)| (map.index(h).unwrap(), e)).collect();
+            // Distance à la terre (cases) : le plateau longe les côtes, sauf là où le socle plonge
+            // (subductions)
+            let n = map.tiles.len();
+            let mut dist = vec![u16::MAX; n];
+            let mut queue = std::collections::VecDeque::new();
+            for &(h, e) in &elevations {
+                if !is_sea(h, e) {
+                    let i = map.index(h).unwrap();
+                    dist[i] = 0;
+                    queue.push_back(i);
+                }
+            }
+            while let Some(i) = queue.pop_front() {
+                for nb in map.neighbors(map.hex_at(i)) {
+                    if let Some(j) = map.index(nb)
+                        && dist[j] == u16::MAX
+                    {
+                        dist[j] = dist[i] + 1;
+                        queue.push_back(j);
+                    }
+                }
+            }
+            // Rang du socle parmi les mers (0 le plus bas, 1 le plus haut), moins un écart par case
+            // d'éloignement de la côte
+            sea_cells.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+            let last = sea_cells.len().saturating_sub(1).max(1) as f64;
+            // (plus un bruit doux : un plateau plus ou moins large selon les côtes)
+            let shelf_noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(31_337)).set_octaves(3).set_frequency(1.0);
+            for (rank, cell) in sea_cells.iter_mut().enumerate() {
+                let away = f64::from(dist[cell.0].min(100).saturating_sub(1));
+                let wobble = sample(&shelf_noise, map.hex_at(cell.0), 3.0);
+                cell.1 = rank as f64 / last - SHELF_DISTANCE_WEIGHT * away * (1.0 + 0.6 * wobble);
+            }
+            sea_cells.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            let last = sea_cells.len().saturating_sub(1).max(1) as f32;
+            for (rank, &(i, _)) in sea_cells.iter().enumerate() {
+                let share = rank as f32 / last;
+                let k = DEPTH_KNOTS.windows(2).find(|w| share <= w[1].0).unwrap_or(&DEPTH_KNOTS[2..]);
+                let t = ((share - k[0].0) / (k[1].0 - k[0].0)).clamp(0.0, 1.0);
+                map.depth[i] = k[0].1 + (k[1].1 - k[0].1) * t;
+            }
+            // Fosses : le long des subductions et des arcs d'îles, côté plaque océanique qui plonge
+            for &(i, _) in &sea_cells {
+                let boundary = map.plates.boundary.get(i).copied().flatten();
+                let oceanic = map.plates.plate(i).is_some_and(|p| p.kind == plates::PlateKind::Oceanic);
+                if oceanic && dist[i] >= 2 && matches!(boundary, Some(plates::Boundary::Subduction | plates::Boundary::IslandArc)) {
+                    let wobble = sample(&shelf_noise, map.hex_at(i), 6.0) as f32;
+                    map.depth[i] = map.depth[i].max(TRENCH_DEPTH_M + 1_500.0 + 1_500.0 * wobble);
+                }
+            }
+        }
         // Relief de chaque case : note d'escarpement = dénivelée avec les voisines (rangée parmi
         // les terres), bruit propre et altitude ; les cases les mieux notées sont montagnes, puis
         // relief accidenté, puis collines. Les pics sont les plus hauts sommets locaux des montagnes.
@@ -1368,11 +1582,11 @@ impl WorldMap {
                 });
                 map.set(h, t);
             }
-            // 5) Les eaux adjacentes à la terre deviennent des côtes
+            // 5) Les eaux du plateau continental (moins de 200 m) sont des eaux peu profondes
             let coasts: Vec<Hex> = map
                 .hexes()
                 .filter(|&h| map.get(h) == Some(Terrain::Ocean))
-                .filter(|&h| map.neighbors(h).iter().any(|&n| map.get(n).is_some_and(|t| !t.is_water())))
+                .filter(|&h| map.index(h).is_some_and(|i| map.depth[i] < SHELF_DEPTH_M))
                 .collect();
             for h in coasts {
                 map.set(h, Terrain::Coast);
@@ -1382,6 +1596,8 @@ impl WorldMap {
             map.add_marshes();
             // 7) Langues des régions et noms des lieux (voir toponymy.rs)
             map.add_names(seed);
+            // 8) Eaux poissonneuses (remontées d'eaux, monts sous-marins, îles volcaniques)
+            map.add_marine_life();
         }
         map
     }
@@ -2097,6 +2313,55 @@ mod tectonique {
                 count(Relief::Rugged),
                 lakes,
                 m.find_start().map(|h| h.to_offset())
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod fond_marin {
+    use super::*;
+
+    /// Bilan du fond marin et des eaux poissonneuses : `cargo test bilan_fond_marin -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bilan_fond_marin() {
+        for seed in [777, 4242, 31] {
+            let m = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let sea: Vec<Hex> = m.hexes().filter(|&h| m.get(h).is_some_and(|t| t.is_sea())).collect();
+            let count = |f: &dyn Fn(f32) -> bool| sea.iter().filter(|&&h| f(m.depth(h).unwrap())).count();
+            let flag = |b: u8| sea.iter().filter(|&&h| m.marine(h) & b != 0).count();
+            let near_land = sea.iter().filter(|&&h| m.neighbors(h).iter().any(|&n| m.get(n).is_some_and(|t| !t.is_water()))).count();
+            let deep_shore = sea
+                .iter()
+                .filter(|&&h| m.get(h) == Some(Terrain::Ocean) && m.neighbors(h).iter().any(|&n| m.get(n).is_some_and(|t| !t.is_water())))
+                .count();
+            if let Ok(dir) = std::env::var("DEPTH_DUMP") {
+                let out: String = m
+                    .hexes()
+                    .map(|h| {
+                        let class = match m.depth(h) {
+                            None => 0,
+                            Some(d) if d < SHELF_DEPTH_M => 1,
+                            Some(d) if d < ABYSS_DEPTH_M => 2,
+                            Some(d) if d < TRENCH_DEPTH_M => 3,
+                            _ => 4,
+                        };
+                        format!("{class} {}\n", m.marine(h))
+                    })
+                    .collect();
+                std::fs::write(format!("{dir}/depth_{seed}.txt"), out).unwrap();
+            }
+            println!(
+                "graine {seed} : mer {} ; plateau {} ; talus {} ; abysses {} ; fosses {} ; cases au bord des terres {near_land} dont haute mer {deep_shore} ; remontées {} ; monts {} ; îles {}",
+                sea.len(),
+                count(&|d| d < SHELF_DEPTH_M),
+                count(&|d| (SHELF_DEPTH_M..ABYSS_DEPTH_M).contains(&d)),
+                count(&|d| (ABYSS_DEPTH_M..TRENCH_DEPTH_M).contains(&d)),
+                count(&|d| d >= TRENCH_DEPTH_M),
+                flag(marine::UPWELLING),
+                flag(marine::SEAMOUNT),
+                flag(marine::ISLAND),
             );
         }
     }

@@ -322,8 +322,8 @@ fn climate_legend() -> impl Bundle {
             Spawn(legend_row(rain_color(500.0), "500 mm".into())),
             Spawn(legend_row(rain_color(250.0), "250 mm".into())),
             Spawn(legend_row(rain_color(0.0), "Presque rien".into())),
-            Spawn(legend_row(CLIMATE_COAST, "Eau côtière".into())),
-            Spawn(legend_row(CLIMATE_OCEAN, "Eau profonde".into())),
+            Spawn(legend_row(CLIMATE_COAST, "Eaux peu profondes".into())),
+            Spawn(legend_row(CLIMATE_OCEAN, "Haute mer".into())),
             Spawn(text("Flèches : vents dominants", 13.0)),
         )),
     )
@@ -350,8 +350,9 @@ fn topo_legend() -> impl Bundle {
             Spawn(legend_row(altitude_color(800.0), "800 m".into())),
             Spawn(legend_row(altitude_color(300.0), "300 m".into())),
             Spawn(legend_row(altitude_color(0.0), "niveau de la mer".into())),
-            Spawn(legend_row(TOPO_COAST, "Eau côtière, lac".into())),
-            Spawn(legend_row(TOPO_OCEAN, "Eau profonde".into())),
+            Spawn(legend_row(TOPO_COAST, "Eaux peu profondes (moins de 200 m), lac".into())),
+            Spawn(legend_row(TOPO_OCEAN, "Haute mer (200 à 3 000 m)".into())),
+            Spawn(legend_row(crate::render::TOPO_ABYSS, "Abysses (plus de 3 000 m)".into())),
         )),
     )
 }
@@ -382,8 +383,8 @@ fn relief_legend() -> impl Bundle {
             Spawn(legend_row(Relief::Rugged.color(), label(Relief::Rugged))),
             Spawn(legend_row(Relief::Hills.color(), label(Relief::Hills))),
             Spawn(legend_row(Relief::Flat.color(), label(Relief::Flat))),
-            Spawn(legend_row(TOPO_COAST, "Eau côtière, lac".into())),
-            Spawn(legend_row(TOPO_OCEAN, "Eau profonde".into())),
+            Spawn(legend_row(TOPO_COAST, "Eaux peu profondes, lac".into())),
+            Spawn(legend_row(TOPO_OCEAN, "Haute mer".into())),
         )),
     )
 }
@@ -906,8 +907,15 @@ fn update_hover_text(
             // Terrain et climat
             let mut place = Vec::new();
             let land_here = m.get(h).is_some_and(|t| !t.is_water());
-            let altitude = (shows(Info::Altitude) && land_here)
-                .then(|| format!("{} m", round_meters(m.elevation(h).unwrap_or(0.0))));
+            let altitude = if land_here {
+                shows(Info::Altitude).then(|| format!("{} m", round_meters(m.elevation(h).unwrap_or(0.0))))
+            } else {
+                // Mer : profondeur du fond (et fosse, au-delà de 6 000 m)
+                m.depth(h).map(|d| {
+                    let trench = if d >= crate::map::TRENCH_DEPTH_M { ", fosse" } else { "" };
+                    format!("{} m de fond{trench}", round_meters(d))
+                })
+            };
             // Lac ou mer intérieure nommés : leur nom et leur nature plutôt que « Lac » ou « Océan »
             // Étendues marines de la case : « Côte — Baie des Phoques, Mer de Vaskar »
             let seas_here = if m.contains(h) { m.seas().chain(m.cell(h)) } else { Vec::new() };
@@ -954,6 +962,22 @@ fn update_hover_text(
             let mut parts = Vec::new();
             if !place.is_empty() {
                 parts.push(place.join(", "));
+            }
+            // Eaux poissonneuses
+            let rich = m.marine(h);
+            if rich != 0 {
+                use crate::map::marine;
+                let mut why = Vec::new();
+                if rich & marine::UPWELLING != 0 {
+                    why.push("remontée d'eaux froides");
+                }
+                if rich & marine::SEAMOUNT != 0 {
+                    why.push("mont sous-marin");
+                }
+                if rich & marine::ISLAND != 0 {
+                    why.push("eaux d'île volcanique");
+                }
+                parts.push(format!("Eaux poissonneuses ({}) : +{} nourriture", why.join(", "), crate::map::RICH_WATERS_FOOD));
             }
             if shows(Info::Yields) {
                 let y = m.yields(h).unwrap_or_default();

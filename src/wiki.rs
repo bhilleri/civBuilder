@@ -319,9 +319,23 @@ fn terrain() -> Article {
                de déplacement."),
             h("Terrains"),
             table_icons(&["Terrain", "Nourriture", "Production", "Or", "Déplacement", "Défense"], rows),
-            p("La côte, l'océan et les lacs ne se traversent pas encore (pas d'unités navales), mais une ville \
-               peut exploiter leurs rendements. Les rivières, fleuves et lacs sont décrits dans « Cours d'eau et \
-               lacs »."),
+            p("La mer et les lacs ne se traversent pas encore (pas d'unités navales), mais une ville peut exploiter \
+               leurs rendements. Les rivières, fleuves et lacs sont décrits dans « Cours d'eau et lacs »."),
+            h("Fonds marins et pêche"),
+            p("Le fond de la mer est calculé d'après les plaques : un plateau continental (moins de 200 m) longe la \
+               plupart des côtes, plus ou moins large ; il manque devant les subductions, où une fosse (plus de \
+               6 000 m) court au large ; au-delà, le talus, puis les abysses (plus de 3 000 m). L'infobulle donne la \
+               profondeur ; la carte de l'altitude montre eaux peu profondes, haute mer et abysses. Comme sur Terre, \
+               où les mers de plateau donnent l'essentiel de la pêche, les eaux peu profondes nourrissent mieux (2 \
+               nourriture) que la haute mer (1)."),
+            p("Certaines eaux sont poissonneuses (+1 nourriture, teinte un peu plus verte) : les remontées d'eaux \
+               froides, là où le vent pousse l'eau de surface vers le large et où l'eau profonde, riche, remonte \
+               (surtout les côtes ouest des continents sous les alizés) ; les monts sous-marins, volcans qui montent \
+               vers la surface en pleine mer (chaînes des points chauds, arcs d'îles), où courants et remous \
+               concentrent le plancton et les thons ; les eaux des îles volcaniques isolées en haute mer. Les \
+               dorsales et les fosses, trop profondes, ne changent rien à la pêche. Plus tard, la profondeur et la \
+               distance à la côte décideront aussi de la navigation : barques et galères près des côtes et sur le \
+               plateau, caravelles en haute mer."),
             h("Relief"),
             p(format!(
                 "Le relief est interne à la case et s'ajoute au terrain : une forêt peut être vallonnée, une toundra \
@@ -392,7 +406,7 @@ fn terrain() -> Article {
                noms s'affichent à leur échelle : océans de très loin, mers de loin, golfes en s'approchant, baies et \
                détroits de près, en capitales espacées pour les plus grandes ; un nom n'apparaît que si l'étendue est \
                assez large à l'écran et qu'une partie en est explorée. L'infobulle d'une case de mer donne ses \
-               étendues (« Côte — Baie des Phoques, Mer de Vodava, Grand Océan »)."),
+               étendues (« Eaux peu profondes — Baie des Phoques, Mer de Vodava, Grand Océan »)."),
             h("Trouver un lieu"),
             p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
                ne comptent pas) ; les puces filtrent par catégorie (villes, cours d'eau, lacs et mers, bassins \
