@@ -1,6 +1,6 @@
 //! Terrains, carte du monde et génération procédurale (logique pure).
 
-use crate::hex::Hex;
+use crate::hex::{Hex, Wrap};
 use crate::climate::{self, Climate, Region};
 use crate::basins::{self, Basin, Basins, NamedRiver};
 use crate::hydro::{self, Hydrology};
@@ -17,6 +17,11 @@ pub trait MoveCosts {
     fn step_cost(&self, from: Hex, to: Hex) -> Option<u32> {
         let _ = from;
         self.move_cost(to)
+    }
+
+    /// Tour d'est en ouest de la carte (voisines, distances).
+    fn wrap(&self) -> Wrap {
+        Wrap::NONE
     }
 }
 
@@ -151,6 +156,10 @@ impl MoveCosts for WorldMap {
         let river = if self.river_between(from, to) { RIVER_CROSSING_COST } else { 0 };
         Some(terrain + river + climb_cost(self.elevation(from)?, self.elevation(to)?))
     }
+
+    fn wrap(&self) -> Wrap {
+        self.wrap
+    }
 }
 
 /// Carte telle que le joueur la connaît : une case non explorée est supposée
@@ -195,6 +204,10 @@ impl MoveCosts for KnownMap<'_> {
         } else {
             Some(cost)
         }
+    }
+
+    fn wrap(&self) -> Wrap {
+        self.map.wrap
     }
 }
 
@@ -520,6 +533,8 @@ pub struct WorldMap {
     region: Region,
     /// Bassins versants et fleuves nommés.
     basins: Basins,
+    /// Tour d'est en ouest (planète) ou bords.
+    wrap: Wrap,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -541,14 +556,48 @@ impl WorldMap {
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
             basins: Basins::empty(n),
+            wrap: Wrap::NONE,
             step_cache: std::sync::OnceLock::new(),
         }
     }
 
     fn index(&self, hex: Hex) -> Option<usize> {
-        let (col, row) = hex.to_offset();
+        let (col, row) = self.wrap.hex(hex).to_offset();
         (col >= 0 && col < self.width && row >= 0 && row < self.height)
             .then(|| (row * self.width + col) as usize)
+    }
+
+    /// Tour d'est en ouest de la carte.
+    pub fn wrap(&self) -> Wrap {
+        self.wrap
+    }
+
+    /// Fait boucler (ou non) la carte d'est en ouest (tests, éditeur).
+    #[cfg(test)]
+    pub fn set_wraps(&mut self, wraps: bool) {
+        self.wrap = Wrap::new(self.width, wraps);
+        self.step_cache = std::sync::OnceLock::new();
+    }
+
+    /// La case ramenée dans la carte (d'est en ouest si la carte boucle).
+    pub fn canonical(&self, hex: Hex) -> Hex {
+        self.wrap.hex(hex)
+    }
+
+    /// Les 6 voisines (ramenées dans la carte ; elles peuvent être hors des bords nord et sud,
+    /// ou est et ouest d'une carte qui ne boucle pas).
+    pub fn neighbors(&self, hex: Hex) -> [Hex; 6] {
+        self.wrap.neighbors(hex)
+    }
+
+    /// Distance en cases, par le plus court côté.
+    pub fn distance(&self, a: Hex, b: Hex) -> i32 {
+        self.wrap.distance(a, b)
+    }
+
+    /// Cases à distance ≤ `radius` de `center`, ramenées dans la carte (dedans ou non).
+    pub fn range(&self, center: Hex, radius: i32) -> impl Iterator<Item = Hex> + use<> {
+        self.wrap.range(center, radius)
     }
 
     pub fn contains(&self, hex: Hex) -> bool {
@@ -708,7 +757,7 @@ impl WorldMap {
 
     /// Une rivière coule sur l'arête entre deux cases voisines.
     pub fn river_between(&self, a: Hex, b: Hex) -> bool {
-        crate::hex::DIRECTIONS.iter().position(|&d| a + d == b).is_some_and(|dir| self.river_flow(a, dir) > 0.0)
+        self.wrap.direction(a, b).is_some_and(|dir| self.river_flow(a, dir) > 0.0)
     }
 
     /// Débit sortant de la case (m³/s).
@@ -730,7 +779,7 @@ impl WorldMap {
                 .map(|i| {
                     let h = self.hex_at(i);
                     std::array::from_fn(|d| {
-                        let to = h + crate::hex::DIRECTIONS[d];
+                        let to = self.wrap.neighbor(h, d);
                         if !self.contains(to) {
                             return u8::MAX;
                         }
@@ -781,7 +830,7 @@ impl WorldMap {
     pub fn fresh_water(&self, hex: Hex) -> bool {
         self.small_lake(hex)
             || (0..6).any(|d| self.river_flow(hex, d) > 0.0)
-            || hex.neighbors().iter().any(|&n| self.is_fleuve(n) || self.get(n) == Some(Terrain::Lake))
+            || self.neighbors(hex).iter().any(|&n| self.is_fleuve(n) || self.get(n) == Some(Terrain::Lake))
     }
 
     /// Fait d'une case un fleuve (tests, éditeur).
@@ -807,7 +856,7 @@ impl WorldMap {
     #[cfg(test)]
     pub fn set_river(&mut self, hex: Hex, dir: usize, flow: f32) {
         self.step_cache = std::sync::OnceLock::new();
-        let other = hex + crate::hex::DIRECTIONS[dir];
+        let other = self.wrap.neighbor(hex, dir);
         if let (Some(i), Some(j)) = (self.index(hex), self.index(other)) {
             self.hydro.edge_flow[i][dir] = flow;
             self.hydro.edge_flow[j][(dir + 3) % 6] = flow;
@@ -944,10 +993,20 @@ impl WorldMap {
         let moisture_noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(7919)).set_octaves(4).set_frequency(1.0);
         let rough_noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(104_729)).set_octaves(3).set_frequency(1.0);
         let mut map = Self::filled(width, height, Terrain::Ocean);
+        map.wrap = Wrap::new(width, region.wraps);
+        let wrap = map.wrap;
         let scale = 4.0 / width as f64;
+        // Bruit lu sur un cylindre quand la carte boucle : pas de couture entre les bords est et
+        // ouest (même échelle qu'à plat : le tour fait `width` colonnes)
+        let radius = width as f64 * scale / std::f64::consts::TAU;
         let sample = |noise: &Fbm<Perlin>, h: Hex, zoom: f64| {
             let (col, row) = h.to_offset();
-            noise.get([col as f64 * scale * zoom, row as f64 * scale * zoom])
+            if wrap.wraps() {
+                let a = col as f64 / width as f64 * std::f64::consts::TAU;
+                noise.get([a.cos() * radius * zoom, a.sin() * radius * zoom, row as f64 * scale * zoom])
+            } else {
+                noise.get([col as f64 * scale * zoom, row as f64 * scale * zoom])
+            }
         };
         // 1) Élévation brute
         let elevations: Vec<(Hex, f64)> = map
@@ -958,7 +1017,8 @@ impl WorldMap {
                 // Atténuation vers les bords pour obtenir des continents entourés d'océan
                 let nx = col as f64 / (width - 1) as f64 * 2.0 - 1.0;
                 let ny = row as f64 / (height - 1) as f64 * 2.0 - 1.0;
-                let edge = nx.abs().max(ny.abs());
+                // (une planète n'a de bords qu'aux pôles)
+                let edge = if wrap.wraps() { ny.abs() } else { nx.abs().max(ny.abs()) };
                 e -= (edge.powi(3)) * 0.9;
                 (h, e)
             })
@@ -988,8 +1048,8 @@ impl WorldMap {
                 while k < group.len() && group.len() < crate::basins::MIN_INLAND_SEA_CELLS {
                     let h = group[k];
                     let (c, r) = h.to_offset();
-                    border |= c == 0 || r == 0 || c == width - 1 || r == height - 1;
-                    for nb in h.neighbors() {
+                    border |= r == 0 || r == height - 1 || (!wrap.wraps() && (c == 0 || c == width - 1));
+                    for nb in wrap.neighbors(h) {
                         if wet(nb) && seen.insert(nb) {
                             group.push(nb);
                         }
@@ -1002,7 +1062,7 @@ impl WorldMap {
                 } else {
                     // Le reste du groupe (grand) : on finit de le marquer
                     while k < group.len() {
-                        for nb in group[k].neighbors() {
+                        for nb in wrap.neighbors(group[k]) {
                             if wet(nb) && seen.insert(nb) {
                                 group.push(nb);
                             }
@@ -1054,8 +1114,7 @@ impl WorldMap {
         let local: Vec<f32> = land_cells
             .iter()
             .map(|&i| {
-                hex_of(i)
-                    .neighbors()
+                wrap.neighbors(hex_of(i))
                     .iter()
                     .filter_map(|&nb| map.index(nb))
                     .filter(|&j| !map.tiles[j].is_water())
@@ -1099,7 +1158,7 @@ impl WorldMap {
             .copied()
             .filter(|&i| map.relief[i] == Relief::Mountain && map.elevation[i] >= PEAK_MIN_M)
             .filter(|&i| {
-                hex_of(i).neighbors().iter().filter_map(|&nb| map.index(nb)).all(|j| map.elevation[j] <= map.elevation[i] + PEAK_TOLERANCE_M)
+                wrap.neighbors(hex_of(i)).iter().filter_map(|&nb| map.index(nb)).all(|j| map.elevation[j] <= map.elevation[i] + PEAK_TOLERANCE_M)
             })
             .collect();
         summits_local.sort_by(|&a, &b| map.elevation[b].total_cmp(&map.elevation[a]));
@@ -1108,7 +1167,7 @@ impl WorldMap {
             if peaks >= count(PEAK_SHARE) {
                 break;
             }
-            if hex_of(i).neighbors().iter().filter_map(|&nb| map.index(nb)).any(|j| map.relief[j] == Relief::Peak) {
+            if wrap.neighbors(hex_of(i)).iter().filter_map(|&nb| map.index(nb)).any(|j| map.relief[j] == Relief::Peak) {
                 continue;
             }
             map.relief[i] = Relief::Peak;
@@ -1166,7 +1225,7 @@ impl WorldMap {
             let coasts: Vec<Hex> = map
                 .hexes()
                 .filter(|&h| map.get(h) == Some(Terrain::Ocean))
-                .filter(|&h| h.neighbors().iter().any(|&n| map.get(n).is_some_and(|t| !t.is_water())))
+                .filter(|&h| map.neighbors(h).iter().any(|&n| map.get(n).is_some_and(|t| !t.is_water())))
                 .collect();
             for h in coasts {
                 map.set(h, Terrain::Coast);
@@ -1197,6 +1256,7 @@ impl WorldMap {
             rain: &self.climate.rain,
             pet: &self.climate.pet,
             aridity: &aridity,
+            wraps: self.wrap.wraps(),
         });
         let mut hydro = hydro;
         // Un fleuve presque entouré par un lac (au moins `FLEUVE_IN_LAKE` voisines de lac) en fait
@@ -1206,7 +1266,7 @@ impl WorldMap {
                 .filter(|&i| hydro.fleuve[i])
                 .filter(|&i| {
                     let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
-                    hex.neighbors().iter().filter(|&&nb| self.index(nb).is_some_and(|j| hydro.lake[j])).count() >= FLEUVE_IN_LAKE
+                    self.neighbors(hex).iter().filter(|&&nb| self.index(nb).is_some_and(|j| hydro.lake[j])).count() >= FLEUVE_IN_LAKE
                 })
                 .collect();
             if swallowed.is_empty() {
@@ -1215,8 +1275,8 @@ impl WorldMap {
             for i in swallowed {
                 // Surface du lac voisin (le niveau du lac n'en est pas changé)
                 let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
-                hydro.lake_surface[i] = hex
-                    .neighbors()
+                hydro.lake_surface[i] = self
+                    .neighbors(hex)
                     .iter()
                     .filter_map(|&nb| self.index(nb))
                     .filter(|&j| hydro.lake[j])
@@ -1236,6 +1296,7 @@ impl WorldMap {
         // Niveau d'un lac : celui de sa surface, sans dépasser ses rives ; le même pour toutes les
         // cases d'eau qui se touchent (une seule surface plane)
         let hex_of = |i: usize| Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
+        let wrap = self.wrap;
         let mut done = vec![false; n];
         for &start in &lakes {
             if done[start] {
@@ -1247,7 +1308,7 @@ impl WorldMap {
             while k < group.len() {
                 let i = group[k];
                 k += 1;
-                for nb in hex_of(i).neighbors() {
+                for nb in wrap.neighbors(hex_of(i)) {
                     if let Some(j) = self.index(nb)
                         && self.tiles[j] == Terrain::Lake
                         && !done[j]
@@ -1260,8 +1321,8 @@ impl WorldMap {
             let level = group
                 .iter()
                 .map(|&i| {
-                    let shore = hex_of(i)
-                        .neighbors()
+                    let shore = wrap
+                        .neighbors(hex_of(i))
                         .iter()
                         .filter_map(|&nb| self.index(nb))
                         .filter(|&j| !self.tiles[j].is_water())
@@ -1277,8 +1338,8 @@ impl WorldMap {
             let surface = group
                 .iter()
                 .map(|&i| {
-                    let shore = hex_of(i)
-                        .neighbors()
+                    let shore = wrap
+                        .neighbors(hex_of(i))
                         .iter()
                         .filter_map(|&nb| self.index(nb))
                         .filter(|&j| !self.tiles[j].is_water())
@@ -1321,10 +1382,10 @@ impl WorldMap {
                 if !wet {
                     return false;
                 }
-                let lower = hex.neighbors().iter().any(|&n| {
+                let lower = self.neighbors(hex).iter().any(|&n| {
                     self.index(n).is_some_and(|j| !self.tiles[j].is_water() && self.levels[j] < self.levels[i])
                 });
-                let water = self.small_lake(hex) || hex.neighbors().iter().any(|&n| self.is_fleuve(n) || self.get(n) == Some(Terrain::Lake));
+                let water = self.small_lake(hex) || self.neighbors(hex).iter().any(|&n| self.is_fleuve(n) || self.get(n) == Some(Terrain::Lake));
                 !lower && water
             })
             .collect();
@@ -1351,6 +1412,7 @@ impl WorldMap {
             corner_outlet: &self.hydro.corner_outlet,
             corner_cells: &self.hydro.corner_cells,
             latitude: &latitude,
+            wrap: self.wrap,
         });
     }
 
@@ -1360,7 +1422,7 @@ impl WorldMap {
             Some(Terrain::Grassland | Terrain::Plains | Terrain::Savanna | Terrain::Steppe | Terrain::Mediterranean) if !self.is_fleuve(hex) => {}
             _ => return i32::MIN,
         }
-        hex.range(2)
+        self.range(hex, 2)
             .filter_map(|h| self.yields(h))
             .map(|y| y.food * 3 + y.production * 2 + y.gold)
             .sum()
@@ -1371,7 +1433,7 @@ impl WorldMap {
         let center = Hex::from_offset(self.width / 2, self.height / 2);
         self.hexes()
             .filter(|&h| self.start_score(h) > i32::MIN)
-            .max_by_key(|&h| self.start_score(h) * 4 - h.distance(center) * 3)
+            .max_by_key(|&h| self.start_score(h) * 4 - self.distance(h, center) * 3)
     }
 }
 
@@ -1416,7 +1478,7 @@ mod tests {
                 let mut group = vec![start];
                 let mut k = 0;
                 while k < group.len() {
-                    for nb in group[k].neighbors() {
+                    for nb in m.neighbors(group[k]) {
                         if m.get(nb).is_some_and(|t| t.is_sea()) && seen.insert(nb) {
                             group.push(nb);
                         }
@@ -1425,7 +1487,8 @@ mod tests {
                 }
                 let border = group.iter().any(|h| {
                     let (c, r) = h.to_offset();
-                    c == 0 || r == 0 || c == m.width - 1 || r == m.height - 1
+                    let _ = c;
+                    r == 0 || r == m.height - 1
                 });
                 assert!(border || group.len() >= crate::basins::MIN_INLAND_SEA_CELLS, "graine {seed} : {:?}", group[0].to_offset());
             }
@@ -1459,6 +1522,53 @@ mod tests {
         assert!(map.get(Hex::from_offset(-1, 0)).is_none());
         assert!(map.get(Hex::from_offset(9, 9)).is_some());
         assert_eq!(map.hexes().count(), 100);
+    }
+
+    #[test]
+    fn planete_sans_bord_est_ouest() {
+        let mut map = WorldMap::filled(20, 8, Terrain::Plains);
+        map.set_wraps(true);
+        // Au-delà du bord est : la colonne 0 ; au-delà des pôles : rien
+        assert_eq!(map.get(Hex::from_offset(20, 3)), Some(Terrain::Plains));
+        assert!(map.get(Hex::from_offset(3, -1)).is_none());
+        map.set(Hex::from_offset(0, 3), Terrain::Desert);
+        assert_eq!(map.get(Hex::from_offset(20, 3)), Some(Terrain::Desert));
+        // Chaque case a ses 6 voisines franchissables, même au bord est
+        let costs = map.step_costs();
+        let east = Hex::from_offset(19, 4);
+        assert!(costs[map.cell(east)].iter().all(|&c| c != u8::MAX));
+        // Le plus court chemin passe par le raccord
+        let (a, b) = (Hex::from_offset(1, 4), Hex::from_offset(18, 4));
+        let path = crate::pathfinding::find_path(&map, a, b).unwrap();
+        assert_eq!(path.len(), 3, "{path:?}");
+        assert!(path.iter().all(|&h| map.contains(h) && map.canonical(h) == h));
+        assert_eq!(map.distance(a, b), 3);
+        // Une rivière posée sur une arête du raccord se voit des deux côtés
+        map.set_river(east, 0, 50.0);
+        let west = map.neighbors(east)[0];
+        assert_eq!(west.to_offset().0, 0);
+        assert!(map.river_between(east, west) && map.river_between(west, east));
+    }
+
+    #[test]
+    fn planete_generee_sans_couture() {
+        let m = WorldMap::generate_in(128, 74, 5, crate::climate::Region::planet(crate::climate::CELL_KM, 74));
+        assert!(m.wrap().wraps());
+        // De part et d'autre du raccord, l'altitude varie comme entre deux colonnes voisines
+        let gap = |c0: i32, c1: i32| -> f32 {
+            (5..69)
+                .map(|r| {
+                    let (a, b) = (Hex::from_offset(c0, r), Hex::from_offset(c1, r));
+                    (m.elevation(a).unwrap().max(0.0) - m.elevation(b).unwrap().max(0.0)).abs()
+                })
+                .sum::<f32>()
+                / 64.0
+        };
+        let seam = gap(127, 0);
+        let inside = (1..127).map(|c| gap(c - 1, c)).sum::<f32>() / 126.0;
+        assert!(seam < inside * 3.0, "couture : {seam} m contre {inside} m en moyenne");
+        // Des terres touchent le raccord (plus d'océan forcé à l'est et à l'ouest)
+        assert!((0..74).any(|r| !m.get(Hex::from_offset(0, r)).unwrap().is_water() || !m.get(Hex::from_offset(127, r)).unwrap().is_water()));
     }
 
     #[test]
@@ -1754,7 +1864,7 @@ mod planete {
             let mut k = 0;
             while let Some(c) = stack.pop() {
                 k += 1;
-                for nb in c.neighbors() {
+                for nb in m.neighbors(c) {
                     if m.get(nb) == Some(Terrain::Lake) && seen.insert(nb) { stack.push(nb); }
                 }
             }

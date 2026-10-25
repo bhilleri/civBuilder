@@ -6,7 +6,7 @@
 //! Repère 3D : x = x 2D, y = hauteur, z = −y 2D (le nord est au fond de l'écran).
 
 use crate::game::{City, GameMap, ShownFog, HexPos, Selection, Territory, Unit};
-use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
+use crate::hex::{DIRECTIONS, HEX_SIZE, Hex, Wrap};
 use crate::hostile::{Camp, Hostile, Village};
 use crate::input::{HoverPath, OrderPath};
 use crate::map::{Relief as CellRelief, Terrain};
@@ -90,6 +90,10 @@ pub struct Relief {
     hatches: HashMap<Hex, Entity>,
     /// Relief interne (collines, montagnes) des cases explorées, modelé dans le sol.
     bumps: BumpMap,
+    /// Tour d'est en ouest de la planète. Tout est rangé par case de la carte, la géométrie
+    /// (lits, formes de l'eau) à la position de la case dans la carte : une case vue au-delà du
+    /// raccord est lue dans la carte, sa géométrie décalée d'un tour.
+    wrap: Wrap,
 }
 
 /// Relief interne d'une case de terre, modelé dans le sol 3D : ampleur des crêtes, sommet au
@@ -116,6 +120,9 @@ fn bumps_for(map: &crate::map::WorldMap, hex: Hex) -> Option<Bumps> {
 impl Relief {
     /// Hauteur du sol au point 2D (x, y) du monde (lits des cours d'eau creusés).
     pub fn ground(&self, x: f32, y: f32) -> f32 {
+        // (point ramené dans la carte : la géométrie y est rangée)
+        let shift = self.wrap.offset(Hex::from_world(x, y));
+        let (x, y) = (x - shift, y);
         let hex = Hex::from_world(x, y);
         let p = Vec2::new(x, y);
         // Relief interne (collines, montagnes), effacé près des cours d'eau
@@ -129,18 +136,18 @@ impl Relief {
     fn surface(&self, x: f32, y: f32) -> f32 {
         let hex = Hex::from_world(x, y);
         let (cx, cy) = hex.to_world();
-        self.tops.get(&hex).map_or(unexplored_height(), |t| t.sample(Vec2::new(x - cx, y - cy)))
+        self.tops.get(&self.wrap.hex(hex)).map_or(unexplored_height(), |t| t.sample(Vec2::new(x - cx, y - cy)))
     }
 
     /// Mer ou lac exploré le plus proche d'un point : distance (approchée) et couleur.
     fn nearest_water(&self, p: Vec2) -> Option<(f32, Vec3)> {
         Hex::from_world(p.x, p.y)
             .range(2)
-            .filter(|h| self.water_seen.contains(h))
+            .filter(|&h| self.water_seen.contains(&self.wrap.hex(h)))
             .filter_map(|h| {
                 let (cx, cy) = h.to_world();
                 let d = (p.distance(Vec2::new(cx, cy)) - HEX_SIZE * 0.866).max(0.0);
-                self.water_colors.get(&h).map(|&c| (d, c))
+                self.water_colors.get(&self.wrap.hex(h)).map(|&c| (d, c))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
     }
@@ -151,7 +158,9 @@ impl Relief {
         let mut out: Vec<Channel> = Vec::new();
         let (cx, cy) = hex.to_world();
         let c = Vec2::new(cx, cy);
-        for h in hex.range(1) {
+        for seen in hex.range(1) {
+            // Voisine au-delà du raccord : celle de la carte, ses lits décalés d'un tour
+            let (h, shift) = (self.wrap.hex(seen), Vec2::new(self.wrap.offset(seen), 0.0));
             let Some((shape, _)) = self.water.get(&h) else { continue };
             if !self.axis_cache.contains_key(&h) {
                 let all: Vec<Channel> = shape.channels.iter().map(|a| self.channel(a)).collect();
@@ -163,6 +172,7 @@ impl Relief {
                 if !(explored(h) || axis.also.is_some_and(explored)) {
                     continue;
                 }
+                let ch = ch.shifted(shift);
                 // Seulement les lits qui peuvent toucher la case
                 if ch.nearest(c).distance(c) < HEX_SIZE + ch.hw.max(ch.hw_end) + 14.0 && !out.contains(&ch) {
                     out.push(ch);
@@ -188,7 +198,7 @@ impl Relief {
                 .chain(ring(bed.far))
                 .chain([p, p])
                 .filter(move |q| {
-                    let h = Hex::from_world(q.x, q.y);
+                    let h = self.wrap.hex(Hex::from_world(q.x, q.y));
                     !self.water_hexes.contains(&h) && (!known || self.explored.contains(&h))
                 })
                 .map(|q| self.surface(q.x, q.y))
@@ -206,11 +216,11 @@ impl Relief {
         let here = Hex::from_world(p.x, p.y);
         let nearest = here
             .range(2)
-            .filter(|h| self.water_seen.contains(h))
+            .filter(|&h| self.water_seen.contains(&self.wrap.hex(h)))
             .filter_map(|h| {
                 let (cx, cy) = h.to_world();
                 let d = (p.distance(Vec2::new(cx, cy)) - HEX_SIZE * 0.866).max(0.0);
-                self.tops.get(&h).map(|t| (d, t.center))
+                self.tops.get(&self.wrap.hex(h)).map(|t| (d, t.center))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0));
         match nearest {
@@ -339,6 +349,7 @@ impl Plugin for View3dPlugin {
                     sync_mirrors,
                     draw_overlays_3d,
                     draw_wind_3d,
+                    sync_seam_copies,
                 )
                     .chain(),
             );
@@ -393,6 +404,7 @@ fn unexplored_height() -> f32 {
 
 /// Hauteur affichée d'une case : inexplorée, elle reste plate (son relief n'est pas connu).
 pub fn shown_height(map: &GameMap, fog: &ShownFog, hex: Hex) -> f32 {
+    let hex = map.0.canonical(hex);
     if map.0.contains(hex) && fog.explored.contains(&hex) { tile_height(&map.0, hex) } else { unexplored_height() }
 }
 
@@ -520,8 +532,9 @@ fn setup_3d(
 
     // Relief : au départ tout est inexploré, donc plat
     // Relief interne de toutes les cases (pour placer les arbres sous la limite des arbres)
-    let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect();
-    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: HashMap::new(), water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
+    let wrap = map.0.wrap();
+    let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect::<BumpMap>().with_wrap(wrap);
+    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
     let fresh_water = [
         materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.25, ..default() }),
         materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.45, 0.5), perceptual_roughness: 0.25, ..default() }),
@@ -656,7 +669,9 @@ fn setup_3d(
     // Rochers éboulés au pied des falaises (sur la case basse, le long de l'arête)
     let boulder_mesh = meshes.add(Sphere::new(3.2).mesh().ico(0).unwrap());
     for edge in map.0.level_edges().into_iter().filter(|e| e.is_cliff()) {
+        // (case basse au-delà du raccord : position prise de ce côté, rangée dans la carte)
         let low = edge.low();
+        let low_in_map = map.0.canonical(low);
         let ((ax, ay), (bx, by)) = edge.high.edge_corners(edge.dir);
         let (a, b) = (Vec2::new(ax, ay), Vec2::new(bx, by));
         let (lx, ly) = low.to_world();
@@ -673,7 +688,7 @@ fn setup_3d(
                 commands
                     .spawn((
                         Decor3d {
-                            hex: low,
+                            hex: low_in_map,
                             offset: p - center,
                             lift: 0.8 * size,
                             requires: Some(edge.high),
@@ -689,7 +704,7 @@ fn setup_3d(
                     .id(),
             );
         }
-        relief.decor.entry(low).or_default().extend(ids);
+        relief.decor.entry(low_in_map).or_default().extend(ids);
     }
     commands.insert_resource(relief);
 
@@ -750,8 +765,8 @@ fn apply_view_mode(
     mut commands: Commands,
     mode: Res<ViewMode>,
     mut cam3d: ResMut<Cam3d>,
-    mut cam2d_q: Query<(Entity, &mut Camera, &mut Transform), (With<Camera2d>, Without<Camera3d>)>,
-    mut cam3d_q: Query<(Entity, &mut Camera, &mut Transform), (With<Camera3d>, Without<Camera2d>)>,
+    mut cam2d_q: Query<(Entity, &mut Camera, &mut Transform), (With<Camera2d>, Without<Camera3d>, Without<crate::seam::GhostCamera>)>,
+    mut cam3d_q: Query<(Entity, &mut Camera, &mut Transform), (With<Camera3d>, Without<Camera2d>, Without<crate::seam::GhostCamera>)>,
 ) {
     if !mode.is_changed() || mode.is_added() {
         return;
@@ -785,7 +800,7 @@ fn camera_3d_controls(
     over_ui: Res<crate::input::PointerOverUi>,
     time: Res<Time>,
     mut cam: ResMut<Cam3d>,
-    mut camera: Query<&mut Transform, With<Camera3d>>,
+    mut camera: Query<&mut Transform, (With<Camera3d>, Without<crate::seam::GhostCamera>)>,
 ) {
     if !mode.is_3d {
         return;
@@ -866,6 +881,7 @@ fn to_mesh(data: MeshData) -> Mesh {
 /// rocheux sinon (falaise, falaise côtière) ; bord de l'inexploré ou terrasse d'une ville ou
 /// d'un camp → paroi.
 fn link(map: &GameMap, fog: &ShownFog, terraces: &HashSet<Hex>, a: Hex, b: Hex) -> Link {
+    let (a, b) = (map.0.canonical(a), map.0.canonical(b));
     let (Some(ta), Some(tb)) = (map.0.get(a), map.0.get(b)) else { return Link::None };
     match (fog.explored.contains(&a), fog.explored.contains(&b)) {
         (false, false) => Link::Gentle,
@@ -891,8 +907,9 @@ fn link(map: &GameMap, fog: &ShownFog, terraces: &HashSet<Hex>, a: Hex, b: Hex) 
 /// Une case inexplorée reste plate et noire : rien n'est révélé.
 /// Mise à jour du relief 3D, étalée sur plusieurs images : les cases à refaire (brouillard qui
 /// change, ville posée, changement de carte) attendent dans une file, traitée pendant un temps
-/// limité à chaque image en commençant par les plus proches de la caméra. Rien n'est recalculé
-/// tant que la vue 3D n'est pas affichée.
+/// limité à chaque image en commençant par les plus proches de la caméra. La vue 2D prépare aussi
+/// le relief (avec un temps plus court par image, autour de la caméra 2D) : en passant en 3D, les
+/// cases explorées sont déjà prêtes.
 fn update_relief_3d(
     fog: Res<ShownFog>,
     map: Res<GameMap>,
@@ -908,6 +925,7 @@ fn update_relief_3d(
     mut water_materials: Query<&mut MeshMaterial3d<StandardMaterial>, Without<Tile3d>>,
     water_meshes: Query<&Mesh3d, Without<Tile3d>>,
     layer: Res<MapLayer>,
+    cam2d: Query<&Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>, Without<Decor3d>)>,
     mut commands: Commands,
 ) {
     let (Some(assets), Some(mut relief)) = (assets, relief) else { return };
@@ -921,7 +939,7 @@ fn update_relief_3d(
             .chain(terraces.symmetric_difference(&queue.terraces))
             .copied()
             .collect();
-        queue.geometry.extend(changed.iter().flat_map(|h| h.range(2)).filter(|h| map.0.contains(*h)));
+        queue.geometry.extend(changed.iter().flat_map(|&h| map.0.range(h, 2)).filter(|h| map.0.contains(*h)));
         queue.explored = fog.explored.clone();
         queue.terraces = terraces.clone();
     }
@@ -935,7 +953,7 @@ fn update_relief_3d(
     if fog.is_changed() {
         relief.water_seen = relief.water_hexes.intersection(&fog.explored).copied().collect();
         relief.explored = fog.explored.clone();
-        relief.bumps = fog.explored.iter().filter_map(|&h| map.0.contains(h).then(|| bumps_for(&map.0, h)).flatten().map(|b| (h, b))).collect();
+        relief.bumps = fog.explored.iter().filter_map(|&h| map.0.contains(h).then(|| bumps_for(&map.0, h)).flatten().map(|b| (h, b))).collect::<BumpMap>().with_wrap(map.0.wrap());
         for (&hex, &tile) in &relief.tiles {
             // Une case dont le relief reste à refaire garde son aspect jusqu'à sa reconstruction
             // (pas de case blanche, plate, en attendant)
@@ -965,7 +983,7 @@ fn update_relief_3d(
             }
         }
         for (hex, (_, e)) in &relief.water {
-            let lit = fog.visible.contains(hex) || hex.neighbors().iter().any(|n| fog.visible.contains(n));
+            let lit = fog.visible.contains(hex) || map.0.neighbors(*hex).iter().any(|n| fog.visible.contains(n));
             let wanted = &assets.fresh_water[usize::from(!lit)];
             if let Ok(mut material) = water_materials.get_mut(*e)
                 && material.0 != *wanted
@@ -974,14 +992,19 @@ fn update_relief_3d(
             }
         }
     }
-    if !mode.is_3d || (queue.geometry.is_empty() && queue.color.is_empty()) {
+    if queue.geometry.is_empty() && queue.color.is_empty() {
         return;
     }
 
     // Les cases les plus proches du centre de la vue d'abord
-    let focus = Hex::from_world(cam.target.x, -cam.target.z);
+    let focus = match cam2d.single() {
+        Ok(t) if !mode.is_3d => Hex::from_world(t.translation.x, t.translation.y),
+        _ => Hex::from_world(cam.target.x, -cam.target.z),
+    };
+    let budget = if mode.is_3d { RELIEF_BUDGET_MS } else { RELIEF_BUDGET_2D_MS };
     let mut batch: Vec<Hex> = queue.geometry.iter().chain(queue.color.difference(&queue.geometry)).copied().collect();
-    let priority = |h: &Hex| h.distance(focus);
+    let focus = map.0.canonical(focus);
+    let priority = |h: &Hex| map.0.distance(*h, focus);
     if batch.len() > RELIEF_BATCH {
         batch.select_nth_unstable_by_key(RELIEF_BATCH, priority);
         batch.truncate(RELIEF_BATCH);
@@ -990,9 +1013,9 @@ fn update_relief_3d(
 
     let height = |h: Hex| shown_height(&map, &fog, h);
     let link = |a: Hex, b: Hex| link(&map, &fog, &terraces, a, b);
-    let water = |h: Hex| fog.explored.contains(&h) && map.0.get(h).is_some_and(|t| t.is_water());
+    let water = |h: Hex| fog.explored.contains(&map.0.canonical(h)) && map.0.get(h).is_some_and(|t| t.is_water());
     // Couleur du sol d'une case selon la carte affichée
-    let hex_color = |hex: Hex| match (fog.explored.contains(&hex), *layer) {
+    let hex_color = |hex: Hex| match (fog.explored.contains(&map.0.canonical(hex)), *layer) {
         (false, _) => Vec3::ONE,
         // Lit d'un fleuve en forêt : prairie de berge (pas d'arbres dans le lit)
         (true, MapLayer::Normal) if map.0.is_fleuve(hex) && map.0.get(hex).is_some_and(|t| t.is_wooded()) => {
@@ -1016,7 +1039,7 @@ fn update_relief_3d(
     let mut pending = batch.into_iter().peekable();
     // Par paquets : préparation (relief, lits) dans l'ordre, puis maillages construits en
     // parallèle sur tous les cœurs, jusqu'à épuisement du temps alloué à l'image
-    while pending.peek().is_some() && started.elapsed().as_secs_f32() * 1000.0 < RELIEF_BUDGET_MS {
+    while pending.peek().is_some() && started.elapsed().as_secs_f32() * 1000.0 < budget {
         let chunk: Vec<Hex> = pending.by_ref().take(RELIEF_CHUNK).collect();
         let count = chunk.len();
         let mut jobs = Vec::with_capacity(count);
@@ -1027,7 +1050,7 @@ fn update_relief_3d(
                 relief.tops.insert(hex, compute_top(hex, height, link, water));
                 reshaped.push(hex);
                 // Les hauteurs d'eau des lits proches dépendent de ce relief
-                for h in hex.range(2) {
+                for h in map.0.range(hex, 2) {
                     relief.axis_cache.remove(&h);
                 }
             }
@@ -1036,7 +1059,7 @@ fn update_relief_3d(
         for &hex in &processed[processed.len() - count..] {
             // Lits qui touchent la case (la surface d'un lac ou de la mer reste plate, une case
             // inexplorée aussi)
-            let near = if water(hex) || !fog.explored.contains(&hex) { Vec::new() } else { relief.channels_near(hex, |h| fog.explored.contains(&h)) };
+            let near = if water(hex) || !fog.explored.contains(&hex) { Vec::new() } else { relief.channels_near(hex, |h| fog.explored.contains(&map.0.canonical(h))) };
             if near.is_empty() {
                 relief.channels.remove(&hex);
             } else {
@@ -1046,7 +1069,7 @@ fn update_relief_3d(
             // Case de fleuve : ses berges prennent la couleur des cases voisines (de terre)
             let sides = (map.0.is_fleuve(hex) && fog.explored.contains(&hex)).then(|| {
                 std::array::from_fn(|d| {
-                    let n = hex + DIRECTIONS[d];
+                    let n = map.0.wrap().neighbor(hex, d);
                     let land = map.0.get(n).is_some_and(|t| !t.is_water()) && !map.0.is_fleuve(n);
                     if land && fog.explored.contains(&n) { hex_color(n) } else { color }
                 })
@@ -1114,7 +1137,7 @@ fn update_relief_3d(
     // ont des cours d'eau sont reconstruites (couleurs et lits seulement)
     let done: HashSet<Hex> = processed.iter().copied().collect();
     for hex in &reshaped {
-        for h in hex.range(3) {
+        for h in map.0.range(*hex, 3) {
             if !done.contains(&h)
                 && !queue.geometry.contains(&h)
                 && relief.channels.contains_key(&h)
@@ -1134,9 +1157,9 @@ fn update_relief_3d(
         if !queue.levels.remove(&hex) && !reshaped.contains(&hex) {
             continue;
         }
-        redo.extend(hex.range(1).filter(|h| relief.water.contains_key(h)));
+        redo.extend(map.0.range(hex, 1).filter(|h| relief.water.contains_key(h)));
     }
-    let explored = |h: Hex| fog.explored.contains(&h);
+    let explored = |h: Hex| fog.explored.contains(&map.0.canonical(h));
     for hex in redo {
         let (shape, e) = &relief.water[&hex];
         // Case inexplorée qui porte une rivière d'arête visible (sa rive voisine est explorée) :
@@ -1146,9 +1169,14 @@ fn update_relief_3d(
             Some(c) => c.clone(),
             None => {
                 let mut v: Vec<Channel> = Vec::new();
-                for ch in hex.range(1).filter_map(|h| relief.channels.get(&h)).flatten() {
-                    if !v.contains(ch) {
-                        v.push(*ch);
+                for seen in hex.range(1) {
+                    // (lits d'une voisine au-delà du raccord : décalés d'un tour)
+                    let shift = Vec2::new(map.0.wrap().offset(seen), 0.0);
+                    for ch in relief.channels.get(&map.0.canonical(seen)).into_iter().flatten() {
+                        let ch = ch.shifted(shift);
+                        if !v.contains(&ch) {
+                            v.push(ch);
+                        }
                     }
                 }
                 v
@@ -1269,6 +1297,8 @@ struct ReliefQueue {
 /// Cases du relief 3D examinées par image, et temps de calcul maximal par image (ms).
 const RELIEF_BATCH: usize = 4_000;
 const RELIEF_BUDGET_MS: f32 = 6.0;
+/// Temps de préparation du relief 3D par image pendant qu'on joue en 2D (ms).
+const RELIEF_BUDGET_2D_MS: f32 = 3.0;
 /// Cases préparées puis construites ensemble (en parallèle).
 const RELIEF_CHUNK: usize = 12;
 
@@ -1484,6 +1514,7 @@ fn sync_mirrors(
 /// Lignes 3D : frontières, zone accessible, cibles attaquables, sélection, trajets.
 fn draw_overlays_3d(
     mode: Res<ViewMode>,
+    map: Res<GameMap>,
     mut gizmos: Gizmos<Gizmos3d>,
     relief: Option<Res<Relief>>,
     territory: Res<Territory>,
@@ -1512,14 +1543,14 @@ fn draw_overlays_3d(
     };
     for (&hex, &owner) in &territory.0 {
         for (dir, d) in DIRECTIONS.iter().enumerate() {
-            if territory.0.get(&(hex + *d)) != Some(&owner) {
+            if territory.0.get(&map.0.canonical(hex + *d)) != Some(&owner) {
                 edge(&mut gizmos, hex, dir, Color::srgb(0.45, 0.70, 1.0));
             }
         }
     }
     for &hex in &area.cells {
         for (dir, d) in DIRECTIONS.iter().enumerate() {
-            if !area.cells.contains(&(hex + *d)) {
+            if !area.cells.contains(&map.0.canonical(hex + *d)) {
                 edge(&mut gizmos, hex, dir, Color::srgb(1.0, 0.97, 0.75));
             }
         }
@@ -1539,10 +1570,13 @@ fn draw_overlays_3d(
     let Ok(pos) = positions.get(selected) else { return };
     ground_circle(&mut gizmos, pos.0, 2.0, HEX_SIZE * 0.85, Color::srgb(1.0, 0.9, 0.2));
     let path_line = |gizmos: &mut Gizmos<Gizmos3d>, path: &[Hex], color: Color| {
+        // Chaque case prise du côté du raccord le plus proche de la précédente (tracé continu)
+        let mut prev = pos.0;
         let centers: Vec<Vec2> = std::iter::once(pos.0)
             .chain(path.iter().copied())
             .map(|h| {
-                let (x, y) = h.to_world();
+                prev = map.0.wrap().nearest(prev, h);
+                let (x, y) = prev.to_world();
                 Vec2::new(x, y)
             })
             .collect();
@@ -1590,11 +1624,67 @@ pub fn hovered_hex_3d(ray: Ray3d, relief: &Relief, map: &GameMap) -> Option<Hex>
     let steps = ((end - start) / 2.0).ceil().max(1.0) as usize;
     for i in 0..=steps {
         let p = ray.get_point(start + (end - start) * i as f32 / steps as f32);
-        let h = Hex::from_world(p.x, -p.z);
+        let h = map.0.canonical(Hex::from_world(p.x, -p.z));
         if map.0.contains(h) && p.y <= relief.ground(p.x, -p.z) {
             return Some(h);
         }
     }
     let p = ray.get_point(end);
-    Some(Hex::from_world(p.x, -p.z)).filter(|h| map.0.contains(*h))
+    Some(map.0.canonical(Hex::from_world(p.x, -p.z))).filter(|h| map.0.contains(*h))
+}
+
+/// Copie, de l'autre côté du raccord d'une planète, du sol ou de l'eau d'une case du bord
+/// (même maillage, même matériau, décalée d'un tour). Sans elle, la vue « fantôme » du bord
+/// opposé (voir `seam.rs`) et la vue principale se touchent pile sur le raccord, et le lissage
+/// des bords (MSAA) y laisse un fin liseré sombre en pointillés ; avec elle, chaque vue
+/// déborde d'une colonne sur l'autre.
+#[derive(Component)]
+struct SeamCopy {
+    source: Entity,
+}
+
+fn sync_seam_copies(
+    mut commands: Commands,
+    map: Res<GameMap>,
+    relief: Option<Res<Relief>>,
+    mut spawned: Local<bool>,
+    sources: Query<(&Mesh3d, &MeshMaterial3d<StandardMaterial>, &Visibility), Without<SeamCopy>>,
+    mut copies: Query<(&SeamCopy, &mut MeshMaterial3d<StandardMaterial>, &mut Visibility)>,
+) {
+    let Some(relief) = relief else { return };
+    let wrap = map.0.wrap();
+    if !wrap.wraps() {
+        return;
+    }
+    if !*spawned {
+        *spawned = true;
+        let world = wrap.world_width();
+        let edge = |h: &Hex| {
+            let (c, _) = h.to_offset();
+            if c == 0 { Some(world) } else if c == map.0.width - 1 { Some(-world) } else { None }
+        };
+        let entities = relief.tiles.iter().map(|(h, &e)| (h, e)).chain(relief.water.iter().map(|(h, (_, e))| (h, *e)));
+        for (hex, source) in entities {
+            let Some(shift) = edge(hex) else { continue };
+            let Ok((mesh, material, _)) = sources.get(source) else { continue };
+            commands.spawn((
+                SeamCopy { source },
+                mesh.clone(),
+                material.clone(),
+                Transform::from_xyz(shift, 0.0, 0.0),
+                layer(),
+            ));
+        }
+        return;
+    }
+    // Le maillage est partagé (mis à jour avec l'original) ; le matériau et la visibilité suivent
+    for (copy, mut material, mut vis) in &mut copies {
+        let Ok((_, source_material, source_vis)) = sources.get(copy.source) else { continue };
+        if material.0 != source_material.0 {
+            material.0 = source_material.0.clone();
+        }
+        if *vis != *source_vis {
+            *vis = *source_vis;
+        }
+    }
 }

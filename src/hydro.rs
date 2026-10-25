@@ -78,6 +78,8 @@ pub struct HydroInput<'a> {
     pub rain: &'a [f32],
     pub pet: &'a [f32],
     pub aridity: &'a [f32],
+    /// La carte boucle d'est en ouest (planète) : pas de bord à l'est ni à l'ouest.
+    pub wraps: bool,
 }
 
 /// Tronçon de rivière sur une arête : l'arête `dir` de la case `cell`, parcourue du coin `up`
@@ -153,11 +155,18 @@ impl Hydrology {
 struct Grid {
     w: i32,
     h: i32,
+    /// La carte fait le tour de la planète d'est en ouest.
+    wraps: bool,
 }
 
 impl Grid {
-    fn index(self, hex: Hex) -> Option<usize> {
+    /// Même case ramenée dans la carte (d'est en ouest, si la carte boucle).
+    fn wrap(self, hex: Hex) -> Hex {
         let (col, row) = hex.to_offset();
+        if self.wraps && (col < 0 || col >= self.w) { Hex::from_offset(col.rem_euclid(self.w), row) } else { hex }
+    }
+    fn index(self, hex: Hex) -> Option<usize> {
+        let (col, row) = self.wrap(hex).to_offset();
         (col >= 0 && col < self.w && row >= 0 && row < self.h).then(|| (row * self.w + col) as usize)
     }
     fn hex(self, i: usize) -> Hex {
@@ -217,7 +226,7 @@ fn bed_loss(q: f32, aridity: f32, length_m: f32) -> f32 {
 
 /// Simule l'hydrologie de toute la carte.
 pub fn simulate(input: &HydroInput) -> Hydrology {
-    let grid = Grid { w: input.width, h: input.height };
+    let grid = Grid { w: input.width, h: input.height, wraps: input.wraps };
     let n = (input.width * input.height) as usize;
     let mut out = Hydrology::empty(n);
     // Surface d'une case hexagonale (m²) et conversions
@@ -501,7 +510,7 @@ fn edge_rivers(input: &HydroInput, grid: Grid, out: &mut Hydrology, pools: &[Poo
 
     // Coins : le coin j d'une case touche ses voisines des directions j−1 et j
     let corner_cells = |hex: Hex, j: usize| {
-        let mut c = [hex, hex + DIRECTIONS[(j + 5) % 6], hex + DIRECTIONS[j]];
+        let mut c = [hex, grid.wrap(hex + DIRECTIONS[(j + 5) % 6]), grid.wrap(hex + DIRECTIONS[j])];
         c.sort();
         c
     };
@@ -660,6 +669,7 @@ mod tests {
             rain: &rain,
             pet: &pet,
             aridity: &ar,
+            wraps: false,
         })
     }
 
@@ -677,7 +687,7 @@ mod tests {
         let (z, sea, runoff) = slope(30, 12, 300.0);
         let h = run(30, 12, &z, &sea, &runoff, 1.0);
         // Le débit augmente vers l'aval le long d'un chemin
-        let g = Grid { w: 30, h: 12 };
+        let g = Grid { w: 30, h: 12, wraps: false };
         let mut i = g.index(Hex::from_offset(29, 6)).unwrap();
         let mut last = 0.0;
         while let Some(d) = h.downstream[i] {
@@ -692,6 +702,42 @@ mod tests {
         assert!(last > 0.0);
     }
 
+    #[test]
+    fn l_eau_passe_le_raccord_est_ouest() {
+        // Planète de 30 colonnes, mer en colonne 0 ; le sol monte avec la distance à la mer par le
+        // plus court côté : l'eau de l'est de la carte rejoint la mer en passant le raccord
+        let (w, hh) = (30, 12);
+        let n = (w * hh) as usize;
+        let sea: Vec<bool> = (0..n).map(|i| i as i32 % w == 0).collect();
+        let z: Vec<f32> = (0..n).map(|i| (i as i32 % w).min(w - i as i32 % w) as f32 * 50.0).collect();
+        let (rain, pet, ar, runoff) = (vec![1000.0; n], vec![900.0; n], vec![1.0; n], vec![300.0; n]);
+        let h = simulate(&HydroInput {
+            width: w,
+            height: hh,
+            cell_km: 40.0,
+            elevation: &z,
+            sea: &sea,
+            runoff: &runoff,
+            rain: &rain,
+            pet: &pet,
+            aridity: &ar,
+            wraps: true,
+        });
+        let g = Grid { w, h: hh, wraps: true };
+        let mut i = g.index(Hex::from_offset(26, 6)).unwrap();
+        let mut path = vec![i];
+        while let Some(d) = h.downstream[i] {
+            i = g.index(g.hex(i) + DIRECTIONS[d as usize]).unwrap();
+            path.push(i);
+            if sea[i] {
+                break;
+            }
+        }
+        assert!(sea[i], "l'eau atteint la mer");
+        assert!(path.iter().all(|&c| c as i32 % w >= 26 || c as i32 % w == 0), "elle va vers l'est : {path:?}");
+        assert!((h.to_sea + h.lake_evaporation + h.bed_losses - h.total_runoff).abs() < h.total_runoff * 1e-3);
+    }
+
     fn sea_at(sea: &[bool], i: usize) -> bool {
         sea[i]
     }
@@ -700,7 +746,7 @@ mod tests {
     fn cuvette_humide_deborde_et_cuvette_seche_reste_terminale() {
         // Cuvette au milieu de la pente
         let (mut z, sea, runoff) = slope(30, 12, 300.0);
-        let g = Grid { w: 30, h: 12 };
+        let g = Grid { w: 30, h: 12, wraps: false };
         let pit = g.index(Hex::from_offset(15, 6)).unwrap();
         z[pit] = 100.0;
         let humid = run(30, 12, &z, &sea, &runoff, 1.0);
@@ -720,6 +766,7 @@ mod tests {
             rain: &vec![100.0; n],
             pet: &vec![2500.0; n],
             aridity: &vec![0.05; n],
+            wraps: false,
         });
         assert!(!dry.lake[pit]);
         let balance = dry.to_sea + dry.lake_evaporation + dry.bed_losses;
@@ -730,7 +777,7 @@ mod tests {
     fn les_rivieres_d_arete_sont_symetriques_et_entre_terres() {
         let (z, sea, runoff) = slope(40, 20, 600.0);
         let h = run(40, 20, &z, &sea, &runoff, 1.0);
-        let g = Grid { w: 40, h: 20 };
+        let g = Grid { w: 40, h: 20, wraps: false };
         let mut count = 0;
         for i in 0..h.edge_flow.len() {
             for d in 0..6 {
@@ -750,7 +797,7 @@ mod tests {
         // Grand bassin très arrosé : un fleuve se forme et rejoint la mer de case en case
         let (z, sea, runoff) = slope(60, 30, 2500.0);
         let h = run(60, 30, &z, &sea, &runoff, 1.0);
-        let g = Grid { w: 60, h: 30 };
+        let g = Grid { w: 60, h: 30, wraps: false };
         let fleuves: Vec<usize> = (0..h.fleuve.len()).filter(|&i| h.fleuve[i]).collect();
         assert!(!fleuves.is_empty());
         for &i in &fleuves {

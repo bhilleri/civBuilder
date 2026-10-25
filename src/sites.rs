@@ -32,7 +32,7 @@ pub fn place_sites(map: &WorldMap, start: Hex, seed: u64) -> Sites {
     let village_target = (land.len() / LAND_PER_VILLAGE).max(4);
     let mut sites = Sites::default();
     let far_enough = |h: Hex, sites: &Sites| {
-        sites.villages.iter().chain(&sites.camps).all(|s| s.distance(h) >= MIN_BETWEEN_SITES)
+        sites.villages.iter().chain(&sites.camps).all(|&s| map.distance(s, h) >= MIN_BETWEEN_SITES)
     };
 
     // Les camps d'abord (contrainte la plus forte : loin du départ)
@@ -40,7 +40,7 @@ pub fn place_sites(map: &WorldMap, start: Hex, seed: u64) -> Sites {
         if sites.camps.len() >= camp_target {
             break;
         }
-        if h.distance(start) >= CAMP_MIN_FROM_START && far_enough(h, &sites) {
+        if map.distance(h, start) >= CAMP_MIN_FROM_START && far_enough(h, &sites) {
             sites.camps.push(h);
         }
     }
@@ -48,7 +48,7 @@ pub fn place_sites(map: &WorldMap, start: Hex, seed: u64) -> Sites {
         if sites.villages.len() >= village_target {
             break;
         }
-        if h.distance(start) >= VILLAGE_MIN_FROM_START && far_enough(h, &sites) {
+        if map.distance(h, start) >= VILLAGE_MIN_FROM_START && far_enough(h, &sites) {
             sites.villages.push(h);
         }
     }
@@ -81,8 +81,8 @@ pub fn roll_village_event(rng: &mut impl Rng, has_city: bool) -> VillageEvent {
 }
 
 /// Ville la plus proche d'un point (départage par ordre de la liste).
-pub fn nearest<T: Copy>(from: Hex, items: &[(T, Hex)]) -> Option<T> {
-    items.iter().min_by_key(|(_, h)| h.distance(from)).map(|(t, _)| *t)
+pub fn nearest<T: Copy>(map: &WorldMap, from: Hex, items: &[(T, Hex)]) -> Option<T> {
+    items.iter().min_by_key(|&&(_, h)| map.distance(h, from)).map(|(t, _)| *t)
 }
 
 #[cfg(test)]
@@ -149,8 +149,14 @@ mod tests {
 
     #[test]
     fn ville_la_plus_proche() {
+        let mut map = WorldMap::filled(40, 4, crate::map::Terrain::Plains);
         let cities = [("A", Hex::new(0, 0)), ("B", Hex::new(10, 0))];
-        assert_eq!(nearest(Hex::new(7, 0), &cities), Some("B"));
-        assert_eq!(nearest::<&str>(Hex::new(7, 0), &[]), None);
+        assert_eq!(nearest(&map, Hex::new(7, 0), &cities), Some("B"));
+        assert_eq!(nearest::<&str>(&map, Hex::new(7, 0), &[]), None);
+        // Sur une planète, la plus proche peut l'être par l'autre côté
+        let far = [("A", Hex::from_offset(10, 0)), ("B", Hex::from_offset(37, 0))];
+        assert_eq!(nearest(&map, Hex::from_offset(1, 0), &far), Some("A"));
+        map.set_wraps(true);
+        assert_eq!(nearest(&map, Hex::from_offset(1, 0), &far), Some("B"));
     }
 }

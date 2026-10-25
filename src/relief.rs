@@ -12,7 +12,7 @@
 //!
 //! La même fonction [`HexTop::sample`] sert à construire le maillage et à poser les objets.
 
-use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
+use crate::hex::{DIRECTIONS, HEX_SIZE, Hex, Wrap};
 use bevy::math::{Vec2, Vec3};
 use std::collections::HashMap;
 
@@ -33,7 +33,43 @@ impl Default for Bumps {
     }
 }
 
-pub type BumpMap = HashMap<Hex, Bumps>;
+/// Relief interne des cases, consulté par case (ramenée dans la carte si elle fait le tour de la
+/// planète : la case au-delà du bord est est celle du bord ouest).
+#[derive(Clone, Debug, Default)]
+pub struct BumpMap {
+    cells: HashMap<Hex, Bumps>,
+    pub wrap: Wrap,
+}
+
+impl BumpMap {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_wrap(mut self, wrap: Wrap) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
+    pub fn get(&self, hex: &Hex) -> Option<&Bumps> {
+        self.cells.get(&self.wrap.hex(*hex))
+    }
+
+    #[cfg(test)]
+    pub fn insert(&mut self, hex: Hex, bumps: Bumps) {
+        self.cells.insert(self.wrap.hex(hex), bumps);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+}
+
+impl FromIterator<(Hex, Bumps)> for BumpMap {
+    fn from_iter<I: IntoIterator<Item = (Hex, Bumps)>>(iter: I) -> Self {
+        Self { cells: iter.into_iter().collect(), wrap: Wrap::NONE }
+    }
+}
 
 /// Portée de l'ampleur d'une case autour de son centre (au-delà du centre des voisines, elle ne
 /// compte plus) : l'ampleur varie continûment d'une case à l'autre, deux montagnes voisines
@@ -44,14 +80,23 @@ const VALLEY_FADE: f32 = 10.0;
 /// Neige (linéaire) et roche des hauteurs.
 const SNOW: Vec3 = Vec3::new(0.88, 0.90, 0.94);
 
-/// Bruit « en crêtes » (0 à 1), continu sur toute la carte : crêtes aiguës et ravines.
-fn ridge_noise(p: Vec2) -> f32 {
+/// Bruit « en crêtes » (0 à 1), continu sur toute la carte : crêtes aiguës et ravines. Sur une
+/// planète, il est lu sur un cylindre : il se raccorde d'un bord à l'autre.
+fn ridge_noise(p: Vec2, wrap: Wrap) -> f32 {
     use noise::{NoiseFn, Perlin};
     static PERLIN: std::sync::OnceLock<Perlin> = std::sync::OnceLock::new();
     let perlin = PERLIN.get_or_init(|| Perlin::new(7_919));
     let (mut sum, mut norm, mut freq, mut amp) = (0.0f64, 0.0f64, 1.0 / 70.0, 1.0f64);
+    let world = f64::from(wrap.world_width());
     for _ in 0..3 {
-        let n = perlin.get([f64::from(p.x) * freq, f64::from(p.y) * freq]);
+        let n = if wrap.wraps() {
+            // Tour complet = `world` unités : même échelle qu'à plat
+            let a = f64::from(p.x) / world * std::f64::consts::TAU;
+            let radius = world / std::f64::consts::TAU * freq;
+            perlin.get([a.cos() * radius, a.sin() * radius, f64::from(p.y) * freq])
+        } else {
+            perlin.get([f64::from(p.x) * freq, f64::from(p.y) * freq])
+        };
         let r = 1.0 - n.abs();
         sum += r * r * amp;
         norm += amp;
@@ -91,7 +136,7 @@ pub fn lift_at(p: Vec2, bumps: &BumpMap) -> (f32, f32) {
         return (0.0, f32::MAX);
     }
     let amp = if sw > 0.0 { sa / sw } else { 0.0 };
-    let ridge = ridge_noise(p);
+    let ridge = ridge_noise(p, bumps.wrap);
     let lift = amp * (0.2 + 0.8 * ridge) + summit * (0.75 + 0.25 * ridge);
     (lift, if snow_w > 0.0 { snow / snow_w } else { f32::MAX })
 }
@@ -151,6 +196,13 @@ impl Channel {
     /// Point de l'axe le plus proche de `p`.
     pub fn nearest(&self, p: Vec2) -> Vec2 {
         self.a + (self.b - self.a) * self.param(p)
+    }
+
+    /// Le même lit déplacé de `by` (copie de l'autre côté du raccord d'une planète).
+    pub fn shifted(mut self, by: Vec2) -> Self {
+        self.a += by;
+        self.b += by;
+        self
     }
 
     fn is_disc(&self) -> bool {

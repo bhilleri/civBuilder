@@ -394,7 +394,7 @@ fn place_labels(
     mode: Res<ViewMode>,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
-    cameras: Query<(&Camera, &Transform, Has<Camera3d>)>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     filter: Res<LabelFilter>,
     mut labels: Query<(&Anchor, &mut Node, &mut Visibility, Has<CityBanner>), Without<RiverName>>,
 ) {
@@ -411,6 +411,7 @@ fn place_labels(
             let (x, y) = anchor.hex.to_world();
             Vec3::new(x, y + anchor.up_2d, 0.0)
         };
+        let world = near_camera(&map, world, transform.translation.x);
         let shown = !anchor.hidden && (mode.is_3d || !anchor.only_3d) && (filter.cities || !is_city);
         let mut screen = if shown { camera.world_to_viewport(&cam_global, world).ok() } else { None };
         if anchor.under_token
@@ -471,7 +472,7 @@ fn place_river_names(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     filter: Res<LabelFilter>,
-    cameras: Query<(&Camera, &Transform, Has<Camera3d>)>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     banners: Query<(&Node, &ComputedNode, &Visibility), (With<CityBanner>, Without<RiverName>)>,
     mut names: Query<(&RiverName, &mut Node, &mut Visibility, &ComputedNode, &Children)>,
     texts: Query<&Text>,
@@ -491,13 +492,16 @@ fn place_river_names(
     let cam_global = GlobalTransform::from(*transform);
     // Point d'un emplacement : centre de la case, ou milieu de l'arête entre deux cases
     let world = |(a, b): (Hex, Hex)| {
-        if mode.is_3d {
+        // (b pris du même côté du raccord que a)
+        let b = map.0.wrap().nearest(a, b);
+        let p = if mode.is_3d {
             let h = shown_height(&map, &fog, a).max(shown_height(&map, &fog, b)) + 4.0;
             (to_3d(a, h) + to_3d(b, h)) / 2.0
         } else {
             let ((xa, ya), (xb, yb)) = (a.to_world(), b.to_world());
             Vec3::new((xa + xb) / 2.0, (ya + yb) / 2.0, 0.0)
-        }
+        };
+        near_camera(&map, p, transform.translation.x)
     };
     // Bannières de villes visibles : déjà placées, elles ont la priorité
     let mut taken: Vec<ScreenRect> = banners
@@ -526,7 +530,7 @@ fn place_river_names(
         let size = logical_size(computed, Vec2::new(chars as f32 * font * 0.6 + 12.0, font + 4.0));
         // Emplacements explorés du cours, du plus proche du milieu au plus lointain
         let mid = river.spots.len() as i32 / 2;
-        let explored = |&(a, b): &(Hex, Hex)| fog.explored.contains(&a) || fog.explored.contains(&b);
+        let explored = |&(a, b): &(Hex, Hex)| fog.explored.contains(&map.0.canonical(a)) || fog.explored.contains(&map.0.canonical(b));
         let mut candidates: Vec<(i32, (Hex, Hex))> = river
             .spots
             .iter()
@@ -598,4 +602,14 @@ fn update_hovered_label(names: Query<(&RiverName, &Interaction, &Visibility)>, m
     if hovered.0 != wanted {
         hovered.0 = wanted;
     }
+}
+
+/// Copie d'un point du monde la plus proche de la caméra (planète : un tour près) : une
+/// étiquette vue au-delà du raccord s'affiche de ce côté-là.
+fn near_camera(map: &GameMap, p: Vec3, camera_x: f32) -> Vec3 {
+    let world = map.0.wrap().world_width();
+    if world <= 0.0 {
+        return p;
+    }
+    Vec3::new(p.x + ((camera_x - p.x) / world).round() * world, p.y, p.z)
 }

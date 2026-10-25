@@ -1,6 +1,6 @@
 //! Règles du jeu indépendantes du moteur : unités, villes, croissance, production.
 
-use crate::hex::Hex;
+use crate::hex::{Hex, Wrap};
 use crate::map::{KnownMap, MoveCosts, WorldMap, Yields};
 use crate::combat::{self, AttackKind};
 use crate::pathfinding::{find_path, find_path_turns};
@@ -132,7 +132,7 @@ impl UnitState {
     ) -> MoveOutcome {
         let sight = self.kind.sight();
         self.last_steps.clear();
-        explored.extend(pos.range(sight));
+        explored.extend(map.range(*pos, sight));
         // Cases bloquées connues + cases occupées découvertes en route (une unité par case)
         let mut blocked = blocked.clone();
         while self.moves_left > 0 && !self.zoc_stopped {
@@ -167,7 +167,7 @@ impl UnitState {
             *pos = next;
             self.last_steps.push(next);
             self.moved_this_turn = true;
-            explored.extend(pos.range(sight));
+            explored.extend(map.range(*pos, sight));
             // Zone de contrôle ennemie : l'unité s'arrête (l'ordre reprendra au tour suivant)
             if zoc.contains(&next) {
                 self.zoc_stopped = true;
@@ -181,8 +181,8 @@ impl UnitState {
 }
 
 /// Cases adjacentes aux ennemis qui exercent une zone de contrôle.
-pub fn zoc_tiles(enemies: impl IntoIterator<Item = (UnitKind, Hex)>) -> HashSet<Hex> {
-    enemies.into_iter().filter(|(k, _)| k.exerts_zoc()).flat_map(|(_, h)| h.neighbors()).collect()
+pub fn zoc_tiles(wrap: Wrap, enemies: impl IntoIterator<Item = (UnitKind, Hex)>) -> HashSet<Hex> {
+    enemies.into_iter().filter(|(k, _)| k.exerts_zoc()).flat_map(|(_, h)| wrap.neighbors(h)).collect()
 }
 
 /// Coûts de déplacement qui interdisent de traverser une zone de contrôle
@@ -202,6 +202,10 @@ impl<M: MoveCosts> MoveCosts for AvoidZoc<'_, M> {
         self.move_cost(to)?;
         self.inner.step_cost(from, to)
     }
+
+    fn wrap(&self) -> Wrap {
+        self.inner.wrap()
+    }
 }
 
 /// L'unité peut-elle attaquer `target` depuis `at` ? (adjacente en mêlée, à portée effective pour un tir)
@@ -209,8 +213,8 @@ impl<M: MoveCosts> MoveCosts for AvoidZoc<'_, M> {
 pub fn in_attack_position(world: &WorldMap, kind: UnitKind, at: Hex, target: Hex) -> bool {
     let spot = |h: Hex| (world.elevation(h).unwrap_or(0.0).round() as i32, world.get(h).unwrap_or(crate::map::Terrain::Plains));
     match combat::attack_kind(kind) {
-        AttackKind::Melee => at.distance(target) == 1 && !world.cliff_between(at, target),
-        AttackKind::Ranged => at != target && at.distance(target) <= combat::effective_range(kind, spot(at), spot(target)),
+        AttackKind::Melee => world.distance(at, target) == 1 && !world.cliff_between(at, target),
+        AttackKind::Ranged => at != target && world.distance(at, target) <= combat::effective_range(kind, spot(at), spot(target)),
     }
 }
 
@@ -236,8 +240,8 @@ pub fn attack_approach(
         return None;
     }
     let reach = unit.kind.stats().range.max(1);
-    target
-        .range(reach)
+    world
+        .range(target, reach)
         .filter(|&h| h != target && known.move_cost(h).is_some() && in_attack_position(world, unit.kind, h, target))
         .filter_map(|h| {
             let path = find_path(&AvoidZoc { inner: known, zoc, goal: h }, from, h)?;
@@ -311,7 +315,7 @@ pub fn can_found_city(map: &WorldMap, at: Hex, cities: &[Hex]) -> Result<(), &'s
     if map.relief(at) >= crate::map::Relief::Mountain {
         return Err("pas de ville en montagne");
     }
-    if cities.iter().any(|&c| c.distance(at) < MIN_CITY_DISTANCE) {
+    if cities.iter().any(|&c| map.distance(c, at) < MIN_CITY_DISTANCE) {
         return Err("trop près d'une autre ville");
     }
     Ok(())
@@ -688,9 +692,9 @@ mod tests {
     fn zone_de_controle() {
         let map = WorldMap::filled(14, 12, Terrain::Plains);
         let enemy = Hex::from_offset(7, 5);
-        let zoc = zoc_tiles([(UnitKind::Militia, enemy)]);
+        let zoc = zoc_tiles(Wrap::NONE, [(UnitKind::Militia, enemy)]);
         assert_eq!(zoc.len(), 6);
-        assert!(zoc_tiles([(UnitKind::ExpertArcher, enemy)]).is_empty(), "les archers n'en exercent pas");
+        assert!(zoc_tiles(Wrap::NONE, [(UnitKind::ExpertArcher, enemy)]).is_empty(), "les archers n'en exercent pas");
 
         // Un déplacement qui longe l'ennemi s'arrête en entrant dans sa zone de contrôle
         let mut explored: HashSet<Hex> = map.hexes().collect();

@@ -9,7 +9,7 @@
 //! propre nom). Les tronçons reçoivent, du plus abondant au moins abondant, le nom du plus
 //! grand fleuve réel encore libre coulant à une latitude voisine.
 
-use crate::hex::{DIRECTIONS, Hex};
+use crate::hex::{DIRECTIONS, Hex, Wrap};
 use crate::hydro::RiverSegment;
 use std::collections::HashMap;
 
@@ -254,6 +254,8 @@ pub struct BasinInput<'a> {
     pub corner_cells: &'a [[u32; 3]],
     /// Latitude (degrés) de chaque ligne.
     pub latitude: &'a dyn Fn(i32) -> f32,
+    /// Tour d'est en ouest (planète) : pas de bord à l'est ni à l'ouest.
+    pub wrap: Wrap,
 }
 
 /// Un bassin versant.
@@ -504,8 +506,9 @@ pub fn compute(input: &BasinInput) -> Basins {
     let (w, h) = (input.width, input.height);
     let n = (w * h) as usize;
     let hex = |i: usize| Hex::from_offset(i as i32 % w, i as i32 / w);
+    let wrap = input.wrap;
     let index = |x: Hex| {
-        let (c, r) = x.to_offset();
+        let (c, r) = wrap.hex(x).to_offset();
         (c >= 0 && c < w && r >= 0 && r < h).then(|| (r * w + c) as usize)
     };
     // Case aval (terre ou lac) ; rien quand l'eau quitte la terre
@@ -548,7 +551,7 @@ pub fn compute(input: &BasinInput) -> Basins {
         if let Some(o) = outlet[i] {
             let id = *id_of_outlet.entry(o).or_insert_with(|| {
                 let (c, r) = (o as i32 % w, o as i32 / w);
-                let on_edge = c == 0 || r == 0 || c == w - 1 || r == h - 1;
+                let on_edge = r == 0 || r == h - 1 || (!wrap.wraps() && (c == 0 || c == w - 1));
                 let closed = input.downstream[o].is_none() && !on_edge;
                 basins.push(Basin { outlet: o, cells: 0, outflow: input.discharge[o], river: None, closed, lake: None, color: 0 });
                 basins.len() - 1
@@ -707,7 +710,7 @@ pub fn compute(input: &BasinInput) -> Basins {
     let lat_of = |cell: usize| (input.latitude)(cell as i32 / w);
     let on_border = |c: usize| {
         let (col, row) = (c as i32 % w, c as i32 / w);
-        col == 0 || row == 0 || col == w - 1 || row == h - 1
+        row == 0 || row == h - 1 || (!wrap.wraps() && (col == 0 || col == w - 1))
     };
     let mut sea_group: Vec<Option<usize>> = vec![None; n];
     let mut seas: Vec<Vec<usize>> = Vec::new();
@@ -755,10 +758,12 @@ pub fn compute(input: &BasinInput) -> Basins {
     let mut lakes = Vec::new();
     let mut lake_of = vec![None; n];
     for (group, kind) in bodies {
+        // Positions prises du même côté du raccord que la première case
+        let near = |c: usize| wrap.nearest(hex(group[0]), hex(c));
         let centroid = group
             .iter()
             .map(|&c| {
-                let (x, y) = hex(c).to_world();
+                let (x, y) = near(c).to_world();
                 bevy::math::Vec2::new(x, y)
             })
             .sum::<bevy::math::Vec2>()
@@ -766,7 +771,7 @@ pub fn compute(input: &BasinInput) -> Basins {
         let mut cells = group.clone();
         cells.sort_by(|&a, &b| {
             let d = |c: usize| {
-                let (x, y) = hex(c).to_world();
+                let (x, y) = near(c).to_world();
                 bevy::math::Vec2::new(x, y).distance(centroid)
             };
             d(a).total_cmp(&d(b)).then(a.cmp(&b))
@@ -777,7 +782,7 @@ pub fn compute(input: &BasinInput) -> Basins {
             WaterBody::SaltLake => [REAL_SALT_LAKES, REAL_LAKES],
             WaterBody::InlandSea => [REAL_INLAND_SEAS, REAL_SALT_LAKES],
         };
-        let Some(name) = pick_name(&tables, latitude, hex(cells[0]), &mut lake_uses) else { continue };
+        let Some(name) = pick_name(&tables, latitude, hex(cells[0]), wrap, &mut lake_uses) else { continue };
         let id = lakes.len();
         for &c in &group {
             lake_of[c] = Some(id as u16);
@@ -840,7 +845,7 @@ pub fn compute(input: &BasinInput) -> Basins {
         let cells = fleuve_cells(all);
         let spots: Vec<(usize, usize)> = cells.iter().map(|&c| (c, c)).collect();
         let latitude = cells.iter().map(|&c| lat_of(c)).sum::<f32>() / cells.len() as f32;
-        let Some(name) = pick_name(&[&big, REAL_STREAMS], latitude, hex(cells[cells.len() / 2]), &mut uses) else { continue };
+        let Some(name) = pick_name(&[&big, REAL_STREAMS], latitude, hex(cells[cells.len() / 2]), wrap, &mut uses) else { continue };
         river_of_branch.insert(b, rivers.len());
         let course = fleuve_course(all);
         let tier = fleuve_tier(all);
@@ -875,7 +880,7 @@ pub fn compute(input: &BasinInput) -> Basins {
         let spots: Vec<(usize, usize)> = branch.iter().map(|&k| edge_cells(k)).collect();
         let latitude = spots.iter().map(|&(a, b)| (lat_of(a) + lat_of(b)) / 2.0).sum::<f32>() / spots.len() as f32;
         let mid = hex(spots[spots.len() / 2].0);
-        let Some(name) = pick_name(&[REAL_STREAMS, &big], latitude, mid, &mut uses) else { continue };
+        let Some(name) = pick_name(&[REAL_STREAMS, &big], latitude, mid, wrap, &mut uses) else { continue };
         let id = rivers.len() as u16;
         stream_river.push((si, rivers.len()));
         let mut course = Vec::with_capacity(branch.len() + 2);
@@ -1047,7 +1052,7 @@ pub fn compute(input: &BasinInput) -> Basins {
 /// Nom d'un cours d'eau de latitude moyenne `latitude` (degrés), milieu `mid` : le premier nom
 /// libre de la première table à ±8°, puis ±16°, ±30°, puis de même dans les tables suivantes ; à défaut, le nom de latitude la plus
 /// proche dont tous les emplois sont à au moins `REUSE_DISTANCE` cases ; sinon aucun.
-fn pick_name(tables: &[&[(&'static str, f32)]], latitude: f32, mid: Hex, uses: &mut HashMap<&'static str, Vec<Hex>>) -> Option<&'static str> {
+fn pick_name(tables: &[&[(&'static str, f32)]], latitude: f32, mid: Hex, wrap: Wrap, uses: &mut HashMap<&'static str, Vec<Hex>>) -> Option<&'static str> {
     // Sa propre table d'abord (à tous les écarts de latitude), puis les suivantes
     let fresh = tables.iter().find_map(|t| {
         LATITUDE_WINDOWS
@@ -1058,7 +1063,7 @@ fn pick_name(tables: &[&[(&'static str, f32)]], latitude: f32, mid: Hex, uses: &
         tables
             .iter()
             .flat_map(|t| t.iter())
-            .filter(|(name, _)| uses.get(name).is_none_or(|v| v.iter().all(|h| h.distance(mid) >= REUSE_DISTANCE)))
+            .filter(|(name, _)| uses.get(name).is_none_or(|v| v.iter().all(|&h| wrap.distance(h, mid) >= REUSE_DISTANCE)))
             .min_by(|a, b| (a.1 - latitude).abs().total_cmp(&(b.1 - latitude).abs()))
             .map(|e| e.0)
     })?;
@@ -1100,6 +1105,7 @@ mod tests {
             corner_outlet: &corner_outlet,
             corner_cells: &corner_cells,
             latitude: &lat,
+            wrap: Wrap::NONE,
         })
     }
 
@@ -1278,10 +1284,10 @@ mod tests {
         let table: &[(&str, f32)] = &[("Seule", 45.0)];
         let mut uses = HashMap::new();
         let a = Hex::from_offset(0, 0);
-        assert_eq!(pick_name(&[table], 45.0, a, &mut uses), Some("Seule"));
+        assert_eq!(pick_name(&[table], 45.0, a, Wrap::NONE, &mut uses), Some("Seule"));
         // Trop près : pas de nom ; assez loin : le nom resservit
-        assert_eq!(pick_name(&[table], 45.0, Hex::from_offset(5, 0), &mut uses), None);
-        assert_eq!(pick_name(&[table], 45.0, Hex::from_offset(REUSE_DISTANCE + 2, 0), &mut uses), Some("Seule"));
+        assert_eq!(pick_name(&[table], 45.0, Hex::from_offset(5, 0), Wrap::NONE, &mut uses), None);
+        assert_eq!(pick_name(&[table], 45.0, Hex::from_offset(REUSE_DISTANCE + 2, 0), Wrap::NONE, &mut uses), Some("Seule"));
     }
 
     #[test]
@@ -1336,14 +1342,14 @@ mod tests {
         // de la case aval, celle-ci continue son nom par un autre affluent
         for h in m.hexes().filter(|&h| m.is_fleuve(h)) {
             let Some(d) = m.downstream(h) else { continue };
-            let down = h + crate::hex::DIRECTIONS[d];
+            let down = m.canonical(h + crate::hex::DIRECTIONS[d]);
             if !m.is_fleuve(down) {
                 continue;
             }
             let (mine, theirs) = (b.river(m.cell(h)).map(|r| r.name), b.river(m.cell(down)).map(|r| r.name));
             if mine != theirs {
-                let continued = down.neighbors().iter().any(|&u| {
-                    m.is_fleuve(u) && m.downstream(u).is_some_and(|du| u + crate::hex::DIRECTIONS[du] == down) && b.river(m.cell(u)).map(|r| r.name) == theirs
+                let continued = m.neighbors(down).iter().any(|&u| {
+                    m.is_fleuve(u) && m.downstream(u).is_some_and(|du| m.canonical(u + crate::hex::DIRECTIONS[du]) == down) && b.river(m.cell(u)).map(|r| r.name) == theirs
                 });
                 assert!(continued, "{h:?} : {mine:?} se jette dans {theirs:?} sans confluent");
             }
@@ -1363,7 +1369,7 @@ mod tests {
             for s in &b.rivers[i + 1..] {
                 if r.name == s.name {
                     let (a, c) = (m.hex_at(r.spots[r.spots.len() / 2].0), m.hex_at(s.spots[s.spots.len() / 2].0));
-                    assert!(a.distance(c) >= REUSE_DISTANCE, "{} répété", r.name);
+                    assert!(m.distance(a, c) >= REUSE_DISTANCE, "{} répété", r.name);
                 }
             }
         }

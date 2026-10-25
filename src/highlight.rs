@@ -222,12 +222,12 @@ fn course_point(map: &WorldMap, fog: &ShownFog, p: CoursePoint) -> (Vec2, bool) 
         // Milieu d'une arête : connu si l'une des deux cases l'est
         let d = (p.corner - CoursePoint::EDGE) as usize;
         let ((ax, ay), (bx, by)) = hex.edge_corners(d);
-        let known = fog.explored.contains(&hex) || fog.explored.contains(&(hex + DIRECTIONS[d]));
+        let known = fog.explored.contains(&hex) || fog.explored.contains(&map.canonical(hex + DIRECTIONS[d]));
         return ((Vec2::new(ax, ay) + Vec2::new(bx, by)) / 2.0, known);
     }
     let j = p.corner as usize;
     let at = center + Vec2::from_angle((-30.0 + 60.0 * j as f32).to_radians()) * HEX_SIZE;
-    let known = [hex, hex + DIRECTIONS[(j + 5) % 6], hex + DIRECTIONS[j]].iter().any(|h| fog.explored.contains(h));
+    let known = [hex, hex + DIRECTIONS[(j + 5) % 6], hex + DIRECTIONS[j]].iter().any(|&h| fog.explored.contains(&map.canonical(h)));
     (at, known)
 }
 
@@ -266,10 +266,20 @@ fn feature_lines(map: &WorldMap, fog: &ShownFog, feature: Feature) -> Vec<Vec<Ve
 /// zone explorée.
 fn river_runs(map: &WorldMap, fog: &ShownFog, river: &NamedRiver) -> Vec<Vec<Vec2>> {
     let mut runs = Vec::new();
+    let world = map.wrap().world_width();
     for course in std::iter::once(&river.course).chain(&river.arms) {
         let mut run: Vec<Vec2> = Vec::new();
+        let mut last: Option<Vec2> = None;
         for &p in course {
-            let (at, known) = course_point(map, fog, p);
+            let (mut at, known) = course_point(map, fog, p);
+            // Planète : chaque point pris du côté du raccord le plus proche du précédent (tracé
+            // continu qui passe le raccord)
+            if let Some(prev) = last
+                && world > 0.0
+            {
+                at.x -= ((at.x - prev.x) / world).round() * world;
+            }
+            last = Some(at);
             if known {
                 run.push(at);
             } else if !run.is_empty() {

@@ -210,7 +210,8 @@ fn climate() -> Article {
                  pour une ville et ses abords) et la carte va d'un pôle (en haut) à l'autre (en bas), l'équateur au \
                  milieu. Elle couvre environ {:.0} km d'ouest en est et {:.0} km du nord au sud. Le climat de chaque case \
                  est simulé à la création du monde, avec des grandeurs physiques (degrés, millimètres de pluie), et fait \
-                 le tour complet de la planète. Le survol d'une case de terre indique son climat, sa température \
+                 le tour complet de la planète. La carte aussi fait le tour : en allant toujours vers l'est, on \
+                 revient par l'ouest (seuls les pôles sont des bords). Le survol d'une case de terre indique son climat, sa température \
                  moyenne, sa pluie annuelle et sa latitude ; la carte du climat (touche T) montre les précipitations et \
                  les vents dominants.",
                 crate::climate::CELL_KM,

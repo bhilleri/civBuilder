@@ -16,7 +16,8 @@ pub fn find_path(map: &impl MoveCosts, start: Hex, goal: Hex) -> Option<Vec<Hex>
     let mut open = BinaryHeap::new();
     let mut came_from: HashMap<Hex, Hex> = HashMap::new();
     let mut cost: HashMap<Hex, u32> = HashMap::from([(start, 0)]);
-    open.push(Reverse((start.distance(goal) as u32, start)));
+    let wrap = map.wrap();
+    open.push(Reverse((wrap.distance(start, goal) as u32, start)));
 
     while let Some(Reverse((_, current))) = open.pop() {
         if current == goal {
@@ -33,13 +34,13 @@ pub fn find_path(map: &impl MoveCosts, start: Hex, goal: Hex) -> Option<Vec<Hex>
             return Some(path);
         }
         let current_cost = cost[&current];
-        for next in current.neighbors() {
+        for next in map.wrap().neighbors(current) {
             let Some(step) = map.step_cost(current, next) else { continue };
             let new_cost = current_cost + step;
             if cost.get(&next).is_none_or(|&c| new_cost < c) {
                 cost.insert(next, new_cost);
                 came_from.insert(next, current);
-                open.push(Reverse((new_cost + next.distance(goal) as u32, next)));
+                open.push(Reverse((new_cost + wrap.distance(next, goal) as u32, next)));
             }
         }
     }
@@ -81,7 +82,7 @@ pub fn find_path_turns(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: 
             return Some(path);
         }
         let (turn, left) = if left == 0 { (turn + 1, max_moves) } else { (turn, left) };
-        for next in current.neighbors() {
+        for next in map.wrap().neighbors(current) {
             let Some(step) = map.step_cost(current, next) else { continue };
             let after = left.saturating_sub(step);
             let nk = key(turn, after);
@@ -107,7 +108,7 @@ pub fn reachable(map: &impl MoveCosts, start: Hex, moves: u32) -> HashSet<Hex> {
         if spent > best[&current] || spent >= moves {
             continue; // entrée obsolète, ou plus de PM pour repartir de cette case
         }
-        for next in current.neighbors() {
+        for next in map.wrap().neighbors(current) {
             let Some(cost) = map.step_cost(current, next) else { continue };
             let total = spent + cost;
             if best.get(&next).is_none_or(|&b| total < b) {

@@ -525,12 +525,12 @@ fn setup_slope_overlay(
     commands.insert_resource(SlopeOverlay { edges: map.0.level_edges(), mesh });
 }
 
-fn update_slope_overlay(fog: Res<ShownFog>, overlay: Res<SlopeOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
+fn update_slope_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<SlopeOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
     if !fog.is_changed() {
         return;
     }
     let mut builder = SlopeMeshBuilder::default();
-    for e in overlay.edges.iter().filter(|e| fog.explored.contains(&e.high) && fog.explored.contains(&e.low())) {
+    for e in overlay.edges.iter().filter(|e| fog.explored.contains(&e.high) && fog.explored.contains(&map.0.canonical(e.low()))) {
         builder.add(e);
     }
     if let Some(mut mesh) = meshes.get_mut(&overlay.mesh) {
@@ -658,7 +658,7 @@ fn setup_water_overlay(
     commands.insert_resource(WaterOverlay { shapes, mesh });
 }
 
-fn update_water_overlay(fog: Res<ShownFog>, overlay: Res<WaterOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
+fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<WaterOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
     if !fog.is_changed() {
         return;
     }
@@ -674,11 +674,12 @@ fn update_water_overlay(fog: Res<ShownFog>, overlay: Res<WaterOverlay>, mut mesh
         [c.red * k, c.green * k, c.blue * k * 1.1, 1.0]
     };
     let mut builder = SlopeMeshBuilder::default();
-    let explored = |h: Hex| fog.explored.contains(&h);
+    // (une case vue au-delà du raccord est celle de la carte)
+    let explored = |h: Hex| fog.explored.contains(&map.0.canonical(h));
     for (hex, shape) in &overlay.shapes {
         let lit = fog.visible.contains(hex);
         for t in shape.visible(*hex, explored) {
-            let c = color(t.kind, lit || t.also.is_some_and(|o| fog.visible.contains(&o)));
+            let c = color(t.kind, lit || t.also.is_some_and(|o| fog.visible.contains(&map.0.canonical(o))));
             // L'eau s'arrête au bord de la zone explorée
             for pts in crate::waterways::clip_to_explored(t.pts, &explored) {
                 builder.tri([(pts[0], c), (pts[1], c), (pts[2], c)]);
@@ -1172,7 +1173,7 @@ fn update_reach_overlay(
             .0
             .iter()
             .copied()
-            .filter(|t| t.distance(pos) <= reach)
+            .filter(|t| map.0.distance(*t, pos) <= reach)
             .filter(|t| crate::rules::attack_approach(&known, &map.0, &unit.0, pos, *t, &enemy_zoc.0).is_some())
             .collect();
         targets.sort();
@@ -1203,14 +1204,14 @@ fn setup_reach_gizmos(mut store: ResMut<GizmoConfigStore>) {
 }
 
 /// Contour extérieur de la zone de déplacement : arêtes entre une case de la zone et une case hors zone.
-fn draw_reach_outline(mut gizmos: Gizmos<ReachGizmos>, area: Res<ReachArea>) {
+fn draw_reach_outline(mut gizmos: Gizmos<ReachGizmos>, area: Res<ReachArea>, map: Res<GameMap>) {
     for &target in &area.attackable {
         let (x, y) = target.to_world();
         gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.72, ATTACK_RING);
     }
     for &hex in &area.cells {
         for (dir, d) in DIRECTIONS.iter().enumerate() {
-            if !area.cells.contains(&(hex + *d)) {
+            if !area.cells.contains(&map.0.canonical(hex + *d)) {
                 let (a, b) = hex.edge_corners(dir);
                 gizmos.line_2d(Vec2::new(a.0, a.1), Vec2::new(b.0, b.1), REACH_OUTLINE);
             }
@@ -1279,6 +1280,7 @@ fn sync_transforms(mut moved: Query<(&HexPos, &mut Transform), Changed<HexPos>>)
 /// Frontières, sélection, chemin prévisualisé, cases exploitées.
 fn draw_overlays(
     mut gizmos: Gizmos,
+    map: Res<GameMap>,
     territory: Res<Territory>,
     selection: Res<Selection>,
     hover: Res<HoverPath>,
@@ -1289,7 +1291,7 @@ fn draw_overlays(
     // Frontières : arêtes entre une case possédée et une case non possédée (ou d'une autre ville)
     for (&hex, &owner) in &territory.0 {
         for (dir, d) in DIRECTIONS.iter().enumerate() {
-            if territory.0.get(&(hex + *d)) != Some(&owner) {
+            if territory.0.get(&map.0.canonical(hex + *d)) != Some(&owner) {
                 let (a, b) = hex.edge_corners(dir);
                 gizmos.line_2d(Vec2::new(a.0, a.1), Vec2::new(b.0, b.1), BORDER_COLOR);
             }
@@ -1311,8 +1313,11 @@ fn draw_overlays(
     if let Ok(unit) = units.get(selected) {
         // Ordre en cours (bleu) puis prévisualisation sous le curseur (blanc)
         let draw_path = |gizmos: &mut Gizmos, path: &[Hex], color: Color| {
+            // Chaque case prise du côté du raccord le plus proche de la précédente
+            let mut prev = pos.0;
             let points = std::iter::once(pos.0).chain(path.iter().copied()).map(|h| {
-                let (px, py) = h.to_world();
+                prev = map.0.wrap().nearest(prev, h);
+                let (px, py) = prev.to_world();
                 Vec2::new(px, py)
             });
             gizmos.linestrip_2d(points, color);

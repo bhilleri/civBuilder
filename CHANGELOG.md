@@ -13,6 +13,12 @@
 - **Relief 3D modelé dans le sol** (fini les montagnes posées comme des objets) : crêtes et ravines continues d'une case à l'autre, ampleur croissante des collines aux montagnes, sommet propre aux pics ; roche sur les pentes raides et en hauteur, neige au-dessus d'une limite qui dépend du froid ; arbres sur les versants jusqu'à la limite des arbres ; le relief s'efface près des cours d'eau, qui coulent dans des vallées.
 - **Sol 3D à l'altitude réelle** en mètres (fini les 6 tranches) : pentes douces continues, plateaux et bassins visibles ; lacs à la cote de leur surface.
 
+### Planète sans bord
+- La carte **fait le tour de la planète d'est en ouest** : on peut aller toujours vers l'est et revenir par l'ouest ; seuls les pôles restent des bords.
+- Génération sans couture (relief lu sur un cylindre) et sans océan forcé à l'est et à l'ouest : des continents peuvent chevaucher le raccord ; cours d'eau, lacs, bassins et noms le traversent.
+- Règles : déplacements, plus court chemin, zone de contrôle, portée de tir, vision, exploration automatique, villages et camps, IA hostile tiennent compte du raccord (distances par le plus court côté).
+- Affichage : défilement sans fin en 2D comme en 3D, sans raccord visible (relief, lits, tracés, frontières, étiquettes).
+
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 
 Les saisons du climat façonnent maintenant les paysages  : 7 nouveaux terrains, de la jungle à la taïga.

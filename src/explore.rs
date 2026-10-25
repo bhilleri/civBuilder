@@ -13,7 +13,7 @@
 //! Villages : un village connu vaut `VILLAGE_VALUE` cases découvertes ; les explorateurs font
 //! donc un détour pour les visiter (et un village visé par un explorateur est réservé).
 
-use crate::hex::Hex;
+use crate::hex::{Hex, Wrap};
 use crate::map::{MoveCosts, WorldMap};
 use crate::rules::UnitState;
 use std::cmp::Reverse;
@@ -77,8 +77,8 @@ impl<'a> ExploreWorld<'a> {
 }
 
 /// Cases que les autres explorateurs vont révéler : (cible, vision) de chacun.
-pub fn reserved_by(others: impl IntoIterator<Item = (Hex, i32)>) -> HashSet<Hex> {
-    others.into_iter().flat_map(|(target, sight)| target.range(sight)).collect()
+pub fn reserved_by(wrap: Wrap, others: impl IntoIterator<Item = (Hex, i32)>) -> HashSet<Hex> {
+    others.into_iter().flat_map(|(target, sight)| wrap.range(target, sight)).collect()
 }
 
 /// Ce que sait l'explorateur, en tableaux indexés par case (bien plus rapide que des ensembles :
@@ -86,6 +86,7 @@ pub fn reserved_by(others: impl IntoIterator<Item = (Hex, i32)>) -> HashSet<Hex>
 struct Known {
     width: i32,
     height: i32,
+    wrap: Wrap,
     explored: Vec<bool>,
     reserved: Vec<bool>,
     blocked: Vec<bool>,
@@ -101,9 +102,11 @@ impl Known {
     fn new(world: &ExploreWorld, explored: &HashSet<Hex>) -> Self {
         let (width, height) = (world.map.width, world.map.height);
         let n = (width * height) as usize;
+        let wrap = world.map.wrap();
         let mut known = Self {
             width,
             height,
+            wrap,
             explored: vec![false; n],
             reserved: vec![false; n],
             blocked: vec![false; n],
@@ -114,7 +117,7 @@ impl Known {
         };
         let fill = |grid: &mut Vec<bool>, set: &HashSet<Hex>| {
             for &h in set {
-                if let Some(i) = known_index(width, height, h) {
+                if let Some(i) = known_index(width, height, wrap, h) {
                     grid[i] = true;
                 }
             }
@@ -148,7 +151,7 @@ impl Known {
     }
 
     fn index(&self, h: Hex) -> Option<usize> {
-        known_index(self.width, self.height, h)
+        known_index(self.width, self.height, self.wrap, h)
     }
 
     fn set(grid: &mut [bool], i: Option<usize>) {
@@ -166,8 +169,8 @@ impl Known {
     }
 }
 
-fn known_index(width: i32, height: i32, h: Hex) -> Option<usize> {
-    let (col, row) = h.to_offset();
+fn known_index(width: i32, height: i32, wrap: Wrap, h: Hex) -> Option<usize> {
+    let (col, row) = wrap.hex(h).to_offset();
     (col >= 0 && col < width && row >= 0 && row < height).then(|| (row * width + col) as usize)
 }
 
@@ -245,7 +248,7 @@ fn search_target(map: &WorldMap, known: &Known, start: Hex, sight: i32) -> Optio
                 }
             }
         }
-        for (d, next) in current.neighbors().into_iter().enumerate() {
+        for (d, next) in known.wrap.neighbors(current).into_iter().enumerate() {
             // Terrain connu seulement ; les abords des ennemis coûtent cher
             let step = steps[ci][d];
             if step == u8::MAX {
@@ -297,7 +300,7 @@ pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, e
     let map = world.map;
     let sight = unit.kind.sight();
     unit.last_steps.clear();
-    explored.extend(pos.range(sight));
+    explored.extend(map.range(*pos, sight));
     // Connaissances en tableaux, tenues à jour en route : cases découvertes, cases occupées
     // découvertes (une unité par case) ajoutées aux cases bloquées, ennemis aperçus ajoutés à la
     // zone dangereuse.
@@ -305,7 +308,7 @@ pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, e
     known.mark_near_unknown(sight);
     loop {
         for &t in world.threats {
-            if t.distance(*pos) <= sight {
+            if map.distance(t, *pos) <= sight {
                 for h in t.range(THREAT_RADIUS) {
                     let i = known.index(h);
                     Known::set(&mut known.danger, i);
@@ -334,7 +337,7 @@ pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, e
         *pos = next;
         unit.last_steps.push(next);
         unit.moved_this_turn = true;
-        for h in pos.range(sight) {
+        for h in map.range(*pos, sight) {
             explored.insert(h);
             let i = known.index(h);
                     Known::set(&mut known.explored, i);
@@ -420,7 +423,7 @@ mod tests {
             explored.remove(&h);
         }
         let (first, _) = choose_target(&ExploreWorld::new(&map), &explored, start, 3).unwrap();
-        let reserved = reserved_by([(first, 3)]);
+        let reserved = reserved_by(Wrap::NONE, [(first, 3)]);
         let (second, _) = choose_target(&ExploreWorld::new(&map).reserved(&reserved), &explored, start, 3).unwrap();
         let east = |h: Hex| h.to_offset().0 > 20;
         assert_ne!(east(first), east(second), "premier {first:?}, second {second:?}");
@@ -436,7 +439,7 @@ mod tests {
         for h in zone.range(1) {
             explored.remove(&h);
         }
-        let reserved = reserved_by([(Hex::from_offset(18, 6), 3)]);
+        let reserved = reserved_by(Wrap::NONE, [(Hex::from_offset(18, 6), 3)]);
         assert!(choose_target(&ExploreWorld::new(&map).reserved(&reserved), &explored, start, 2).is_some());
     }
 
@@ -466,7 +469,7 @@ mod tests {
         explored.remove(&Hex::from_offset(26, 6));
         let village = Hex::from_offset(14, 6);
         let villages = HashSet::from([village]);
-        let reserved = reserved_by([(village, 2)]);
+        let reserved = reserved_by(Wrap::NONE, [(village, 2)]);
         let world = ExploreWorld::new(&map).villages(&villages).reserved(&reserved);
         let (target, _) = choose_target(&world, &explored, start, 2).unwrap();
         assert_ne!(target, village);
@@ -564,14 +567,14 @@ mod bench {
         let map = WorldMap::generate_in(192, 111, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
         let start = map.find_start().unwrap();
         // Départ : 36 unités sur des cases franchissables autour du départ
-        let spots: Vec<Hex> = start.range(8).filter(|&h| map.move_cost(h).is_some()).take(36).collect();
+        let spots: Vec<Hex> = map.range(start, 8).filter(|&h| map.move_cost(h).is_some()).take(36).collect();
         let mut units: Vec<(UnitState, Hex)> = spots.iter().map(|&h| (UnitState::new(UnitKind::Scout), h)).collect();
-        let mut explored: HashSet<Hex> = start.range(10).collect();
+        let mut explored: HashSet<Hex> = map.range(start, 10).collect();
         for turn in 0..40 {
             let t = std::time::Instant::now();
             let mut steps = 0;
             for k in 0..units.len() {
-                let reserved = reserved_by(units.iter().enumerate().filter(|(i, _)| *i != k).filter_map(|(_, (u, _))| u.explore_target.map(|t| (t, u.kind.sight()))));
+                let reserved = reserved_by(map.wrap(), units.iter().enumerate().filter(|(i, _)| *i != k).filter_map(|(_, (u, _))| u.explore_target.map(|t| (t, u.kind.sight()))));
                 let occupied: HashSet<Hex> = units.iter().map(|(_, p)| *p).collect();
                 let (u, p) = &mut units[k];
                 u.moves_left = u.kind.max_moves();

@@ -103,7 +103,7 @@ fn camera_controls(
     motion: Res<AccumulatedMouseMotion>,
     over_ui: Res<PointerOverUi>,
     time: Res<Time>,
-    camera: Single<(&mut Transform, &mut Projection), With<Camera2d>>,
+    camera: Single<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
 ) {
     if mode.is_3d {
         return;
@@ -154,7 +154,7 @@ fn track_pointer_over_ui(mut over: ResMut<PointerOverUi>, nodes: Query<&Interact
 fn update_hovered_hex(
     mut hovered: ResMut<HoveredHex>,
     window: Single<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform, Has<Camera3d>)>,
+    cameras: Query<(&Camera, &GlobalTransform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     map: Res<GameMap>,
     relief: Option<Res<crate::view3d::Relief>>,
     over_ui: Res<PointerOverUi>,
@@ -167,7 +167,7 @@ fn update_hovered_hex(
             crate::view3d::hovered_hex_3d(ray, relief.as_deref()?, &map)
         } else {
             let w = camera.viewport_to_world_2d(cam_transform, p).ok()?;
-            Some(Hex::from_world(w.x, w.y)).filter(|&h| map.0.contains(h))
+            Some(map.0.canonical(Hex::from_world(w.x, w.y))).filter(|&h| map.0.contains(h))
         }
     });
     if hovered.0 != hex {
@@ -352,7 +352,7 @@ fn mouse_commands(
     if let Some(other) = units.iter().find(|(e, _, p)| *e != selected && p.0 == target).map(|(e, _, _)| e) {
         // Échange possible seulement si chacune peut aller sur la case de l'autre (pas de falaise)
         let cost = map.0.step_cost(from, target);
-        if from.distance(target) != 1 || moves == 0 || cost.is_none() || map.0.step_cost(target, from).is_none() {
+        if map.0.distance(from, target) != 1 || moves == 0 || cost.is_none() || map.0.step_cost(target, from).is_none() {
             log.push("Case occupée par une de vos unités (échange possible avec une unité adjacente).");
             return;
         }
@@ -391,7 +391,7 @@ fn keyboard_commands(
     knowledge: (Res<Blocked>, Res<Occupancy>, Res<Danger>, Res<KnownVillages>),
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
     mut cities: Query<(&mut City, &HexPos)>,
-    camera: Single<&mut Transform, With<Camera2d>>,
+    camera: Single<&mut Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
     mut cam3d: ResMut<crate::view3d::Cam3d>,
 ) {
     // Ce que le joueur sait de la carte (regroupé : un système Bevy accepte 16 paramètres au plus)
@@ -424,7 +424,7 @@ fn keyboard_commands(
     let Some(selected) = selection.0 else { return };
 
     // --- Commandes d'unité
-    let reserved = reserved_by_others(units.iter().map(|(e, u, _)| (e, &u.0)), selected);
+    let reserved = reserved_by_others(&map.0, units.iter().map(|(e, u, _)| (e, &u.0)), selected);
     if let Ok((entity, mut unit, mut pos)) = units.get_mut(selected) {
         if keys.just_pressed(KeyCode::Space) {
             unit.0.sleeping = true;

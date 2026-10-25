@@ -105,6 +105,96 @@ impl Hex {
     }
 }
 
+/// Largeur (monde) d'une colonne de cases.
+pub const COLUMN_WIDTH: f32 = HEX_SIZE * SQRT_3;
+
+impl Hex {
+    /// La même case décalée de `cols` colonnes vers l'est (même ligne).
+    pub const fn shifted(self, cols: i32) -> Hex {
+        Hex::new(self.q + cols, self.r)
+    }
+}
+
+/// Bouclage est-ouest d'une carte de `width` colonnes : la colonne `width` est la colonne 0
+/// (planète). `width == 0` : pas de tour, la carte a des bords à l'est et à l'ouest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Wrap {
+    pub width: i32,
+}
+
+impl Wrap {
+    /// Pas de tour (carte à bords).
+    pub const NONE: Wrap = Wrap { width: 0 };
+
+    pub const fn new(width: i32, wraps: bool) -> Self {
+        Wrap { width: if wraps { width } else { 0 } }
+    }
+
+    pub const fn wraps(self) -> bool {
+        self.width > 0
+    }
+
+    /// La case ramenée dans les colonnes 0 à `width − 1` (inchangée sans tour).
+    pub fn hex(self, hex: Hex) -> Hex {
+        if self.width <= 0 {
+            return hex;
+        }
+        let (col, _) = hex.to_offset();
+        let k = col.div_euclid(self.width);
+        if k == 0 { hex } else { hex.shifted(-k * self.width) }
+    }
+
+    /// La copie de `to` la plus proche de `from` (hors de la carte si le plus court chemin passe
+    /// par le raccord) : pour les directions, les tracés, la distance.
+    pub fn nearest(self, from: Hex, to: Hex) -> Hex {
+        if self.width <= 0 {
+            return to;
+        }
+        let (ca, _) = from.to_offset();
+        let (cb, _) = to.to_offset();
+        let k = ((ca - cb) as f32 / self.width as f32).round() as i32;
+        (k - 1..=k + 1).map(|k| to.shifted(k * self.width)).min_by_key(|&h| from.distance(h)).unwrap_or(to)
+    }
+
+    /// Distance en cases, par le plus court côté.
+    pub fn distance(self, a: Hex, b: Hex) -> i32 {
+        a.distance(self.nearest(a, b))
+    }
+
+    /// Les 6 voisines, ramenées dans la carte.
+    pub fn neighbors(self, hex: Hex) -> [Hex; 6] {
+        hex.neighbors().map(|h| self.hex(h))
+    }
+
+    /// Voisine dans la direction `dir`, ramenée dans la carte.
+    pub fn neighbor(self, hex: Hex, dir: usize) -> Hex {
+        self.hex(hex + DIRECTIONS[dir % 6])
+    }
+
+    /// Direction (0 à 5) de `from` vers sa voisine `to`.
+    pub fn direction(self, from: Hex, to: Hex) -> Option<usize> {
+        let to = self.nearest(from, to);
+        DIRECTIONS.iter().position(|&d| from + d == to)
+    }
+
+    /// Cases à distance ≤ `radius`, ramenées dans la carte (sans doublon tant que le rayon est
+    /// petit devant la largeur).
+    pub fn range(self, center: Hex, radius: i32) -> impl Iterator<Item = Hex> {
+        center.range(radius).map(move |h| self.hex(h))
+    }
+
+    /// Décalage (monde, en x) de cette copie de la case par rapport à la case dans la carte :
+    /// 0 dans la carte, ± un tour au-delà du raccord.
+    pub fn offset(self, hex: Hex) -> f32 {
+        (hex.q - self.hex(hex).q) as f32 * COLUMN_WIDTH
+    }
+
+    /// Largeur du monde (unités monde) : un tour complet.
+    pub fn world_width(self) -> f32 {
+        self.width as f32 * COLUMN_WIDTH
+    }
+}
+
 impl Add for Hex {
     type Output = Hex;
     fn add(self, o: Hex) -> Hex {
@@ -159,6 +249,29 @@ mod tests {
                 assert_eq!(Hex::from_offset(col, row).to_offset(), (col, row));
             }
         }
+    }
+
+    #[test]
+    fn tour_est_ouest() {
+        let w = Wrap::new(20, true);
+        // Une colonne au-delà du bord est revient à l'ouest, et inversement
+        assert_eq!(w.hex(Hex::from_offset(20, 3)), Hex::from_offset(0, 3));
+        assert_eq!(w.hex(Hex::from_offset(-1, 4)), Hex::from_offset(19, 4));
+        // Les voisines d'une case du bord est sont dans la carte
+        for row in 0..6 {
+            let h = Hex::from_offset(19, row);
+            for n in w.neighbors(h) {
+                let (c, _) = n.to_offset();
+                assert!((0..20).contains(&c));
+                assert_eq!(w.distance(h, n), 1);
+                assert_eq!(w.direction(h, n).map(|d| w.neighbor(h, d)), Some(n));
+            }
+        }
+        // Le plus court chemin passe par le raccord
+        assert_eq!(w.distance(Hex::from_offset(1, 2), Hex::from_offset(18, 2)), 3);
+        assert_eq!(Wrap::NONE.distance(Hex::from_offset(1, 2), Hex::from_offset(18, 2)), 17);
+        assert_eq!(w.range(Hex::from_offset(0, 5), 2).count(), 19);
+        assert!(w.range(Hex::from_offset(0, 5), 2).all(|h| (0..20).contains(&h.to_offset().0)));
     }
 
     #[test]

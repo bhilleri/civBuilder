@@ -157,7 +157,7 @@ fn spawn_starting_units(
     let start = map.0.find_start().expect("aucun emplacement de départ");
     let settler = spawn_unit(&mut commands, UnitKind::Settler, start);
     // Milice et éclaireur sur des cases voisines praticables
-    let mut free = start.neighbors().into_iter().filter(|&h| map.0.get(h).and_then(|t| t.move_cost()).is_some());
+    let mut free = map.0.neighbors(start).into_iter().filter(|&h| map.0.get(h).and_then(|t| t.move_cost()).is_some());
     spawn_unit(&mut commands, UnitKind::Militia, free.next().unwrap_or(start));
     spawn_unit(&mut commands, UnitKind::Scout, free.next().unwrap_or(start));
     selection.0 = Some(settler);
@@ -189,7 +189,7 @@ pub fn found_city(
 }
 
 pub(crate) fn claim_territory(territory: &mut HashMap<Hex, Entity>, city: Entity, center: Hex, radius: i32, map: &WorldMap) {
-    for h in center.range(radius).filter(|&h| map.contains(h)) {
+    for h in map.range(center, radius).filter(|&h| map.contains(h)) {
         territory.entry(h).or_insert(city);
     }
 }
@@ -242,13 +242,14 @@ pub fn movement_blocked(hostile: &HashSet<Hex>, own: &HashSet<Hex>) -> HashSet<H
 /// Case libre pour faire apparaître une unité : `at` si libre, sinon une voisine franchissable.
 pub fn free_tile_near(map: &WorldMap, at: Hex, occupied: &HashSet<Hex>) -> Option<Hex> {
     std::iter::once(at)
-        .chain(at.neighbors())
+        .chain(map.neighbors(at))
         .find(|h| !occupied.contains(h) && map.get(*h).and_then(|t| t.move_cost()).is_some())
 }
 
 /// Cases réservées par les explorateurs autres que `except` (cibles déjà choisies).
-pub fn reserved_by_others<'a>(units: impl IntoIterator<Item = (Entity, &'a UnitState)>, except: Entity) -> HashSet<Hex> {
+pub fn reserved_by_others<'a>(map: &WorldMap, units: impl IntoIterator<Item = (Entity, &'a UnitState)>, except: Entity) -> HashSet<Hex> {
     explore::reserved_by(
+        map.wrap(),
         units
             .into_iter()
             .filter(|(e, u)| *e != except && u.auto_explore)
@@ -339,7 +340,7 @@ fn end_turn(
     let mut order: Vec<Entity> = units.iter().map(|(e, _, _)| e).collect();
     order.sort();
     for entity in order {
-        let reserved = reserved_by_others(units.iter().map(|(e, u, _)| (e, &u.0)), entity);
+        let reserved = reserved_by_others(map, units.iter().map(|(e, u, _)| (e, &u.0)), entity);
         let Ok((_, mut unit, mut pos)) = units.get_mut(entity) else { continue };
         let friendly = territory.0.contains_key(&pos.0);
         unit.0.start_turn(friendly);
@@ -427,6 +428,7 @@ fn sync_shown_fog(fog: Res<Fog>, debug: Res<DebugMode>, map: Res<GameMap>, mut s
 }
 
 fn update_fog(
+    map: Res<GameMap>,
     mut fog: ResMut<Fog>,
     units: Query<(&Unit, &HexPos), Without<Hostile>>,
     cities: Query<&HexPos, With<City>>,
@@ -438,10 +440,10 @@ fn update_fog(
     }
     let mut visible = HashSet::new();
     for (unit, pos) in &units {
-        visible.extend(pos.0.range(unit.0.kind.sight()));
+        visible.extend(map.0.range(pos.0, unit.0.kind.sight()));
     }
     for pos in &cities {
-        visible.extend(pos.0.range(3));
+        visible.extend(map.0.range(pos.0, 3));
     }
     fog.explored.extend(visible.iter().copied());
     fog.visible = visible;

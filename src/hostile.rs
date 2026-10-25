@@ -106,7 +106,7 @@ fn spawn_sites(mut commands: Commands, map: Res<GameMap>, seed: Res<WorldSeed>) 
     for &c in &placed.camps {
         commands.spawn((Camp { cooldown: CAMP_SPAWN_INTERVAL }, HexPos(c)));
         // Un premier guerrier sur une case voisine
-        if let Some(&at) = c.neighbors().iter().find(|&&h| map.0.move_cost(h).is_some()) {
+        if let Some(&at) = map.0.neighbors(c).iter().find(|&&h| map.0.move_cost(h).is_some()) {
             spawn_hostile(&mut commands, at, c);
         }
     }
@@ -152,7 +152,7 @@ pub fn visit_sites(
         let city_list: Vec<(Entity, Hex)> = cities.iter().map(|(e, p, _)| (e, p.0)).collect();
         match sites::roll_village_event(&mut rng, !city_list.is_empty()) {
             VillageEvent::JoinCity => {
-                let target = sites::nearest(pos.0, &city_list).expect("au moins une ville");
+                let target = sites::nearest(&map.0, pos.0, &city_list).expect("au moins une ville");
                 let (entity, center, mut city) = cities.get_mut(target).unwrap();
                 city.state.population += 1;
                 let radius = rules::territory_radius(city.state.population);
@@ -164,9 +164,9 @@ pub fn visit_sites(
                 log.push(format!("Village : échanges commerciaux, +{gold} or."));
             }
             VillageEvent::Hostile { warriors } => {
-                let mut free: Vec<Hex> = pos
+                let mut free: Vec<Hex> = map
                     .0
-                    .range(2)
+                    .range(pos.0, 2)
                     .filter(|h| map.0.move_cost(*h).is_some() && !taken.contains(h) && !touched.contains(h))
                     .collect();
                 free.sort();
@@ -227,9 +227,8 @@ pub fn hostile_turn(
         if garrison >= CAMP_MAX_UNITS {
             continue;
         }
-        let free: Vec<Hex> = camp_pos
-            .0
-            .neighbors()
+        let free: Vec<Hex> = map
+            .neighbors(camp_pos.0)
             .into_iter()
             .filter(|h| map.move_cost(*h).is_some() && !taken.contains(h))
             .collect();
@@ -254,21 +253,21 @@ pub fn hostile_turn(
         // sont pris en compte. Parmi les proies, la plus proche puis la plus faible.
         let prey = players
             .iter()
-            .filter(|(_, u, p)| u.0.hp > 0 && here.distance(p.0) <= HUNT_RANGE && p.0.distance(home) <= WANDER_RADIUS + 1)
+            .filter(|(_, u, p)| u.0.hp > 0 && map.distance(here, p.0) <= HUNT_RANGE && map.distance(p.0, home) <= WANDER_RADIUS + 1)
             .filter(|(_, u, p)| {
                 let e = battle::engagement(
                     map,
                     (&me, here),
                     (&u.0, p.0),
                     hostile_positions.iter().copied(),
-                    here.distance(p.0) > 1,
+                    map.distance(here, p.0) > 1,
                 );
                 let preview = combat::preview(&e);
                 preview.attacker_fate != Fate::Dies
                     && (preview.to_defender.expected >= preview.to_attacker.expected
                         || preview.defender_fate != Fate::Survives)
             })
-            .min_by_key(|(e, u, p)| (here.distance(p.0), u.0.hp, *e))
+            .min_by_key(|(e, u, p)| (map.distance(here, p.0), u.0.hp, *e))
             .map(|(e, _, p)| (e, p.0));
 
         let Some((prey, prey_pos)) = prey else {
@@ -278,10 +277,10 @@ pub fn hostile_turn(
             }
             // Errance : un pas aléatoire (60 % de chances) en restant près de la base
             if rng.random_bool(0.6) {
-                let options: Vec<Hex> = here
-                    .neighbors()
+                let options: Vec<Hex> = map
+                    .neighbors(here)
                     .into_iter()
-                    .filter(|h| h.distance(home) <= WANDER_RADIUS && map.step_cost(here, *h).is_some() && !taken.contains(h))
+                    .filter(|h| map.distance(*h, home) <= WANDER_RADIUS && map.step_cost(here, *h).is_some() && !taken.contains(h))
                     .collect();
                 if let Some(&next) = options.choose(&mut rng) {
                     let (_, mut unit, mut pos, _) = hostiles.get_mut(entity).unwrap();
@@ -295,12 +294,12 @@ pub fn hostile_turn(
         };
 
         // Approche : un pas vers la proie si elle n'est pas adjacente
-        if here.distance(prey_pos) > 1 {
-            let step = here
-                .neighbors()
+        if map.distance(here, prey_pos) > 1 {
+            let step = map
+                .neighbors(here)
                 .into_iter()
                 .filter(|h| {
-                    h.distance(prey_pos) == 1
+                    map.distance(*h, prey_pos) == 1
                         && map.step_cost(here, *h).is_some()
                         && rules::in_attack_position(map, me.kind, *h, prey_pos)
                         && !taken.contains(h)
@@ -357,6 +356,7 @@ pub fn hostile_turn(
 /// Ce que le joueur sait de la carte : guerriers hostiles visibles, occupation des cases,
 /// villages découverts. Mis à jour à chaque image.
 pub fn update_knowledge(
+    map: Res<GameMap>,
     fog: Res<crate::game::Fog>,
     hostiles: Query<(&Unit, &HexPos), With<Hostile>>,
     own: Query<&HexPos, (With<Unit>, Without<Hostile>)>,
@@ -377,6 +377,7 @@ pub fn update_knowledge(
         blocked.0 = visible.clone();
     }
     let zoc = rules::zoc_tiles(
+        map.0.wrap(),
         hostiles.iter().filter(|(_, p)| fog.visible.contains(&p.0)).map(|(u, p)| (u.0.kind, p.0)),
     );
     if enemy_zoc.0 != zoc {
@@ -386,7 +387,7 @@ pub fn update_knowledge(
         .iter()
         .copied()
         .chain(camps.iter().map(|p| p.0).filter(|h| fog.explored.contains(h)))
-        .flat_map(|h| h.range(HUNT_RANGE))
+        .flat_map(|h| map.0.range(h, HUNT_RANGE))
         .collect();
     if danger.0 != threats {
         danger.0 = threats;
