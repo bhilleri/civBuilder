@@ -2,21 +2,11 @@
 
 Décidées avec Benjamin (fin octobre 2026), dans l'ordre conseillé.
 
-## 1. Plaques océaniques polaires et passage maritime — fait (30/10), à valider à l'écran
-Voir `conception/conception-plaques.md`. Reste à juger : largeur des bandes polaires (10 à 18
-lignes), part des terres (37 à 42 % selon la graine).
+## 1. Plaques océaniques polaires et passage maritime — fait et validé (30/10)
+Voir `conception/conception-plaques.md`.
 
-## 2. Mers fermées traitées comme les golfes (cas « mer Baltique »)
-Constat (capture de la « Mer des Glaces ») : la partie sud de la mer n'était pas couverte et sa
-sortie était bizarre (limite en dents de scie, doigt d'une case vers l'ouest). Causes : les mers
-fermées viennent du découpage par distance à la côte (`seas.rs`, étape 2), qui ne connaît ni
-l'entrée ni la ligne des caps ; la partie sud, atteinte par le chenal, était rattachée à l'océan et
-son golfe rangé dans l'océan.
-- Ne garder le découpage par distance à la côte que pour séparer les océans entre eux ; toutes les
-  mers (fermées comprises) par la méthode des poches à l'abri (cercle venu du large, ligne des
-  caps), avec les golfes dedans (golfe › mer › océan).
-- Supprimer la règle « mer polaire » (le bord n'est plus une côte).
-- Lisser aussi les mers fermées (pointes, doigts, trous).
+## 2. Mers fermées traitées comme les golfes — fait (30/10)
+Voir `conception/conception-toponymie.md` (mers fermées : fermeture + taille).
 
 ## 3. Seuils sous-marins
 Utiliser la profondeur pour délimiter les mers : un passage peu profond (plateau) entre deux bassins
