@@ -710,10 +710,13 @@ impl WorldMap {
         let shelf: Vec<bool> = (0..n).map(|i| water[i] && self.depth.get(i).is_some_and(|&d| d < SHELF_DEPTH_M)).collect();
         // Océans polaires : seulement si la carte va jusqu'au pôle (le bord y est le pôle)
         let (north, south) = (self.region.latitude_deg(0, self.height) >= 89.0, self.region.latitude_deg(self.height - 1, self.height) <= -89.0);
-        let polar: Vec<bool> = (0..n)
+        let polar: Vec<f32> = (0..n)
             .map(|i| {
                 let lat = self.region.latitude_deg(i as i32 / self.width, self.height);
-                (north && lat >= crate::seas::POLAR_OCEAN_LATITUDE) || (south && lat <= -crate::seas::POLAR_OCEAN_LATITUDE)
+                match (lat >= 0.0 && north) || (lat < 0.0 && south) {
+                    true => lat.abs() - crate::seas::POLAR_OCEAN_LATITUDE,
+                    false => f32::NEG_INFINITY,
+                }
             })
             .collect();
         self.seas = crate::seas::compute(self.width, self.height, self.wrap, &water, &shelf, &polar);

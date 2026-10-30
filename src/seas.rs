@@ -95,6 +95,10 @@ impl Seas {
 /// l'océan Austral au-delà du 60e parallèle sud) : il n'est pas découpé là où une terre le
 /// resserre, et s'arrête à ce parallèle.
 pub const POLAR_OCEAN_LATITUDE: f32 = 60.0;
+/// L'océan polaire absorbe une étendue voisine de la taille d'une mer (`CLOSED_SEA_MIN_CELLS`)
+/// seulement si elle ne descend pas plus de tant de degrés en deçà de son parallèle (une frange le
+/// long du parallèle, pas un bassin jusqu'aux tropiques).
+const POLAR_FRINGE_DEG: f32 = 10.0;
 /// Une étendue d'au moins autant de cases (et au moins `OCEAN_SHARE` de la mer) est un océan.
 const OCEAN_MIN_CELLS: usize = 700;
 const OCEAN_SHARE: f32 = 0.08;
@@ -171,9 +175,10 @@ impl Grid {
 }
 
 /// Étendues marines. `water` : case de mer ouverte (ni lac, ni mer intérieure, déjà nommés) ;
-/// `shelf` : case du plateau continental (moins de 200 m) ; `polar` : case au-delà de
-/// `POLAR_OCEAN_LATITUDE` sur une carte qui va jusqu'au pôle.
-pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[bool], polar: &[bool]) -> Seas {
+/// `shelf` : case du plateau continental (moins de 200 m) ; `polar` : de combien de degrés la case
+/// est au-delà de `POLAR_OCEAN_LATITUDE` vers son pôle (négatif en deçà ; `f32::NEG_INFINITY` sur
+/// une carte qui ne va pas jusqu'au pôle).
+pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[bool], polar: &[f32]) -> Seas {
     let grid = Grid { width, height, wrap };
     let n = water.len();
     let mut seas = Seas { zones: Vec::new(), basin_of: vec![None; n], inlet_of: vec![None; n], strait_of: vec![None; n], coastal_of: vec![None; n], bay_of: vec![None; n] };
@@ -226,7 +231,7 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
     // pôle (0 : nord, 1 : sud) ; pas découpés, ils ne prennent pas part au partage des eaux
     let mut polar_of: Vec<Option<usize>> = vec![None; n];
     for side in 0..2 {
-        let on_side = |c: usize| water[c] && polar[c] && usize::from(c as i32 / width >= height / 2) == side;
+        let on_side = |c: usize| water[c] && polar[c] >= 0.0 && usize::from(c as i32 / width >= height / 2) == side;
         let mut seen = vec![false; n];
         let mut best: Vec<usize> = Vec::new();
         for start in 0..n {
@@ -360,6 +365,12 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
                 continue;
             }
             let (&into, _) = shared.iter().max_by_key(|(o, k)| (**k, std::cmp::Reverse(**o))).unwrap();
+            // L'océan polaire n'absorbe qu'une frange le long de son parallèle ou une petite étendue
+            // (sinon il redescendrait jusqu'aux tropiques) : une étendue de la taille d'une mer qui
+            // descend plus bas et le touche surtout reste à part, océan ou mer
+            if into >= n && r < n && cells.len() >= CLOSED_SEA_MIN_CELLS && cells.iter().any(|&c| polar[c] < -POLAR_FRINGE_DEG) {
+                continue;
+            }
             for &c in cells {
                 region[c] = Some(into);
             }
@@ -1152,7 +1163,7 @@ mod tests {
         let (w, h) = (96, 56);
         let land = |x: i32, y: i32| ((10..40).contains(&x) && (14..42).contains(&y)) || ((20..34).contains(&x) && (3..14).contains(&y));
         let water: Vec<bool> = (0..w * h).map(|c| !land(c % w, c / w)).collect();
-        let polar: Vec<bool> = (0..w * h).map(|c| !(10..46).contains(&(c / w))).collect();
+        let polar: Vec<f32> = (0..w * h).map(|c| if (10..46).contains(&(c / w)) { -20.0 } else { 10.0 }).collect();
         let seas = compute(w, h, Wrap::new(w, true), &water, &vec![false; water.len()], &polar);
         let at = |x: i32, y: i32| seas.basin_of[(y * w + x) as usize];
         let north = at(60, 2).expect("océan polaire nord");
@@ -1167,6 +1178,24 @@ mod tests {
     }
 
     #[test]
+    fn l_ocean_polaire_ne_descend_pas() {
+        // Planète de 96 × 56 cases : de la terre entre les deux bandes polaires, percée de deux
+        // bassins ouverts au nord, l'un de 20 × 25 cases (une mer), l'autre de 5 × 20 cases (une
+        // échancrure de l'océan polaire)
+        let (w, h) = (96, 56);
+        let land = |x: i32, y: i32| (10..46).contains(&y) && !(((40..60).contains(&x) && y < 35) || ((75..80).contains(&x) && y < 30));
+        let water: Vec<bool> = (0..w * h).map(|c| !land(c % w, c / w)).collect();
+        let polar: Vec<f32> = (0..w * h).map(|c| if (10..46).contains(&(c / w)) { -20.0 } else { 10.0 }).collect();
+        let seas = compute(w, h, Wrap::new(w, true), &water, &vec![false; water.len()], &polar);
+        let at = |x: i32, y: i32| seas.basin_of[(y * w + x) as usize];
+        let north = at(20, 2).expect("océan polaire nord");
+        let sea = at(50, 25).expect("bassin");
+        assert_ne!(sea, north, "le grand bassin n'est pas dans l'océan polaire");
+        assert_eq!(seas.zones[sea as usize].kind, SeaKind::Sea);
+        assert_eq!(at(77, 20), Some(north), "la petite échancrure en fait partie");
+    }
+
+    #[test]
     fn une_mer_fermee_par_un_detroit() {
         // Un mur de terre (3 cases d'épaisseur) du nord au sud, percé d'une passe d'une case : deux
         // étendues de part et d'autre, deux terres distinctes de part et d'autre de la passe
@@ -1176,7 +1205,7 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![f32::NEG_INFINITY; water.len()]);
         let left = seas.basin_of[(20 * w + 20) as usize];
         let right = seas.basin_of[(20 * w + 75) as usize];
         assert!(left.is_some() && right.is_some());
@@ -1203,7 +1232,7 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![f32::NEG_INFINITY; water.len()]);
         let gulf = seas.inlet_of[(11 * w + 14) as usize].map(|z| seas.zones[z as usize].kind);
         assert_eq!(gulf, Some(SeaKind::Gulf));
         let bay = seas.bay_of[(23 * w + 61) as usize].map(|z| seas.zones[z as usize].kind);
@@ -1232,7 +1261,7 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![f32::NEG_INFINITY; water.len()]);
         let at = |x: i32, y: i32| (y * w + x) as usize;
         // La mer fermée : une mer dans l'océan (pas un océan à part), qui couvre tout le bassin
         let ocean = seas.basin_of[at(45, 50)].expect("océan");
@@ -1265,9 +1294,9 @@ mod tests {
             .collect();
         let at = |x: i32, y: i32| (y * w + x) as usize;
         let sill: Vec<bool> = (0..w * h).map(|i| water[i as usize] && (40..46).contains(&(i % w)) && (30..33).contains(&(i / w))).collect();
-        let open = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
+        let open = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![f32::NEG_INFINITY; water.len()]);
         assert!(open.coastal_of[at(45, 15)].is_none(), "sans seuil : pas de mer fermée");
-        let seas = compute(w, h, Wrap::NONE, &water, &sill, &vec![false; water.len()]);
+        let seas = compute(w, h, Wrap::NONE, &water, &sill, &vec![f32::NEG_INFINITY; water.len()]);
         let sea = seas.coastal_of[at(45, 15)].expect("mer fermée derrière le seuil");
         assert_eq!(seas.zones[sea as usize].kind, SeaKind::Sea);
         assert_eq!(seas.coastal_of[at(42, 26)], Some(sea), "le chenal en deçà du seuil est dans la mer");
