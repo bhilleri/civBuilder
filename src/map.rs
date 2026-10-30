@@ -708,7 +708,15 @@ impl WorldMap {
         // Étendues marines (hors lacs et mers intérieures, déjà nommés), nommées d'après leurs côtes
         let water: Vec<bool> = (0..n).map(|i| self.tiles[i].is_sea() && self.basins.lake_of[i].is_none()).collect();
         let shelf: Vec<bool> = (0..n).map(|i| water[i] && self.depth.get(i).is_some_and(|&d| d < SHELF_DEPTH_M)).collect();
-        self.seas = crate::seas::compute(self.width, self.height, self.wrap, &water, &shelf);
+        // Océans polaires : seulement si la carte va jusqu'au pôle (le bord y est le pôle)
+        let (north, south) = (self.region.latitude_deg(0, self.height) >= 89.0, self.region.latitude_deg(self.height - 1, self.height) <= -89.0);
+        let polar: Vec<bool> = (0..n)
+            .map(|i| {
+                let lat = self.region.latitude_deg(i as i32 / self.width, self.height);
+                (north && lat >= crate::seas::POLAR_OCEAN_LATITUDE) || (south && lat <= -crate::seas::POLAR_OCEAN_LATITUDE)
+            })
+            .collect();
+        self.seas = crate::seas::compute(self.width, self.height, self.wrap, &water, &shelf, &polar);
         // Embouchure de chaque fleuve qui se jette dans la mer : la case de mer voisine
         let mut mouths: Vec<(usize, usize)> = Vec::new();
         for (r, river) in self.basins.rivers.iter().enumerate() {

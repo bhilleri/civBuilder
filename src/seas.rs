@@ -3,10 +3,11 @@
 //!
 //! 1. **Distance à la côte** de chaque case de mer (en cases).
 //! 2. **Océans** : la mer est découpée là où elle se resserre. Les cases sont prises de la plus
-//!    éloignée de la côte à la plus proche (le « relief » de la distance à la côte) : deux
+//!    éloignée de la côte à la plus proche (le « relief » de la distance à la côte), chacune rejoignant sa voisine la plus au large : deux
 //!    étendues qui se rejoignent restent séparées si le passage qui les relie est étroit par
 //!    rapport à leur largeur, sinon elles n'en font qu'une ; une petite étendue se fond toujours
-//!    dans sa voisine. Seules les grandes étendues restent : les océans.
+//!    dans sa voisine. Seules les grandes étendues restent : les océans. Au-delà du 60e
+//!    parallèle, la mer de chaque pôle est l'océan polaire, à part, sans découpage.
 //! 3. **Détroits** : passages de 1 à 4 cases de large entre deux terres distinctes (une île et un
 //!    continent, deux îles), chacune d'au moins quelques cases.
 //! 4. **Mers, golfes, baies**, une question d'échelle : un cercle venu du large balaie la mer
@@ -90,6 +91,10 @@ impl Seas {
     }
 }
 
+/// Au-delà de cette latitude (degrés), la mer est l'océan polaire, d'un seul tenant (comme
+/// l'océan Austral au-delà du 60e parallèle sud) : il n'est pas découpé là où une terre le
+/// resserre, et s'arrête à ce parallèle.
+pub const POLAR_OCEAN_LATITUDE: f32 = 60.0;
 /// Une étendue d'au moins autant de cases (et au moins `OCEAN_SHARE` de la mer) est un océan.
 const OCEAN_MIN_CELLS: usize = 700;
 const OCEAN_SHARE: f32 = 0.08;
@@ -166,8 +171,9 @@ impl Grid {
 }
 
 /// Étendues marines. `water` : case de mer ouverte (ni lac, ni mer intérieure, déjà nommés) ;
-/// `shelf` : case du plateau continental (moins de 200 m).
-pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[bool]) -> Seas {
+/// `shelf` : case du plateau continental (moins de 200 m) ; `polar` : case au-delà de
+/// `POLAR_OCEAN_LATITUDE` sur une carte qui va jusqu'au pôle.
+pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[bool], polar: &[bool]) -> Seas {
     let grid = Grid { width, height, wrap };
     let n = water.len();
     let mut seas = Seas { zones: Vec::new(), basin_of: vec![None; n], inlet_of: vec![None; n], strait_of: vec![None; n], coastal_of: vec![None; n], bay_of: vec![None; n] };
@@ -213,15 +219,93 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
         }
         x
     }
-    for &c in &order {
+    // Ordre de traitement : par distance décroissante ; à distance égale, en propageant depuis les
+    // étendues déjà formées (sinon, prises dans l'ordre des lignes, les cases d'une côte rejoignent
+    // de proche en proche l'étendue d'en haut, en une frange qui longe tout le rivage)
+    // Océans polaires : au-delà du 60e parallèle, le plus grand morceau d'un seul tenant de chaque
+    // pôle (0 : nord, 1 : sud) ; pas découpés, ils ne prennent pas part au partage des eaux
+    let mut polar_of: Vec<Option<usize>> = vec![None; n];
+    for side in 0..2 {
+        let on_side = |c: usize| water[c] && polar[c] && usize::from(c as i32 / width >= height / 2) == side;
+        let mut seen = vec![false; n];
+        let mut best: Vec<usize> = Vec::new();
+        for start in 0..n {
+            if seen[start] || !on_side(start) {
+                continue;
+            }
+            seen[start] = true;
+            let mut cells = vec![start];
+            let mut k = 0;
+            while k < cells.len() {
+                let c = cells[k];
+                k += 1;
+                for j in grid.neighbors(c) {
+                    if !seen[j] && on_side(j) {
+                        seen[j] = true;
+                        cells.push(j);
+                    }
+                }
+            }
+            if cells.len() > best.len() {
+                best = cells;
+            }
+        }
+        for c in best {
+            polar_of[c] = Some(side);
+        }
+    }
+    let mut flood = Vec::with_capacity(order.len());
+    let mut queued = vec![false; n];
+    let mut level = 0;
+    while level < order.len() {
+        let d = dist[order[level]];
+        let end = order[level..].iter().position(|&c| dist[c] != d).map_or(order.len(), |k| level + k);
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        for &c in &order[level..end] {
+            if grid.neighbors(c).any(|j| water[j] && dist[j] > d) {
+                queued[c] = true;
+                queue.push_back(c);
+            }
+        }
+        let mut seeds = order[level..end].iter();
+        loop {
+            let c = match queue.pop_front() {
+                Some(c) => c,
+                None => match seeds.find(|&&c| !queued[c]) {
+                    Some(&c) => {
+                        queued[c] = true;
+                        c
+                    }
+                    None => break,
+                },
+            };
+            flood.push(c);
+            for j in grid.neighbors(c) {
+                if water[j] && dist[j] == d && !queued[j] {
+                    queued[j] = true;
+                    queue.push_back(j);
+                }
+            }
+        }
+        level = end;
+    }
+    for &c in &flood {
+        if polar_of[c].is_some() {
+            continue;
+        }
         added[c] = true;
         peak[c] = dist[c];
         size[c] = 1;
-        let mut roots: Vec<usize> = grid.neighbors(c).filter(|&j| added[j] && j != c).map(|j| find(&mut parent, j)).collect();
-        roots.sort_unstable();
-        roots.dedup();
-        // La case rejoint l'étendue la plus « haute » ; les autres fusionnent si le passage est large
-        roots.sort_by_key(|&r| (std::cmp::Reverse(peak[r]), std::cmp::Reverse(size[r]), r));
+        // La case rejoint l'étendue de sa voisine la plus au large (la pente la plus raide) ; les
+        // autres fusionnent si le passage est large
+        let mut near: Vec<(u16, usize)> = grid.neighbors(c).filter(|&j| added[j] && j != c).map(|j| (dist[j], find(&mut parent, j))).collect();
+        near.sort_by_key(|&(d, r)| (std::cmp::Reverse(d), std::cmp::Reverse(peak[r]), std::cmp::Reverse(size[r]), r));
+        let mut roots: Vec<usize> = Vec::new();
+        for (_, r) in near {
+            if !roots.contains(&r) {
+                roots.push(r);
+            }
+        }
         let Some(&main) = roots.first() else { continue };
         parent[c] = main;
         size[main] += 1;
@@ -242,7 +326,7 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
     }
     let mut region: Vec<Option<usize>> = vec![None; n];
     for &c in &order {
-        region[c] = Some(find(&mut parent, c));
+        region[c] = Some(polar_of[c].map_or_else(|| find(&mut parent, c), |side| n + side));
     }
 
     // 3) Océans : le découpage ne sert qu'à les séparer entre eux ; les étendues plus petites
@@ -398,6 +482,15 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
         Some(r) if r >= CLOSED_BASE => closed_size[usize::from(r - CLOSED_BASE)],
         _ => basin_size(c),
     };
+    // Cases au large (hors mer fermée ou bordière) de chaque océan ou mer
+    let mut open_left: HashMap<u16, usize> = HashMap::new();
+    for c in 0..n {
+        if let Some(r) = region_of[c]
+            && sea_of[c].is_none()
+        {
+            *open_left.entry(r).or_default() += 1;
+        }
+    }
     let mut gulf_cells: Vec<Vec<usize>> = Vec::new();
     let mut gulf_of: Vec<Option<usize>> = vec![None; n];
     for cand in found.iter().filter(|c| c.kind != SeaKind::Bay) {
@@ -442,6 +535,13 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
             if cells.len() < SEA_MIN_CELLS {
                 continue;
             }
+            // Les mers bordières laissent un large à leur océan (où poser son nom)
+            let Some(region) = basin else { continue };
+            let left = open_left[&region].saturating_sub(cells.len());
+            if (left as f32) < (1.0 - WHOLE_BASIN_SHARE) * region_size(cells[0]) as f32 {
+                continue;
+            }
+            open_left.insert(region, left);
             let id = sea_cells.len();
             for &c in &cells {
                 sea_of[c] = Some(id);
@@ -1045,6 +1145,28 @@ mod tests {
     }
 
     #[test]
+    fn ocean_polaire_d_un_seul_tenant() {
+        // Planète de 96 × 56 cases, bouclée : un continent au milieu, dont une péninsule monte
+        // presque jusqu'au pôle nord (3 lignes de mer) ; au-delà du 60e parallèle (lignes 0 à 9 et
+        // 46 à 55), la mer est l'océan polaire, d'un seul tenant malgré le resserrement
+        let (w, h) = (96, 56);
+        let land = |x: i32, y: i32| ((10..40).contains(&x) && (14..42).contains(&y)) || ((20..34).contains(&x) && (3..14).contains(&y));
+        let water: Vec<bool> = (0..w * h).map(|c| !land(c % w, c / w)).collect();
+        let polar: Vec<bool> = (0..w * h).map(|c| !(10..46).contains(&(c / w))).collect();
+        let seas = compute(w, h, Wrap::new(w, true), &water, &vec![false; water.len()], &polar);
+        let at = |x: i32, y: i32| seas.basin_of[(y * w + x) as usize];
+        let north = at(60, 2).expect("océan polaire nord");
+        assert_eq!(seas.zones[north as usize].kind, SeaKind::Ocean);
+        for (c, _) in water.iter().enumerate().filter(|&(c, &wet)| wet && c / w as usize <= 9) {
+            assert_eq!(seas.basin_of[c], Some(north), "case {c} hors de l'océan polaire nord");
+        }
+        // Il s'arrête au parallèle : le large du milieu et le pôle sud sont d'autres océans
+        assert_ne!(at(70, 28), Some(north));
+        assert_ne!(at(60, 52), Some(north));
+        assert_ne!(at(70, 28), at(60, 52));
+    }
+
+    #[test]
     fn une_mer_fermee_par_un_detroit() {
         // Un mur de terre (3 cases d'épaisseur) du nord au sud, percé d'une passe d'une case : deux
         // étendues de part et d'autre, deux terres distinctes de part et d'autre de la passe
@@ -1054,7 +1176,7 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()]);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
         let left = seas.basin_of[(20 * w + 20) as usize];
         let right = seas.basin_of[(20 * w + 75) as usize];
         assert!(left.is_some() && right.is_some());
@@ -1081,7 +1203,7 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()]);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
         let gulf = seas.inlet_of[(11 * w + 14) as usize].map(|z| seas.zones[z as usize].kind);
         assert_eq!(gulf, Some(SeaKind::Gulf));
         let bay = seas.bay_of[(23 * w + 61) as usize].map(|z| seas.zones[z as usize].kind);
@@ -1110,7 +1232,7 @@ mod tests {
         }
         let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
         let (w, h, water) = grid(&refs);
-        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()]);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
         let at = |x: i32, y: i32| (y * w + x) as usize;
         // La mer fermée : une mer dans l'océan (pas un océan à part), qui couvre tout le bassin
         let ocean = seas.basin_of[at(45, 50)].expect("océan");
@@ -1143,9 +1265,9 @@ mod tests {
             .collect();
         let at = |x: i32, y: i32| (y * w + x) as usize;
         let sill: Vec<bool> = (0..w * h).map(|i| water[i as usize] && (40..46).contains(&(i % w)) && (30..33).contains(&(i / w))).collect();
-        let open = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()]);
+        let open = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![false; water.len()]);
         assert!(open.coastal_of[at(45, 15)].is_none(), "sans seuil : pas de mer fermée");
-        let seas = compute(w, h, Wrap::NONE, &water, &sill);
+        let seas = compute(w, h, Wrap::NONE, &water, &sill, &vec![false; water.len()]);
         let sea = seas.coastal_of[at(45, 15)].expect("mer fermée derrière le seuil");
         assert_eq!(seas.zones[sea as usize].kind, SeaKind::Sea);
         assert_eq!(seas.coastal_of[at(42, 26)], Some(sea), "le chenal en deçà du seuil est dans la mer");

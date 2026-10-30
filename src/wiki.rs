@@ -439,8 +439,8 @@ fn terrain() -> Article {
                carte des débits, bassin et affluents sur celle des bassins versants…)."),
             h("Mers et océans"),
             p("La mer est partagée en étendues nommées, d'après ses côtes, de la plus vaste à la plus précise : les \
-               océans (découpés là où la mer se resserre entre les terres ; le nom d'un grand océan est répété en \
-               plusieurs endroits) ; les mers, fermées (derrière une entrée étroite par rapport à leur largeur, \
+               océans (découpés là où la mer se resserre entre les terres ; au-delà du 60e parallèle, la mer de \
+               chaque pôle forme un seul océan polaire ; le nom d'un grand océan est répété en plusieurs endroits) ; les mers, fermées (derrière une entrée étroite par rapport à leur largeur, \
                un haut-fond la fermant à demi ; elles commencent à ce seuil, avec leurs golfes et baies) ou parties d'un océan à l'abri entre plusieurs \
                terres (une côte et des îles, un arc d'îles), prolongées sur le plateau continental ; les golfes \
                (21 cases et plus, sans limite : un golfe peut être immense) et les baies (3 à 20 cases), échancrures \
