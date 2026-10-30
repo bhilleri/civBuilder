@@ -1,0 +1,24 @@
+# Conception — Fonds marins, pêche, navigation
+
+## Principe (décidé avec Benjamin)
+La profondeur est calculée, mais on n'affiche et n'utilise que ce qui a un effet pour le joueur : **pêche** (dépend de la profondeur) et, plus tard, **navigation** (dépend surtout de la distance à la côte, et du plateau).
+
+## Recherches
+- Pêche : les mers de plateau (< 200 m, ≈ 8 % des océans) donnent l'essentiel des prises (« 99 % », Lighthouse Foundation ; zones côtières ≈ 10 % de la surface pour ≈ 50 % de la production, haute mer ≈ 90 % pour < 1 %), 2 à 5 fois plus productives (nutriments des fleuves, recyclage près de la surface, chaînes alimentaires courtes). Remontées d'eaux (upwelling, côtes ouest sous les alizés : Canaries, Benguela, Californie, Humboldt) : les zones les plus riches.
+- Monts sous-marins (points chauds, dorsales, arcs) : courants, remous, plancton → thons, ~80 espèces pêchées ; stocks lents à se renouveler (surpêche). Effet de masse d'île autour des îles volcaniques isolées.
+- Dorsales (≈ 2 500 m, sources hydrothermales chimiosynthétiques) et fosses (> 6 000 m) : pas de pêche directe. Une côte de subduction a peu de plateau ; la richesse du Pérou-Chili vient de la remontée d'eaux (vents, courant de Humboldt), pas de la fosse.
+- Navigation : galères et navires anciens longent les côtes (eau, abris, commerce), traversées possibles d'île en île ; la caravelle (voile latine), la caraque (capacité), boussole et astrolabe ouvrent la haute mer ; Civ VI : pas d'océan avant la Cartographie.
+
+## Fait (25/10/2026)
+- Profondeur de chaque case de mer : socle des plaques rangé parmi les mers, corrigé de 0,15 de rang par case d'éloignement de la côte (× bruit doux ±60 %) ; nœuds : 14 % des mers sous 200 m (plateau, un peu plus que sur Terre à cause des cases de 40 km), 34 % sous 3 000 m (talus), le reste jusqu'à 5 800 m ; fosses 6 000–9 000 m sur les frontières de subduction et d'arc d'îles côté plaque océanique (≥ 2 cases des terres).
+- Terrains : Côte → **Eaux peu profondes** (plateau, 2 / 0 / 1), Océan → **Haute mer** (1 / 0 / 1). Plus d'eaux peu profondes forcées au bord des terres : côtes abruptes devant les subductions.
+- Eaux riches (+1 nourriture, une seule fois) : remontée d'eaux (transport d'Ekman — 90° à droite du vent simulé au nord, à gauche au sud — vers le large ≥ 0,25, à ≤ 2 cases d'une côte, latitude 3–45°) ; mont sous-marin (haute mer ≤ 2 000 m, ≥ 900 m au-dessus de l'anneau à 2 cases, à ≥ 2 cases du plateau et des terres) ; eaux d'île volcanique (île ≤ 30 cases sur plaque océanique, cases de mer voisines). Graine 4242 : 288 cases de remontées, 147 monts, 100 cases d'îles.
+- **Bancs de poissons** (retour de Benjamin : la teinte verte superposée à la profondeur était bizarre) : plus de teinte sur la carte normale. Les cases riches connexes forment un banc unique, **nommé** (langue de la côte la plus proche, `bank_name`) et **recherchable** (filtre « Bancs de poissons » dans « Trouver un lieu »). Graine 4242 : 28 bancs, le plus grand fait 61 cases.
+- **Carte des ressources** (nouvelle carte dans les options, couleurs normales) : la **zone de chaque banc est toujours visible** sur cette carte (demande de Benjamin) — voile turquoise (alpha 0,22) et liseré fondu vers l'intérieur au bord du banc ou de sa partie connue (surcouche 2D `BankOverlay`, z 0,45 ; en 3D, couleur du sol mêlée de turquoise à 45 %). Une icône poisson semi-transparente (alpha 0,55) par banc, posée sur la case explorée la plus proche du centre du banc (les bancs en anneau autour des îles n'ont pas leur centre dans l'eau), nom sous l'icône dès 12 px par case. Au survol ou à la sélection : contour doré pulsant, icône opaque. Sur les autres cartes, les bancs n'apparaissent que quand on les pointe (recherche). Carte non surchargée : l'origine (remontée, mont, île) n'est **jamais affichée sur la carte**, seulement dans l'infobulle de la carte des ressources (info « Pêche », active par défaut sur cette carte seulement) ; ailleurs, la ligne des rendements indique « (dont +1 : Banc X) ».
+- Infobulle : « 610 m de fond », « fosse » ; carte de l'altitude : eaux peu profondes, haute mer (200–3 000 m), abysses.
+
+## À faire
+- Navigation (avec les unités navales) : barques / pirogues sur les eaux peu profondes et la 1re case de haute mer le long des côtes ; galères, drakkars, cogues sur tout le plateau et ≤ 2–3 cases de haute mer d'affilée ; caravelles (Cartographie) partout.
+- Pêcheries (aménagement), monts sous-marins épuisables si surexploités.
+- Autres ressources sur la carte des ressources (icônes par case) ; éventuellement une carte des ressources lacustres.
+- Refaire les mers avec la forme (compacte, sans trou), le plateau (mers de plateau) et l'échelle (golfes sans limite haute, baies 3–20 cases) — voir conception-toponymie.
