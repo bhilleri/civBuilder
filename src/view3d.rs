@@ -311,9 +311,13 @@ struct Patch3d {
     outline: Vec<Vec2>,
 }
 
-/// Socle d'une figurine : incliné comme le sol.
+/// Anneau au sol autour d'une figurine (couleur du camp) : incliné comme le sol.
 #[derive(Component)]
 struct Socle3d;
+
+/// Barque sous une figurine sur un fleuve (orientée dans le sens du courant).
+#[derive(Component)]
+struct Boat3d;
 
 /// Icône d'une unité, tournée vers la caméra, montrée seulement en vue lointaine.
 #[derive(Component)]
@@ -361,17 +365,21 @@ struct SiteKit {
     stone: Handle<StandardMaterial>,
 }
 
-/// Dimensions d'une ville 3D (repère local : origine sur le sol au centre de la case ; chaque
-/// élément est posé sur le sol à sa place, voir `Grounded`).
-/// Socle coloré d'une figurine (couleur du camp) et rayon de son emprise au sol.
-const SOCLE_RADIUS: f32 = 6.0;
-const SOCLE_HEIGHT: f32 = 1.2;
+/// Anneau aux couleurs du camp autour d'une figurine (rayon, épaisseur) et emprise des pieds.
+const SOCLE_RADIUS: f32 = 5.5;
+const SOCLE_HEIGHT: f32 = 0.6;
+const FIGURE_REACH: f32 = 3.0;
+/// Barque : pont (où se tient la figurine) au-dessus de l'eau, centre de la coque au-dessus de l'eau.
+const BOAT_DECK: f32 = 1.4;
+const BOAT_HULL_LIFT: f32 = 0.3;
 /// Au-delà de cette distance de la caméra 3D, l'icône du type d'unité flotte au-dessus de la
 /// figurine (de loin, la figurine seule ne se lit plus).
 const FAR_ICON_DISTANCE: f32 = 1_100.0;
 const FAR_ICON_LIFT: f32 = 20.0;
 /// Taille de l'icône (fois le carré de 26) à la distance d'apparition.
 const FAR_ICON_SCALE: f32 = 0.9;
+/// Dimensions d'une ville 3D (repère local : origine sur le sol au centre de la case ; chaque
+/// élément est posé sur le sol à sa place, voir `Grounded`).
 const CITY_WALL_RADIUS: f32 = 26.0;
 const CITY_WALL_HEIGHT: f32 = 7.0;
 const CITY_TOWER_HEIGHT: f32 = 12.0;
@@ -387,6 +395,10 @@ struct Assets3d {
     /// Eau douce (couleur portée par les sommets) : vue, hors de vue.
     fresh_water: [Handle<StandardMaterial>; 2],
     socle: Handle<Mesh>,
+    /// Barque : coque, proue et poupe en pointe ; bois.
+    boat_hull: Handle<Mesh>,
+    boat_end: Handle<Mesh>,
+    boat_wood: Handle<StandardMaterial>,
     icon_quad: Handle<Mesh>,
     /// Pastille aux couleurs du camp derrière l'icône lointaine.
     icon_disc: Handle<Mesh>,
@@ -786,7 +798,10 @@ fn setup_3d(
         ground_dim,
         unexplored,
         fresh_water,
-        socle: meshes.add(Cylinder::new(SOCLE_RADIUS, SOCLE_HEIGHT)),
+        socle: meshes.add(Torus::new(SOCLE_RADIUS - SOCLE_HEIGHT, SOCLE_RADIUS)),
+        boat_hull: meshes.add(Cuboid::new(6.5, 2.2, 13.0)),
+        boat_end: meshes.add(Cuboid::new(4.6, 2.2, 4.6)),
+        boat_wood: materials.add(StandardMaterial { base_color: Color::srgb(0.40, 0.26, 0.14), perceptual_roughness: 0.9, ..default() }),
         icon_quad: meshes.add(Rectangle::new(26.0, 26.0)),
         icon_disc: meshes.add(Circle::new(16.0)),
         icon_backs: [Color::srgb(0.20, 0.45, 0.95), Color::srgb(0.78, 0.17, 0.15)].map(|c| materials.add(StandardMaterial { base_color: c, unlit: true, ..default() })),
@@ -1435,7 +1450,15 @@ fn spawn_mirrors(
         commands
             .spawn((Mirror3d { source, is_unit: true, placed: None }, Transform::default(), Visibility::Hidden, layer()))
             .with_children(|p| {
-                p.spawn((Socle3d, Mesh3d(a.socle.clone()), MeshMaterial3d(material.clone()), Transform::default(), layer()));
+                p.spawn((Socle3d, Mesh3d(a.socle.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Inherited, layer()));
+                // Barque (visible sur un fleuve) : coque et deux pointes
+                p.spawn((Boat3d, Transform::default(), Visibility::Hidden, layer())).with_children(|b| {
+                    let wood = MeshMaterial3d(a.boat_wood.clone());
+                    b.spawn((Mesh3d(a.boat_hull.clone()), wood.clone(), Transform::default(), layer()));
+                    for z in [6.5, -6.5] {
+                        b.spawn((Mesh3d(a.boat_end.clone()), wood.clone(), Transform::from_xyz(0.0, 0.0, z).with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_4)), layer()));
+                    }
+                });
                 crate::figures::spawn_figure(p, &a.figures, unit.0.kind, hostile, &layer());
                 p.spawn((
                     FarIcon,
@@ -1614,7 +1637,8 @@ fn sync_mirrors(
     cities: Query<&HexPos, With<City>>,
     mut mirrors: Query<(Entity, &mut Mirror3d, &mut Transform, &mut Visibility, Option<&Children>)>,
     mut parts: Query<(&Grounded, &mut Transform), Without<Mirror3d>>,
-    mut socles: Query<&mut Transform, (With<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
+    mut socles: Query<(&mut Transform, &mut Visibility), (With<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
+    mut boats: Query<(&mut Transform, &mut Visibility), (With<Boat3d>, Without<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
     patches: Query<(&Patch3d, &Mesh3d)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
@@ -1635,23 +1659,34 @@ fn sync_mirrors(
             let center = relief.ground(cx, cy);
             let children: Vec<Entity> = children.map(|c| c.iter().collect()).unwrap_or_default();
             if mirror.is_unit {
-                // Figurine : pieds au plus haut du sol sous son socle (jamais enfoncée), ou sur le
-                // toit du donjon ; socle incliné comme le sol
-                let root = if on_roof {
-                    footprint(&relief, c, CITY_KEEP_RADIUS).1 + CITY_HEIGHT
-                } else {
-                    footprint(&relief, c, SOCLE_RADIUS).1.max(center + SOCLE_HEIGHT - 0.3)
+                // Sur un fleuve : dans une barque, à la surface de l'eau, dans le sens du courant
+                let river = relief.channels.get(&hex).filter(|_| !on_roof && map.0.is_fleuve(hex));
+                let afloat = river.and_then(|near| {
+                    let water = crate::relief::water_surface(near, c)?;
+                    let axis = near.iter().filter(|ch| !ch.is_disc()).min_by(|a, b| c.distance(a.nearest(c)).total_cmp(&c.distance(b.nearest(c))))?;
+                    let d = axis.b - axis.a;
+                    Some((water, Quat::from_rotation_y(d.x.atan2(-d.y))))
+                });
+                // Figurine : pieds au plus haut du sol sous elle (jamais enfoncée), sur le toit du
+                // donjon, ou sur le pont de sa barque ; anneau au sol incliné comme le sol
+                let root = match (on_roof, afloat) {
+                    (true, _) => footprint(&relief, c, CITY_KEEP_RADIUS).1 + CITY_HEIGHT,
+                    (false, Some((water, _))) => water + BOAT_DECK,
+                    (false, None) => footprint(&relief, c, FIGURE_REACH).1,
                 };
                 transform.translation = Vec3::new(cx, root, -cy);
-                let (socle_y, tilt) = if on_roof {
-                    (-SOCLE_HEIGHT / 2.0, Quat::IDENTITY)
-                } else {
-                    (center - root + SOCLE_HEIGHT / 2.0 - 0.3, Quat::from_rotation_arc(Vec3::Y, ground_normal(&relief, c, SOCLE_RADIUS)))
-                };
+                let ring = (center - root + 0.3, Quat::from_rotation_arc(Vec3::Y, ground_normal(&relief, c, SOCLE_RADIUS)));
                 for &child in &children {
-                    if let Ok(mut t) = socles.get_mut(child) {
-                        t.translation.y = socle_y;
-                        t.rotation = tilt;
+                    if let Ok((mut t, mut v)) = socles.get_mut(child) {
+                        // (pas d'anneau sur un toit ni sur l'eau)
+                        *v = if on_roof || afloat.is_some() { Visibility::Hidden } else { Visibility::Inherited };
+                        (t.translation.y, t.rotation) = ring;
+                    } else if let Ok((mut t, mut v)) = boats.get_mut(child) {
+                        *v = if afloat.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+                        if let Some((water, turn)) = afloat {
+                            t.translation.y = water + BOAT_HULL_LIFT - root;
+                            t.rotation = turn;
+                        }
                     }
                 }
             } else {

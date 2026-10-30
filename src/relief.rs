@@ -205,7 +205,8 @@ impl Channel {
         self
     }
 
-    fn is_disc(&self) -> bool {
+    /// Un disque (coin, centre d'un fleuve, petit lac) plutôt qu'un tronçon.
+    pub fn is_disc(&self) -> bool {
         self.a.distance_squared(self.b) < 1e-6
     }
 

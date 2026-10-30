@@ -14,7 +14,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - Lancer le jeu : `cargo run` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74`).
 - **Captures d'écran** (vérification visuelle sans jouer) : `CIVBUILDER_SEED=777 CIVBUILDER_CAPTURE=<dossier> cargo run`
   → met en scène (deux villes dont une sur un relief accidenté, les douze types d'unités près d'une
-  montagne, carte révélée), passe en 3D, enregistre ~8 vues en PNG dans le dossier (ville, unités,
+  montagne, trois unités en barque sur un fleuve, carte révélée), passe en 3D, enregistre ~8 vues en PNG dans le dossier (ville, unités,
   vue lointaine, camp, village) puis se ferme (≈ 30 s après la génération). Lire les images pour
   vérifier un rendu ; ajouter des vues dans `src/capture.rs` si besoin. Le dossier de captures
   va dans le scratchpad, pas dans le dépôt.

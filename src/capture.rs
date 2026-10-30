@@ -1,6 +1,6 @@
 //! Mode capture, pour le développement : avec `CIVBUILDER_CAPTURE=<dossier>`, le jeu prépare une
 //! scène (ville sur une colline, ville au départ, les douze types d'unités près d'une montagne,
-//! carte révélée), passe en 3D, vise plusieurs cibles à plusieurs distances (ville, unités,
+//! trois unités en barque sur un fleuve, carte révélée), passe en 3D, vise plusieurs cibles à plusieurs distances (ville, unités,
 //! camp, village, vue lointaine), enregistre chaque vue en PNG dans le dossier, puis se ferme.
 //! Sert à vérifier le rendu sans jouer (`CIVBUILDER_SEED` fixe la graine).
 
@@ -101,6 +101,17 @@ fn run_capture(
             for (kind, &h) in UnitKind::ALL.iter().zip(&spots) {
                 spawn_unit(&mut commands, *kind, m.canonical(h));
             }
+            // Trois unités en barque sur un fleuve (cases de fleuve voisines)
+            let used: Vec<Hex> = taken.iter().copied().chain(spots.iter().map(|&h| m.canonical(h))).collect();
+            let on_river = |h: Hex| m.is_fleuve(h) && passable(h) && !used.contains(&h);
+            let river = by_distance.iter().copied().find(|&h| on_river(h) && m.neighbors(h).iter().filter(|&&n| on_river(m.canonical(n))).count() >= 2);
+            if let Some(h) = river {
+                let mut boats = vec![h];
+                boats.extend(m.neighbors(h).into_iter().map(|n| m.canonical(n)).filter(|&n| on_river(n)).take(2));
+                for (kind, &b) in [UnitKind::Settler, UnitKind::HeavyCavalry, UnitKind::Spearman].iter().zip(&boats) {
+                    spawn_unit(&mut commands, *kind, b);
+                }
+            }
             debug.0 = true;
             mode.is_3d = true;
             // Vues
@@ -114,6 +125,9 @@ fn run_capture(
             add("unites_montagne", mountain, 230.0, 0.0);
             add("unites_montagne_cote", mountain, 230.0, 2.6);
             add("unites_loin", mountain, 1_500.0, 0.0);
+            if let Some(h) = river {
+                add("fleuve", h, 200.0, 0.3);
+            }
             let nearest = |list: Vec<Hex>| list.into_iter().min_by_key(|&h| m.distance(h, start));
             if let Some(h) = nearest(camps.iter().map(|p| p.0).collect()) {
                 add("camp", h, 220.0, 0.0);

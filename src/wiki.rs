@@ -396,7 +396,10 @@ fn terrain() -> Article {
             p("Le bouton « Carte » (touche T) choisit la carte : normale, de l'altitude (couleur selon les mètres), du \
                relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau, du réseau hydrographique, \
                des plaques tectoniques ou des ressources (bancs de poissons). \
-               Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. En 3D,                chaque unité est une figurine sur un socle aux couleurs de son camp (bleu : vous, rouge : hostiles),                posée sur le relief ; de loin, l'icône de son type flotte au-dessus. Le bouton \
+               Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. En 3D, \
+               chaque unité est une figurine posée sur le relief, entourée d'un anneau aux couleurs de son camp \
+               (bleu : vous, rouge : hostiles), dans une barque sur un fleuve ; de loin, l'icône de son type flotte \
+               au-dessus. Le bouton \
                « Options de carte » (touche O) règle les noms affichés (cours d'eau, lacs, villes ; la touche N les \
                masque ou les remet tous), la surbrillance des cours d'eau (au survol du cours d'eau, au survol de son \
                étiquette, ou aucune) et les rubriques de l'infobulle, pour chaque carte : par défaut le terrain, le \
