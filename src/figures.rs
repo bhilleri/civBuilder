@@ -1,6 +1,6 @@
 //! Figurines 3D des unités, faites de formes simples (cylindres, sphères, cônes, pavés), comme
 //! les villes, camps et villages. Chaque type a sa silhouette, lisible de loin : le colon tire une
-//! charrette à bras chargée, l'éclaireur porte une longue cape, le guerrier lourd une armure
+//! charrette à bras chargée, l'éclaireur va avec son chien, le guerrier lourd une armure
 //! sombre et un grand bouclier, le piquier une très longue pique, les archers un arc haut, les
 //! cavaliers montent un cheval (caparaçonné pour le cavalier lourd). Les militaires portent les
 //! couleurs de leur camp (tunique, bouclier, plumet) ; colon, éclaireur et milice ont des
@@ -22,7 +22,11 @@ pub struct FigureKit {
     hood: Handle<Mesh>,
     hat_brim: Handle<Mesh>,
     hat_top: Handle<Mesh>,
-    cloak: Handle<Mesh>,
+    dog_body: Handle<Mesh>,
+    dog_leg: Handle<Mesh>,
+    dog_head: Handle<Mesh>,
+    dog_ear: Handle<Mesh>,
+    dog_tail: Handle<Mesh>,
     shield: Handle<Mesh>,
     boss: Handle<Mesh>,
     tower_shield: Handle<Mesh>,
@@ -54,6 +58,7 @@ pub struct FigureKit {
     forest: Handle<StandardMaterial>,
     horse: Handle<StandardMaterial>,
     horse_pale: Handle<StandardMaterial>,
+    dog: Handle<StandardMaterial>,
     /// Couleurs du camp : joueur, hostile.
     team: [Handle<StandardMaterial>; 2],
 }
@@ -73,7 +78,11 @@ impl FigureKit {
             hood: meshes.add(Cone { radius: 2.1, height: 3.2 }),
             hat_brim: meshes.add(Cylinder::new(3.4, 0.35)),
             hat_top: meshes.add(Cone { radius: 1.8, height: 1.6 }),
-            cloak: meshes.add(Cone { radius: 3.6, height: 9.0 }),
+            dog_body: meshes.add(Cuboid::new(1.8, 1.8, 4.6)),
+            dog_leg: meshes.add(Cylinder::new(0.38, 2.2)),
+            dog_head: meshes.add(Cuboid::new(1.6, 1.6, 2.2)),
+            dog_ear: meshes.add(Cone { radius: 0.45, height: 0.9 }),
+            dog_tail: meshes.add(Cylinder::new(0.25, 2.0)),
             shield: meshes.add(Cylinder::new(3.2, 0.5)),
             boss: meshes.add(Sphere::new(0.8)),
             tower_shield: meshes.add(Cuboid::new(5.0, 7.5, 0.6)),
@@ -105,8 +114,21 @@ impl FigureKit {
             forest: mat(Color::srgb(0.20, 0.36, 0.20), 0.85, 0.0),
             horse: mat(Color::srgb(0.38, 0.24, 0.14), 0.8, 0.0),
             horse_pale: mat(Color::srgb(0.70, 0.60, 0.48), 0.8, 0.0),
+            dog: mat(Color::srgb(0.58, 0.42, 0.24), 0.85, 0.0),
             team: [mat(Color::srgb(0.20, 0.42, 0.90), 0.7, 0.0), mat(Color::srgb(0.78, 0.18, 0.15), 0.7, 0.0)],
         }
+    }
+}
+
+/// Place des figurines d'une unité (repère 2D, par rapport au centre de la case) : un petit groupe
+/// pour les militaires (trois fantassins, deux cavaliers), une seule figurine pour le colon et
+/// l'éclaireur.
+pub fn group(kind: UnitKind) -> Vec<Vec2> {
+    use UnitKind::*;
+    match kind {
+        Settler | Scout => vec![Vec2::ZERO],
+        LightCavalry | HeavyCavalry | HorseArcher => vec![Vec2::new(-3.4, 0.0), Vec2::new(3.4, 0.5)],
+        _ => vec![Vec2::new(0.0, -2.8), Vec2::new(-4.0, 2.2), Vec2::new(4.0, 2.2)],
     }
 }
 
@@ -143,12 +165,8 @@ pub fn spawn_figure(parent: &mut ChildSpawnerCommands, kit: &FigureKit, kind: Un
             part(&kit.caparison, team, at(0.0, 6.0, 0.0));
         }
         8.5
-    } else if kind == Scout {
-        // Longue cape jusqu'aux pieds
-        part(&kit.cloak, &kit.forest, at(0.0, 4.5, 0.0));
-        4.0
     } else {
-        part(&kit.legs, if kind == Settler { &kit.leather } else { tunic }, at(0.0, 2.0, 0.0));
+        part(&kit.legs, if matches!(kind, Settler | Scout) { &kit.leather } else { tunic }, at(0.0, 2.0, 0.0));
         4.0
     };
     let wide = matches!(kind, HeavyWarrior | HeavyCavalry);
@@ -209,7 +227,20 @@ pub fn spawn_figure(parent: &mut ChildSpawnerCommands, kit: &FigureKit, kind: Un
             part(&kit.sack, &kit.linen, at(1.4, 5.0, back - 1.4));
             part(&kit.bundle, &kit.leather, at(0.6, 5.4, back + 0.2).with_rotation(Quat::from_rotation_y(0.4)));
         }
-        Scout => part(&kit.staff, &kit.wood, at(-3.0, 6.0, 0.6)),
+        Scout => {
+            part(&kit.staff, &kit.wood, at(-3.0, 6.0, 0.6));
+            // Son chien, à sa gauche, un peu en avant
+            let (x, z) = (4.2, 1.6);
+            part(&kit.dog_body, &kit.dog, at(x, 2.9, z));
+            for (dx, dz) in [(0.6, 1.6), (-0.6, 1.6), (0.6, -1.6), (-0.6, -1.6)] {
+                part(&kit.dog_leg, &kit.dog, at(x + dx, 1.1, z + dz));
+            }
+            part(&kit.dog_head, &kit.dog, at(x, 4.0, z + 2.9));
+            for dx in [0.5, -0.5] {
+                part(&kit.dog_ear, &kit.dog, at(x + dx, 5.1, z + 2.6));
+            }
+            part(&kit.dog_tail, &kit.dog, at(x, 3.9, z - 2.9).with_rotation(tilt_x(-0.8)));
+        }
         Militia => part(&kit.club, &kit.wood, at(-3.0, hand + 1.5, 0.8).with_rotation(Quat::from_rotation_z(0.3))),
         ShieldWarrior => {
             round_shield(&mut part);

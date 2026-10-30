@@ -397,7 +397,8 @@ fn terrain() -> Article {
                relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau, du réseau hydrographique, \
                des plaques tectoniques ou des ressources (bancs de poissons). \
                Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. En 3D, \
-               chaque unité est une figurine posée sur le relief, entourée d'un anneau aux couleurs de son camp \
+               chaque unité est une figurine (un petit groupe pour les militaires), plus grande quand on s'éloigne, \
+               posée sur le relief et entourée d'un anneau aux couleurs de son camp \
                (bleu : vous, rouge : hostiles), dans une barque sur un fleuve ; de loin, l'icône de son type flotte \
                au-dessus. Le bouton \
                « Options de carte » (touche O) règle les noms affichés (cours d'eau, lacs, villes ; la touche N les \

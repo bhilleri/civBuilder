@@ -319,6 +319,15 @@ struct Socle3d;
 #[derive(Component)]
 struct Boat3d;
 
+/// Une figurine du groupe d'une unité, à sa place (repère 2D, par rapport au centre de la case),
+/// posée sur le sol sous ses pieds.
+#[derive(Component)]
+struct Member {
+    at: Vec2,
+    /// Position posée (repère local, à la taille normale) : écartée avec l'agrandissement.
+    base: Vec3,
+}
+
 /// Icône d'une unité, tournée vers la caméra, montrée seulement en vue lointaine.
 #[derive(Component)]
 struct FarIcon;
@@ -365,13 +374,20 @@ struct SiteKit {
     stone: Handle<StandardMaterial>,
 }
 
-/// Anneau aux couleurs du camp autour d'une figurine (rayon, épaisseur) et emprise des pieds.
-const SOCLE_RADIUS: f32 = 5.5;
+/// Anneau aux couleurs du camp autour du groupe de figurines (rayon, épaisseur) et emprise des
+/// pieds d'une figurine.
+const SOCLE_RADIUS: f32 = 8.5;
 const SOCLE_HEIGHT: f32 = 0.6;
 const FIGURE_REACH: f32 = 3.0;
-/// Barque : pont (où se tient la figurine) au-dessus de l'eau, centre de la coque au-dessus de l'eau.
+/// Barque : pont (où se tient la figurine) au-dessus de l'eau, centre de la coque au-dessus de l'eau ;
+/// le groupe s'y resserre.
 const BOAT_DECK: f32 = 1.4;
 const BOAT_HULL_LIFT: f32 = 0.3;
+const BOAT_SQUEEZE: f32 = 0.45;
+/// Les figurines (avec leur anneau et leur barque) grandissent quand la caméra 3D s'éloigne :
+/// taille normale jusqu'à cette distance, puis proportionnelle, au plus `UNIT_SCALE_MAX`.
+const UNIT_SCALE_FROM: f32 = 450.0;
+const UNIT_SCALE_MAX: f32 = 3.0;
 /// Au-delà de cette distance de la caméra 3D, l'icône du type d'unité flotte au-dessus de la
 /// figurine (de loin, la figurine seule ne se lit plus).
 const FAR_ICON_DISTANCE: f32 = 1_100.0;
@@ -431,6 +447,7 @@ impl Plugin for View3dPlugin {
                     spawn_mirrors,
                     sync_mirrors,
                     far_icons,
+                    scale_units,
                     draw_overlays_3d,
                     draw_wind_3d,
                     draw_plates_3d,
@@ -1459,7 +1476,10 @@ fn spawn_mirrors(
                         b.spawn((Mesh3d(a.boat_end.clone()), wood.clone(), Transform::from_xyz(0.0, 0.0, z).with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_4)), layer()));
                     }
                 });
-                crate::figures::spawn_figure(p, &a.figures, unit.0.kind, hostile, &layer());
+                for at in crate::figures::group(unit.0.kind) {
+                    p.spawn((Member { at, base: local3(at) }, Transform::from_translation(local3(at)), Visibility::Inherited, layer()))
+                        .with_children(|f| crate::figures::spawn_figure(f, &a.figures, unit.0.kind, hostile, &layer()));
+                }
                 p.spawn((
                     FarIcon,
                     Mesh3d(a.icon_quad.clone()),
@@ -1639,6 +1659,7 @@ fn sync_mirrors(
     mut parts: Query<(&Grounded, &mut Transform), Without<Mirror3d>>,
     mut socles: Query<(&mut Transform, &mut Visibility), (With<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
     mut boats: Query<(&mut Transform, &mut Visibility), (With<Boat3d>, Without<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
+    mut members: Query<(&mut Member, &mut Transform), (Without<Boat3d>, Without<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
     patches: Query<(&Patch3d, &Mesh3d)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
@@ -1667,8 +1688,9 @@ fn sync_mirrors(
                     let d = axis.b - axis.a;
                     Some((water, Quat::from_rotation_y(d.x.atan2(-d.y))))
                 });
-                // Figurine : pieds au plus haut du sol sous elle (jamais enfoncée), sur le toit du
-                // donjon, ou sur le pont de sa barque ; anneau au sol incliné comme le sol
+                // Groupe : chaque figurine a ses pieds au plus haut du sol sous elle (jamais
+                // enfoncée), ou toutes sur le toit du donjon, ou sur le pont de leur barque (le
+                // groupe resserré) ; anneau au sol incliné comme le sol
                 let root = match (on_roof, afloat) {
                     (true, _) => footprint(&relief, c, CITY_KEEP_RADIUS).1 + CITY_HEIGHT,
                     (false, Some((water, _))) => water + BOAT_DECK,
@@ -1687,6 +1709,14 @@ fn sync_mirrors(
                             t.translation.y = water + BOAT_HULL_LIFT - root;
                             t.rotation = turn;
                         }
+                    } else if let Ok((mut m, mut t)) = members.get_mut(child) {
+                        m.base = match afloat {
+                            Some((_, turn)) => turn * local3(m.at * BOAT_SQUEEZE),
+                            None if on_roof => local3(m.at),
+                            None => local3(m.at) + Vec3::Y * (footprint(&relief, c + m.at, FIGURE_REACH).1 - root),
+                        };
+                        let k = t.scale.x;
+                        t.translation = Vec3::new(m.base.x * k, m.base.y, m.base.z * k);
                     }
                 }
             } else {
@@ -1721,6 +1751,26 @@ fn sync_mirrors(
         let wanted_vis = if visible { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != wanted_vis {
             *vis = wanted_vis;
+        }
+    }
+}
+
+/// Taille des figurines (avec leur anneau et leur barque) selon la distance de la caméra 3D : elles
+/// restent lisibles de loin.
+#[allow(clippy::type_complexity)]
+fn scale_units(mode: Res<ViewMode>, cam: Res<Cam3d>, mut parts: Query<(&mut Transform, Option<&Member>), Or<(With<Member>, With<Socle3d>, With<Boat3d>)>>) {
+    if !mode.is_3d {
+        return;
+    }
+    let k = (cam.distance / UNIT_SCALE_FROM).clamp(1.0, UNIT_SCALE_MAX);
+    let size = Vec3::splat(k);
+    for (mut t, member) in &mut parts {
+        if t.scale != size {
+            t.scale = size;
+            // (le groupe s'écarte d'autant : les figurines ne se chevauchent pas)
+            if let Some(m) = member {
+                t.translation = Vec3::new(m.base.x * k, m.base.y, m.base.z * k);
+            }
         }
     }
 }

@@ -124,6 +124,7 @@ fn run_capture(
             add("ville_depart", start, 260.0, 0.6);
             add("unites_montagne", mountain, 230.0, 0.0);
             add("unites_montagne_cote", mountain, 230.0, 2.6);
+            add("unites_moyen", mountain, 900.0, 0.0);
             add("unites_loin", mountain, 1_500.0, 0.0);
             if let Some(h) = river {
                 add("fleuve", h, 200.0, 0.3);
