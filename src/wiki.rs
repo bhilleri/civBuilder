@@ -406,7 +406,12 @@ fn terrain() -> Article {
                profondes : environ un cinquième de la croûte continentale est sous l'eau, comme sur Terre) ; une \
                collision dresse une grande chaîne et un haut plateau, une \
                subduction une cordillère le long de la côte et une fosse au large, deux océans qui se rapprochent \
-               un arc d'îles ; un rift creuse un fossé bordé d'épaulements, une dorsale soulève le fond marin ; un \
+               un arc d'îles ; un rift qui s'ouvre lentement creuse une vallée perchée sur un bombement, au fond \
+               découpé en bassins où l'eau peut former un chapelet de lacs (comme l'Afrique de l'Est) ; plus vite, \
+               le fossé s'enfonce sous la mer en un bras de mer étroit (comme la mer Rouge) ; plus vite encore, le \
+               continent s'est déchiré et un jeune océan s'est ouvert entre ses deux morceaux, de part et d'autre \
+               d'une dorsale (comme l'Atlantique entre l'Afrique et l'Amérique du Sud) ; une dorsale soulève le \
+               fond marin ; un \
                point chaud fait une île volcanique, suivie d'un chapelet d'îles plus anciennes là où la plaque \
                les a emportées."),
             p("Puis l'eau creuse ce relief (érosion) : les grands cours d'eau s'enfoncent dans des vallées au \

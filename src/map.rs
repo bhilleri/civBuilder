@@ -2416,7 +2416,16 @@ mod tectonique {
             let river_steps = m.hexes().filter(|&h| !m.is_fleuve(h) && (0..6).any(|d| m.river_flow(h, d) > 0.0) && drop_over(h, 300.0)).count();
             let fleuve_steps = m.hexes().filter(|&h| m.is_fleuve(h) && drop_over(h, 150.0)).count();
             let steps = format!("rivières {river_steps}, fleuves {fleuve_steps} / {}", m.hexes().filter(|&h| m.is_fleuve(h)).count());
-            let lakes = format!("{} (au-delà de 55° : {})", m.hexes().filter(|&h| lake(h)).count(), m.hexes().filter(|&h| lake(h) && m.latitude(h).abs() > 55.0).count());
+            // (lacs des rifts : à moins de 120 km d'un rift)
+            let near_rift = |h: Hex| {
+                m.index(h).is_some_and(|i| m.plates.boundary_km[i] < 120.0 && m.plates.edges.get(m.plates.nearest_edge[i] as usize).is_some_and(|e| e.kind == crate::plates::Boundary::Rift))
+            };
+            let lakes = format!(
+                "{} (au-delà de 55° : {} ; près d'un rift : {})",
+                m.hexes().filter(|&h| lake(h)).count(),
+                m.hexes().filter(|&h| lake(h) && m.latitude(h).abs() > 55.0).count(),
+                m.hexes().filter(|&h| lake(h) && near_rift(h)).count()
+            );
             let cont_land = land.iter().filter(|&&h| m.index(h).is_some_and(|i| m.plates.continental(i))).count();
             // Passages maritimes qui font le tour, près de chaque pôle (26 lignes) et en tout
             let passage = |rows: std::ops::Range<i32>| {

@@ -58,6 +58,17 @@ const POLAR_MARGIN: usize = 2;
 /// Vitesses (cm/an) : les plaques océaniques vont plus vite que les continentales.
 const OCEANIC_SPEED: (f32, f32) = (3.0, 9.0);
 const CONTINENTAL_SPEED: (f32, f32) = (1.0, 4.5);
+/// Rifts : au-delà de `RIFT_SEA` cm/an d'écartement, le fossé s'enfonce sous la mer (bras de mer
+/// étroit, comme la mer Rouge), en pleine mer à `RIFT_SEA + RIFT_BLEND` ; en deçà, vallée du rift
+/// et chapelet de lacs (comme l'Afrique de l'Est).
+const RIFT_SEA: f32 = 3.0;
+const RIFT_BLEND: f32 = 1.0;
+/// Creusement (altitude relative) du fossé d'un rift devenu bras de mer.
+const RIFT_SEA_DEPTH: f32 = 1.0;
+/// Au-delà de cette vitesse d'écartement (cm/an), un continent s'est déchiré : jeune océan.
+const YOUNG_OCEAN_SPEED: f32 = 5.5;
+/// Demi-largeur (km) d'un jeune océan : par cm/an au-delà de `YOUNG_OCEAN_SPEED`, au départ, au plus.
+const YOUNG_OCEAN_KM: (f32, f32, f32) = (60.0, 80.0, 300.0);
 /// En deçà de cette vitesse de rapprochement ou d'écartement (cm/an), la frontière est
 /// transformante (les plaques glissent l'une contre l'autre).
 const CONVERGENCE_MIN: f32 = 1.2;
@@ -433,18 +444,12 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
     let grown = continental_crust(&allowed, &allowed_seed, &pos, &crust_rough, &neighbors, world_km, cell_km, &mut rng);
     // Bords déformés par un bruit plus fin que celui des frontières : péninsules, échancrures
     let crust_warp: [Fbm<Perlin>; 2] = [57_721u32, 66_743].map(|k| Fbm::new(seed.wrapping_add(k)).set_octaves(3).set_frequency(1.0));
-    let continental: Vec<bool> = (0..n)
+    let mut continental: Vec<bool> = (0..n)
         .map(|i| {
             let d = Vec2::new(at(&crust_warp[0], unit[i], 11.0) as f32, at(&crust_warp[1], unit[i], 11.0) as f32);
             allowed[i] && grown[cell_at(pos[i] + d * CRUST_WARP_CELLS * cell_km)]
         })
         .collect();
-    let crust: Vec<PlateKind> = continental.iter().map(|&c| if c { PlateKind::Continental } else { PlateKind::Oceanic }).collect();
-    let crust_km = {
-        let inland = distance_km(&neighbors, &pos, world_km, |i| !continental[i]);
-        let offshore = distance_km(&neighbors, &pos, world_km, |i| continental[i]);
-        (0..n).map(|i| if continental[i] { inland[i] } else { offshore[i] }).collect::<Vec<f32>>()
-    };
     // Nature d'une plaque : celle de la plus grande part de sa croûte
     let mut on_continent = vec![0usize; count];
     for i in 0..n {
@@ -501,22 +506,74 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
         let (a, b) = (plate_of[e.cell], plate_of[e.neighbor]);
         by_pair.entry((a.min(b), a.max(b))).or_default().push(k);
     }
+    // Mouvement relatif de part et d'autre de chaque arête : direction de la frontière, vitesses
+    // des deux plaques, rapprochement (négatif : écartement)
+    let motion: Vec<(Vec2, Vec2, Vec2, f32)> = raw
+        .iter()
+        .map(|e| {
+            let (a, b) = (plate_of[e.cell], plate_of[e.neighbor]);
+            let mut normal = Vec2::ZERO;
+            for &o in &by_pair[&(a.min(b), a.max(b))] {
+                let other = &raw[o];
+                if dist(other.mid, e.mid) <= reach {
+                    let flip = if plate_of[other.cell] == a { 1.0 } else { -1.0 };
+                    normal += other.normal * flip;
+                }
+            }
+            let normal = normal.try_normalize().unwrap_or(e.normal);
+            let (va, vb) = (speed_at(a, e.mid), speed_at(b, e.mid));
+            (normal, va, vb, -(vb - va).dot(normal))
+        })
+        .collect();
+
+    // Jeunes océans : là où deux plaques écartent vite un continent (`YOUNG_OCEAN_SPEED`), il
+    // s'est déchiré et un océan s'est ouvert entre les deux morceaux (comme l'Atlantique entre
+    // l'Afrique et l'Amérique du Sud). La croûte y devient océanique de part et d'autre de la
+    // frontière, sur une largeur qui croît avec la vitesse ; le rift devient une dorsale
+    let mut budget = vec![f32::MIN; n];
+    let mut queue: BinaryHeap<(u64, usize)> = BinaryHeap::new();
+    for (e, &(_, _, _, closing)) in raw.iter().zip(&motion) {
+        let spreading = -closing;
+        if spreading < YOUNG_OCEAN_SPEED || !continental[e.cell] || !continental[e.neighbor] {
+            continue;
+        }
+        let half = ((spreading - YOUNG_OCEAN_SPEED) * YOUNG_OCEAN_KM.0 + YOUNG_OCEAN_KM.1).min(YOUNG_OCEAN_KM.2);
+        for c in [e.cell, e.neighbor] {
+            if half > budget[c] {
+                budget[c] = half;
+                queue.push((key(half), c));
+            }
+        }
+    }
+    while let Some((k, i)) = queue.pop() {
+        if k < key(budget[i]) {
+            continue;
+        }
+        for &j in &neighbors[i] {
+            let left = budget[i] - dist(pos[i], pos[j]);
+            if left > 0.0 && left > budget[j] && continental[j] {
+                budget[j] = left;
+                queue.push((key(left), j));
+            }
+        }
+    }
+    for i in 0..n {
+        if budget[i] > 0.0 {
+            continental[i] = false;
+        }
+    }
+    let crust: Vec<PlateKind> = continental.iter().map(|&c| if c { PlateKind::Continental } else { PlateKind::Oceanic }).collect();
+    let crust_km = {
+        let inland = distance_km(&neighbors, &pos, world_km, |i| !continental[i]);
+        let offshore = distance_km(&neighbors, &pos, world_km, |i| continental[i]);
+        (0..n).map(|i| if continental[i] { inland[i] } else { offshore[i] }).collect::<Vec<f32>>()
+    };
+
     let mut edges = Vec::with_capacity(raw.len());
     let mut boundary: Vec<Option<(Boundary, f32)>> = vec![None; n];
     let mut cell_edge = vec![u32::MAX; n];
-    for e in &raw {
+    for (e, &(normal, va, vb, closing)) in raw.iter().zip(&motion) {
         let (a, b) = (plate_of[e.cell], plate_of[e.neighbor]);
-        let mut normal = Vec2::ZERO;
-        for &o in &by_pair[&(a.min(b), a.max(b))] {
-            let other = &raw[o];
-            if dist(other.mid, e.mid) <= reach {
-                let flip = if plate_of[other.cell] == a { 1.0 } else { -1.0 };
-                normal += other.normal * flip;
-            }
-        }
-        let normal = normal.try_normalize().unwrap_or(e.normal);
-        let (va, vb) = (speed_at(a, e.mid), speed_at(b, e.mid));
-        let closing = -(vb - va).dot(normal);
         // La nature de la frontière dépend de la croûte de part et d'autre (une même frontière
         // peut passer d'une subduction le long d'un continent à un arc d'îles en plein océan)
         let kind = classify(crust[e.cell], crust[e.neighbor], closing);
@@ -773,7 +830,17 @@ impl Plates {
                         Boundary::Subduction => f * (0.55 * bell(d - 150.0, 130.0) + 0.12 * bell(d, 450.0)),
                         Boundary::IslandArc if under => -0.28 * f * bell(d, 90.0),
                         Boundary::IslandArc => f * 0.62 * bell(d - 130.0, 75.0) * (0.45 + 0.55 * (at(&arc, p, 300.0) * 0.5 + 0.5)),
-                        Boundary::Rift => f * (-0.24 * bell(d, 70.0) + 0.09 * bell(d - 130.0, 70.0)),
+                        // Rift : vallée au fond découpé en bassins (chapelet de lacs) si
+                        // l'écartement est lent, bras de mer étroit au-delà de `RIFT_SEA`
+                        Boundary::Rift => {
+                            let t = ((-edge.closing - RIFT_SEA) / RIFT_BLEND).clamp(0.0, 1.0);
+                            let basins = 0.3 + 1.4 * (at(&arc, p, 350.0) * 0.5 + 0.5);
+                            // (fossé perché sur un bombement, comme le plateau est-africain : le
+                            // fond reste au-dessus de la mer, en bassins fermés)
+                            let valley = f * (0.20 * bell(d, 350.0) - 0.20 * basins * bell(d, 60.0) + 0.08 * bell(d - 130.0, 70.0));
+                            let sea = -RIFT_SEA_DEPTH * bell(d, 70.0) + 0.10 * bell(d - 150.0, 70.0);
+                            valley + (sea - valley) * t
+                        }
                         Boundary::Ridge if !continental => 0.16 * f * bell(d, 170.0),
                         Boundary::Ridge => 0.0,
                         Boundary::Transform => 0.05 * at(&hills, p, 300.0) * bell(d, 120.0),
@@ -1302,6 +1369,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rifts_selon_l_ecartement() {
+        let (mut seas, mut drowned, mut youngs) = (0, 0, 0);
+        for seed in [777, 2, 11, 4242] {
+            let p = planet(seed);
+            let e = p.elevation(seed, 40.0);
+            // Un continent écarté vite s'est déchiré : plus de rift aussi rapide, une dorsale
+            // sur une croûte océanique neuve, bordée de croûte continentale
+            assert!(p.edges.iter().all(|e| e.kind != Boundary::Rift || -e.closing < YOUNG_OCEAN_SPEED), "graine {seed}");
+            youngs += p.edges.iter().filter(|e| e.kind == Boundary::Ridge && -e.closing >= YOUNG_OCEAN_SPEED && p.crust_km[e.cell] < YOUNG_OCEAN_KM.2 + 40.0).count();
+            // Rift rapide : bras de mer ; rift lent : surtout à terre loin des côtes
+            let cells = |lo: f32, hi: f32| -> Vec<usize> {
+                p.edges.iter().filter(|x| x.kind == Boundary::Rift && (lo..hi).contains(&-x.closing)).flat_map(|x| [x.cell, x.neighbor]).filter(|&i| p.crust_km[i] > 200.0).collect()
+            };
+            let fast = cells(RIFT_SEA + RIFT_BLEND, f32::MAX);
+            drowned += fast.iter().filter(|&&i| e[i] < 0.0).count();
+            seas += fast.len();
+        }
+        // (aux jonctions, une autre frontière plus active peut l'emporter)
+        assert!(seas > 0 && drowned * 100 >= seas * 85, "bras de mer : {drowned} cases sous la mer sur {seas}");
+        assert!(youngs > 0, "dorsales de jeunes océans");
+    }
+
     /// Bilan des formes des terres (à lancer à la main, relief brut sans érosion, mer sous 0) :
     /// masses de terre, part de la plus grande, découpage des côtes (longueur de côte rapportée à
     /// celle d'un disque de même surface : 1 pour un disque). `FORMES_ASCII` : carte en caractères
@@ -1341,6 +1431,18 @@ mod tests {
             masses.sort_unstable_by(|a, b| b.cmp(a));
             let total: usize = masses.iter().map(|m| m.0).sum();
             let cut = |m: &(usize, usize)| m.1 as f32 / (6.93 * (m.0 as f32).sqrt());
+            // Rifts : part des cases de la frontière sous la mer, selon l'écartement ; dorsales
+            // des jeunes océans (sur une croûte océanique entourée de croûte continentale)
+            let rift = |lo: f32, hi: f32| {
+                let cells: Vec<usize> = p.edges.iter().filter(|e| e.kind == Boundary::Rift && (lo..hi).contains(&-e.closing)).flat_map(|e| [e.cell, e.neighbor]).collect();
+                format!("{} cases, {:.0} % sous la mer", cells.len(), cells.iter().filter(|&&i| e[i] < 0.0).count() as f32 / cells.len().max(1) as f32 * 100.0)
+            };
+            let young = p.edges.iter().filter(|e| e.kind == Boundary::Ridge && p.crust_km[e.cell] < 400.0 && -e.closing >= YOUNG_OCEAN_SPEED).count();
+            println!(
+                "graine {seed} : rifts lents {} ; rapides {} ; arêtes de dorsale de jeune océan {young}",
+                rift(0.0, RIFT_SEA),
+                rift(RIFT_SEA + RIFT_BLEND, f32::MAX)
+            );
             let cont: Vec<usize> = (0..n).filter(|&i| p.continental(i)).collect();
             let emerged = cont.iter().filter(|&&i| land(i)).count() as f32 / cont.len().max(1) as f32 * 100.0;
             println!(
