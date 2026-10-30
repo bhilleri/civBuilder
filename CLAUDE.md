@@ -27,7 +27,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - Bilans chiffrés (tests ignorés, à lancer à la main avec `-- --ignored --nocapture`) :
   `bilan_tectonique` (terres, montagnes, pics, lacs sur les graines 777 / 2 / 5),
   `bilan_fond_marin`, `vue_des_mers` (`SEAS_SEED`, `SEAS_DUMP` : vue des étendues marines),
-  `bilan_noms`, `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `generation_planete`.
+  `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `generation_planete`.
 - Mode debug (carte révélée) : menu Échap, bouton « Debug ». Wiki en jeu : F1.
 
 ## Conventions du code

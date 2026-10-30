@@ -396,7 +396,9 @@ fn terrain() -> Article {
                (deux océans) ; deux plaques qui s'écartent ouvrent un rift continental ou une dorsale ; deux \
                plaques qui glissent l'une contre l'autre forment une faille transformante. Les points chauds, loin \
                des frontières, sont des volcans isolés. Le relief en découle : les continents sont posés sur \
-               les plaques continentales ; une collision dresse une grande chaîne et un haut plateau, une \
+               les plaques continentales, dont la mer recouvre les parties basses (golfes, bras de mer, mers peu \
+               profondes : environ un cinquième de la croûte continentale est sous l'eau, comme sur Terre) ; une \
+               collision dresse une grande chaîne et un haut plateau, une \
                subduction une cordillère le long de la côte et une fosse au large, deux océans qui se rapprochent \
                un arc d'îles ; un rift creuse un fossé bordé d'épaulements, une dorsale soulève le fond marin ; un \
                point chaud fait une île volcanique, suivie d'un chapelet d'îles plus anciennes là où la plaque \

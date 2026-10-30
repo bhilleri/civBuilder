@@ -2,6 +2,10 @@
 
 ## 0.3.0 (en cours)
 
+### Continents moins compacts (étape 1 : côtes découpées)
+- **Côtes découpées** : la mer entre dans les continents (golfes, péninsules, bras de mer, mers peu profondes à l'intérieur des terres). Le rivage vient d'un bruit déformé et une part fixe des plaques continentales émerge (≈ 78 %, le reste en mers peu profondes), quelle que soit la graine ; les marges sans subduction descendent en plateau continental. Les mondes changent, à graine égale.
+- Bilan `formes_des_terres` (masses de terre, part de la plus grande, découpage des côtes ; `FORMES_ASCII` : carte en caractères).
+
 ### Courants marins
 - **Courants de surface calculés** à partir des vents simulés (modèle de Stommel) : tourbillons subtropicaux et subpolaires, courants équatoriaux, **courants rapides et étroits le long des côtes ouest des océans** (jusqu'à 1,5 m/s), retours lents et froids le long des côtes ouest des continents, **courant circumpolaire** quand la mer fait le tour d'un pôle. Les grands continents arrêtent l'eau, pas les petites îles.
 - **Dérive chaude des hautes latitudes** (circulation de retournement simplifiée : l'eau de surface dérive vers le pôle entre ~40 et 60°) : les côtes ouest des continents entre 45 et 65° sont douces (+6 à +8 °C, comme l'Europe), leurs côtes est plus froides (comme le Labrador).

@@ -30,7 +30,7 @@ use std::collections::BinaryHeap;
 const MIN_PLATES: usize = 10;
 const MAX_PLATES: usize = 14;
 /// Part de la surface couverte par les plaques continentales (visée).
-const CONTINENTAL_SHARE: f32 = 0.38;
+const CONTINENTAL_SHARE: f32 = 0.45;
 /// Vitesses (cm/an) : les plaques océaniques vont plus vite que les continentales.
 const OCEANIC_SPEED: (f32, f32) = (3.0, 9.0);
 const CONTINENTAL_SPEED: (f32, f32) = (1.0, 4.5);
@@ -46,6 +46,16 @@ const WARP_CELLS: f64 = 9.0;
 const BOUNDARY_SMOOTH: f32 = 3.5;
 /// Passes d'adoucissement du relief des frontières.
 const LIFT_SMOOTHING: usize = 4;
+/// Socle des continents : amplitude et longueur d'onde (km) du bruit des côtes.
+const COAST: (f32, f32) = (0.55, 1_100.0);
+/// Part des plaques continentales au-dessus de la mer, avant le relief des frontières (sur
+/// Terre, environ 70 % de la croûte continentale émerge ; le reste fait les plateaux et les mers
+/// peu profondes).
+const EMERGED: f32 = 0.78;
+/// Déformation du bruit des côtes : longueur d'onde et amplitude du décalage (km).
+const WARP_KM: (f32, f32) = (1_200.0, 650.0);
+/// Plateau continental des marges passives : profondeur (altitude relative) et largeur (km).
+const SHELF: (f32, f32) = (0.22, 220.0);
 /// Rotation d'une plaque sur elle-même : au plus cette part de sa vitesse par 1 000 km.
 const SPIN_SHARE: f32 = 0.35;
 /// Plaques océaniques forcées le long de chaque pôle (tirées entre ces bornes).
@@ -533,27 +543,50 @@ impl Plates {
         let fbm = |k: u32, octaves: usize| -> Fbm<Perlin> { Fbm::new(seed.wrapping_add(k)).set_octaves(octaves).set_frequency(1.0) };
         let (coast, shelf, hills, arc) = (fbm(101, 5), fbm(202, 3), fbm(303, 4), fbm(404, 3));
         let old = noise::RidgedMulti::<Perlin>::new(seed.wrapping_add(505)).set_octaves(4);
+        let warp = (fbm(606, 3), fbm(707, 3), fbm(808, 3));
         // Bruit au point p (km, sur le cylindre), pour une longueur d'onde donnée (km)
         let at = |f: &dyn NoiseFn<f64, 3>, p: Vec3, wavelength_km: f32| {
             let z = 1.0 / f64::from(wavelength_km);
             f.get([f64::from(p.x) * z, f64::from(p.y) * z, f64::from(p.z) * z]) as f32
         };
+        let continental = |i: usize| self.plates[usize::from(self.plate_of[i])].kind == PlateKind::Continental;
+        // Socle des continents. Les côtes viennent d'un bruit déformé (point de lecture décalé
+        // par un autre bruit) : golfes, péninsules, mers peu profondes. Le rivage est placé pour
+        // qu'une part fixe des plaques continentales émerge (`EMERGED`), quelle que soit la graine
+        let mut socle: Vec<f32> = (0..n)
+            .map(|i| {
+                if !continental(i) {
+                    return 0.0;
+                }
+                let p = cylinder(self.pos[i], self.world_km);
+                let shift = Vec3::new(at(&warp.0, p, WARP_KM.0), at(&warp.1, p, WARP_KM.0), at(&warp.2, p, WARP_KM.0));
+                COAST.0 * at(&coast, p + shift * WARP_KM.1, COAST.1) + 0.16 * at(&shelf, p, 5_000.0)
+            })
+            .collect();
+        let mut sorted: Vec<f32> = (0..n).filter(|&i| continental(i)).map(|i| socle[i]).collect();
+        sorted.sort_by(f32::total_cmp);
+        let shore = sorted.get(((sorted.len() as f32 * (1.0 - EMERGED)) as usize).min(sorted.len().saturating_sub(1))).copied().unwrap_or(0.0);
+        for v in &mut socle {
+            *v -= shore;
+        }
         let parts: Vec<(f32, f32)> = (0..n)
             .map(|i| {
                 let p = cylinder(self.pos[i], self.world_km);
-                let plate = &self.plates[usize::from(self.plate_of[i])];
-                let continental = plate.kind == PlateKind::Continental;
-                // Socle
+                let continental = continental(i);
                 let mut e = if continental {
-                    0.30 + 0.30 * at(&coast, p, 2_400.0) + 0.16 * at(&shelf, p, 5_000.0)
+                    socle[i]
                 } else {
                     -0.40 + 0.18 * at(&coast, p, 2_400.0)
                 };
                 if continental {
-                    e += 0.10 * at(&hills, p, 700.0) + 0.12 * (at(&old, p, 1_800.0) * 0.5 + 0.2).max(0.0);
+                    // Collines, vieux massifs et intérieur relevé s'ajoutent sur les terres du socle,
+                    // de plus en plus loin du rivage : ils ne referment pas les mers peu profondes
+                    let inland = (e / 0.12).clamp(0.0, 1.0);
+                    let inland = inland * inland * (3.0 - 2.0 * inland);
+                    e += inland * (0.10 * at(&hills, p, 700.0) + 0.12 * (at(&old, p, 1_800.0) * 0.5 + 0.2).max(0.0));
                     // Intérieur des continents un peu plus haut que leurs bords : l'eau s'écoule
                     // vers les côtes au lieu de stagner dans les creux du bruit
-                    e += 0.14 * (1.0 - bell(self.boundary_km[i], 900.0));
+                    e += inland * 0.14 * (1.0 - bell(self.boundary_km[i], 900.0));
                 }
                 let mut lift = 0.0;
                 // Frontière la plus proche
@@ -565,6 +598,7 @@ impl Plates {
                     let on_edge = mine == sides.0 || mine == sides.1;
                     let f = (edge.closing.abs() / 4.0).clamp(0.5, 1.6);
                     let under = edge.under == mine;
+                    let mixed = self.plates[usize::from(sides.0)].kind != self.plates[usize::from(sides.1)].kind;
                     lift = match edge.kind {
                         _ if !on_edge => 0.0,
                         Boundary::Collision => f * (0.62 * bell(d, 180.0) + 0.26 * bell(d, 600.0)),
@@ -574,6 +608,9 @@ impl Plates {
                         Boundary::IslandArc => f * 0.62 * bell(d - 130.0, 75.0) * (0.45 + 0.55 * (at(&arc, p, 300.0) * 0.5 + 0.5)),
                         Boundary::Rift => f * (-0.24 * bell(d, 70.0) + 0.09 * bell(d - 130.0, 70.0)),
                         Boundary::Ridge if !continental => 0.16 * f * bell(d, 170.0),
+                        // Marge passive (continent bordé d'océan sans subduction) : plateau
+                        // continental qui descend sous la mer
+                        Boundary::Ridge | Boundary::Transform if continental && mixed => -SHELF.0 * bell(d, SHELF.1),
                         Boundary::Ridge => 0.0,
                         Boundary::Transform => 0.05 * at(&hills, p, 300.0) * bell(d, 120.0),
                     };
@@ -1048,5 +1085,62 @@ mod tests {
         let (a, b) = (planet(42), planet(42));
         assert_eq!(a.plate_of, b.plate_of);
         assert_ne!(planet(43).plate_of, a.plate_of);
+    }
+
+    /// Bilan des formes des terres (à lancer à la main, relief brut sans érosion, mer sous 0) :
+    /// masses de terre, part de la plus grande, découpage des côtes (longueur de côte rapportée à
+    /// celle d'un disque de même surface : 1 pour un disque). `FORMES_ASCII` : carte en caractères.
+    #[test]
+    #[ignore]
+    fn formes_des_terres() {
+        for seed in [777u32, 4242, 2, 5, 11, 2026] {
+            let p = planet(seed);
+            let e = p.elevation(seed, 40.0);
+            let neighbors = p.neighbor_graph(40.0);
+            let n = e.len();
+            let land = |i: usize| e[i] > 0.0;
+            let mut mass = vec![usize::MAX; n];
+            let mut masses: Vec<(usize, usize)> = Vec::new();
+            for start in 0..n {
+                if !land(start) || mass[start] != usize::MAX {
+                    continue;
+                }
+                let k = masses.len();
+                mass[start] = k;
+                let (mut stack, mut cells, mut coast) = (vec![start], 0, 0);
+                while let Some(i) = stack.pop() {
+                    cells += 1;
+                    for &(j, _) in &neighbors[i] {
+                        if !land(j) {
+                            coast += 1;
+                        } else if mass[j] == usize::MAX {
+                            mass[j] = k;
+                            stack.push(j);
+                        }
+                    }
+                }
+                masses.push((cells, coast));
+            }
+            masses.sort_unstable_by(|a, b| b.cmp(a));
+            let total: usize = masses.iter().map(|m| m.0).sum();
+            let cut = |m: &(usize, usize)| m.1 as f32 / (6.93 * (m.0 as f32).sqrt());
+            let cont: Vec<usize> = (0..n).filter(|&i| p.plates[usize::from(p.plate_of[i])].kind == PlateKind::Continental).collect();
+            let emerged = cont.iter().filter(|&&i| land(i)).count() as f32 / cont.len().max(1) as f32 * 100.0;
+            println!(
+                "graine {seed} : plaques continentales émergées à {emerged:.0} % ; terres {:.0} % ; masses ≥ 300 cases {}, ≥ 30 {} ; plus grande {:.0} % des terres ; tailles {:?} ; découpage {:?}",
+                total as f32 / n as f32 * 100.0,
+                masses.iter().filter(|m| m.0 >= 300).count(),
+                masses.iter().filter(|m| m.0 >= 30).count(),
+                masses[0].0 as f32 / total as f32 * 100.0,
+                masses.iter().take(6).map(|m| m.0).collect::<Vec<_>>(),
+                masses.iter().take(4).map(|m| (cut(m) * 100.0).round() / 100.0).collect::<Vec<_>>()
+            );
+            if std::env::var("FORMES_ASCII").is_ok() {
+                for row in (0..111).step_by(2) {
+                    let line: String = (0..192).step_by(2).map(|c| if land(row * 192 + c) { '#' } else { '.' }).collect();
+                    println!("{line}");
+                }
+            }
+        }
     }
 }
