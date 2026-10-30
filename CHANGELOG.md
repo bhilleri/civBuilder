@@ -10,6 +10,10 @@
 
 ### Outils de développement
 - **Mode capture** : `CIVBUILDER_CAPTURE=<dossier>` met en scène villes et unités (relief accidenté, montagne), passe en 3D et enregistre plusieurs vues en PNG, puis ferme le jeu : le rendu se vérifie sans jouer.
+- **Mode capture « exploration »** (`CIVBUILDER_CAPTURE_EXPLORE=1` en plus) : carte non révélée, un éclaireur longe un fleuve case par case, des vues sont prises le long de son trajet, puis la console signale les cases dont les lits creusés ne correspondent plus au relief (lits périmés, plus grand écart de hauteur d'eau).
+
+### Corrections
+- Vue 3D : en explorant autour des cours d'eau, des cases gardaient un lit creusé avec une hauteur d'eau périmée (trou noir dans le sol, marche ou écume, eau sous la berge). Une case refaite plus tôt dans la même image qu'une voisine dont le relief venait d'être recalculé n'était plus remise en file ; elle l'est désormais (graine 4242 : 7 cases fausses, jusqu'à 25 d'écart d'eau → 0).
 
 ### Altitude et relief
 - L'altitude en mètres devient la référence : déplacements, combat, climat et infobulle (« 2 950 m »).

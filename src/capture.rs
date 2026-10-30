@@ -3,13 +3,16 @@
 //! trois unités en barque sur un fleuve, carte révélée), passe en 3D, vise plusieurs cibles à plusieurs distances (ville, unités,
 //! camp, village, vue lointaine), enregistre chaque vue en PNG dans le dossier, puis se ferme.
 //! Sert à vérifier le rendu sans jouer (`CIVBUILDER_SEED` fixe la graine).
+//! Avec en plus `CIVBUILDER_CAPTURE_EXPLORE=1`, la carte n'est pas révélée : un éclaireur longe un
+//! fleuve case par case (exploration progressive, relief 3D construit au fil des pas), puis des
+//! vues sont prises le long de son trajet (bords des cours d'eau découverts en marchant).
 
-use crate::game::{DebugMode, GameMap, GameState, HexPos, Territory, Unit, found_city, spawn_unit};
+use crate::game::{DebugMode, GameMap, GameState, HexPos, ShownFog, Territory, Unit, found_city, spawn_unit};
 use crate::hex::Hex;
 use crate::hostile::{Camp, Village};
 use crate::map::Relief;
 use crate::units::UnitKind;
-use crate::view3d::{Cam3d, ViewMode, tile_height, to_3d};
+use crate::view3d::{Cam3d, ViewMode, stale_channels, tile_height, to_3d};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use std::path::PathBuf;
@@ -18,6 +21,9 @@ use std::path::PathBuf;
 /// pour s'enregistrer.
 const SETTLE_FRAMES: u32 = 150;
 const SAVE_FRAMES: u32 = 20;
+/// Images entre deux pas de l'éclaireur (mode exploration) et longueur maximale de son trajet.
+const STEP_FRAMES: u32 = 6;
+const WALK_LENGTH: usize = 30;
 
 pub struct CapturePlugin;
 
@@ -29,7 +35,9 @@ impl Plugin for CapturePlugin {
             return;
         }
         info!("Mode capture : images dans {}", dir.display());
-        app.insert_resource(Capture { dir, frame: 0, shots: Vec::new(), next: 0, wait: 0, shooting: false }).add_systems(Update, run_capture);
+        let explore = std::env::var_os("CIVBUILDER_CAPTURE_EXPLORE").is_some();
+        app.insert_resource(Capture { dir, frame: 0, shots: Vec::new(), next: 0, wait: 0, shooting: false, explore, walk: Vec::new(), walker: None })
+            .add_systems(Update, run_capture);
     }
 }
 
@@ -50,6 +58,10 @@ struct Capture {
     next: usize,
     wait: u32,
     shooting: bool,
+    /// Mode exploration : trajet restant de l'éclaireur (de la fin vers le début) et éclaireur.
+    explore: bool,
+    walk: Vec<Hex>,
+    walker: Option<Entity>,
 }
 
 /// Déroulé : mise en scène, puis pour chaque vue, caméra placée, attente, capture.
@@ -67,10 +79,53 @@ fn run_capture(
     camps: Query<&HexPos, With<Camp>>,
     villages: Query<&HexPos, With<Village>>,
     mut exit: MessageWriter<AppExit>,
+    relief: Option<ResMut<crate::view3d::Relief>>,
+    fog: Res<ShownFog>,
 ) {
     capture.frame += 1;
     let m = &map.0;
     match capture.frame {
+        // Mode exploration : éclaireur au bord d'un fleuve, carte non révélée
+        3 if capture.explore => {
+            let Some((_, _, start)) = units.iter().next() else { return };
+            let start = start.0;
+            let passable = |h: Hex| m.contains(h) && m.get(h).is_some_and(|t| t.move_cost().is_some());
+            let on_river = |h: Hex| m.is_fleuve(h) && passable(h);
+            let mut by_distance: Vec<Hex> = m.hexes().collect();
+            by_distance.sort_by_key(|&h| m.distance(h, start));
+            // Le plus long trajet le long d'un fleuve parmi les fleuves proches du départ
+            let walk_from = |first: Hex| {
+                let mut path = vec![first];
+                while path.len() < WALK_LENGTH {
+                    let last = *path.last().unwrap();
+                    let Some(next) = m.neighbors(last).into_iter().map(|n| m.canonical(n)).find(|&n| on_river(n) && !path.contains(&n)) else { break };
+                    path.push(next);
+                }
+                path
+            };
+            let Some(path) = by_distance.iter().copied().filter(|&h| on_river(h)).take(40).map(walk_from).max_by_key(|p| p.len()) else {
+                error!("Mode capture : aucun fleuve");
+                exit.write(AppExit::Success);
+                return;
+            };
+            info!("Mode capture (exploration) : éclaireur sur {} cases de fleuve depuis {:?}", path.len(), path[0]);
+            capture.walker = Some(spawn_unit(&mut commands, UnitKind::Scout, path[0]));
+            mode.is_3d = true;
+            cam.target = to_3d(path[0], tile_height(m, path[0]));
+            cam.distance = 260.0;
+            let mut shots = Vec::new();
+            for (k, &h) in path.iter().enumerate().skip(2).step_by(4) {
+                shots.push(Shot { name: format!("exploration_{k:02}"), target: h, distance: 220.0, yaw: 0.4 * k as f32 });
+            }
+            if let Some(&h) = path.last() {
+                shots.push(Shot { name: "exploration_ensemble".into(), target: path[path.len() / 2], distance: 700.0, yaw: 0.0 });
+                shots.push(Shot { name: "exploration_fin".into(), target: h, distance: 220.0, yaw: 2.0 });
+            }
+            capture.shots = shots;
+            capture.walk = path.into_iter().rev().collect();
+            capture.walk.pop();
+            capture.wait = SETTLE_FRAMES;
+        }
         // Mise en scène (une fois les unités de départ créées)
         3 => {
             let Some((settler, _, start)) = units.iter().find(|(_, u, _)| u.0.kind == UnitKind::Settler) else { return };
@@ -145,6 +200,15 @@ fn run_capture(
                 capture.wait -= 1;
                 return;
             }
+            // Mode exploration : un pas de l'éclaireur, la caméra le suit
+            if let Some(walker) = capture.walker
+                && let Some(h) = capture.walk.pop()
+            {
+                commands.entity(walker).insert(HexPos(h));
+                cam.target = to_3d(h, tile_height(m, h));
+                capture.wait = if capture.walk.is_empty() { SETTLE_FRAMES } else { STEP_FRAMES };
+                return;
+            }
             // Vue en place depuis assez longtemps : capture (la caméra ne bouge pas avant qu'elle
             // soit enregistrée)
             if capture.shooting {
@@ -156,6 +220,11 @@ fn run_capture(
                 return;
             }
             let Some(shot) = capture.shots.get(capture.next) else {
+                // Lits creusés restés en retard sur le relief (exploration progressive)
+                if let Some(mut relief) = relief {
+                    let (stale, worst) = stale_channels(&mut relief, &map, &fog);
+                    info!("Mode capture : {} cases aux lits périmés (écart d'eau max {worst:.2}) {:?}", stale.len(), &stale[..stale.len().min(8)]);
+                }
                 info!("Mode capture : terminé");
                 exit.write(AppExit::Success);
                 return;
