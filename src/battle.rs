@@ -3,7 +3,8 @@
 
 use crate::combat::{self, AttackKind, Engagement, Fighter};
 use crate::feedback::{Actor, Cue, Cues, Retired, Strike};
-use crate::game::{GameLog, HexPos, Importance, Unit};
+use crate::game::{GameLog, HexPos, Importance, LogText, Unit};
+use crate::search::MapTarget;
 use crate::hostile::{Hostile, HostileHome};
 use crate::hex::Hex;
 use crate::map::{Terrain, WorldMap};
@@ -86,22 +87,16 @@ fn retire(commands: &mut Commands, entity: Entity) {
 /// Résout un combat, l'inscrit au journal, le fait mettre en scène et disperse les unités à 0 PV.
 pub fn fight(commands: &mut Commands, log: &mut GameLog, cues: &mut Cues, attacker: Side, defender: Side, e: &Engagement) -> FightResult {
     let (att_name, def_name) = (label(&attacker), label(&defender));
+    // Les noms des unités renvoient vers elles (ou vers leur case si elles sont dispersées)
+    let (att_link, def_link) = ((MapTarget::Unit(attacker.entity), attacker.at), (MapTarget::Unit(defender.entity), defender.at));
     let outcome = combat::apply(attacker.unit, defender.unit, e, &mut rand::rng());
+    let msg = LogText::new().link(capitalize(&att_name), att_link.0, att_link.1);
     let mut msg = match outcome.kind {
-        AttackKind::Ranged => format!(
-            "{} tire sur {} : −{} PV.",
-            capitalize(&att_name),
-            def_name,
-            outcome.damage_to_defender
-        ),
-        AttackKind::Melee => format!(
-            "{}{} attaque {} : −{} PV / −{} PV.",
-            capitalize(&att_name),
-            if outcome.charge { " (charge)" } else { "" },
-            def_name,
-            outcome.damage_to_defender,
-            outcome.damage_to_attacker
-        ),
+        AttackKind::Ranged => msg.text(" tire sur ").link(&def_name, def_link.0, def_link.1).text(format!(" : −{} PV.", outcome.damage_to_defender)),
+        AttackKind::Melee => msg
+            .text(if outcome.charge { " (charge) attaque " } else { " attaque " })
+            .link(&def_name, def_link.0, def_link.1)
+            .text(format!(" : −{} PV / −{} PV.", outcome.damage_to_defender, outcome.damage_to_attacker)),
     };
     let result = FightResult {
         kind: outcome.kind,
@@ -123,11 +118,11 @@ pub fn fight(commands: &mut Commands, log: &mut GameLog, cues: &mut Cues, attack
         defender_is_player: !defender.hostile,
     }));
     if result.defender_died {
-        msg += &format!(" {} est dispersé(e) !", capitalize(&def_name));
+        msg = msg.text(" ").link(capitalize(&def_name), def_link.0, def_link.1).text(" est dispersé(e) !");
         retire(commands, defender.entity);
     }
     if result.attacker_died {
-        msg += &format!(" {} est dispersé(e) !", capitalize(&att_name));
+        msg = msg.text(" ").link(capitalize(&att_name), att_link.0, att_link.1).text(" est dispersé(e) !");
         retire(commands, attacker.entity);
     }
     // Perte d'une unité du joueur : critique ; ennemi dispersé : succès ; sinon combat (alerte)

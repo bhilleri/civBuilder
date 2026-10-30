@@ -74,6 +74,26 @@ importance, sans être envahissant.
   texte plus grand). Alertes et critiques gardent une teinte de fond ; les anciens messages
   s'estompent (sauf alertes). Six messages gardés.
 
+### Renvois vers la carte
+Demande de Benjamin : dans le journal, les noms de lieux et d'unités renvoient vers le lieu ou
+l'unité, comme les lieux de la recherche ; une unité morte ou qui n'est plus affichée renvoie vers
+sa dernière position connue. Le bleu d'abord essayé attirait trop l'attention : les renvois gardent
+la couleur du texte avec un soulignement léger (40 %), doré et franc au survol.
+- Un message est une suite de morceaux (`LogText` : texte simple ou `LogLink`, la cible `MapTarget`
+  et sa case au moment du message). `LogText::from(String)` garde les messages simples.
+- Affichage : une ligne = un `Text` vide et un `TextSpan` par morceau ; le picking de Bevy repère le
+  passage sous la souris (`HoverMap`). Survol : le lieu est mis en avant (`PointedTarget::link`) ;
+  clic : `FocusTarget` (même vol de caméra que la recherche), sélection de la ville ou de l'unité du
+  joueur.
+- Cibles nouvelles : `MapTarget::Unit` (pourtour de sa case) et `MapTarget::Spot` (une case seule).
+- Dernière position connue (`LastSeen`, pour les unités nommées au journal) : la case du message,
+  puis la case de l'unité tant que le joueur la voit (toujours pour les siennes, seulement à vue pour
+  les hostiles, selon le brouillard affiché). Unité dispersée ou hostile hors de vue → `Spot` de
+  cette case ; ville, village ou camp disparu → `Spot` de sa case.
+- Messages concernés : production, croissance, famine, fondation (qui donne maintenant le nom de la
+  ville), combats (les deux unités), camps et villages, retours de commande sur une unité ou une
+  ville. Pas de renvoi vers les milices surgies d'un village hostile (le village y mène).
+
 ## Limites et suite
 - Le brouillard se lève dès la fin du tour, avant l'arrivée de l'unité.
 - La caméra ne va pas chercher une attaque hostile hors de l'écran (le journal la signale).

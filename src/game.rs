@@ -6,6 +6,7 @@ use crate::hex::Hex;
 use crate::hostile::{self, Blocked, Danger, EnemyZoc, Hostile, HostileTurnPending, KnownVillages, Occupancy, WorldSeed};
 use crate::map::WorldMap;
 use crate::rules::{self, CityState, MoveOutcome, UnitKind, UnitState};
+use crate::search::MapTarget;
 use bevy::prelude::*;
 use bevy::platform::collections::{HashMap, HashSet};
 
@@ -86,11 +87,81 @@ pub enum Importance {
     Critical,
 }
 
+/// Renvoi d'un passage du journal vers la carte : le lieu ou l'unité désigné, et sa case au
+/// moment du message (dernière position connue si l'entité disparaît ou sort de la vue).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LogLink {
+    pub target: MapTarget,
+    pub at: Hex,
+}
+
+/// Morceau d'un message du journal : texte simple ou renvoi.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogSpan {
+    pub text: String,
+    pub link: Option<LogLink>,
+}
+
+/// Message du journal en morceaux ; les noms de lieux et d'unités renvoient vers la carte.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LogText(pub Vec<LogSpan>);
+
+impl LogText {
+    /// Message vide, à compléter par `text` et `link`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Ajoute du texte simple.
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        let text = text.into();
+        match self.0.last_mut() {
+            Some(last) if last.link.is_none() => last.text.push_str(&text),
+            _ => self.0.push(LogSpan { text, link: None }),
+        }
+        self
+    }
+
+    /// Ajoute un passage qui renvoie vers un lieu ou une unité (`at` : sa case actuelle).
+    pub fn link(mut self, text: impl Into<String>, target: MapTarget, at: Hex) -> Self {
+        self.0.push(LogSpan { text: text.into(), link: Some(LogLink { target, at }) });
+        self
+    }
+
+    /// Renvoi vers une unité.
+    pub fn unit(self, text: impl Into<String>, entity: Entity, at: Hex) -> Self {
+        self.link(text, MapTarget::Unit(entity), at)
+    }
+
+    /// Renvoi vers une ville.
+    pub fn city(self, text: impl Into<String>, entity: Entity, at: Hex) -> Self {
+        self.link(text, MapTarget::City(entity), at)
+    }
+
+    /// Texte complet, sans les renvois.
+    #[cfg(test)]
+    pub fn plain(&self) -> String {
+        self.0.iter().map(|s| s.text.as_str()).collect()
+    }
+}
+
+impl From<String> for LogText {
+    fn from(text: String) -> Self {
+        LogText::new().text(text)
+    }
+}
+
+impl From<&str> for LogText {
+    fn from(text: &str) -> Self {
+        LogText::new().text(text)
+    }
+}
+
 /// Message du journal, numéroté pour que l'interface repère les nouveaux.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogEntry {
     pub id: u64,
-    pub text: String,
+    pub text: LogText,
     pub importance: Importance,
 }
 
@@ -106,12 +177,12 @@ pub struct GameLog {
 
 impl GameLog {
     /// Message de routine (retour d'une commande).
-    pub fn push(&mut self, msg: impl Into<String>) {
+    pub fn push(&mut self, msg: impl Into<LogText>) {
         self.notify(Importance::Routine, msg);
     }
 
     /// Message d'une importance donnée.
-    pub fn notify(&mut self, importance: Importance, msg: impl Into<String>) {
+    pub fn notify(&mut self, importance: Importance, msg: impl Into<LogText>) {
         self.entries.push(LogEntry { id: self.next_id, text: msg.into(), importance });
         self.next_id += 1;
         if self.entries.len() > LOG_LENGTH {
@@ -223,7 +294,7 @@ pub fn found_city(
     existing: &[Hex],
     state: &mut GameState,
     territory: &mut Territory,
-) -> Result<Entity, &'static str> {
+) -> Result<(Entity, String), &'static str> {
     rules::can_found_city(map, at, existing)?;
     let name = CITY_NAMES
         .get(state.founded_cities)
@@ -232,10 +303,10 @@ pub fn found_city(
     state.founded_cities += 1;
     commands.entity(settler).despawn();
     let city = commands
-        .spawn((City { state: CityState::new(name), worked: Vec::new() }, HexPos(at)))
+        .spawn((City { state: CityState::new(name.clone()), worked: Vec::new() }, HexPos(at)))
         .id();
     claim_territory(&mut territory.0, city, at, 1, map);
-    Ok(city)
+    Ok((city, name))
 }
 
 pub(crate) fn claim_territory(territory: &mut HashMap<Hex, Entity>, city: Entity, center: Hex, radius: i32, map: &WorldMap) {
@@ -250,6 +321,7 @@ pub(crate) fn claim_territory(territory: &mut HashMap<Hex, Entity>, city: Entity
 /// `occupied` : occupation réelle de toutes les cases, tenue à jour après le déplacement ;
 /// `zoc` : zones de contrôle ennemies (arrêt en y entrant).
 pub fn move_unit(
+    entity: Entity,
     unit: &mut UnitState,
     pos: &mut Mut<HexPos>,
     map: &WorldMap,
@@ -266,10 +338,10 @@ pub fn move_unit(
     match unit.advance_exploring(&mut hex, map, &mut fog.explored, blocked, occupied, zoc) {
         MoveOutcome::Moved => {}
         MoveOutcome::Unreachable => {
-            log.notify(Importance::Info, format!("{} : destination inaccessible, ordre annulé.", unit.kind.name()));
+            log.notify(Importance::Info, LogText::new().unit(unit.kind.name(), entity, hex).text(" : destination inaccessible, ordre annulé."));
         }
         MoveOutcome::TooLong => {
-            log.notify(Importance::Info, format!("{} : trajet bien plus long que prévu, ordre suspendu.", unit.kind.name()));
+            log.notify(Importance::Info, LogText::new().unit(unit.kind.name(), entity, hex).text(" : trajet bien plus long que prévu, ordre suspendu."));
         }
     }
     relocate(pos, hex, occupied);
@@ -309,6 +381,7 @@ pub fn reserved_by_others<'a>(map: &WorldMap, units: impl IntoIterator<Item = (E
 
 /// Un tour d'exploration automatique ; l'arrête quand il n'y a plus rien à découvrir.
 pub fn explore_unit(
+    entity: Entity,
     unit: &mut UnitState,
     pos: &mut Mut<HexPos>,
     world: &ExploreWorld,
@@ -320,7 +393,7 @@ pub fn explore_unit(
     let outcome = explore::explore_step(unit, &mut hex, &world.occupied(occupied), &mut fog.explored);
     if outcome == ExploreOutcome::Finished {
         unit.auto_explore = false;
-        log.push(format!("{} : plus rien d'accessible à explorer.", unit.kind.name()));
+        log.push(LogText::new().unit(unit.kind.name(), entity, hex).text(" : plus rien d'accessible à explorer."));
     }
     relocate(pos, hex, occupied);
 }
@@ -370,11 +443,11 @@ fn end_turn(
         state.gold += report.gold;
         let name = city.state.name.clone();
         if report.grew {
-            log.notify(Importance::Info, format!("{name} gagne un habitant."));
+            log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(" gagne un habitant."));
             claim_territory(&mut territory.0, *entity, *center, rules::territory_radius(city.state.population), map);
         }
         if report.starved {
-            log.notify(Importance::Warning, format!("{name} souffre de famine !"));
+            log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" souffre de famine !"));
         }
         if let Some(kind) = report.built {
             new_units.push((*entity, kind, *center, name));
@@ -404,9 +477,9 @@ fn end_turn(
                 .villages(&villages.0)
                 .danger(&danger.0)
                 .threats(&threats);
-            explore_unit(&mut unit.0, &mut pos, &world, &mut occupied, &mut fog, &mut log);
+            explore_unit(entity, &mut unit.0, &mut pos, &world, &mut occupied, &mut fog, &mut log);
         } else {
-            move_unit(&mut unit.0, &mut pos, map, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            move_unit(entity, &mut unit.0, &mut pos, map, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
         }
         if pos.0 != before {
             own.remove(&before);
@@ -420,8 +493,8 @@ fn end_turn(
         match free_tile_near(map, center, &occupied) {
             Some(at) => {
                 occupied.insert(at);
-                spawn_unit(&mut commands, kind, at);
-                log.notify(Importance::Info, format!("{name} a produit : {}.", kind.name()));
+                let unit = spawn_unit(&mut commands, kind, at);
+                log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(" a produit : ").unit(kind.name(), unit, at).text("."));
             }
             None => {
                 if let Ok((_, _, mut city)) = cities.get_mut(city_entity) {
@@ -430,7 +503,7 @@ fn end_turn(
                         city.state.population += 1;
                     }
                 }
-                log.notify(Importance::Warning, format!("{name} : pas de place pour {}, la production attend.", kind.name()));
+                log.notify(Importance::Warning, LogText::new().city(&name, city_entity, center).text(format!(" : pas de place pour {}, la production attend.", kind.name())));
             }
         }
     }
@@ -499,4 +572,39 @@ fn update_fog(
     }
     fog.explored.extend(visible.iter().copied());
     fog.visible = visible;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_du_journal_en_morceaux() {
+        let city = Entity::from_raw_u32(7).unwrap();
+        let unit = Entity::from_raw_u32(9).unwrap();
+        let msg = LogText::new()
+            .city("Paris", city, Hex::new(3, 4))
+            .text(" a produit")
+            .text(" : ")
+            .unit("Milice", unit, Hex::new(4, 4))
+            .text(".");
+        assert_eq!(msg.plain(), "Paris a produit : Milice.");
+        // Les textes simples consécutifs sont fusionnés ; les renvois restent à part
+        assert_eq!(msg.0.len(), 4);
+        assert_eq!(msg.0[0].link, Some(LogLink { target: MapTarget::City(city), at: Hex::new(3, 4) }));
+        assert_eq!(msg.0[1].text, " a produit : ");
+        assert_eq!(msg.0[1].link, None);
+        assert_eq!(msg.0[2].link.map(|l| l.target), Some(MapTarget::Unit(unit)));
+    }
+
+    #[test]
+    fn journal_borne_et_texte_simple() {
+        let mut log = GameLog::default();
+        for i in 0..LOG_LENGTH + 2 {
+            log.push(format!("message {i}"));
+        }
+        assert_eq!(log.entries().len(), LOG_LENGTH);
+        assert_eq!(log.entries()[0].text.plain(), "message 2");
+        assert!(log.entries().iter().all(|e| e.text.0.iter().all(|s| s.link.is_none())));
+    }
 }

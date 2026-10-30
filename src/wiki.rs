@@ -608,7 +608,10 @@ fn mechanics() -> Article {
             p("Journal (en haut à droite) : la couleur du liseré dit l'importance du message — gris pour un retour \
                de commande, bleu pour une information, doré pour une bonne nouvelle, orange pour une alerte \
                (combat, famine), rouge pour un message critique (unité perdue, village hostile). Les alertes et \
-               messages critiques clignotent à leur arrivée et restent teintés."),
+               messages critiques clignotent à leur arrivée et restent teintés. Les noms soulignés (villes, \
+               villages, camps, unités) mènent à eux : survolez-les pour les voir sur la carte, cliquez pour y \
+               aller (et sélectionner votre ville ou votre unité). Une unité dispersée ou hostile hors de vue : la \
+               caméra va à sa dernière position connue."),
         ],
     }
 }

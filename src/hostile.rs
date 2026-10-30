@@ -7,7 +7,8 @@
 use crate::battle::{self, Side};
 use crate::combat::{self, Fate};
 use crate::feedback::{Actor, Cues, Tone};
-use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, Selection, Territory, Unit, claim_territory, spawn_unit};
+use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, LogText, Selection, Territory, Unit, claim_territory, spawn_unit};
+use crate::search::MapTarget;
 use crate::hex::Hex;
 use crate::map::MoveCosts;
 use crate::rules::{self, ForUnit, UnitKind};
@@ -153,7 +154,7 @@ pub fn visit_sites(
         if touched.contains(&pos.0) {
             commands.entity(camp).despawn();
             state.gold += CAMP_CAPTURE_GOLD;
-            log.notify(Importance::Success, format!("{} dispersé : +{CAMP_CAPTURE_GOLD} or.", name.0));
+            log.notify(Importance::Success, LogText::new().link(&name.0, MapTarget::Site(camp), pos.0).text(format!(" dispersé : +{CAMP_CAPTURE_GOLD} or.")));
             cues.reward(pos.0, visitor(pos.0), format!("+{CAMP_CAPTURE_GOLD} or"), Tone::Gold);
         }
     }
@@ -171,12 +172,20 @@ pub fn visit_sites(
                 city.state.population += 1;
                 let radius = rules::territory_radius(city.state.population);
                 claim_territory(&mut territory.0, entity, center.0, radius, &map.0);
-                log.notify(Importance::Success, format!("Village de {} : les habitants rejoignent {} (+1 habitant).", name.0, city.state.name));
+                log.notify(
+                    Importance::Success,
+                    LogText::new()
+                        .text("Village de ")
+                        .link(&name.0, MapTarget::Site(village), pos.0)
+                        .text(" : les habitants rejoignent ")
+                        .city(&city.state.name, entity, center.0)
+                        .text(" (+1 habitant)."),
+                );
                 cues.reward(pos.0, visitor(pos.0), format!("+1 habitant à {}", city.state.name), Tone::Growth);
             }
             VillageEvent::Trade { gold } => {
                 state.gold += gold;
-                log.notify(Importance::Success, format!("Village de {} : échanges commerciaux, +{gold} or.", name.0));
+                log.notify(Importance::Success, LogText::new().text("Village de ").link(&name.0, MapTarget::Site(village), pos.0).text(format!(" : échanges commerciaux, +{gold} or.")));
                 cues.reward(pos.0, visitor(pos.0), format!("+{gold} or"), Tone::Gold);
             }
             VillageEvent::Hostile { warriors } => {
@@ -194,7 +203,13 @@ pub fn visit_sites(
                     spawn_hostile(&mut commands, at, pos.0);
                     spawned += 1;
                 }
-                log.notify(Importance::Critical, format!("Village de {} hostile : {spawned} milice(s) hostile(s) surgissent !", name.0));
+                log.notify(
+                    Importance::Critical,
+                    LogText::new()
+                        .text("Village de ")
+                        .link(&name.0, MapTarget::Site(village), pos.0)
+                        .text(format!(" hostile : {spawned} milice(s) hostile(s) surgissent !")),
+                );
                 let text = if spawned > 1 { format!("Embuscade ! {spawned} milices") } else { "Embuscade !".to_string() };
                 cues.reward(pos.0, visitor(pos.0), text, Tone::Danger);
             }

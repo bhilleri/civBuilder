@@ -1,6 +1,12 @@
 //! Interface : barre du haut, panneau de sélection, infos de case, journal, bouton de fin de tour.
 
-use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, Importance, Selection, Unit};
+use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, HexPos, Importance, LogLink, LogText, Selection, ShownFog, Unit};
+use crate::hex::Hex;
+use crate::hostile::{Camp, Hostile, Village};
+use crate::search::{FocusTarget, MapTarget, PointedTarget};
+use bevy::picking::hover::HoverMap;
+use bevy::picking::pointer::PointerId;
+use bevy::platform::collections::{HashMap, HashSet};
 use crate::input::{HoverPath, HoveredHex, OrderPath};
 use crate::rules::{self, UnitKind};
 use crate::render::{
@@ -30,6 +36,17 @@ struct LogRow {
 struct LogAccent;
 #[derive(Component)]
 struct LogLine;
+/// Passage d'une ligne du journal qui renvoie vers un lieu ou une unité.
+#[derive(Component)]
+struct LogLinkSpan(LogLink);
+/// Renvoi du journal sous la souris (passage `TextSpan`).
+#[derive(Resource, Default)]
+struct HoveredLogLink(Option<Entity>);
+/// Dernière case connue des unités nommées au journal : celle du message, puis celle où le
+/// joueur les a vues ensuite (une unité du joueur est toujours vue, une unité hostile seulement à
+/// vue). Sert quand l'unité est dispersée ou hors de vue.
+#[derive(Resource, Default)]
+struct LastSeen(HashMap<Entity, Hex>);
 #[derive(Component)]
 struct EndTurnButton;
 /// Bouton de bascule 2D / 3D.
@@ -63,12 +80,18 @@ const BUTTON_HOVER: Color = Color::srgb(0.22, 0.45, 0.85);
 const PRODUCE_BG: Color = Color::srgba(0.16, 0.18, 0.24, 0.95);
 const PRODUCE_HOVER: Color = Color::srgb(0.24, 0.28, 0.38);
 const PRODUCE_ACTIVE: Color = Color::srgb(0.18, 0.40, 0.72);
+/// Renvois du journal : opacité de leur soulignement au repos (dans la couleur du texte), et
+/// couleur du passage survolé.
+const LINK_UNDERLINE: f32 = 0.4;
+const LINK_HOVER: Color = Color::srgb(1.0, 0.86, 0.40);
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ui)
+        app.init_resource::<HoveredLogLink>()
+            .init_resource::<LastSeen>()
+            .add_systems(Startup, setup_ui)
             .add_systems(
                 Update,
                 (
@@ -82,7 +105,8 @@ impl Plugin for UiPlugin {
                     update_selection_panel,
                     update_hover_text,
                     update_log,
-                    animate_log.after(update_log),
+                    (track_last_seen, log_links).chain().after(update_log),
+                    animate_log.after(log_links),
                     update_basin_legend,
                 ),
             );
@@ -729,14 +753,14 @@ fn end_turn_button(
 fn production_buttons(
     buttons: Query<(&Interaction, &ProduceButton), Changed<Interaction>>,
     selection: Res<Selection>,
-    mut cities: Query<&mut City>,
+    mut cities: Query<(Entity, &mut City, &HexPos)>,
     mut log: ResMut<GameLog>,
 ) {
-    let Some(mut city) = selection.0.and_then(|e| cities.get_mut(e).ok()) else { return };
+    let Some((entity, mut city, center)) = selection.0.and_then(|e| cities.get_mut(e).ok()) else { return };
     for (interaction, button) in &buttons {
         if *interaction == Interaction::Pressed && city.state.producing != Some(button.0) {
             city.state.producing = Some(button.0);
-            log.push(format!("{} produit désormais : {}.", city.state.name, button.0.name()));
+            log.push(LogText::new().city(&city.state.name, entity, center.0).text(format!(" produit désormais : {}.", button.0.name())));
         }
     }
 }
@@ -1219,7 +1243,23 @@ fn update_log(
     for entry in entries.iter().filter(|e| !shown.contains(&e.id)) {
         let style = log_style(entry.importance);
         let size = if entry.importance == Importance::Critical { 15.0 } else { 14.0 };
-        commands.entity(*list).with_child((
+        // Texte de la ligne : un passage (`TextSpan`) par morceau, les renvois à part
+        let line = commands
+            .spawn((
+                LogLine,
+                Node { flex_grow: 1.0, flex_shrink: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() },
+                Text::new(""),
+                TextFont::from_font_size(size),
+                TextColor(style.text),
+            ))
+            .id();
+        for span in &entry.text.0 {
+            let mut child = commands.spawn((TextSpan::new(span.text.clone()), TextFont::from_font_size(size), TextColor(style.text), ChildOf(line)));
+            if let Some(link) = span.link {
+                child.insert((LogLinkSpan(link), Underline, UnderlineColor(style.text.with_alpha(LINK_UNDERLINE))));
+            }
+        }
+        let row = commands.spawn((
             LogRow { id: entry.id, born: now, importance: entry.importance },
             Node {
                 width: Val::Percent(100.0),
@@ -1232,11 +1272,91 @@ fn update_log(
             BackgroundColor(Color::NONE),
             Outline::new(Val::Px(1.0), Val::ZERO, Color::NONE),
             UiTransform::default(),
-            children![
-                (LogAccent, Node { width: Val::Px(3.0), border_radius: BorderRadius::all(Val::Px(2.0)), ..default() }, BackgroundColor(style.accent)),
-                (LogLine, Node { flex_grow: 1.0, flex_shrink: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }, Text::new(entry.text.clone()), TextFont::from_font_size(size), TextColor(style.text)),
-            ],
-        ));
+            children![(LogAccent, Node { width: Val::Px(3.0), border_radius: BorderRadius::all(Val::Px(2.0)), ..default() }, BackgroundColor(style.accent))],
+        ))
+        .add_child(line)
+        .id();
+        commands.entity(*list).add_child(row);
+    }
+}
+
+/// Unités nommées au journal : leur case au moment du message, puis tant que le joueur les voit.
+fn track_last_seen(
+    log: Res<GameLog>,
+    fog: Res<ShownFog>,
+    units: Query<(&HexPos, Has<Hostile>), With<Unit>>,
+    mut seen: ResMut<LastSeen>,
+    mut newest: Local<Option<u64>>,
+) {
+    let linked = |entry: &crate::game::LogEntry| {
+        entry.text.0.iter().filter_map(|s| s.link).filter_map(|l| if let MapTarget::Unit(e) = l.target { Some((e, l.at)) } else { None }).collect::<Vec<_>>()
+    };
+    if log.is_changed() {
+        for entry in log.entries().iter().filter(|e| newest.is_none_or(|n| e.id > n)) {
+            seen.0.extend(linked(entry));
+        }
+        *newest = log.entries().last().map(|e| e.id);
+        let named: HashSet<Entity> = log.entries().iter().flat_map(|e| linked(e).into_iter().map(|(u, _)| u)).collect();
+        seen.0.retain(|e, _| named.contains(e));
+    }
+    for (entity, hex) in seen.0.iter_mut() {
+        if let Ok((pos, hostile)) = units.get(*entity)
+            && (!hostile || fog.visible.contains(&pos.0))
+        {
+            *hex = pos.0;
+        }
+    }
+}
+
+/// Lieu où mène un renvoi du journal : le lieu ou l'unité s'il existe encore et qu'il est vu
+/// (une unité hostile seulement à vue), sinon sa dernière case connue.
+fn resolve_link(
+    link: LogLink,
+    seen: &LastSeen,
+    fog: &ShownFog,
+    units: &Query<(&HexPos, Has<Hostile>), With<Unit>>,
+    places: &Query<(), (With<HexPos>, Or<(With<City>, With<Village>, With<Camp>)>)>,
+) -> MapTarget {
+    match link.target {
+        MapTarget::Unit(e) => match units.get(e) {
+            Ok((pos, hostile)) if !hostile || fog.visible.contains(&pos.0) => link.target,
+            _ => MapTarget::Spot(seen.0.get(&e).copied().unwrap_or(link.at)),
+        },
+        MapTarget::City(e) | MapTarget::Site(e) if !places.contains(e) => MapTarget::Spot(link.at),
+        target => target,
+    }
+}
+
+/// Renvois du journal : le survol met le lieu en avant (et colore le passage), le clic y amène la
+/// caméra et sélectionne la ville ou l'unité du joueur désignée.
+#[allow(clippy::too_many_arguments)]
+fn log_links(
+    hover_map: Res<HoverMap>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    spans: Query<&LogLinkSpan>,
+    seen: Res<LastSeen>,
+    fog: Res<ShownFog>,
+    units: Query<(&HexPos, Has<Hostile>), With<Unit>>,
+    places: Query<(), (With<HexPos>, Or<(With<City>, With<Village>, With<Camp>)>)>,
+    mut hovered: ResMut<HoveredLogLink>,
+    mut pointed: ResMut<PointedTarget>,
+    mut selection: ResMut<Selection>,
+    mut focus: MessageWriter<FocusTarget>,
+) {
+    let span = hover_map.get(&PointerId::Mouse).and_then(|hits| hits.keys().copied().find(|e| spans.contains(*e)));
+    if hovered.0 != span {
+        hovered.0 = span;
+    }
+    let target = span.and_then(|e| spans.get(e).ok()).map(|s| resolve_link(s.0, &seen, &fog, &units, &places));
+    if pointed.link != target {
+        pointed.link = target;
+    }
+    let Some(target) = target.filter(|_| mouse.just_pressed(MouseButton::Left)) else { return };
+    focus.write(FocusTarget(target));
+    match target {
+        MapTarget::City(e) => selection.0 = Some(e),
+        MapTarget::Unit(e) if units.get(e).is_ok_and(|(_, hostile)| !hostile) => selection.0 = Some(e),
+        _ => {}
     }
 }
 
@@ -1245,8 +1365,10 @@ fn update_log(
 fn animate_log(
     time: Res<Time>,
     log: Res<GameLog>,
+    hovered: Res<HoveredLogLink>,
     mut rows: Query<(&LogRow, &Children, &mut BackgroundColor, &mut Outline, &mut UiTransform), Without<LogAccent>>,
-    mut texts: Query<&mut TextColor, With<LogLine>>,
+    lines: Query<&Children, With<LogLine>>,
+    mut spans: Query<(Entity, &mut TextColor, Option<&mut UnderlineColor>)>,
 ) {
     let now = time.elapsed_secs_f64();
     let newest = log.entries().last().map_or(0, |e| e.id);
@@ -1283,11 +1405,18 @@ fn animate_log(
         let rank = newest.saturating_sub(row.id) as f32;
         let floor = if row.importance >= Importance::Warning { 0.8 } else { 0.55 };
         let alpha = (1.0 - 0.09 * rank).max(floor) * ease.max(0.15);
-        for child in children.iter() {
-            if let Ok(mut color) = texts.get_mut(child) {
-                let wanted = style.text.with_alpha(alpha);
-                if color.0 != wanted {
-                    color.0 = wanted;
+        for span in children.iter().filter_map(|c| lines.get(c).ok()).flat_map(|spans| spans.iter()) {
+            let Ok((entity, mut color, underline)) = spans.get_mut(span) else { continue };
+            // Renvoi : couleur du texte et soulignement léger ; doré et bien souligné au survol
+            let lit = underline.is_some() && hovered.0 == Some(entity);
+            let wanted = if lit { LINK_HOVER } else { style.text.with_alpha(alpha) };
+            if color.0 != wanted {
+                color.0 = wanted;
+            }
+            if let Some(mut underline) = underline {
+                let wanted = if lit { LINK_HOVER } else { style.text.with_alpha(alpha * LINK_UNDERLINE) };
+                if underline.0 != wanted {
+                    underline.0 = wanted;
                 }
             }
         }
