@@ -17,7 +17,8 @@ use crate::hex::{Hex, Wrap};
 use crate::map::{MoveCosts, WorldMap};
 use crate::rules::UnitState;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashSet};
+use bevy::platform::collections::HashSet;
+use std::collections::BinaryHeap;
 use std::sync::LazyLock;
 
 /// Pondération du coût dans le score (voir l'en-tête du module).
@@ -549,7 +550,7 @@ mod tests {
                     }
                 }
             }
-            let missing = seen.iter().filter(|h| !explored.contains(h)).count();
+            let missing = seen.iter().filter(|h| !explored.contains(*h)).count();
             assert_eq!(missing, 0, "graine {seed} : {missing} cases accessibles non explorées");
         }
     }

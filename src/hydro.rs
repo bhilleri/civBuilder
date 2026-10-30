@@ -27,7 +27,8 @@
 
 use crate::hex::{DIRECTIONS, Hex};
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use bevy::platform::collections::HashMap;
+use std::collections::BinaryHeap;
 
 /// Débit à partir duquel une rivière est tracée sur les arêtes (m³/s)…
 pub const RIVER_M3S: f32 = 100.0;

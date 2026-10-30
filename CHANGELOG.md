@@ -16,6 +16,10 @@
 - **Sur un fleuve, l'unité est dans une barque en bois**, à la surface de l'eau, dans le sens du courant. De loin, l'icône du type flotte au-dessus, sur une pastille aux couleurs du camp, de taille à peu près constante à l'écran. La vue 2D garde ses icônes.
 - Les villes et camps **suivent le terrain** (plus de terrasse) : remparts, tours, maisons, huttes, tentes et pieux posés chacun sur le sol à sa place, avec des fondations côté pente ; sols pavés et de terre battue drapés sur le relief. Sous un site, le relief est adouci, pas aplani.
 
+### Performances
+- **Vue 3D plus fluide pendant la construction du relief** : 60 images/s tenues (45 à 52 auparavant), et relief de toute la carte révélée construit en ≈ 7 s au lieu de ≈ 19 s (graine 777, mesuré avec la trace Chrome de Bevy). Les surfaces d'eau sont refaites sur tous les cœurs et comptées dans le temps alloué par image ; les paquets de cases sont plus gros (2 par cœur) ; l'ordre de traitement (cases les plus proches de la vue d'abord) est gardé d'une image à l'autre ; la hauteur d'un tronçon de cours d'eau n'est plus calculée inutilement.
+- Tables du jeu passées au hachage rapide de Bevy (foldhash) au lieu de celui de la bibliothèque standard.
+
 ### Outils de développement
 - **Mode capture** : `CIVBUILDER_CAPTURE=<dossier>` met en scène villes et unités (relief accidenté, montagne), passe en 3D et enregistre plusieurs vues en PNG (dont la carte des courants marins), puis ferme le jeu : le rendu se vérifie sans jouer.
 - **Mode capture « exploration »** (`CIVBUILDER_CAPTURE_EXPLORE=1` en plus) : carte non révélée, un éclaireur longe un fleuve case par case, des vues sont prises le long de son trajet, puis la console signale les cases dont les lits creusés ne correspondent plus au relief (lits périmés, plus grand écart de hauteur d'eau).

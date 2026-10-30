@@ -21,7 +21,7 @@ use crate::map::WorldMap;
 use crate::render::MapLayer;
 use crate::view3d::{Gizmos3d, Relief, ViewMode};
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 
 /// Couleurs du tracé.
 pub const HOVERED_COLOR: Color = Color::srgb(1.0, 0.22, 0.18);

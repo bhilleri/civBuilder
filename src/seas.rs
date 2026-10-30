@@ -25,7 +25,8 @@
 
 use crate::hex::{DIRECTIONS, Hex, Wrap};
 use crate::toponymy::Etymology;
-use std::collections::{HashMap, HashSet, VecDeque};
+use bevy::platform::collections::{HashMap, HashSet};
+use std::collections::VecDeque;
 
 /// Nature d'une étendue marine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1192,7 +1193,7 @@ mod tests {
         let m = crate::map::WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
         let s = m.seas();
         let sea = m.hexes().filter(|&h| m.get(h).is_some_and(|t| t.is_sea())).count();
-        let terrains: std::collections::HashMap<String, usize> = m.hexes().fold(Default::default(), |mut acc, h| {
+        let terrains: bevy::platform::collections::HashMap<String, usize> = m.hexes().fold(Default::default(), |mut acc, h| {
             *acc.entry(format!("{:?}", m.get(h))).or_default() += 1;
             acc
         });

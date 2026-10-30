@@ -18,7 +18,7 @@ use bevy::math::Vec3;
 use noise::{NoiseFn, Perlin};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::collections::HashSet;
+use bevy::platform::collections::HashSet;
 
 /// Langue d'une aire du monde.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

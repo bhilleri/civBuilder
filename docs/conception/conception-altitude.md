@@ -88,6 +88,18 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 - **Vérifié en captures** (mode `CIVBUILDER_CAPTURE`, graine 777) : ville sur un relief accidenté au bord d'une falaise, douze types d'unités sur les pentes d'une montagne (aucune enfoncée), camp en forêt, village, vue lointaine. Premières icônes lointaines trop petites (blanches sans fond), puis trop grandes : réglées.
 - **Limites** : un rempart long sur une forte pente est étiré de son point bas à son point haut (dessus droit) ; pas d'animation ; les barres de vie n'existent pas en 3D.
 
+## Performances de la construction du relief 3D (30/10/2026)
+- **Mesure** (trace Chrome de Bevy, `cargo build --release --features bevy/trace_chrome`, mode capture graine 777, carte révélée, Ryzen 7 7800X3D / RTX 5070) : `update_relief_3d` prenait ≈ 14 ms par image (au plus 26) pendant ≈ 19 s, pour un budget de 6 ms → 45 à 52 images/s. Détail : file triée à chaque image 2,3 → 0,1 ms, préparation 1,4 ms, construction parallèle 5,3 ms (24 ms de calcul : ≈ 4,6 cœurs occupés sur 16, paquets de 12 cases), **surfaces d'eau 5 à 11 ms hors budget, sur un seul cœur** (dont ≈ 2,4 ms de `Relief::channel` calculé pour chaque triangle alors qu'il ne sert qu'en secours, ≈ 3 ms de `nearest_water` par sommet). Au repos, ≈ 7 ms de travail par image (bridé à 60 images/s par la synchronisation verticale).
+- **Changements** (choix de Benjamin : pistes 1, 2, 4, 5 et 6 de l'analyse) :
+  1. Surfaces d'eau construites **en parallèle** et comptées dans le budget, qui couvre désormais tout le système : un paquet n'est lancé que si sa durée et les surfaces d'eau de toutes les cases traitées (moyennes glissantes des images précédentes, `ReliefQueue::chunk_ms` / `water_ms`) tiennent dans le budget ; au moins un paquet par image.
+  2. `Relief::channel` (hauteurs d'un tronçon) calculé seulement quand un point de l'eau est hors de portée des lits.
+  4. Tables du jeu (`HashMap` / `HashSet`) passées au hachage rapide de Bevy (`bevy::platform::collections`, foldhash) dans tout le code : clés produites par le jeu, la résistance de SipHash aux attaques est inutile ; ordre de parcours fixe d'un lancement à l'autre.
+  5. Paquets de **2 cases par cœur** (`RELIEF_CHUNK_PER_THREAD`, 32 sur 16 fils) au lieu de 12 : cases simples et fines mieux réparties.
+  6. **Ordre de traitement gardé d'une image à l'autre** (`ReliefQueue::order`, tas trié par distance au centre de la vue) : refait seulement quand la vue s'est déplacée de plus de 3 cases (`RELIEF_REFOCUS`) ou après un changement de carte ; les cases remises en file y sont ajoutées une à une, une case déjà traitée est sautée en sortant.
+- **Résultat** (même scénario) : relief construit en ≈ 7 s au lieu de ≈ 19 s, **60 images/s tenues pendant la construction** ; `update_relief_3d` ≈ 5 ms par image en moyenne, au plus ≈ 8 ms. Captures identiques au pixel près (hors infobulle de survol), 0 case aux lits périmés.
+- **Non retenu pour l'instant** : piste 3 (chercher les étendues d'eau proches une fois par maillage plutôt qu'à chaque sommet) ; tableaux indexés par case à la place des tables les plus consultées.
+- **Non mesuré** : vue 2D, fin de tour, coût du rendu sur la carte graphique.
+
 ## Limites et suite
 - Le bruit d'élévation donne de larges hauts plateaux : le massif le plus haut reste une grande zone de montagnes (désormais franchissable). L'étape C (chaînes + érosion) doit le découper en crêtes et vallées.
 - Les pics ressemblent encore à des cônes arrondis enneigés ; collines discrètes sous les forêts denses.

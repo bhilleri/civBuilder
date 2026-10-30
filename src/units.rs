@@ -171,8 +171,8 @@ mod tests {
 
     #[test]
     fn chaque_unite_a_un_nom_et_une_icone_uniques() {
-        let names: std::collections::HashSet<_> = UnitKind::ALL.iter().map(|k| k.name()).collect();
-        let icons: std::collections::HashSet<_> = UnitKind::ALL.iter().map(|k| k.icon()).collect();
+        let names: bevy::platform::collections::HashSet<_> = UnitKind::ALL.iter().map(|k| k.name()).collect();
+        let icons: bevy::platform::collections::HashSet<_> = UnitKind::ALL.iter().map(|k| k.icon()).collect();
         assert_eq!(names.len(), UnitKind::ALL.len());
         assert_eq!(icons.len(), UnitKind::ALL.len());
     }

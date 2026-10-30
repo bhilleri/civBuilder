@@ -446,7 +446,7 @@ fn keyboard_commands(
                 log.push(format!("{name} : exploration automatique activée."));
                 let blocked_now = movement_blocked(&blocked.0, &occupancy.own);
                 let mut occupied = occupancy.all.clone();
-                let threats: std::collections::HashSet<Hex> = occupancy.all.difference(&occupancy.own).copied().collect();
+                let threats: bevy::platform::collections::HashSet<Hex> = occupancy.all.difference(&occupancy.own).copied().collect();
                 let world = ExploreWorld::new(&map.0)
                     .reserved(&reserved)
                     .blocked(&blocked_now)

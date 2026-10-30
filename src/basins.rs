@@ -11,7 +11,7 @@
 
 use crate::hex::{DIRECTIONS, Hex, Wrap};
 use crate::hydro::RiverSegment;
-use std::collections::HashMap;
+use bevy::platform::collections::HashMap;
 
 /// Un affluent de fleuve d'au moins autant de cases est un « long affluent » (nommé de plus loin).
 pub const MIN_NAMED_CELLS: usize = 3;
@@ -360,7 +360,7 @@ pub fn compute(input: &BasinInput) -> Basins {
     }
 
     // --- Bassins
-    let mut id_of_outlet = std::collections::HashMap::new();
+    let mut id_of_outlet = bevy::platform::collections::HashMap::new();
     let mut basins: Vec<Basin> = Vec::new();
     let mut basin_of = vec![None; n];
     for i in 0..n {
@@ -752,7 +752,7 @@ pub fn compute(input: &BasinInput) -> Basins {
         if lake.kind == WaterBody::InlandSea {
             continue;
         }
-        let members: std::collections::HashSet<usize> = lake.cells.iter().copied().collect();
+        let members: bevy::platform::collections::HashSet<usize> = lake.cells.iter().copied().collect();
         let from_stream = stream_sources
             .iter()
             .filter(|(_, around)| around.iter().any(|c| members.contains(c)))
@@ -1133,7 +1133,7 @@ mod tests {
             assert!(lakes < crate::map::FLEUVE_IN_LAKE, "{h:?}");
         }
         // Chaque cours d'eau et chaque lac a un nom, jamais le même qu'un autre
-        let mut names = std::collections::HashSet::new();
+        let mut names = bevy::platform::collections::HashSet::new();
         for name in b.rivers.iter().map(|r| &r.name).chain(b.lakes.iter().map(|l| &l.name)) {
             assert!(!name.is_empty());
             assert!(names.insert(name.to_lowercase()), "{name} répété");
