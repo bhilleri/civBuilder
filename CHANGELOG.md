@@ -2,6 +2,11 @@
 
 ## 0.3.0 (en cours)
 
+### Vue 3D : unités et sites sur le relief
+- Les unités, villes, camps et villages ne sont plus « ensevelis » dans le relief : chacun est posé sur le vrai sol 3D, et replacé quand le sol de sa case est refait.
+- **Figurines 3D** des unités, faites de formes simples : un personnage ou un cavalier aux couleurs de son camp, avec ce qui distingue son type (bouclier, épée, lance, pique, arc, carquois, ballot du colon…), sur un socle bleu ou rouge incliné comme le sol. De loin, l'icône du type flotte au-dessus. La vue 2D garde ses icônes.
+- Les villes et camps **suivent le terrain** (plus de terrasse) : remparts, tours, maisons, huttes, tentes et pieux posés chacun sur le sol à sa place, avec des fondations côté pente ; sols pavés et de terre battue drapés sur le relief. Sous un site, le relief est adouci, pas aplani.
+
 ### Altitude et relief
 - L'altitude en mètres devient la référence : déplacements, combat, climat et infobulle (« 2 950 m »).
 - **Relief** de chaque case, en plus du terrain : plat, vallonné, accidenté, montagne, pic (dénivelée avec les voisines, bruit propre, altitude).

@@ -12,12 +12,9 @@ Voir `conception/conception-toponymie.md` (mers fermées : fermeture + taille).
 Voir `conception/conception-toponymie.md`. Constat : sur 11 graines, aucune mer fermée (les grandes
 poches sont des entonnoirs ouverts) ; à voir avec Benjamin s'il faut en provoquer à la génération.
 
-## 4. Unités, villes, camps, villages enfouis dans le relief (3D)
-Ils sont parfois « ensevelis » sous le relief. Hypothèse (à confirmer avec une capture) : leur
-hauteur vient de l'altitude moyenne de la case, alors que le sol dessiné a des bosses, pentes et
-sommets. Les poser sur la vraie surface 3D (lire le relief à leur position), les replacer quand le
-relief de la case est recalculé, aplanir ou prendre le point haut sous une ville ; idem icônes et
-barres de vie.
+## 4. Unités, villes, camps, villages enfouis dans le relief (3D) — fait (30/10), à vérifier à l'écran
+Posés sur le vrai sol, sites qui suivent le terrain (pas de terrasse), figurines 3D des unités.
+Voir `conception/conception-altitude.md`.
 
 ## 5. Courants marins
 Version simplifiée : circulation de surface poussée par les vents simulés (tourbillons

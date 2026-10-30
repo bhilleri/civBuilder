@@ -88,12 +88,32 @@ pub struct Relief {
     explored: HashSet<Hex>,
     /// Hachures posées sur le relief (cases partagées entre deux bassins, carte des bassins).
     hatches: HashMap<Hex, Entity>,
-    /// Relief interne (collines, montagnes) des cases explorées, modelé dans le sol.
+    /// Relief interne (collines, montagnes) des cases explorées, modelé dans le sol (adouci sous
+    /// une ville, un camp ou un village).
     bumps: BumpMap,
+    /// Nombre de reconstructions du sol de chaque case : ce qui y est posé (unités, villes…) est
+    /// replacé quand il change.
+    generation: HashMap<Hex, u32>,
     /// Tour d'est en ouest de la planète. Tout est rangé par case de la carte, la géométrie
     /// (lits, formes de l'eau) à la position de la case dans la carte : une case vue au-delà du
     /// raccord est lue dans la carte, sa géométrie décalée d'un tour.
     wrap: Wrap,
+}
+
+/// Sous une ville, un camp ou un village, le relief interne est adouci (pas aplani) : les
+/// bâtiments suivent le terrain sans être de travers.
+const SITE_RELIEF: f32 = 0.5;
+
+/// Relief interne des cases explorées, adouci sous les sites (`sites`).
+fn explored_bumps(map: &crate::map::WorldMap, fog: &ShownFog, sites: &HashSet<Hex>) -> BumpMap {
+    fog.explored
+        .iter()
+        .filter(|&&h| map.contains(h))
+        .filter_map(|&h| {
+            bumps_for(map, h).map(|b| if sites.contains(&h) { (h, Bumps { amp: b.amp * SITE_RELIEF, summit: b.summit * SITE_RELIEF, ..b }) } else { (h, b) })
+        })
+        .collect::<BumpMap>()
+        .with_wrap(map.wrap())
 }
 
 /// Relief interne d'une case de terre, modelé dans le sol 3D : ampleur des crêtes, sommet au
@@ -252,14 +272,52 @@ impl Relief {
     }
 }
 
-/// Représentation 3D d'une entité du jeu (unité, ville, village, camp).
+/// Représentation 3D d'une entité du jeu (unité, ville, village, camp), posée sur le sol 3D.
 #[derive(Component)]
 struct Mirror3d {
     source: Entity,
-    lift: f32,
-    /// Jeton d'unité : posé sur le toit de la ville s'il y en a une sur la case.
+    /// Figurine d'unité : posée sur le toit du donjon s'il y a une ville sur la case.
     is_unit: bool,
+    /// Dernier placement (case, reconstruction de son sol, sur un donjon) : replacée quand il change.
+    placed: Option<(Hex, u32, bool)>,
 }
+
+/// Élément d'une ville, d'un camp ou d'un village posé sur le sol à sa place (repère 2D par
+/// rapport au centre de la case), d'après le sol sous son emprise (rayon `reach`).
+#[derive(Component)]
+struct Grounded {
+    at: Vec2,
+    reach: f32,
+    rest: Rest,
+}
+
+/// Façon de poser un élément sur un sol en pente.
+#[derive(Clone, Copy)]
+enum Rest {
+    /// Bâti (mur, tour, maison, hutte, pieu) : sa base descend jusqu'au point le plus bas du sol
+    /// sous lui (fondations) et son sommet est à `height` au-dessus du point le plus haut ; pièce
+    /// centrée, de hauteur `height` (étirée).
+    Stand { height: f32 },
+    /// Posé sur le point le plus haut (toit, plus `lift` jusqu'au centre de la pièce).
+    Top { lift: f32 },
+    /// Posé sur le point le plus bas, enfoncé côté haut (tente, feu, pierres).
+    Low { lift: f32 },
+}
+
+/// Sol drapé sur le relief (pavés d'une ville, terre battue d'un camp) : contour (repère 2D),
+/// refait quand le site est replacé.
+#[derive(Component)]
+struct Patch3d {
+    outline: Vec<Vec2>,
+}
+
+/// Socle d'une figurine : incliné comme le sol.
+#[derive(Component)]
+struct Socle3d;
+
+/// Icône d'une unité, tournée vers la caméra, montrée seulement en vue lointaine.
+#[derive(Component)]
+struct FarIcon;
 
 /// Hauteur du donjon d'une ville (une unité en garnison est posée dessus).
 pub const CITY_HEIGHT: f32 = 12.0;
@@ -269,7 +327,6 @@ pub struct Gizmos3d;
 
 /// Pièces d'une ville 3D : socle, remparts, tours d'angle, maisons et donjon central.
 struct CityKit {
-    base: Handle<Mesh>,
     wall: Handle<Mesh>,
     tower: Handle<Mesh>,
     tower_roof: Handle<Mesh>,
@@ -286,7 +343,6 @@ struct CityKit {
 /// Pièces des villages (huttes de paille autour d'un feu) et des camps hostiles
 /// (tentes rouges et étendard dans une palissade de pieux).
 struct SiteKit {
-    ground: Handle<Mesh>,
     hut: Handle<Mesh>,
     hut_roof: Handle<Mesh>,
     stake: Handle<Mesh>,
@@ -305,12 +361,20 @@ struct SiteKit {
     stone: Handle<StandardMaterial>,
 }
 
-/// Dimensions d'une ville 3D (repère local : origine sur le dessus de la case).
-const CITY_BASE: f32 = 3.0;
+/// Dimensions d'une ville 3D (repère local : origine sur le sol au centre de la case ; chaque
+/// élément est posé sur le sol à sa place, voir `Grounded`).
+/// Socle coloré d'une figurine (couleur du camp) et rayon de son emprise au sol.
+const SOCLE_RADIUS: f32 = 6.0;
+const SOCLE_HEIGHT: f32 = 1.2;
+/// Au-delà de cette distance de la caméra 3D, l'icône du type d'unité flotte au-dessus de la
+/// figurine (de loin, la figurine seule ne se lit plus).
+const FAR_ICON_DISTANCE: f32 = 1_100.0;
+const FAR_ICON_LIFT: f32 = 26.0;
 const CITY_WALL_RADIUS: f32 = 26.0;
 const CITY_WALL_HEIGHT: f32 = 7.0;
 const CITY_TOWER_HEIGHT: f32 = 12.0;
 const CITY_KEEP_ROOF: f32 = 1.5;
+const CITY_KEEP_RADIUS: f32 = 10.0;
 
 #[derive(Resource)]
 struct Assets3d {
@@ -320,8 +384,9 @@ struct Assets3d {
     unexplored: Handle<StandardMaterial>,
     /// Eau douce (couleur portée par les sommets) : vue, hors de vue.
     fresh_water: [Handle<StandardMaterial>; 2],
-    token: Handle<Mesh>,
+    socle: Handle<Mesh>,
     icon_quad: Handle<Mesh>,
+    figures: crate::figures::FigureKit,
     player: Handle<StandardMaterial>,
     hostile: Handle<StandardMaterial>,
     city: CityKit,
@@ -347,6 +412,7 @@ impl Plugin for View3dPlugin {
                     update_decor_3d,
                     spawn_mirrors,
                     sync_mirrors,
+                    far_icons,
                     draw_overlays_3d,
                     draw_wind_3d,
                     draw_plates_3d,
@@ -535,7 +601,7 @@ fn setup_3d(
     // Relief interne de toutes les cases (pour placer les arbres sous la limite des arbres)
     let wrap = map.0.wrap();
     let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect::<BumpMap>().with_wrap(wrap);
-    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
+    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), generation: HashMap::new(), wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
     let fresh_water = [
         materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.25, ..default() }),
         materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.45, 0.5), perceptual_roughness: 0.25, ..default() }),
@@ -714,18 +780,18 @@ fn setup_3d(
         ground_dim,
         unexplored,
         fresh_water,
-        token: meshes.add(Cylinder::new(16.0, 6.0)),
+        socle: meshes.add(Cylinder::new(SOCLE_RADIUS, SOCLE_HEIGHT)),
         icon_quad: meshes.add(Rectangle::new(26.0, 26.0)),
+        figures: crate::figures::FigureKit::new(&mut meshes, &mut materials),
         player,
         hostile,
         city: CityKit {
-            base: meshes.add(Extrusion::new(RegularPolygon::new(HEX_SIZE * 0.9, 6), CITY_BASE)),
             wall: meshes.add(Cuboid::new(CITY_WALL_RADIUS, CITY_WALL_HEIGHT, 3.0)),
             tower: meshes.add(Cylinder::new(4.0, CITY_TOWER_HEIGHT)),
             tower_roof: meshes.add(Cone { radius: 5.2, height: 6.0 }),
             house: meshes.add(Cuboid::new(5.0, 5.0, 5.0)),
             house_roof: meshes.add(Cone { radius: 4.4, height: 4.0 }.mesh().resolution(4)),
-            keep: meshes.add(Cylinder::new(10.0, CITY_HEIGHT - CITY_BASE - CITY_KEEP_ROOF)),
+            keep: meshes.add(Cylinder::new(CITY_KEEP_RADIUS, CITY_HEIGHT - CITY_KEEP_ROOF)),
             keep_roof: meshes.add(Cylinder::new(11.5, CITY_KEEP_ROOF)),
             stone: city_stone,
             paving: city_paving,
@@ -733,7 +799,6 @@ fn setup_3d(
             tiles: city_tiles,
         },
         sites: SiteKit {
-            ground: meshes.add(Cylinder::new(25.0, 1.5)),
             hut: meshes.add(Cylinder::new(4.8, 5.0)),
             hut_roof: meshes.add(Cone { radius: 7.0, height: 7.5 }),
             stake: meshes.add(Cylinder::new(1.3, 8.0)),
@@ -882,14 +947,14 @@ fn to_mesh(data: MeshData) -> Mesh {
 /// Raccord entre deux cases voisines : toutes deux inexplorées (plates) → pente douce ;
 /// toutes deux explorées → pente douce entre deux cases d'eau, ou entre terre et terre / terre
 /// et mer quand l'écart de niveau le permet (plage : littoral et plaine basse), escarpement
-/// rocheux sinon (falaise, falaise côtière) ; bord de l'inexploré ou terrasse d'une ville ou
-/// d'un camp → paroi.
-fn link(map: &GameMap, fog: &ShownFog, terraces: &HashSet<Hex>, a: Hex, b: Hex) -> Link {
+/// rocheux sinon (falaise, falaise côtière) ; bord de l'inexploré → paroi. (Une ville ou un camp
+/// suit le terrain : pas de terrasse.)
+fn link(map: &GameMap, fog: &ShownFog, a: Hex, b: Hex) -> Link {
     let (a, b) = (map.0.canonical(a), map.0.canonical(b));
     let (Some(ta), Some(tb)) = (map.0.get(a), map.0.get(b)) else { return Link::None };
     match (fog.explored.contains(&a), fog.explored.contains(&b)) {
         (false, false) => Link::Gentle,
-        (true, true) if !terraces.contains(&a) && !terraces.contains(&b) => match (ta.is_water(), tb.is_water()) {
+        (true, true) => match (ta.is_water(), tb.is_water()) {
             (true, true) => Link::Gentle,
             // Terre–terre comme terre–mer (la mer au niveau 0) : plage ou pente si l'écart le
             // permet, falaise sinon (la mer reste plate, voir `compute_top`)
@@ -921,7 +986,7 @@ fn update_relief_3d(
     cam: Res<Cam3d>,
     assets: Option<Res<Assets3d>>,
     relief: Option<ResMut<Relief>>,
-    structures: Query<&HexPos, Or<(With<City>, With<Camp>)>>,
+    structures: Query<&HexPos, Or<(With<City>, With<Camp>, With<Village>)>>,
     mut known: Local<ReliefQueue>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut tiles: Query<(&Mesh3d, &mut MeshMaterial3d<StandardMaterial>), With<Tile3d>>,
@@ -934,18 +999,23 @@ fn update_relief_3d(
 ) {
     let (Some(assets), Some(mut relief)) = (assets, relief) else { return };
     let queue = &mut *known;
-    let terraces: HashSet<Hex> = structures.iter().map(|p| p.0).collect();
-    if fog.is_changed() || terraces != queue.terraces {
+    // Cases d'une ville, d'un camp ou d'un village : relief adouci (le sol alentour est refait)
+    let sites: HashSet<Hex> = structures.iter().map(|p| p.0).collect();
+    let sites_changed = sites != queue.sites;
+    if fog.is_changed() || sites_changed {
         let changed: Vec<Hex> = fog
             .explored
             // Symétrique : en quittant le mode debug, des cases redeviennent inconnues
             .symmetric_difference(&queue.explored)
-            .chain(terraces.symmetric_difference(&queue.terraces))
+            .chain(sites.symmetric_difference(&queue.sites))
             .copied()
             .collect();
         queue.geometry.extend(changed.iter().flat_map(|&h| map.0.range(h, 2)).filter(|h| map.0.contains(*h)));
         queue.explored = fog.explored.clone();
-        queue.terraces = terraces.clone();
+        queue.sites = sites.clone();
+    }
+    if fog.is_changed() || sites_changed {
+        relief.bumps = explored_bumps(&map.0, &fog, &sites);
     }
     // Changement de carte (normale / relief / climat) : seules les couleurs changent, le relief déjà
     // calculé est réutilisé. La vision peut déborder du bord de la carte : on ne garde que la carte.
@@ -957,7 +1027,6 @@ fn update_relief_3d(
     if fog.is_changed() {
         relief.water_seen = relief.water_hexes.intersection(&fog.explored).copied().collect();
         relief.explored = fog.explored.clone();
-        relief.bumps = fog.explored.iter().filter_map(|&h| map.0.contains(h).then(|| bumps_for(&map.0, h)).flatten().map(|b| (h, b))).collect::<BumpMap>().with_wrap(map.0.wrap());
         for (&hex, &tile) in &relief.tiles {
             // Une case dont le relief reste à refaire garde son aspect jusqu'à sa reconstruction
             // (pas de case blanche, plate, en attendant)
@@ -1016,7 +1085,7 @@ fn update_relief_3d(
     batch.sort_unstable_by_key(priority);
 
     let height = |h: Hex| shown_height(&map, &fog, h);
-    let link = |a: Hex, b: Hex| link(&map, &fog, &terraces, a, b);
+    let link = |a: Hex, b: Hex| link(&map, &fog, a, b);
     let water = |h: Hex| fog.explored.contains(&map.0.canonical(h)) && map.0.get(h).is_some_and(|t| t.is_water());
     // Couleur du sol d'une case selon la carte affichée
     let hex_color = |hex: Hex| match (fog.explored.contains(&map.0.canonical(hex)), *layer) {
@@ -1089,6 +1158,7 @@ fn update_relief_3d(
             .map(|(hex, top, color, sides, near, skirt)| (hex, build_hex(hex, &top, color, sides.as_ref(), &near, skirt, bumps)))
             .collect();
         for (hex, data) in built {
+            *relief.generation.entry(hex).or_default() += 1;
             let tile = relief.tiles[&hex];
             if let Ok((mesh, mut material)) = tiles.get_mut(tile) {
                 if let Some(mut m) = meshes.get_mut(&mesh.0) {
@@ -1292,7 +1362,7 @@ fn hatch_mesh(relief: &Relief, hex: Hex, color: Color) -> MeshData {
 #[derive(Default)]
 struct ReliefQueue {
     explored: HashSet<Hex>,
-    terraces: HashSet<Hex>,
+    sites: HashSet<Hex>,
     /// Relief à recalculer (et couleurs).
     geometry: HashSet<Hex>,
     /// Couleurs seulement (changement de carte).
@@ -1342,6 +1412,7 @@ fn update_decor_3d(
 fn spawn_mirrors(
     mut commands: Commands,
     assets: Option<Res<Assets3d>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     units: Query<(Entity, &Unit, Has<Hostile>), Added<Unit>>,
     cities: Query<Entity, Added<City>>,
     villages: Query<Entity, Added<Village>>,
@@ -1349,160 +1420,252 @@ fn spawn_mirrors(
 ) {
     let Some(a) = assets else { return };
     let upright = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    let icon = |commands: &mut Commands, parent: Entity, path: &'static str, y: f32| {
-        commands.entity(parent).with_children(|p| {
-            p.spawn((
-                Mesh3d(a.icon_quad.clone()),
-                MeshMaterial3d(a.icons[path].clone()),
-                Transform::from_xyz(0.0, y, 0.0).with_rotation(upright),
-                layer(),
-            ));
-        });
-    };
     for (source, unit, hostile) in &units {
         let material = if hostile { &a.hostile } else { &a.player };
-        let e = commands
-            .spawn((
-                Mirror3d { source, lift: 3.0, is_unit: true },
-                Mesh3d(a.token.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::default(),
-                Visibility::Hidden,
-                layer(),
-            ))
-            .id();
-        icon(&mut commands, e, unit.0.kind.icon(), 3.2);
+        // Socle aux couleurs du camp (incliné comme le sol), figurine debout dessus, icône du type
+        // au-dessus en vue lointaine
+        commands
+            .spawn((Mirror3d { source, is_unit: true, placed: None }, Transform::default(), Visibility::Hidden, layer()))
+            .with_children(|p| {
+                p.spawn((Socle3d, Mesh3d(a.socle.clone()), MeshMaterial3d(material.clone()), Transform::default(), layer()));
+                crate::figures::spawn_figure(p, &a.figures, unit.0.kind, hostile, &layer());
+                p.spawn((
+                    FarIcon,
+                    Mesh3d(a.icon_quad.clone()),
+                    MeshMaterial3d(a.icons[unit.0.kind.icon()].clone()),
+                    Transform::from_xyz(0.0, FAR_ICON_LIFT, 0.0).with_rotation(upright),
+                    Visibility::Hidden,
+                    layer(),
+                ));
+            });
     }
     for source in &cities {
-        spawn_city_model(&mut commands, &a, source);
+        spawn_city_model(&mut commands, &a, &mut meshes, source);
     }
     for source in &villages {
-        spawn_site_model(&mut commands, &a, source, false);
+        spawn_site_model(&mut commands, &a, &mut meshes, source, false);
     }
     for source in &camps {
-        spawn_site_model(&mut commands, &a, source, true);
+        spawn_site_model(&mut commands, &a, &mut meshes, source, true);
     }
+}
+
+/// Direction (repère 2D) d'un angle en degrés.
+fn dir2(deg: f32) -> Vec2 {
+    Vec2::from_angle(deg.to_radians())
+}
+
+/// Point 3D local (sans hauteur) d'une position 2D par rapport au centre de la case.
+fn local3(at: Vec2) -> Vec3 {
+    Vec3::new(at.x, 0.0, -at.y)
+}
+
+/// Élément posé sur le sol : maillage, matière, position 2D, emprise, façon de le poser, rotation.
+fn grounded(mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, at: Vec2, reach: f32, rest: Rest, turn: Quat) -> (Grounded, Mesh3d, MeshMaterial3d<StandardMaterial>, Transform, RenderLayers) {
+    (Grounded { at, reach, rest }, Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::from_translation(local3(at)).with_rotation(turn), layer())
+}
+
+/// Sol drapé sur le relief (maillage propre au site, refait quand il est replacé).
+fn patch(meshes: &mut Assets<Mesh>, material: &Handle<StandardMaterial>, outline: Vec<Vec2>) -> impl Bundle {
+    (Patch3d { outline }, Mesh3d(meshes.add(to_mesh(MeshData::default()))), MeshMaterial3d(material.clone()), Transform::default(), layer())
+}
+
+/// Contour d'un polygone régulier (rayon, nombre de côtés, angle du premier sommet), chaque côté
+/// découpé en `steps` segments.
+fn outline(radius: f32, sides: usize, start: f32, steps: usize) -> Vec<Vec2> {
+    let corner = |k: usize| dir2(start + 360.0 * k as f32 / sides as f32) * radius;
+    (0..sides).flat_map(|k| (0..steps).map(move |s| corner(k).lerp(corner(k + 1), s as f32 / steps as f32))).collect()
 }
 
 /// Village : huttes rondes au toit de chaume autour d'un feu.
-/// Camp hostile : palissade de pieux, trois tentes rouges, un feu et un étendard.
-fn spawn_site_model(commands: &mut Commands, a: &Assets3d, source: Entity, is_camp: bool) {
+/// Camp hostile : palissade de pieux, trois tentes rouges, un feu et un étendard, sur un sol de
+/// terre battue. Chaque élément est posé sur le sol à sa place.
+fn spawn_site_model(commands: &mut Commands, a: &Assets3d, meshes: &mut Assets<Mesh>, source: Entity, is_camp: bool) {
     let k = &a.sites;
-    let dir = |deg: f32| {
-        let (sin, cos) = deg.to_radians().sin_cos();
-        Vec3::new(cos, 0.0, -sin)
-    };
-    let part = |mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, transform: Transform| {
-        (Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), transform, layer())
-    };
-    // Le village est posé directement sur le terrain de la case ; le camp a son sol de terre battue
-    let floor = if is_camp { 1.5 } else { 0.0 };
+    let none = Quat::IDENTITY;
     commands
-        .spawn((Mirror3d { source, lift: 0.0, is_unit: false }, Transform::default(), Visibility::Hidden, layer()))
+        .spawn((Mirror3d { source, is_unit: false, placed: None }, Transform::default(), Visibility::Hidden, layer()))
         .with_children(|p| {
             if is_camp {
-                p.spawn(part(&k.ground, &k.camp_ground, Transform::from_xyz(0.0, floor / 2.0, 0.0)));
+                p.spawn(patch(meshes, &k.camp_ground, outline(25.0, 24, 0.0, 1)));
                 for i in 0..18 {
-                    let at = dir(20.0 * i as f32) * 22.5;
-                    p.spawn(part(&k.stake, &k.wood, Transform::from_translation(at + Vec3::Y * (floor + 4.0))));
-                    p.spawn(part(&k.stake_tip, &k.wood, Transform::from_translation(at + Vec3::Y * (floor + 9.25))));
+                    let at = dir2(20.0 * i as f32) * 22.5;
+                    p.spawn(grounded(&k.stake, &k.wood, at, 1.3, Rest::Stand { height: 8.0 }, none));
+                    p.spawn(grounded(&k.stake_tip, &k.wood, at, 1.3, Rest::Top { lift: 9.25 }, none));
                 }
                 for i in 0..3 {
                     let angle = 90.0 + 120.0 * i as f32;
-                    let at = dir(angle) * 11.5;
-                    let turn = Quat::from_rotation_y(angle.to_radians());
-                    p.spawn(part(&k.tent, &k.tent_red, Transform::from_translation(at + Vec3::Y * (floor + 5.0)).with_rotation(turn)));
+                    p.spawn(grounded(&k.tent, &k.tent_red, dir2(angle) * 11.5, 7.0, Rest::Low { lift: 5.0 }, Quat::from_rotation_y(angle.to_radians())));
                 }
-                // Étendard planté près du feu
-                let pole = dir(30.0) * 6.0;
-                p.spawn(part(&k.pole, &k.wood, Transform::from_translation(pole + Vec3::Y * (floor + 10.0))));
-                p.spawn(part(&k.flag, &k.tent_red, Transform::from_translation(pole + Vec3::new(4.0, floor + 17.0, 0.0))));
+                // Étendard planté près du feu (le drapeau suit le mât)
+                let pole = dir2(30.0) * 6.0;
+                p.spawn(grounded(&k.pole, &k.wood, pole, 0.6, Rest::Stand { height: 20.0 }, none));
+                let mut flag = grounded(&k.flag, &k.tent_red, pole, 0.6, Rest::Top { lift: 17.0 }, none);
+                flag.3.translation.x += 4.0;
+                p.spawn(flag);
             } else {
                 for i in 0..5 {
-                    let at = dir(90.0 + 72.0 * i as f32) * 14.0;
-                    p.spawn(part(&k.hut, &k.mud, Transform::from_translation(at + Vec3::Y * (floor + 2.5))));
-                    p.spawn(part(&k.hut_roof, &k.straw, Transform::from_translation(at + Vec3::Y * (floor + 5.0 + 3.75))));
+                    let at = dir2(90.0 + 72.0 * i as f32) * 14.0;
+                    p.spawn(grounded(&k.hut, &k.mud, at, 4.8, Rest::Stand { height: 5.0 }, none));
+                    p.spawn(grounded(&k.hut_roof, &k.straw, at, 4.8, Rest::Top { lift: 8.75 }, none));
                 }
             }
-            p.spawn(part(&k.fire, &k.flame, Transform::from_xyz(0.0, floor + 2.5, 0.0)));
+            p.spawn(grounded(&k.fire, &k.flame, Vec2::ZERO, 2.4, Rest::Low { lift: 2.5 }, none));
             for i in 0..6 {
-                let at = dir(60.0 * i as f32) * 3.4;
-                p.spawn(part(&k.fire_stone, &k.stone, Transform::from_translation(at + Vec3::Y * (floor + 0.6))));
+                p.spawn(grounded(&k.fire_stone, &k.stone, dir2(60.0 * i as f32) * 3.4, 1.2, Rest::Low { lift: 0.6 }, none));
             }
         });
 }
 
-/// Ville 3D : socle pavé, remparts hexagonaux avec tours d'angle aux toits bleus,
-/// maisons entre les remparts et le donjon central, sur lequel se tient la garnison.
-fn spawn_city_model(commands: &mut Commands, a: &Assets3d, source: Entity) {
+/// Ville 3D : sol pavé, remparts hexagonaux avec tours d'angle aux toits bleus, maisons entre les
+/// remparts et le donjon central, sur lequel se tient la garnison. Elle suit le terrain : chaque
+/// pan de rempart, tour, maison est posé sur le sol à sa place, le donjon au centre.
+fn spawn_city_model(commands: &mut Commands, a: &Assets3d, meshes: &mut Assets<Mesh>, source: Entity) {
     let k = &a.city;
-    let upright = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    // Direction 3D d'un angle de la vue 2D (x, −y)
-    let dir = |deg: f32| {
-        let (sin, cos) = deg.to_radians().sin_cos();
-        Vec3::new(cos, 0.0, -sin)
-    };
-    let part = |mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, transform: Transform| {
-        (Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), transform, layer())
-    };
+    let none = Quat::IDENTITY;
     commands
-        .spawn((Mirror3d { source, lift: 0.0, is_unit: false }, Transform::default(), Visibility::Hidden, layer()))
+        .spawn((Mirror3d { source, is_unit: false, placed: None }, Transform::default(), Visibility::Hidden, layer()))
         .with_children(|p| {
-            p.spawn(part(&k.base, &k.paving, Transform::from_xyz(0.0, CITY_BASE / 2.0, 0.0).with_rotation(upright)));
+            p.spawn(patch(meshes, &k.paving, outline(HEX_SIZE * 0.9, 6, 90.0, 4)));
             for i in 0..6 {
                 // Remparts au milieu des côtés, tours aux sommets (comme les cases)
                 let side = 60.0 * i as f32;
-                let wall_at = dir(side) * CITY_WALL_RADIUS * 0.866 + Vec3::Y * (CITY_BASE + CITY_WALL_HEIGHT / 2.0);
-                p.spawn(part(
-                    &k.wall,
-                    &k.stone,
-                    Transform::from_translation(wall_at).with_rotation(Quat::from_rotation_y((side + 90.0).to_radians())),
-                ));
-                let corner = dir(side + 30.0) * CITY_WALL_RADIUS;
-                p.spawn(part(
-                    &k.tower,
-                    &k.stone,
-                    Transform::from_translation(corner + Vec3::Y * (CITY_BASE + CITY_TOWER_HEIGHT / 2.0)),
-                ));
-                p.spawn(part(
-                    &k.tower_roof,
-                    &a.player,
-                    Transform::from_translation(corner + Vec3::Y * (CITY_BASE + CITY_TOWER_HEIGHT + 3.0)),
-                ));
-                let house = dir(side) * 16.5;
+                let wall = dir2(side) * CITY_WALL_RADIUS * 0.866;
+                p.spawn(grounded(&k.wall, &k.stone, wall, CITY_WALL_RADIUS / 2.0, Rest::Stand { height: CITY_WALL_HEIGHT }, Quat::from_rotation_y((side + 90.0).to_radians())));
+                let corner = dir2(side + 30.0) * CITY_WALL_RADIUS;
+                p.spawn(grounded(&k.tower, &k.stone, corner, 4.0, Rest::Stand { height: CITY_TOWER_HEIGHT }, none));
+                p.spawn(grounded(&k.tower_roof, &a.player, corner, 4.0, Rest::Top { lift: CITY_TOWER_HEIGHT + 3.0 }, none));
+                let house = dir2(side) * 16.5;
                 let turn = Quat::from_rotation_y((side + 45.0).to_radians());
-                p.spawn(part(&k.house, &k.plaster, Transform::from_translation(house + Vec3::Y * (CITY_BASE + 2.5)).with_rotation(turn)));
-                p.spawn(part(
-                    &k.house_roof,
-                    &k.tiles,
-                    Transform::from_translation(house + Vec3::Y * (CITY_BASE + 7.0)).with_rotation(turn),
-                ));
+                p.spawn(grounded(&k.house, &k.plaster, house, 3.5, Rest::Stand { height: 5.0 }, turn));
+                p.spawn(grounded(&k.house_roof, &k.tiles, house, 3.5, Rest::Top { lift: 7.0 }, turn));
             }
-            let keep_height = CITY_HEIGHT - CITY_BASE - CITY_KEEP_ROOF;
-            p.spawn(part(&k.keep, &k.stone, Transform::from_xyz(0.0, CITY_BASE + keep_height / 2.0, 0.0)));
-            p.spawn(part(&k.keep_roof, &a.player, Transform::from_xyz(0.0, CITY_HEIGHT - CITY_KEEP_ROOF / 2.0, 0.0)));
+            p.spawn(grounded(&k.keep, &k.stone, Vec2::ZERO, CITY_KEEP_RADIUS, Rest::Stand { height: CITY_HEIGHT - CITY_KEEP_ROOF }, none));
+            p.spawn(grounded(&k.keep_roof, &a.player, Vec2::ZERO, CITY_KEEP_RADIUS, Rest::Top { lift: CITY_HEIGHT - CITY_KEEP_ROOF / 2.0 }, none));
         });
 }
 
+/// Points le plus bas et le plus haut du sol sous une emprise (centre et six points à `reach`).
+fn footprint(relief: &Relief, c: Vec2, reach: f32) -> (f32, f32) {
+    let samples = std::iter::once(c).chain((0..6).map(|k| c + dir2(60.0 * k as f32) * reach));
+    samples.map(|p| relief.ground(p.x, p.y)).fold((f32::MAX, f32::MIN), |(lo, hi), g| (lo.min(g), hi.max(g)))
+}
+
+/// Pente du sol en un point : normale 3D (calculée sur ± `reach`).
+fn ground_normal(relief: &Relief, c: Vec2, reach: f32) -> Vec3 {
+    let g = |dx: f32, dy: f32| relief.ground(c.x + dx, c.y + dy);
+    let gx = (g(reach, 0.0) - g(-reach, 0.0)) / (2.0 * reach);
+    let gy = (g(0.0, reach) - g(0.0, -reach)) / (2.0 * reach);
+    // (repère 3D : z = −y)
+    Vec3::new(-gx, 1.0, gy).normalize()
+}
+
+/// Sol drapé sur le relief à l'intérieur d'un contour (anneaux concentriques), en repère local
+/// (origine `origin`, point 3D du centre du site).
+fn patch_mesh(relief: &Relief, center: Vec2, origin: Vec3, outline: &[Vec2]) -> MeshData {
+    const RINGS: usize = 5;
+    let mut data = MeshData::default();
+    let push = |p: Vec2, data: &mut MeshData| {
+        let q = relief.on_ground(center.x + p.x, center.y + p.y, 0.35) - origin;
+        data.positions.push(q.to_array());
+        data.normals.push([0.0, 1.0, 0.0]);
+        data.colors.push([1.0; 4]);
+    };
+    push(Vec2::ZERO, &mut data);
+    let n = outline.len() as u32;
+    for r in 1..=RINGS {
+        let t = r as f32 / RINGS as f32;
+        for &o in outline {
+            push(o * t, &mut data);
+        }
+    }
+    // Sens trigonométrique vu du dessus (repère 2D)
+    for k in 0..n {
+        data.indices.extend([0, 1 + k, 1 + (k + 1) % n]);
+    }
+    for r in 0..RINGS as u32 - 1 {
+        let (inner, outer) = (1 + r * n, 1 + (r + 1) * n);
+        for k in 0..n {
+            let k1 = (k + 1) % n;
+            data.indices.extend([inner + k, outer + k, outer + k1, inner + k, outer + k1, inner + k1]);
+        }
+    }
+    data
+}
+
 /// Position et visibilité des représentations 3D ; suppression quand l'entité du jeu disparaît.
+/// Chacune est posée sur le vrai sol 3D, et replacée quand le sol de sa case est refait.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sync_mirrors(
     mut commands: Commands,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
+    relief: Option<Res<Relief>>,
     sources: Query<(&HexPos, Has<Hostile>, Has<Village>, Has<Camp>)>,
     cities: Query<&HexPos, With<City>>,
-    mut mirrors: Query<(Entity, &Mirror3d, &mut Transform, &mut Visibility)>,
+    mut mirrors: Query<(Entity, &mut Mirror3d, &mut Transform, &mut Visibility, Option<&Children>)>,
+    mut parts: Query<(&Grounded, &mut Transform), Without<Mirror3d>>,
+    mut socles: Query<&mut Transform, (With<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
+    patches: Query<(&Patch3d, &Mesh3d)>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    let city_tiles: std::collections::HashSet<Hex> = cities.iter().map(|p| p.0).collect();
-    for (entity, mirror, mut transform, mut vis) in &mut mirrors {
+    let Some(relief) = relief else { return };
+    let city_tiles: HashSet<Hex> = cities.iter().map(|p| map.0.canonical(p.0)).collect();
+    for (entity, mut mirror, mut transform, mut vis, children) in &mut mirrors {
         let Ok((pos, hostile, village, camp)) = sources.get(mirror.source) else {
             commands.entity(entity).despawn();
             continue;
         };
-        let on_roof = if mirror.is_unit && city_tiles.contains(&pos.0) { CITY_HEIGHT } else { 0.0 };
-        let wanted = to_3d(pos.0, shown_height(&map, &fog, pos.0) + mirror.lift + on_roof);
-        if transform.translation != wanted {
-            transform.translation = wanted;
+        let hex = map.0.canonical(pos.0);
+        let on_roof = mirror.is_unit && city_tiles.contains(&hex);
+        let key = (hex, relief.generation.get(&hex).copied().unwrap_or(0), on_roof);
+        if mirror.placed != Some(key) {
+            mirror.placed = Some(key);
+            let (cx, cy) = pos.0.to_world();
+            let c = Vec2::new(cx, cy);
+            let center = relief.ground(cx, cy);
+            let children: Vec<Entity> = children.map(|c| c.iter().collect()).unwrap_or_default();
+            if mirror.is_unit {
+                // Figurine : pieds au plus haut du sol sous son socle (jamais enfoncée), ou sur le
+                // toit du donjon ; socle incliné comme le sol
+                let root = if on_roof {
+                    footprint(&relief, c, CITY_KEEP_RADIUS).1 + CITY_HEIGHT
+                } else {
+                    footprint(&relief, c, SOCLE_RADIUS).1.max(center + SOCLE_HEIGHT - 0.3)
+                };
+                transform.translation = Vec3::new(cx, root, -cy);
+                let (socle_y, tilt) = if on_roof {
+                    (-SOCLE_HEIGHT / 2.0, Quat::IDENTITY)
+                } else {
+                    (center - root + SOCLE_HEIGHT / 2.0 - 0.3, Quat::from_rotation_arc(Vec3::Y, ground_normal(&relief, c, SOCLE_RADIUS)))
+                };
+                for &child in &children {
+                    if let Ok(mut t) = socles.get_mut(child) {
+                        t.translation.y = socle_y;
+                        t.rotation = tilt;
+                    }
+                }
+            } else {
+                transform.translation = Vec3::new(cx, center, -cy);
+                for &child in &children {
+                    if let Ok((g, mut t)) = parts.get_mut(child) {
+                        let (lo, hi) = footprint(&relief, c + g.at, g.reach);
+                        match g.rest {
+                            Rest::Stand { height } => {
+                                let (bottom, top) = (lo, hi + height);
+                                t.translation.y = (bottom + top) / 2.0 - center;
+                                t.scale.y = (top - bottom) / height;
+                            }
+                            Rest::Top { lift } => t.translation.y = hi + lift - center,
+                            Rest::Low { lift } => t.translation.y = lo + lift - center,
+                        }
+                    } else if let Ok((p, mesh)) = patches.get(child)
+                        && let Some(mut m) = meshes.get_mut(&mesh.0)
+                    {
+                        *m = to_mesh(patch_mesh(&relief, c, Vec3::new(cx, center, -cy), &p.outline));
+                    }
+                }
+            }
         }
         let visible = if hostile {
             fog.visible.contains(&pos.0)
@@ -1514,6 +1677,25 @@ fn sync_mirrors(
         let wanted_vis = if visible { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != wanted_vis {
             *vis = wanted_vis;
+        }
+    }
+}
+
+/// Icônes des unités en vue lointaine : tournées vers la caméra, cachées de près (la figurine
+/// suffit).
+fn far_icons(mode: Res<ViewMode>, cam: Res<Cam3d>, mut icons: Query<(&mut Transform, &mut Visibility), With<FarIcon>>) {
+    if !mode.is_3d {
+        return;
+    }
+    let far = cam.distance > FAR_ICON_DISTANCE;
+    let facing = camera_transform(&cam).rotation;
+    for (mut t, mut vis) in &mut icons {
+        let wanted = if far { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != wanted {
+            *vis = wanted;
+        }
+        if far && t.rotation != facing {
+            t.rotation = facing;
         }
     }
 }

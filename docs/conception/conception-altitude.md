@@ -73,6 +73,18 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 - La flèche de vent de la carte climat se place au-dessus de 4 800 m.
 - Les falaises et descentes dessinées gardent la détection par classes, comme les règles.
 
+## Unités, villes, camps et villages sur le relief (30/10/2026)
+- **Constat** (TODO n° 4) : ils étaient parfois « ensevelis ». Cause confirmée : leur hauteur venait de `tile_height` (altitude moyenne de la case), alors que le sol dessiné est `Relief::ground` = profil de la case + bosses (jusqu'à 5, 9, 17, et 16 + 24 pour un pic) − lits des cours d'eau ; jeton haut de 6 posé à +3. Villes et camps : terrasse (parois) mais bosses toujours appliquées sur leur case ; villages posés sur le terrain bosselé.
+- **Décisions de Benjamin** : pas de terrassement qui supprime le relief ; les sites suivent le terrain ; unités en **figurines 3D faites de formes simples** (option A, plutôt que des modèles glTF), la 2D garde ses icônes.
+- **Sol** : plus de terrasse (`link` n'a plus de paroi autour des villes et camps). Sous une ville, un camp ou un village, le relief interne est **adouci** (`SITE_RELIEF` = 0,5 de l'ampleur et du sommet, `explored_bumps`), pas aplani ; le sol alentour est refait quand un site apparaît ou disparaît.
+- **Placement** (`sync_mirrors`) : chaque représentation est replacée quand le sol de sa case est reconstruit (`Relief::generation`, compteur par case, incrémenté à chaque reconstruction) ou quand elle change de case. Emprise = centre + 6 points à un rayon donné (`footprint` : points bas et haut du sol).
+  - Éléments d'un site (`Grounded`) posés chacun à sa place : bâti (`Rest::Stand` : remparts, tours, maisons, donjon, huttes, pieux, mât) de la base au point bas (fondations) au sommet à sa hauteur au-dessus du point haut (pièce étirée) ; toits et pointes (`Rest::Top`) sur le point haut ; tentes, feu, pierres (`Rest::Low`) sur le point bas. Le donjon est au centre, la garnison sur son toit.
+  - Sols drapés (`Patch3d`) : pavés de la ville (hexagone, 0,9 case) et terre battue du camp (disque de 25), maillage en anneaux posé sur le relief (+0,35), refait au replacement ; remplacent le socle pavé et le disque plats.
+  - Unités : figurine debout, pieds au point haut du sol sous son socle (rayon 6), jamais enfoncée ; **socle** aux couleurs du camp (bleu, rouge) incliné selon la pente (normale par différences finies).
+- **Figurines** (`figures.rs`) : ≈ 12 de haut à pied ; cavaliers sur un cheval (pavé, pattes, encolure, tête). Vêtements aux couleurs du camp ; casque (guerrier lourd, lancier, piquier, cavalier lourd), capuche (éclaireur, archer d'élite) ; bouclier rond ou grand bouclier, épée, massue, lance, pique, lance de cavalerie inclinée, arc en trois branches, carquois, ballot et bâton du colon.
+- **Icône au loin** (`FarIcon`) : au-delà d'une distance de caméra de 1 100, l'icône du type flotte au-dessus de la figurine, tournée vers la caméra (de près, la figurine suffit).
+- **Limites** : vérification à l'écran à faire par Benjamin ; un rempart long sur une forte pente est étiré de son point bas à son point haut (dessus droit) ; pas d'animation ; les barres de vie n'existent pas en 3D.
+
 ## Limites et suite
 - Le bruit d'élévation donne de larges hauts plateaux : le massif le plus haut reste une grande zone de montagnes (désormais franchissable). L'étape C (chaînes + érosion) doit le découper en crêtes et vallées.
 - Les pics ressemblent encore à des cônes arrondis enneigés ; collines discrètes sous les forêts denses.

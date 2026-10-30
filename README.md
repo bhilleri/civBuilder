@@ -153,7 +153,8 @@ src/
 ├── labels.rs       Étiquettes ancrées sur la carte (bannières des villes, tours d'arrivée en 3D)
 ├── search.rs       Accès aux lieux : recherche (index, filtres), légendes et étiquettes cliquables, cadrage de la caméra
 ├── relief.rs       Relief continu de la vue 3D : profil des cases, raccords, maillage (pur, testé)
-└── view3d.rs       Vue 3D optionnelle (relief, forêts, pions), synchronisée avec la vue 2D
+├── figures.rs      Figurines 3D des unités, faites de formes simples (une par type)
+└── view3d.rs       Vue 3D optionnelle (relief, forêts, figurines, villes et camps posés sur le sol), synchronisée avec la vue 2D
 ```
 
 Toute la logique de jeu vit dans les modules « purs » (sans Bevy), ce qui permet de la tester avec `cargo test` et, plus tard, de la réutiliser pour une IA ou une sauvegarde.

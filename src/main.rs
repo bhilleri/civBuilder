@@ -10,6 +10,7 @@ mod climate;
 mod combat;
 mod erosion;
 mod explore;
+mod figures;
 mod game;
 mod hex;
 mod highlight;
