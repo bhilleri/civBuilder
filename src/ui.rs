@@ -178,6 +178,7 @@ fn setup_ui(mut commands: Commands) {
             flow_legend(),
             network_legend(),
             plates_legend(),
+            currents_legend(),
             resources_legend(),
             (
                 MapLayerMenu,
@@ -197,6 +198,7 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Flow, "Carte des débits"),
                     map_option(MapLayer::Network, "Carte du réseau hydrographique"),
                     map_option(MapLayer::Plates, "Carte des plaques tectoniques"),
+                    map_option(MapLayer::Currents, "Carte des courants marins"),
                     map_option(MapLayer::Resources, "Carte des ressources"),
                 ],
             ),
@@ -536,6 +538,39 @@ fn network_legend() -> impl Bundle {
             Spawn(legend_row(NETWORK_LAKE, "Lac (rang du cours qui en sort)".into())),
             Spawn(legend_row(NETWORK_OCEAN, "Mer".into())),
             Spawn(text("Traits épais : fleuves ; fins : rivières ; chevrons : sens du courant", 12.0)),
+        )),
+    )
+}
+
+/// Légende de la carte des courants marins : température de la mer, couleur des flèches.
+fn currents_legend() -> impl Bundle {
+    use crate::render::{COLD_CURRENT, MILD_CURRENT, WARM_CURRENT, sea_temperature_color};
+    let swatch = |c: Color| {
+        let s = c.to_srgba();
+        (s.red, s.green, s.blue)
+    };
+    (
+        Legend(MapLayer::Currents),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(330.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Température de la mer", 14.0)),
+            Spawn(legend_row(sea_temperature_color(28.0), "28 °C".into())),
+            Spawn(legend_row(sea_temperature_color(20.0), "20 °C".into())),
+            Spawn(legend_row(sea_temperature_color(12.0), "12 °C".into())),
+            Spawn(legend_row(sea_temperature_color(4.0), "4 °C".into())),
+            Spawn(legend_row(sea_temperature_color(-2.0), "−2 °C".into())),
+            Spawn(text("Flèches : sens et vitesse des courants", 13.0)),
+            Spawn(legend_row(swatch(WARM_CURRENT), "courant chaud (eau plus chaude que la latitude)".into())),
+            Spawn(legend_row(swatch(COLD_CURRENT), "courant froid".into())),
+            Spawn(legend_row(swatch(MILD_CURRENT), "eau à la température de la latitude".into())),
+            Spawn(text("Les courants froids rafraîchissent et assèchent les côtes (déserts côtiers, brouillards) ; les courants chauds les adoucissent et les arrosent. Leur rencontre enrichit la pêche.", 12.0)),
         )),
     )
 }
@@ -1006,6 +1041,9 @@ fn update_hover_text(
                 }
                 if bank.origins & marine::ISLAND != 0 {
                     why.push("eaux d'île volcanique");
+                }
+                if bank.origins & marine::FRONT != 0 {
+                    why.push("rencontre d'un courant chaud et d'un courant froid");
                 }
                 parts.push(format!(
                     "{} : banc de poissons ({}), {} cases, +{} nourriture",

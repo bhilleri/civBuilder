@@ -3,6 +3,7 @@
 use crate::hex::{Hex, Wrap};
 use crate::plates::{self, Plate, Plates};
 use crate::climate::{self, Climate, Region};
+use crate::currents;
 use crate::basins::{self, Basin, Basins, NamedRiver};
 use crate::hydro::{self, Hydrology};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
@@ -520,6 +521,12 @@ pub const RICH_WATERS_FOOD: i32 = 1;
 /// (vent de 0 à 1).
 const UPWELLING_MAX_LATITUDE: f32 = 45.0;
 const UPWELLING_MIN: f32 = 0.25;
+/// Rencontre de courants : eau plus chaude et eau plus froide d'au moins tant (°C) que celle de
+/// la latitude, à au plus `FRONT_RADIUS` cases l'une de l'autre, à au plus `FRONT_COAST_CELLS`
+/// cases d'une côte (ou sur le plateau).
+const FRONT_ANOMALY: f32 = 1.5;
+const FRONT_RADIUS: i32 = 2;
+const FRONT_COAST_CELLS: i32 = 3;
 /// Mont sous-marin : sommet à au plus cette profondeur, au moins tant au-dessus du fond alentour.
 const SEAMOUNT_MAX_DEPTH_M: f32 = 2_000.0;
 const SEAMOUNT_RISE_M: f32 = 900.0;
@@ -555,6 +562,9 @@ pub mod marine {
     pub const SEAMOUNT: u8 = 2;
     /// Eaux d'une île volcanique isolée en haute mer (« effet de masse d'île »).
     pub const ISLAND: u8 = 4;
+    /// Rencontre d'un courant chaud et d'un courant froid : les eaux se mélangent, le plancton
+    /// prolifère (bancs de Terre-Neuve, du Japon).
+    pub const FRONT: u8 = 8;
 }
 /// Passes climat → cours d'eau : à partir de la deuxième, le climat tient compte des lacs.
 pub const CLIMATE_PASSES: usize = 3;
@@ -575,6 +585,8 @@ pub struct WorldMap {
     lake_level_m: Vec<f32>,
     /// Climat simulé à la génération (vide pour une carte remplie à la main).
     climate: Climate,
+    /// Courants marins et température de la mer (vides pour une carte remplie à la main).
+    currents: crate::currents::Currents,
     /// Cours d'eau et lacs (vides pour une carte remplie à la main).
     hydro: Hydrology,
     /// Échelle et latitude de la carte.
@@ -614,6 +626,7 @@ impl WorldMap {
             elevation: vec![if terrain.is_water() { 0.0 } else { climate::LEVEL_ALTITUDE[0] }; n],
             lake_level_m: vec![climate::LEVEL_ALTITUDE[0]; n],
             climate: Climate::default(),
+            currents: crate::currents::Currents::default(),
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
             basins: Basins::empty(n),
@@ -774,6 +787,24 @@ impl WorldMap {
                 let ekman = if latitude >= 0.0 { bevy::math::Vec2::new(wy, -wx) } else { bevy::math::Vec2::new(-wy, wx) };
                 if ekman.dot(offshore) >= UPWELLING_MIN {
                     marine[i] |= marine::UPWELLING;
+                }
+            }
+        }
+        // Rencontres de courants : eau nettement plus chaude et eau nettement plus froide que
+        // celle de la latitude à quelques cases l'une de l'autre, sur le plateau ou près des côtes
+        if self.currents.anomaly.len() == n {
+            let anomaly = &self.currents.anomaly;
+            for i in (0..n).filter(|&i| open_sea(i)) {
+                let h = self.hex_at(i);
+                let near_coast = self.depth[i] < SHELF_DEPTH_M
+                    || self.range(h, FRONT_COAST_CELLS).filter_map(|nb| self.index(nb)).any(|j| !self.tiles[j].is_water());
+                if !near_coast {
+                    continue;
+                }
+                let around: Vec<f32> = self.range(h, FRONT_RADIUS).filter_map(|nb| self.index(nb)).filter(|&j| self.tiles[j].is_sea()).map(|j| anomaly[j]).collect();
+                let (cold, warm) = around.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &a| (lo.min(a), hi.max(a)));
+                if cold <= -FRONT_ANOMALY && warm >= FRONT_ANOMALY {
+                    marine[i] |= marine::FRONT;
                 }
             }
         }
@@ -1234,6 +1265,23 @@ impl WorldMap {
         self.index(hex).and_then(|i| self.climate.wind.get(i).copied())
     }
 
+    /// Courant de surface d'une case de mer (m/s, x vers l'est, y vers le nord).
+    pub fn current(&self, hex: Hex) -> Option<(f32, f32)> {
+        self.index(hex).filter(|&i| self.tiles[i].is_sea()).and_then(|i| self.currents.velocity.get(i).copied())
+    }
+
+    /// Température de surface d'une case de mer (°C) et son écart à celle de la latitude.
+    pub fn sea_temperature(&self, hex: Hex) -> Option<(f32, f32)> {
+        self.index(hex)
+            .filter(|&i| self.tiles[i].is_sea())
+            .and_then(|i| Some((*self.currents.temperature.get(i)?, *self.currents.anomaly.get(i)?)))
+    }
+
+    /// Courants marins de toute la carte.
+    pub fn currents(&self) -> &crate::currents::Currents {
+        &self.currents
+    }
+
     /// Climat en mots, avec température et pluie : « tempéré humide, 11 °C, 850 mm/an ».
     /// Climat d'une case de terre en deux mots : « tempéré humide », « chaud aride »…
     pub fn climate_zone(&self, hex: Hex) -> Option<String> {
@@ -1622,7 +1670,11 @@ impl WorldMap {
                 map.relief.clone_from(&relief_base);
                 map.step_cache = std::sync::OnceLock::new();
             }
-            map.climate = climate::simulate(width, height, &surface, seed, &region);
+            // Courants marins poussés par le vent (vents théoriques à la première passe, puis ceux
+            // du climat de la passe précédente) : température de la mer donnée au climat
+            let wind = if pass == 0 { currents::theoretical_wind(width, height, &region) } else { map.climate.wind.clone() };
+            map.currents = currents::simulate(width, height, &surface, &wind, &region);
+            map.climate = climate::simulate(width, height, &surface, seed, &region, &map.currents.anomaly);
             // 4) Climat : pression, vents, humidité et pluie (voir climate.rs), puis terrain selon
             //    la température et les précipitations, avec un peu de bruit pour casser les contours.
             for &(h, e) in &elevations {
@@ -2399,6 +2451,78 @@ mod tectonique {
 #[cfg(test)]
 mod fond_marin {
     use super::*;
+
+    /// Bilan des courants marins : vitesses, écarts de température de la mer, courant
+    /// circumpolaire, rencontres de courants. `CURRENTS_DUMP=<dossier>` écrit pour chaque case
+    /// « terre/mer, température, écart, u, v » (une ligne par case) :
+    /// `cargo test bilan_courants -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bilan_courants() {
+        for seed in [777, 2, 5] {
+            let m = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let c = m.currents();
+            let sea: Vec<usize> = (0..m.tiles.len()).filter(|&i| m.tiles[i].is_sea()).collect();
+            let mut speed: Vec<f32> = sea.iter().map(|&i| c.speed(i)).collect();
+            speed.sort_by(f32::total_cmp);
+            let pct = |v: &[f32], p: f32| v[((v.len() - 1) as f32 * p) as usize];
+            let mut anomaly: Vec<f32> = sea.iter().map(|&i| c.anomaly[i]).collect();
+            anomaly.sort_by(f32::total_cmp);
+            let front = sea.iter().filter(|&&i| m.marine[i] & marine::FRONT != 0).count();
+            let upwelling: Vec<f32> = sea.iter().filter(|&&i| m.marine[i] & marine::UPWELLING != 0).map(|&i| c.anomaly[i]).collect();
+            let upwelling = upwelling.iter().sum::<f32>() / upwelling.len().max(1) as f32;
+            let coast_anomaly = |west: bool, band: std::ops::Range<f32>| {
+                // Côtes ouest (terre à l'est) et est des continents, dans une bande de latitudes
+                let v: Vec<f32> = sea
+                    .iter()
+                    .copied()
+                    .filter(|&i| band.contains(&m.latitude(m.hex_at(i)).abs()))
+                    .filter(|&i| {
+                        let h = m.hex_at(i);
+                        m.get(m.wrap.neighbor(h, if west { 0 } else { 3 })).is_some_and(|t| !t.is_water())
+                    })
+                    .map(|i| c.anomaly[i])
+                    .collect();
+                v.iter().sum::<f32>() / v.len().max(1) as f32
+            };
+            println!(
+                "graine {seed} : vitesse (m/s) médiane {:.2}, 90 % {:.2}, 99 % {:.2}, max {:.2} ; écart (°C) 1 % {:.1}, 10 % {:.1}, 90 % {:.1}, 99 % {:.1} ; côtes ouest 15-35° {:.1}, côtes est {:.1}, côtes ouest 45-65° {:.1}, côtes est {:.1} ; remontées d'eaux {upwelling:.1} ; circumpolaire {:?} ; rencontres {front}",
+                pct(&speed, 0.5),
+                pct(&speed, 0.9),
+                pct(&speed, 0.99),
+                speed[speed.len() - 1],
+                pct(&anomaly, 0.01),
+                pct(&anomaly, 0.1),
+                pct(&anomaly, 0.9),
+                pct(&anomaly, 0.99),
+                coast_anomaly(true, 15.0..35.0),
+                coast_anomaly(false, 15.0..35.0),
+                coast_anomaly(true, 45.0..65.0),
+                coast_anomaly(false, 45.0..65.0),
+                c.circumpolar,
+            );
+            // Vent d'ouest moyen sur la mer par bande de latitude (la jonction des tourbillons suit le
+            // maximum des vents d'ouest)
+            let bands: Vec<String> = (0..9)
+                .map(|b| {
+                    let (lo, hi) = (b as f32 * 10.0, b as f32 * 10.0 + 10.0);
+                    let v: Vec<f32> = sea.iter().copied().filter(|&i| (lo..hi).contains(&m.latitude(m.hex_at(i)).abs())).map(|i| m.climate.wind[i].0).collect();
+                    format!("{lo:.0}-{hi:.0}° {:.2}", v.iter().sum::<f32>() / v.len().max(1) as f32)
+                })
+                .collect();
+            println!("  vent d'ouest sur la mer : {}", bands.join(", "));
+            if let Ok(dir) = std::env::var("CURRENTS_DUMP") {
+                let out: String = (0..m.tiles.len())
+                    .map(|i| {
+                        let (u, v) = c.velocity[i];
+                        format!("{} {:.2} {:.2} {:.3} {:.3}
+", u8::from(m.tiles[i].is_sea()), c.temperature[i], c.anomaly[i], u, v)
+                    })
+                    .collect();
+                std::fs::write(format!("{dir}/currents_{seed}.txt"), out).unwrap();
+            }
+        }
+    }
 
     /// Bilan du fond marin et des eaux poissonneuses : `cargo test bilan_fond_marin -- --ignored --nocapture`.
     #[test]

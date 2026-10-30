@@ -12,7 +12,7 @@ use crate::input::{HoverPath, OrderPath};
 use crate::map::{Relief as CellRelief, Terrain};
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::PrimitiveTopology;
-use crate::render::{MapLayer, ReachArea, climate_color, elevation_layer_color, hydro_color, plate_arrow, plate_color, wind_arrow, wind_arrow_site};
+use crate::render::{MapLayer, ReachArea, climate_color, current_arrow, currents_color, elevation_layer_color, hydro_color, plate_arrow, plate_color, wind_arrow, wind_arrow_site};
 use crate::units::UnitKind;
 use bevy::camera::visibility::RenderLayers;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
@@ -450,6 +450,7 @@ impl Plugin for View3dPlugin {
                     scale_units,
                     draw_overlays_3d,
                     draw_wind_3d,
+                    draw_currents_3d,
                     draw_plates_3d,
                     sync_seam_copies,
                 )
@@ -1143,6 +1144,7 @@ fn update_relief_3d(
                 MapLayer::Altitude | MapLayer::Relief => elevation_layer_color(&map.0, hex, thematic),
                 MapLayer::Climate => climate_color(t, map.0.rain(hex).unwrap_or(500.0)),
                 MapLayer::Plates => plate_color(&map.0, hex),
+                MapLayer::Currents => currents_color(&map.0, hex),
                 _ => hydro_color(&map.0, hex, thematic),
             };
             let c = Color::srgb(r, g, b).to_linear();
@@ -1897,6 +1899,27 @@ fn draw_wind_3d(
         if let Some((from, to)) = wind_arrow(&map.0, hex) {
             let lift = |p: Vec2| relief.on_ground(p.x, p.y, 6.0);
             gizmos.arrow(lift(from), lift(to), Color::srgba(1.0, 1.0, 1.0, 0.85)).with_tip_length(8.0);
+        }
+    }
+}
+
+/// Carte des courants marins en 3D : flèches des courants, posées sur l'eau.
+fn draw_currents_3d(
+    mode: Res<ViewMode>,
+    layer: Res<MapLayer>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    relief: Option<Res<Relief>>,
+    mut gizmos: Gizmos<Gizmos3d>,
+) {
+    let Some(relief) = relief else { return };
+    if !mode.is_3d || *layer != MapLayer::Currents {
+        return;
+    }
+    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+        if let Some((from, to, color)) = current_arrow(&map.0, hex) {
+            let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
+            gizmos.arrow(lift(from), lift(to), color).with_tip_length(7.0);
         }
     }
 }

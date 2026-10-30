@@ -115,6 +115,14 @@ impl Plugin for GamePlugin {
             started.elapsed().as_secs_f32(),
             region.cell_km
         );
+        let currents = map.currents();
+        let fastest = (0..currents.velocity.len()).map(|i| currents.speed(i)).fold(0.0f32, f32::max);
+        let around = |yes: bool| if yes { "oui" } else { "non" };
+        info!(
+            "Courants marins : jusqu'à {fastest:.1} m/s ; courant circumpolaire au nord : {}, au sud : {}",
+            around(currents.circumpolar.0),
+            around(currents.circumpolar.1)
+        );
         app.insert_resource(GameMap(map))
             .insert_resource(WorldSeed(seed as u64))
             .insert_resource(GameState { turn: 1, gold: 10, founded_cities: 0 })

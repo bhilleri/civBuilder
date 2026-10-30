@@ -226,10 +226,25 @@ fn climate() -> Article {
             h("Température"),
             p("Elle dépend de la latitude (environ 27 °C à l'équateur, 13 °C vers 40°, 6 °C vers 50° au niveau de la \
                mer), puis baisse de 6,5 °C par kilomètre \
-               d'altitude (les terres vont du niveau de la mer à près de 4 800 m). Les \
-               courants marins modifient les côtes : eau froide le long des côtes ouest vers 15 à 35° de latitude, eau \
-               chaude le long des côtes est, dérive chaude qui adoucit les côtes ouest des hautes latitudes. L'écart \
+               d'altitude (les terres vont du niveau de la mer à près de 4 800 m). La \
+               température de la mer vient des courants marins (voir plus bas), et les côtes en prennent une bonne \
+               part : un courant froid rafraîchit et assèche sa côte, un courant chaud l'adoucit et l'arrose. L'écart \
                entre le jour et la nuit est faible près de la mer et grand dans les régions sèches."),
+            h("Courants marins"),
+            p("Le vent entraîne l'eau de surface. Comme la force due à la rotation de la planète grandit vers les \
+               pôles, l'eau des océans tourne en grands tourbillons : dans le sens des aiguilles d'une montre entre \
+               l'équateur et 45° au nord (en sens inverse au sud), en sens inverse plus près des pôles. Ces \
+               tourbillons sont serrés contre la côte ouest des océans, où passent des courants étroits et rapides \
+               (plus d'1 m/s) qui portent l'eau chaude vers les pôles ; le retour vers l'équateur, le long des côtes \
+               ouest des continents, est lent et froid, d'autant plus que le vent y écarte l'eau de la côte et fait \
+               remonter l'eau profonde. Près de l'équateur, l'eau suit les alizés vers l'ouest. Aux latitudes \
+               moyennes, l'eau de surface dérive aussi vers le pôle, où elle refroidit et plonge : elle porte l'eau \
+               chaude jusqu'aux côtes ouest des continents des hautes latitudes, bien plus douces que leurs côtes \
+               est (comme l'Europe face au Labrador). Si la mer fait le tour d'un pôle, un courant circumpolaire \
+               en fait le tour, poussé par les vents. Seuls les \
+               grands continents arrêtent l'eau : les petites îles la laissent passer. La carte des courants marins \
+               montre la température de la mer et le sens des courants (flèches rouges : courant chaud, bleu clair : \
+               courant froid). Les courants ne changent pas au fil de l'année."),
             h("Vents"),
             p("Le vent naît des différences de pression : ceintures alternées de hautes et basses pressions, effet des \
                continents (une terre chaude attire l'air, une terre froide le repousse), dépressions et anticyclones \
@@ -332,7 +347,9 @@ fn terrain() -> Article {
                froides, là où le vent pousse l'eau de surface vers le large et où l'eau profonde, riche, remonte \
                (surtout les côtes ouest des continents sous les alizés) ; les monts sous-marins, volcans qui montent \
                vers la surface en pleine mer (chaînes des points chauds, arcs d'îles), où courants et remous \
-               concentrent le plancton et les thons ; les eaux des îles volcaniques isolées en haute mer. Les \
+               concentrent le plancton et les thons ; les eaux des îles volcaniques isolées en haute mer ; la \
+               rencontre d'un courant chaud et d'un courant froid près des côtes, où les eaux se mélangent (comme les \
+               bancs de Terre-Neuve). Les \
                dorsales et les fosses, trop profondes, ne changent rien à la pêche. Les eaux poissonneuses d'un seul \
                tenant forment des bancs de poissons nommés (Bancs des Sardines, Banc de Kaldvik…) : la carte des \
                ressources montre leur zone, voilée de turquoise, et une icône de poisson par banc (contour doré au survol, l'infobulle dit d'où vient \
@@ -395,7 +412,8 @@ fn terrain() -> Article {
             h("Cartes et vues"),
             p("Le bouton « Carte » (touche T) choisit la carte : normale, de l'altitude (couleur selon les mètres), du \
                relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau, du réseau hydrographique, \
-               des plaques tectoniques ou des ressources (bancs de poissons). \
+               des plaques tectoniques, des courants marins (température de la mer, sens des courants) ou des \
+               ressources (bancs de poissons). \
                Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. En 3D, \
                chaque unité est une figurine (un petit groupe pour les militaires), plus grande quand on s'éloigne, \
                posée sur le relief et entourée d'un anneau aux couleurs de son camp \

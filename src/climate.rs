@@ -51,11 +51,9 @@ const SOIL_SPIN_UP_SPEED: f32 = 8.0;
 /// Taille typique des dépressions et anticyclones (km).
 const WEATHER_SYSTEM_KM: f32 = 2_500.0;
 /// Rayon de l'effet thermique des continents sur la pression (km : les dépressions thermiques
-/// ont la taille d'un continent), rayon de l'influence de la mer sur l'écart jour-nuit (km) et
-/// portée des courants marins le long des côtes (km).
+/// ont la taille d'un continent) et rayon de l'influence de la mer sur l'écart jour-nuit (km).
 const CONTINENT_RADIUS_KM: f32 = 800.0;
 const MARITIME_RADIUS_KM: f32 = 250.0;
-const CURRENT_REACH_KM: f32 = 500.0;
 /// Déviation du vent de surface par rapport à la pente de pression (degrés) : il franchit les
 /// isobares sous un angle de 10 à 20° sur mer, 25 à 45° sur terre (frottement).
 const CROSS_ISOBAR_DEFLECTION: f32 = 84.0;
@@ -309,9 +307,9 @@ pub fn latitude(region: &Region, row: i32, height: i32) -> f32 {
     region.latitude_deg(row, height) / 90.0
 }
 
-/// Température moyenne annuelle au niveau de la mer selon la latitude (°C), moyennes zonales
-/// terrestres arrondies.
-fn sea_level_temperature(lat: f32) -> f32 {
+/// Température moyenne annuelle au niveau de la mer selon la latitude (signée, -1 à 1) en °C,
+/// moyennes zonales terrestres arrondies.
+pub fn sea_level_temperature(lat: f32) -> f32 {
     const TABLE: [(f32, f32); 10] = [
         (0.0, 27.0),
         (10.0, 26.5),
@@ -368,24 +366,6 @@ fn bump(x: f32, a: f32, b: f32, m: f32) -> f32 {
     let rise = ((x - (a - m)) / m).clamp(0.0, 1.0);
     let fall = (((b + m) - x) / m).clamp(0.0, 1.0);
     rise.min(fall)
-}
-
-/// Anomalie de température de la mer due aux courants (°C), selon la latitude et le côté du
-/// continent. `land_east` : une côte est proche à l'est (l'eau longe la côte ouest d'un continent).
-fn current_anomaly(lat: f32, land_east: bool, land_west: bool) -> f32 {
-    let l = lat.abs();
-    let mut a = 0.0;
-    if land_east {
-        // Courant froid vers l'équateur (Canaries, Californie, Humboldt)…
-        a -= 4.0 * bump(l, 0.18, 0.38, 0.08);
-        // …et dérive chaude aux hautes latitudes (dérive nord-atlantique)
-        a += 5.0 * bump(l, 0.50, 0.72, 0.08);
-    }
-    if land_west {
-        // Courant chaud vers le pôle (Gulf Stream, Kuroshio)
-        a += 3.0 * bump(l, 0.15, 0.45, 0.08);
-    }
-    a
 }
 
 /// Grille de travail : voisins précalculés, échelle et pas de temps.
@@ -704,9 +684,10 @@ fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], gro
 }
 
 /// Simule le climat d'une carte de `width` × `height` cases (indexation offset, ligne par ligne)
-/// sur une année (quatre périodes).
-pub fn simulate(width: i32, height: i32, surface: &[Surface], seed: u32, region: &Region) -> Climate {
-    simulate_periods(width, height, surface, seed, region, &Period::YEAR)
+/// sur une année (quatre périodes). `sea_anomaly` : écart de la température de la mer à celle de
+/// sa latitude dû aux courants (°C, voir `currents.rs`), vide pour une mer sans courants.
+pub fn simulate(width: i32, height: i32, surface: &[Surface], seed: u32, region: &Region, sea_anomaly: &[f32]) -> Climate {
+    simulate_periods(width, height, surface, seed, region, sea_anomaly, &Period::YEAR)
 }
 
 /// Simule le climat en enchaînant des périodes ; les sols gardent leur eau d'une période à l'autre.
@@ -716,6 +697,7 @@ pub fn simulate_periods(
     surface: &[Surface],
     seed: u32,
     region: &Region,
+    sea_anomaly: &[f32],
     periods: &[Period],
 ) -> Climate {
     let grid = Grid::new(width, height, region);
@@ -746,18 +728,8 @@ pub fn simulate_periods(
         })
         .collect();
 
-    // Courants marins et influence maritime des côtes
-    let reach = grid.cells(CURRENT_REACH_KM, 3);
-    let land_toward = |i: usize, dx: i32| {
-        let (row, col) = (i as i32 / width, i as i32 % width);
-        (1..=reach).any(|k| {
-            let c = if grid.wraps { (col + dx * k).rem_euclid(width) } else { col + dx * k };
-            c >= 0 && c < width && is_land((row * width + c) as usize)
-        })
-    };
-    let sea_anomaly: Vec<f32> = (0..n)
-        .map(|i| if is_land(i) { 0.0 } else { current_anomaly(grid.lat[i], land_toward(i, 1), land_toward(i, -1)) })
-        .collect();
+    // Courants marins (température de la mer) et influence maritime des côtes
+    let sea_anomaly: Vec<f32> = (0..n).map(|i| if is_land(i) { 0.0 } else { sea_anomaly.get(i).copied().unwrap_or(0.0) }).collect();
     let coast_anomaly: Vec<f32> = (0..n)
         .map(|i| {
             if !is_land(i) {
@@ -1256,6 +1228,22 @@ mod tests {
         Region::local(CELL_KM, lat)
     }
 
+    /// Mer de la Terre autour du continent d'essai (écart à la latitude, °C), comme le donneraient
+    /// les courants d'un grand océan (`currents.rs`) : courant froid le long de la côte ouest vers
+    /// 15-40° (Canaries), courant chaud le long de la côte est (Gulf Stream), dérive chaude devant la
+    /// côte ouest au-delà de 45° (Atlantique nord devant l'Europe).
+    fn earth_sea(lat: f32) -> Vec<f32> {
+        let l = lat.abs();
+        let (west, east) = if l >= 45.0 {
+            (4.0, -1.0)
+        } else if l >= 15.0 {
+            (-3.0, 2.0)
+        } else {
+            (0.0, 0.0)
+        };
+        (0..W * H).map(|i| if i % W < LAND.0 { west } else if i % W >= LAND.1 { east } else { 0.0 }).collect()
+    }
+
     /// Continent rectangulaire ; option : un massif nord-sud (sommets au centre, contreforts).
     fn continent(range_at: Option<i32>) -> Vec<Surface> {
         let mut s = Vec::new();
@@ -1317,8 +1305,8 @@ mod tests {
         let s = continent(None);
         let mean_x = |c: &Climate| c.wind.iter().map(|w| w.0).sum::<f32>() / c.wind.len() as f32;
         // Vents d'ouest aux latitudes moyennes, alizés (vers l'ouest) dans les tropiques
-        assert!(mean_x(&simulate(W, H, &s, 5, &region(47.0))) > 0.0, "vents d'ouest");
-        assert!(mean_x(&simulate(W, H, &s, 5, &region(15.0))) < 0.0, "alizés");
+        assert!(mean_x(&simulate(W, H, &s, 5, &region(47.0), &[])) > 0.0, "vents d'ouest");
+        assert!(mean_x(&simulate(W, H, &s, 5, &region(15.0), &[])) < 0.0, "alizés");
     }
 
     #[test]
@@ -1345,9 +1333,9 @@ mod tests {
         // Même continent : sec sous les anticyclones subtropicaux, plus arrosé aux latitudes
         // moyennes et près de l'équateur
         let s = continent(None);
-        let subtropical = land_mean(&simulate(W, H, &s, 9, &region(35.0)), &s);
-        let temperate = land_mean(&simulate(W, H, &s, 9, &region(48.0)), &s);
-        let equatorial = land_mean(&simulate(W, H, &s, 9, &region(8.0)), &s);
+        let subtropical = land_mean(&simulate(W, H, &s, 9, &region(35.0), &earth_sea(35.0)), &s);
+        let temperate = land_mean(&simulate(W, H, &s, 9, &region(48.0), &earth_sea(48.0)), &s);
+        let equatorial = land_mean(&simulate(W, H, &s, 9, &region(8.0), &earth_sea(8.0)), &s);
         assert!(temperate > subtropical * 1.15, "tempéré {temperate} / subtropical {subtropical}");
         assert!(equatorial > temperate * 3.0, "équatorial {equatorial} / tempéré {temperate}");
         // Ordres de grandeur : Europe de l'Ouest, Méditerranée, Bornéo
@@ -1359,7 +1347,7 @@ mod tests {
     #[test]
     fn pluie_penetre_dans_les_terres() {
         // Vents d'ouest : la pluie diminue progressivement en s'éloignant de la côte ouest
-        let c = simulate(W, H, &continent(None), 11, &region(48.0));
+        let c = simulate(W, H, &continent(None), 11, &region(48.0), &earth_sea(48.0));
         let p = profile(&c);
         // Côte exposée très arrosée, puis une pluie qui ne baisse que lentement dans les terres
         assert!(p[0] > 800.0, "côte ouest {p:?}");
@@ -1370,7 +1358,7 @@ mod tests {
     #[test]
     fn relief_et_ombre_pluviometrique() {
         let m = (LAND.0 + LAND.1) / 2;
-        let c = simulate(W, H, &continent(Some(m)), 11, &region(48.0));
+        let c = simulate(W, H, &continent(Some(m)), 11, &region(48.0), &earth_sea(48.0));
         let p = profile(&c);
         let at = |col: i32| p[(col - LAND.0) as usize];
         // Plus de pluie sur le versant au vent qu'en plaine en amont ; maximum avant le sommet
@@ -1395,7 +1383,7 @@ mod tests {
                 })
             })
             .collect();
-        let c = simulate(w, h, &s, 3, &Region::planet(CELL_KM, h));
+        let c = simulate(w, h, &s, 3, &Region::planet(CELL_KM, h), &[]);
         let at = |row: i32, col: i32| (row * w + col) as usize;
         // Raccord : de part et d'autre du bord, la pluie et le vent sont continus
         for row in (4..h - 4).step_by(6) {
@@ -1420,14 +1408,6 @@ mod tests {
     }
 
     #[test]
-    fn courants_marins() {
-        // Côte ouest subtropicale froide, côte est chaude, dérive chaude aux hautes latitudes
-        assert!(current_anomaly(0.3, true, false) < 0.0);
-        assert!(current_anomaly(0.3, false, true) > 0.0);
-        assert!(current_anomaly(0.6, true, false) > 0.0);
-    }
-
-    #[test]
     #[ignore]
     fn profils() {
         let m = (LAND.0 + LAND.1) / 2;
@@ -1435,7 +1415,7 @@ mod tests {
             let s = continent(ridge);
             for lat in std::env::var("LATS").ok().map(|v| v.split(',').map(|x| x.parse().unwrap()).collect::<Vec<f32>>()).unwrap_or(vec![48.0, 35.0, 27.0, 8.0]) {
                 let t = std::time::Instant::now();
-                let c = simulate(W, H, &s, 11, &region(lat));
+                let c = simulate(W, H, &s, 11, &region(lat), &earth_sea(lat));
                 let show = |f: &[f32], k: f32| -> String {
                     (LAND.0..LAND.1).map(|col| format!("{:.0}", k * column_mean(f, col))).collect::<Vec<_>>().join(" ")
                 };

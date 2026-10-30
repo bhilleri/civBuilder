@@ -132,6 +132,10 @@ struct Palette {
     /// Carte des plaques : terre et mer de chaque plaque (voir `plate_index`).
     plates: Vec<Handle<ColorMaterial>>,
     plates_dim: Vec<Handle<ColorMaterial>>,
+    /// Carte des courants : teintes de la température de la mer, puis terre et lac (voir
+    /// `currents_index`).
+    currents: Vec<Handle<ColorMaterial>>,
+    currents_dim: Vec<Handle<ColorMaterial>>,
     unexplored: Handle<ColorMaterial>,
     unit: Handle<ColorMaterial>,
     hostile_unit: Handle<ColorMaterial>,
@@ -169,12 +173,14 @@ pub enum MapLayer {
     Network,
     /// Plaques tectoniques, leurs frontières et leurs mouvements.
     Plates,
+    /// Courants marins : température de la mer et sens des courants.
+    Currents,
     /// Ressources : bancs de poissons (une icône par banc, la zone au survol).
     Resources,
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 9] = [
+    pub const ALL: [MapLayer; 10] = [
         MapLayer::Normal,
         MapLayer::Altitude,
         MapLayer::Relief,
@@ -183,6 +189,7 @@ impl MapLayer {
         MapLayer::Flow,
         MapLayer::Network,
         MapLayer::Plates,
+        MapLayer::Currents,
         MapLayer::Resources,
     ];
 
@@ -197,6 +204,7 @@ impl MapLayer {
             MapLayer::Flow => "débits",
             MapLayer::Network => "réseau hydrographique",
             MapLayer::Plates => "plaques tectoniques",
+            MapLayer::Currents => "courants marins",
             MapLayer::Resources => "ressources",
         }
     }
@@ -464,6 +472,82 @@ pub fn plate_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2)>
     let half = HEX_SIZE * (0.3 + 0.07 * speed.min(9.0)) / 2.0;
     let d = velocity / speed * half;
     Some((Vec2::new(x, y) - d, Vec2::new(x, y) + d))
+}
+
+/// Carte des courants marins (sRGB) : teintes de la mer selon sa température (°C), terre et lacs
+/// en gris (sans relief : la mer seule compte).
+pub const SEA_TEMPERATURE_STOPS: [(f32, (f32, f32, f32)); 5] = [
+    (-2.0, (0.10, 0.13, 0.34)),
+    (8.0, (0.15, 0.30, 0.52)),
+    (16.0, (0.22, 0.48, 0.62)),
+    (22.0, (0.48, 0.48, 0.62)),
+    (28.0, (0.64, 0.36, 0.44)),
+];
+pub const CURRENTS_LAND: (f32, f32, f32) = (0.36, 0.36, 0.34);
+pub const CURRENTS_LAKE: (f32, f32, f32) = (0.30, 0.34, 0.40);
+/// Nombre de teintes de la mer en 2D.
+const SEA_SHADES: usize = 16;
+/// Flèches des courants : eau nettement plus chaude (rouge) ou plus froide (bleu clair) que celle
+/// de la latitude, d'au moins `CURRENT_ANOMALY_SHOWN` °C ; les autres en blanc.
+pub const WARM_CURRENT: Color = Color::srgba(1.0, 0.42, 0.30, 0.95);
+pub const COLD_CURRENT: Color = Color::srgba(0.55, 0.88, 1.0, 0.95);
+pub const MILD_CURRENT: Color = Color::srgba(1.0, 1.0, 1.0, 0.8);
+const CURRENT_ANOMALY_SHOWN: f32 = 1.5;
+
+/// Couleur de la mer pour une température de surface (°C).
+pub fn sea_temperature_color(t: f32) -> (f32, f32, f32) {
+    let last = SEA_TEMPERATURE_STOPS.len() - 1;
+    let t = t.clamp(SEA_TEMPERATURE_STOPS[0].0, SEA_TEMPERATURE_STOPS[last].0);
+    let k = SEA_TEMPERATURE_STOPS.iter().position(|s| s.0 >= t).unwrap_or(last).max(1);
+    let ((a, ca), (b, cb)) = (SEA_TEMPERATURE_STOPS[k - 1], SEA_TEMPERATURE_STOPS[k]);
+    let x = (t - a) / (b - a);
+    (ca.0 + (cb.0 - ca.0) * x, ca.1 + (cb.1 - ca.1) * x, ca.2 + (cb.2 - ca.2) * x)
+}
+
+/// Température (°C) au milieu d'une teinte de la mer en 2D.
+fn sea_shade_degrees(index: usize) -> f32 {
+    let (lo, hi) = (SEA_TEMPERATURE_STOPS[0].0, SEA_TEMPERATURE_STOPS[SEA_TEMPERATURE_STOPS.len() - 1].0);
+    lo + (index as f32 + 0.5) / SEA_SHADES as f32 * (hi - lo)
+}
+
+/// Teinte (indice) d'une case sur la carte des courants : teintes de la mer, puis terre et lac.
+fn currents_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
+    match (map.get(hex), map.sea_temperature(hex)) {
+        (Some(Terrain::Lake), _) => SEA_SHADES + 1,
+        (_, Some((t, _))) => {
+            let (lo, hi) = (SEA_TEMPERATURE_STOPS[0].0, SEA_TEMPERATURE_STOPS[SEA_TEMPERATURE_STOPS.len() - 1].0);
+            (((t - lo) / (hi - lo) * SEA_SHADES as f32).max(0.0) as usize).min(SEA_SHADES - 1)
+        }
+        _ => SEA_SHADES,
+    }
+}
+
+/// Couleur d'une case sur la carte des courants (3D).
+pub fn currents_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
+    match (map.get(hex), map.sea_temperature(hex)) {
+        (Some(Terrain::Lake), _) => CURRENTS_LAKE,
+        (_, Some((t, _))) => sea_temperature_color(t),
+        _ => CURRENTS_LAND,
+    }
+}
+
+/// Flèche du courant d'une case de mer (cases en quinconce comme les vents) : départ, arrivée
+/// (monde 2D), longueur selon la vitesse, couleur selon l'eau qu'il porte (chaude, froide).
+pub fn current_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2, Color)> {
+    let (u, v) = map.current(hex)?;
+    let speed = u.hypot(v);
+    if speed < 0.03 {
+        return None;
+    }
+    let (x, y) = hex.to_world();
+    let half = HEX_SIZE * (0.3 + 0.5 * (speed / 0.5).min(1.6)) / 2.0;
+    let d = Vec2::new(u, v) / speed * half;
+    let color = match map.sea_temperature(hex).map_or(0.0, |(_, a)| a) {
+        a if a >= CURRENT_ANOMALY_SHOWN => WARM_CURRENT,
+        a if a <= -CURRENT_ANOMALY_SHOWN => COLD_CURRENT,
+        _ => MILD_CURRENT,
+    };
+    Some((Vec2::new(x, y) - d, Vec2::new(x, y) + d, color))
 }
 
 /// Carte de l'altitude (sRGB) : eau, puis teintes hypsométriques selon l'altitude (m).
@@ -878,6 +962,7 @@ impl Plugin for RenderPlugin {
                 draw_reach_outline.after(update_reach_overlay),
                 draw_overlays,
                 draw_wind_2d,
+                draw_currents_2d,
                 draw_plates_2d,
                 update_slope_overlay,
                 update_water_overlay,
@@ -928,6 +1013,8 @@ fn setup_map_visuals(
     let flow_shades = (0..FLOW_SHADES).map(|i| flow_scale_color((i as f32 + 0.5) / FLOW_SHADES as f32));
     let (flow, flow_dim) = pair(flow_shades.chain([HYDRO_OCEAN, HYDRO_LAKE, NETWORK_LAND, NETWORK_LAKE, NETWORK_OCEAN]).collect());
     let (plates, plates_dim) = pair(plate_shades(map.0.plates()));
+    let sea_shades = (0..SEA_SHADES).map(|i| sea_temperature_color(sea_shade_degrees(i)));
+    let (currents, currents_dim) = pair(sea_shades.chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
     let tile_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.99, 6));
     let palette = Palette {
@@ -946,6 +1033,8 @@ fn setup_map_visuals(
         flow_dim,
         plates,
         plates_dim,
+        currents,
+        currents_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
         unit: mat(PLAYER_COLOR),
         hostile_unit: mat(HOSTILE_COLOR),
@@ -1079,6 +1168,7 @@ fn update_tile_fog(
         MapLayer::Basins => Some((&palette.basins, &palette.basins_dim)),
         MapLayer::Flow | MapLayer::Network => Some((&palette.flow, &palette.flow_dim)),
         MapLayer::Plates if !palette.plates.is_empty() => Some((&palette.plates, &palette.plates_dim)),
+        MapLayer::Currents => Some((&palette.currents, &palette.currents_dim)),
         _ => None,
     };
     let shade_index = |hex: Hex| match (*layer, map.0.get(hex)) {
@@ -1088,6 +1178,7 @@ fn update_tile_fog(
         (MapLayer::Altitude, _) => altitude_index(&map.0, hex),
         (MapLayer::Relief, _) => relief_index(&map.0, hex),
         (MapLayer::Plates, _) => plate_index(&map.0, hex),
+        (MapLayer::Currents, _) => currents_index(&map.0, hex),
         _ => hydro_index(&map.0, hex, *layer),
     };
     for (mark, mut vis) in &mut marks {
@@ -1514,6 +1605,18 @@ fn draw_wind_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, mut
     for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
         if let Some((from, to)) = wind_arrow(&map.0, hex) {
             gizmos.arrow_2d(from, to, WIND_ARROW).with_tip_length(7.0);
+        }
+    }
+}
+
+/// Carte des courants marins : flèches des courants sur les cases de mer explorées.
+fn draw_currents_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, mut gizmos: Gizmos) {
+    if *layer != MapLayer::Currents {
+        return;
+    }
+    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+        if let Some((from, to, color)) = current_arrow(&map.0, hex) {
+            gizmos.arrow_2d(from, to, color).with_tip_length(6.0);
         }
     }
 }

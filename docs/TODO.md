@@ -16,8 +16,8 @@ poches sont des entonnoirs ouverts) ; à voir avec Benjamin s'il faut en provoqu
 Posés sur le vrai sol, sites qui suivent le terrain (pas de terrasse), figurines 3D des unités.
 Voir `conception/conception-altitude.md`.
 
-## 5. Courants marins
-Version simplifiée : circulation de surface poussée par les vents simulés (tourbillons
+## 5. Courants marins — fait (30/10)
+Voir `conception/conception-climat.md` (« Courants marins »). Version simplifiée : circulation de surface poussée par les vents simulés (tourbillons
 subtropicaux et subpolaires, courants équatoriaux, renforcement à l'ouest des océans, courant
 circumpolaire si le passage polaire existe). Effets :
 - **température de la mer** calculée (remplace les règles fixes du climat : côtes ouest froides,

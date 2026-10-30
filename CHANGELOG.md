@@ -2,6 +2,14 @@
 
 ## 0.3.0 (en cours)
 
+### Courants marins
+- **Courants de surface calculés** à partir des vents simulés (modèle de Stommel) : tourbillons subtropicaux et subpolaires, courants équatoriaux, **courants rapides et étroits le long des côtes ouest des océans** (jusqu'à 1,5 m/s), retours lents et froids le long des côtes ouest des continents, **courant circumpolaire** quand la mer fait le tour d'un pôle. Les grands continents arrêtent l'eau, pas les petites îles.
+- **Dérive chaude des hautes latitudes** (circulation de retournement simplifiée : l'eau de surface dérive vers le pôle entre ~40 et 60°) : les côtes ouest des continents entre 45 et 65° sont douces (+6 à +8 °C, comme l'Europe), leurs côtes est plus froides (comme le Labrador).
+- **Température de la mer calculée** (transportée par les courants, refroidie sur place par les remontées d'eaux) : elle remplace les règles fixes (côtes ouest froides, côtes est chaudes…). Les côtes en prennent une bonne part : déserts côtiers et brouillards sur les courants froids, douceur et pluie sur les courants chauds.
+- **Pêche** : nouvelle origine d'eaux poissonneuses, la **rencontre d'un courant chaud et d'un courant froid** près des côtes (+1 nourriture ; bancs de morues, de harengs…).
+- Nouvelle **carte des courants marins** (touche T) : mer colorée selon sa température, flèches des courants (rouges : chauds, bleu clair : froids), avec légende ; en 2D et en 3D.
+- La console donne la vitesse maximale des courants et la présence des courants circumpolaires.
+
 ### Vue 3D : unités et sites sur le relief
 - Les unités, villes, camps et villages ne sont plus « ensevelis » dans le relief : chacun est posé sur le vrai sol 3D, et replacé quand le sol de sa case est refait.
 - **Figurines 3D** des unités, faites de formes simples, chacune avec sa silhouette : le colon en chapeau de paille tire une charrette à bras chargée de sacs, l'éclaireur en vert va avec son chien, la milice un habit de cuir et une massue, le guerrier lourd une armure sombre, un plumet et un grand bouclier aux couleurs du camp, le piquier une très longue pique, les archers un arc haut (et un carquois), le cavalier lourd un cheval caparaçonné. Les militaires sont un **petit groupe** (trois fantassins, deux cavaliers), chacun posé sur le sol sous ses pieds ; colon et éclaireur sont seuls. Les figurines **grandissent quand la caméra s'éloigne** (jusqu'à 3 fois) : elles restent visibles en dézoomant. Un fin anneau au sol, aux couleurs du camp (bleu, rouge), incliné comme la pente, entoure le groupe.
@@ -9,7 +17,8 @@
 - Les villes et camps **suivent le terrain** (plus de terrasse) : remparts, tours, maisons, huttes, tentes et pieux posés chacun sur le sol à sa place, avec des fondations côté pente ; sols pavés et de terre battue drapés sur le relief. Sous un site, le relief est adouci, pas aplani.
 
 ### Outils de développement
-- **Mode capture** : `CIVBUILDER_CAPTURE=<dossier>` met en scène villes et unités (relief accidenté, montagne), passe en 3D et enregistre plusieurs vues en PNG, puis ferme le jeu : le rendu se vérifie sans jouer.
+- **Mode capture** : `CIVBUILDER_CAPTURE=<dossier>` met en scène villes et unités (relief accidenté, montagne), passe en 3D et enregistre plusieurs vues en PNG (dont la carte des courants marins), puis ferme le jeu : le rendu se vérifie sans jouer.
+- Bilan `bilan_courants` (vitesses, écarts de température de la mer, côtes ouest et est, rencontres de courants ; `CURRENTS_DUMP` pour exporter les courants).
 
 ### Altitude et relief
 - L'altitude en mètres devient la référence : déplacements, combat, climat et infobulle (« 2 950 m »).

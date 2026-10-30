@@ -145,6 +145,7 @@ fn setup_panel(mut commands: Commands) {
                     MapLayer::Flow => "Débits",
                     MapLayer::Network => "Réseau",
                     MapLayer::Plates => "Plaques",
+                    MapLayer::Currents => "Courants",
                     MapLayer::Resources => "Ressources",
                 };
                 r.spawn((Node { width: Val::Px(COLUMN_WIDTH), justify_content: JustifyContent::Center, ..default() }, children![text(name, 13.0, MUTED)]));

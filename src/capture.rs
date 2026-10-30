@@ -1,13 +1,14 @@
 //! Mode capture, pour le développement : avec `CIVBUILDER_CAPTURE=<dossier>`, le jeu prépare une
 //! scène (ville sur une colline, ville au départ, les douze types d'unités près d'une montagne,
 //! trois unités en barque sur un fleuve, carte révélée), passe en 3D, vise plusieurs cibles à plusieurs distances (ville, unités,
-//! camp, village, vue lointaine), enregistre chaque vue en PNG dans le dossier, puis se ferme.
+//! camp, village, vue lointaine, carte des courants marins), enregistre chaque vue en PNG dans le dossier, puis se ferme.
 //! Sert à vérifier le rendu sans jouer (`CIVBUILDER_SEED` fixe la graine).
 
 use crate::game::{DebugMode, GameMap, GameState, HexPos, Territory, Unit, found_city, spawn_unit};
 use crate::hex::Hex;
 use crate::hostile::{Camp, Village};
 use crate::map::Relief;
+use crate::render::MapLayer;
 use crate::units::UnitKind;
 use crate::view3d::{Cam3d, ViewMode, tile_height, to_3d};
 use bevy::prelude::*;
@@ -33,12 +34,14 @@ impl Plugin for CapturePlugin {
     }
 }
 
-/// Une vue à enregistrer : nom du fichier, case visée, distance et orientation de la caméra.
+/// Une vue à enregistrer : nom du fichier, case visée, distance et orientation de la caméra,
+/// carte affichée.
 struct Shot {
     name: String,
     target: Hex,
     distance: f32,
     yaw: f32,
+    layer: MapLayer,
 }
 
 #[derive(Resource)]
@@ -60,6 +63,7 @@ fn run_capture(
     map: Res<GameMap>,
     mut mode: ResMut<ViewMode>,
     mut cam: ResMut<Cam3d>,
+    mut layer: ResMut<MapLayer>,
     mut debug: ResMut<DebugMode>,
     mut state: ResMut<GameState>,
     mut territory: ResMut<Territory>,
@@ -116,7 +120,8 @@ fn run_capture(
             mode.is_3d = true;
             // Vues
             let mut shots = Vec::new();
-            let mut add = |name: &str, target: Hex, distance: f32, yaw: f32| shots.push(Shot { name: name.into(), target, distance, yaw });
+            let mut add_on = |name: &str, target: Hex, distance: f32, yaw: f32, layer: MapLayer| shots.push(Shot { name: name.into(), target, distance, yaw, layer });
+            let mut add = |name: &str, target: Hex, distance: f32, yaw: f32| add_on(name, target, distance, yaw, MapLayer::Normal);
             if let Some(h) = hill {
                 add("ville_colline", h, 260.0, 0.0);
                 add("ville_colline_cote", h, 260.0, 2.1);
@@ -135,6 +140,15 @@ fn run_capture(
             }
             if let Some(h) = nearest(villages.iter().map(|p| p.0).collect()) {
                 add("village", h, 220.0, 0.0);
+            }
+            // Carte des courants marins : sur le courant le plus rapide près du départ
+            let fastest = by_distance.iter().copied().take(4_000).filter(|&h| m.current(h).is_some()).max_by(|&a, &b| {
+                let speed = |h: Hex| m.current(h).map_or(0.0, |(u, v)| u.hypot(v));
+                speed(a).total_cmp(&speed(b))
+            });
+            if let Some(h) = fastest {
+                add_on("courants", h, 700.0, 0.0, MapLayer::Currents);
+                add_on("courants_loin", h, 2_200.0, 0.0, MapLayer::Currents);
             }
             info!("Mode capture : {} vues, {} villes fondées", shots.len(), cities_at.len());
             capture.shots = shots;
@@ -163,6 +177,9 @@ fn run_capture(
             cam.target = to_3d(shot.target, tile_height(m, shot.target));
             cam.distance = shot.distance;
             cam.yaw = shot.yaw;
+            if *layer != shot.layer {
+                *layer = shot.layer;
+            }
             capture.next += 1;
             capture.shooting = true;
             capture.wait = SETTLE_FRAMES;

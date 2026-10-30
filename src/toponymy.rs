@@ -793,7 +793,8 @@ pub fn sea_name(
 
 /// Nom d'un banc de poissons, d'après ce qui le rend riche (`origins`, voir `map::marine`) et
 /// l'eau du lieu : souvent les poissons qu'on y pêche (« Bancs des Sardines » dans une remontée
-/// d'eaux chaude, « Bancs des Morues » au froid, « Bancs des Thons » sur un mont sous-marin),
+/// d'eaux chaude, « Bancs des Morues » au froid ou à la rencontre de deux courants, « Bancs des
+/// Thons » sur un mont sous-marin),
 /// sinon « Banc de Kaldvik ».
 pub fn bank_name(info: &CellInfo, origins: u8, namer: &mut Namer) -> String {
     use crate::map::marine;
@@ -802,7 +803,7 @@ pub fn bank_name(info: &CellInfo, origins: u8, namer: &mut Namer) -> String {
         &["Bancs des Thons", "Haut-fond des Thons", "Bancs des Espadons"]
     } else if origins & marine::UPWELLING != 0 && !cold {
         &["Bancs des Sardines", "Bancs des Anchois", "Bancs des Maquereaux"]
-    } else if cold {
+    } else if cold || origins & marine::FRONT != 0 {
         &["Bancs des Morues", "Bancs des Harengs", "Bancs des Flétans"]
     } else {
         &["Bancs des Bonites", "Bancs des Daurades", "Bancs des Mérous"]

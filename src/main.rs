@@ -9,6 +9,7 @@ mod battle;
 mod capture;
 mod climate;
 mod combat;
+mod currents;
 mod erosion;
 mod explore;
 mod figures;
