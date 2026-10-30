@@ -3,12 +3,14 @@
 ## 0.3.0 (en cours)
 
 ### Déplacements et combats visibles, journal hiérarchisé
-- **Les unités ne se téléportent plus** : elles glissent case par case le long de leur trajet (0,15 s par case, un long trajet dure au plus 1 s), en 2D comme en 3D (figurines posées sur le relief pendant la marche ; anneau de sélection et barre de PV suivent).
+- **Les unités ne se téléportent plus** : elles glissent case par case le long de leur trajet (0,2 s par case, un long trajet dure au plus 1,3 s, à la vitesse normale), en 2D comme en 3D (figurines posées sur le relief pendant la marche ; anneau de sélection et barre de PV suivent).
 - **Combats mis en scène** : au corps à corps, l'attaquant s'élance vers sa cible et revient ; un tireur recule légèrement et un trait vole jusqu'à la cible. Au moment du coup, la cible tressaille, un cercle d'impact s'élargit et les **PV perdus s'affichent en chiffres flottants** au-dessus des deux unités (taille selon la force du coup). Les barres de PV gardent leur valeur jusqu'à l'impact.
 - **Unité dispersée** : elle s'efface sur place, avec « Dispersé ! » (ennemi) ou « Unité perdue » (la vôtre) et un cercle sombre.
 - **Villages et camps** : la récompense s'affiche sur le site à l'arrivée de l'unité (« +25 or », « +1 habitant à Paris », « Embuscade ! 2 milices »).
 - **Ordre de la fin du tour** : vos unités bougent ensemble, puis chaque action hostile visible se joue l'une après l'autre ; une action hostile hors de vue n'est pas montrée et ne fait pas attendre. Les règles restent instantanées : la mise en scène suit, sans jamais bloquer les commandes.
 - **Journal (en haut à droite) hiérarchisé** : chaque message a une importance (routine, information, succès, alerte, critique) et un liseré de sa couleur. Un nouveau message glisse depuis la droite et s'éclaire d'un flash qui s'éteint, plus long et en pulsations pour les alertes (2) et les messages critiques (3, avec un contour). Les alertes et messages critiques gardent une teinte de fond ; les anciens messages s'estompent. Critique : unité perdue, village hostile ; alerte : combat, famine, production bloquée ; succès : ville fondée, ennemi dispersé, récompense.
+- **Menu Échap réorganisé en pages** : la page principale ne garde que Reprendre, Paramètres, Nouveau monde… et Quitter. **Paramètres** : vitesse des animations (Lente, Normale, Rapide, Instantanée ; un sélecteur et une ligne qui dit ce que fait le choix) et mode debug. **Nouveau monde** : graine, copier / coller, regénérer ou graine au hasard, avec l'avertissement que la partie sera perdue. Échap sur une sous-page revient à la page principale.
+- **Paramètres enregistrés** aussitôt dans `%APPDATA%\CivBuilder\parametres.txt` (`~/.config/civbuilder/` ailleurs, ou le fichier donné par `CIVBUILDER_SETTINGS`) : ils suivent un nouveau monde et le prochain lancement. Le mode capture ne les lit ni ne les écrit.
 - **Mode capture « mise en scène »** (`CIVBUILDER_CAPTURE_FEEDBACK=1` avec `CIVBUILDER_CAPTURE`) : un corps à corps, un tir, une attaque hostile mortelle et la visite d'un village, photographiés à sept instants de leur animation, en 2D puis en 3D.
 
 ### Continents moins compacts

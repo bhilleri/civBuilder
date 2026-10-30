@@ -15,9 +15,11 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
 
-/// Durée d'un pas d'une case (s), et durée maximale d'un trajet (les longs trajets accélèrent).
-pub const STEP_SECS: f64 = 0.15;
-pub const MAX_WALK_SECS: f64 = 1.0;
+/// Durée d'un pas d'une case (s), et durée maximale d'un trajet (les longs trajets accélèrent),
+/// à la vitesse normale. Toutes les durées d'animation sont multipliées par le rythme choisi
+/// dans les paramètres (`AnimationSpeed::pace`), sauf celle des textes flottants (temps de lecture).
+pub const STEP_SECS: f64 = 0.2;
+pub const MAX_WALK_SECS: f64 = 1.3;
 /// Élan d'un corps à corps : aller-retour vers la cible ; le coup porte aux 40 %.
 pub const LUNGE_SECS: f64 = 0.36;
 const LUNGE_IMPACT: f64 = 0.4;
@@ -216,9 +218,9 @@ impl Motion {
 
 /// Segments d'une marche : un par pas, partant de `start`, chaque case prise du côté du raccord
 /// le plus proche de la précédente (tracé continu autour de la planète). Les longs trajets sont
-/// accélérés pour durer au plus `MAX_WALK_SECS`.
-pub fn walk_legs(wrap: crate::hex::Wrap, from: Hex, steps: &[Hex], start: f64) -> Vec<Leg> {
-    let step = STEP_SECS.min(MAX_WALK_SECS / steps.len().max(1) as f64);
+/// accélérés pour durer au plus `MAX_WALK_SECS`. `pace` multiplie les durées (0 : instantané).
+pub fn walk_legs(wrap: crate::hex::Wrap, from: Hex, steps: &[Hex], start: f64, pace: f64) -> Vec<Leg> {
+    let step = STEP_SECS.min(MAX_WALK_SECS / steps.len().max(1) as f64) * pace;
     let mut prev = from;
     let mut t = start;
     steps
@@ -235,7 +237,9 @@ pub fn walk_legs(wrap: crate::hex::Wrap, from: Hex, steps: &[Hex], start: f64) -
 }
 
 /// Calendrier d'un combat : (segments de l'attaquant, segments du défenseur, instant du coup).
-pub fn strike_legs(wrap: crate::hex::Wrap, s: &Strike, start: f64) -> (Vec<Leg>, Vec<Leg>, f64) {
+/// `pace` multiplie les durées (0 : instantané).
+pub fn strike_legs(wrap: crate::hex::Wrap, s: &Strike, start: f64, pace: f64) -> (Vec<Leg>, Vec<Leg>, f64) {
+    let (shot, lunge, shake, fade) = (SHOT_SECS * pace, LUNGE_SECS * pace, SHAKE_SECS * pace, FADE_SECS * pace);
     let (ax, ay) = s.from.to_world();
     let (tx, ty) = wrap.nearest(s.from, s.target).to_world();
     let (a, t) = (Vec2::new(ax, ay), Vec2::new(tx, ty));
@@ -244,19 +248,19 @@ pub fn strike_legs(wrap: crate::hex::Wrap, s: &Strike, start: f64) -> (Vec<Leg>,
     let (attacker, impact) = if s.ranged {
         // Petit recul du tireur, le trait vole jusqu'à la cible
         let back = a - (t - a).normalize_or_zero() * 4.0;
-        (vec![Leg { start, end: start + SHOT_SECS * 0.6, from: a, to: back, kind: LegKind::Lunge }], start + SHOT_SECS)
+        (vec![Leg { start, end: start + shot * 0.6, from: a, to: back, kind: LegKind::Lunge }], start + shot)
     } else {
         let reach = a.lerp(t, LUNGE_REACH);
-        (vec![Leg { start, end: start + LUNGE_SECS, from: a, to: reach, kind: LegKind::Lunge }], start + LUNGE_SECS * LUNGE_IMPACT)
+        (vec![Leg { start, end: start + lunge, from: a, to: reach, kind: LegKind::Lunge }], start + lunge * LUNGE_IMPACT)
     };
     let mut attacker = attacker;
-    let mut defender = vec![Leg { start: impact, end: impact + SHAKE_SECS, from: d, to: d, kind: LegKind::Shake }];
+    let mut defender = vec![Leg { start: impact, end: impact + shake, from: d, to: d, kind: LegKind::Shake }];
     if s.defender_hp <= 0 {
-        defender.push(Leg { start: impact + SHAKE_SECS * 0.5, end: impact + SHAKE_SECS * 0.5 + FADE_SECS, from: d, to: d, kind: LegKind::Fade });
+        defender.push(Leg { start: impact + shake * 0.5, end: impact + shake * 0.5 + fade, from: d, to: d, kind: LegKind::Fade });
     }
     if s.attacker_hp <= 0 {
         let end = attacker.last().map_or(impact, |l| l.end);
-        attacker.push(Leg { start: end, end: end + FADE_SECS, from: a, to: a, kind: LegKind::Fade });
+        attacker.push(Leg { start: end, end: end + fade, from: a, to: a, kind: LegKind::Fade });
     }
     (attacker, defender, impact)
 }
@@ -331,6 +335,7 @@ fn stage_cues(
     time: Res<Time>,
     map: Res<GameMap>,
     fog: Res<Fog>,
+    settings: Res<crate::settings::Settings>,
     mut cues: ResMut<Cues>,
     mut stage: ResMut<Stage>,
     motions: Query<&Motion>,
@@ -340,6 +345,7 @@ fn stage_cues(
     }
     let now = time.elapsed_secs_f64();
     let wrap = map.0.wrap();
+    let pace = settings.animation.pace();
     let cues = std::mem::take(&mut cues.0);
     // Segments ajoutés à chaque unité (en plus de son animation en cours)
     let mut plans: HashMap<Entity, Motion> = HashMap::new();
@@ -356,18 +362,18 @@ fn stage_cues(
     let mut hostile: Vec<&Cue> = Vec::new();
     let mut rewards: Vec<&Cue> = Vec::new();
     let strike = |commands: &mut Commands, plans: &mut HashMap<Entity, Motion>, s: &Strike, start: f64| -> f64 {
-        let (att, def, impact) = strike_legs(wrap, s, start);
+        let (att, def, impact) = strike_legs(wrap, s, start, pace);
         // (l'action suivante n'attend pas la fin de l'effacement d'une unité dispersée)
         let end = att.iter().chain(&def).filter(|l| l.kind != LegKind::Fade).map(|l| l.end).fold(impact, f64::max);
         add(plans, s.attacker, att);
         add(plans, s.defender, def);
-        show_strike(commands, wrap, s, start, impact);
+        show_strike(commands, wrap, s, start, impact, pace);
         end
     };
     for cue in &cues {
         match cue {
             Cue::Walk { entity, from, steps, actor: Actor::Player } => {
-                let legs = walk_legs(wrap, *from, steps, busy(&plans, *entity));
+                let legs = walk_legs(wrap, *from, steps, busy(&plans, *entity), pace);
                 player_end = player_end.max(legs.last().map_or(now, |l| l.end));
                 add(&mut plans, *entity, legs);
             }
@@ -384,13 +390,13 @@ fn stage_cues(
     for cue in hostile {
         match cue {
             Cue::Walk { entity, from, steps, .. } if visible(*from) || steps.iter().any(|&h| visible(h)) => {
-                let legs = walk_legs(wrap, *from, steps, cursor.max(busy(&plans, *entity)));
+                let legs = walk_legs(wrap, *from, steps, cursor.max(busy(&plans, *entity)), pace);
                 cursor = legs.last().map_or(cursor, |l| l.end);
                 add(&mut plans, *entity, legs);
             }
             Cue::Strike(s) if visible(s.from) || visible(s.target) => {
                 let start = cursor.max(busy(&plans, s.attacker)).max(busy(&plans, s.defender));
-                cursor = strike(&mut commands, &mut plans, s, start) + HOSTILE_GAP;
+                cursor = strike(&mut commands, &mut plans, s, start) + HOSTILE_GAP * pace;
             }
             _ => {}
         }
@@ -422,7 +428,7 @@ fn stage_cues(
 }
 
 /// Textes, impacts et PV retenus d'un combat.
-fn show_strike(commands: &mut Commands, wrap: crate::hex::Wrap, s: &Strike, start: f64, impact: f64) {
+fn show_strike(commands: &mut Commands, wrap: crate::hex::Wrap, s: &Strike, start: f64, impact: f64, pace: f64) {
     let (dx, dy) = s.target.to_world();
     let d = Vec2::new(dx, dy);
     if s.ranged {
@@ -452,9 +458,10 @@ fn show_strike(commands: &mut Commands, wrap: crate::hex::Wrap, s: &Strike, star
         let (color, size) = tone_style(Tone::Lethal);
         let text = if player { "Unité perdue" } else { "Dispersé !" };
         let color = if player { Color::srgb(1.0, 0.55, 0.50) } else { color };
-        spawn_popup(commands, hex, impact + 0.15, 32.0, text, color, size);
+        let at = impact + 0.15 * pace;
+        spawn_popup(commands, hex, at, 32.0, text, color, size);
         let (x, y) = hex.to_world();
-        commands.spawn(Burst { at: Vec2::new(x, y), start: impact + 0.15, end: impact + 0.95, radius: crate::hex::HEX_SIZE, color: Color::srgb(0.75, 0.1, 0.1) });
+        commands.spawn(Burst { at: Vec2::new(x, y), start: at, end: at + 0.8, radius: crate::hex::HEX_SIZE, color: Color::srgb(0.75, 0.1, 0.1) });
     };
     if s.defender_hp <= 0 {
         lethal(commands, s.target, s.defender_is_player);
@@ -653,7 +660,7 @@ mod tests {
     fn une_marche_fait_un_segment_par_pas_dans_l_ordre() {
         let from = Hex::new(5, 5);
         let steps = [Hex::new(6, 5), Hex::new(7, 5), Hex::new(8, 5)];
-        let legs = walk_legs(wrap(), from, &steps, 10.0);
+        let legs = walk_legs(wrap(), from, &steps, 10.0, 1.0);
         assert_eq!(legs.len(), 3);
         assert_eq!(legs[0].start, 10.0);
         for w in legs.windows(2) {
@@ -668,14 +675,14 @@ mod tests {
     fn un_long_trajet_est_accelere() {
         let from = Hex::new(0, 5);
         let steps: Vec<Hex> = (1..=30).map(|q| Hex::new(q, 5)).collect();
-        let legs = walk_legs(wrap(), from, &steps, 0.0);
+        let legs = walk_legs(wrap(), from, &steps, 0.0, 1.0);
         let total = legs.last().unwrap().end;
         assert!(total <= MAX_WALK_SECS + 1e-9, "{total}");
     }
 
     #[test]
     fn la_pose_suit_le_calendrier() {
-        let legs = walk_legs(wrap(), Hex::new(5, 5), &[Hex::new(6, 5)], 1.0);
+        let legs = walk_legs(wrap(), Hex::new(5, 5), &[Hex::new(6, 5)], 1.0, 1.0);
         let m = Motion { legs: legs.clone() };
         // Avant le départ : sur la case de départ ; à la fin : sur la case d'arrivée
         assert_eq!(m.sample(0.0).unwrap().at, legs[0].from);
@@ -704,7 +711,7 @@ mod tests {
 
     #[test]
     fn l_elan_revient_a_sa_case_et_le_coup_porte_pendant_l_aller() {
-        let (att, def, impact) = strike_legs(wrap(), &strike(40, false), 2.0);
+        let (att, def, impact) = strike_legs(wrap(), &strike(40, false), 2.0, 1.0);
         let m = Motion { legs: att.clone() };
         assert!(impact > 2.0 && impact < att[0].end);
         // Au moment du coup, l'attaquant est au plus loin ; il revient ensuite sur sa case
@@ -718,14 +725,14 @@ mod tests {
 
     #[test]
     fn une_unite_dispersee_s_efface() {
-        let (_, def, _) = strike_legs(wrap(), &strike(0, false), 0.0);
+        let (_, def, _) = strike_legs(wrap(), &strike(0, false), 0.0, 1.0);
         let m = Motion { legs: def };
         assert_eq!(m.sample(m.end()).unwrap().scale, 0.0);
     }
 
     #[test]
     fn un_tir_ne_fait_pas_avancer_le_tireur() {
-        let (att, _, impact) = strike_legs(wrap(), &strike(40, true), 0.0);
+        let (att, _, impact) = strike_legs(wrap(), &strike(40, true), 0.0, 1.0);
         let (tx, ty) = Hex::new(6, 5).to_world();
         let target = Vec2::new(tx, ty);
         let m = Motion { legs: att.clone() };
@@ -740,5 +747,19 @@ mod tests {
         assert_eq!(HeldHp::shown(Some(&held), 50, 2.0), 80);
         assert_eq!(HeldHp::shown(Some(&held), 50, 3.0), 50);
         assert_eq!(HeldHp::shown(None, 50, 2.0), 50);
+    }
+
+    #[test]
+    fn le_rythme_allonge_ou_supprime_les_animations() {
+        let steps = [Hex::new(6, 5), Hex::new(7, 5)];
+        let slow = walk_legs(wrap(), Hex::new(5, 5), &steps, 0.0, 1.5);
+        assert!((slow.last().unwrap().end - 2.0 * STEP_SECS * 1.5).abs() < 1e-9);
+        // Instantané : segments de durée nulle, l'unité est aussitôt arrivée
+        let instant = walk_legs(wrap(), Hex::new(5, 5), &steps, 4.0, 0.0);
+        let m = Motion { legs: instant };
+        assert!(m.finished(4.0));
+        let (att, def, impact) = strike_legs(wrap(), &strike(0, false), 4.0, 0.0);
+        assert_eq!(impact, 4.0);
+        assert!(att.iter().chain(&def).all(|l| l.end == 4.0));
     }
 }

@@ -590,7 +590,9 @@ fn mechanics() -> Article {
             p("Les unités se déplacent case par case et les combats se voient : élan de l'attaquant ou trait du \
                tireur, PV perdus en chiffres rouges au-dessus des deux unités, « Dispersé ! » ou « Unité perdue » \
                quand une unité disparaît. La récompense d'un village ou d'un camp s'affiche sur place. En fin de \
-               tour, vos unités bougent d'abord, puis les actions barbares visibles se jouent l'une après l'autre."),
+               tour, vos unités bougent d'abord, puis les actions barbares visibles se jouent l'une après l'autre. \
+               Vitesse des animations : menu Échap → Paramètres (Lente, Normale, Rapide ou Instantanée : \
+               les unités sont aussitôt à leur place, seuls les chiffres s'affichent)."),
             p("Journal (en haut à droite) : la couleur du liseré dit l'importance du message — gris pour un retour \
                de commande, bleu pour une information, doré pour une bonne nouvelle, orange pour une alerte \
                (combat, famine), rouge pour un message critique (unité perdue, village hostile). Les alertes et \

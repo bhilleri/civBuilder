@@ -63,7 +63,7 @@ importance, sans être envahissant.
 - `HeldHp` : les barres de PV gardent la valeur d'avant le coup jusqu'à l'impact.
 - Chiffres flottants : nœuds d'interface placés à la projection de leur case (2D et 3D), apparition
   avec léger grossissement, montée de 34 px, effacement sur 1,7 s. Impacts et traits : gizmos.
-- Chiffres : 0,15 s par case (1 s au plus par trajet), élan 0,36 s (coup aux 40 %), trait 0,28 s,
+- Chiffres (vitesse normale) : 0,2 s par case (1,3 s au plus par trajet), élan 0,36 s (coup aux 40 %), trait 0,28 s,
   secousse 0,3 s, effacement 0,6 s. Les PV affichés sont ceux réellement perdus (pas plus que ce
   qui restait).
 - Vérification : `CIVBUILDER_CAPTURE_FEEDBACK=1` avec `CIVBUILDER_CAPTURE=<dossier>`.
@@ -77,5 +77,46 @@ importance, sans être envahissant.
 ## Limites et suite
 - Le brouillard se lève dès la fin du tour, avant l'arrivée de l'unité.
 - La caméra ne va pas chercher une attaque hostile hors de l'écran (le journal la signale).
-- Pistes : réglage de vitesse des animations (et « combat rapide ») dans les options, son,
+- Pistes : vitesse séparée pour les actions hostiles (ou « combat rapide »), son,
   journal qui n'affiche un message hostile qu'au moment où l'action se joue.
+
+# Menu Échap en pages et paramètres
+
+## Demande de Benjamin
+Déplacements un peu plus lents, vitesse d'animation réglable, depuis un nouveau bouton du menu
+donnant accès à la configuration du jeu. Le menu actuel n'est pas mal fait, mais à force d'y
+ajouter des options il va se charger (la regénération du monde y prend déjà beaucoup de place).
+
+## Recommandations retenues (recherche UX)
+- Paramètres accessibles **en pleine partie** depuis le menu pause, sans quitter la partie.
+- Menu pause court : reprendre, paramètres, (re)commencer, quitter ; le reste dans des
+  **sous-pages** ou rubriques regroupées logiquement, les réglages courants d'abord.
+- Réglage appliqué **aussitôt** et enregistré (pas de bouton « Appliquer » pour un choix aussi
+  simple), avec une ligne qui dit ce que fait la valeur choisie.
+- Dans les 4X, les joueurs veulent accélérer, voire supprimer, les animations **sans perdre le
+  résultat** : en Instantané, les unités sont aussitôt à leur place mais les chiffres flottants
+  (PV perdus, récompenses) restent affichés. Un « rapide » ×2 est le minimum attendu.
+- Échap = retour : sur une sous-page il ramène à la page principale, sur celle-ci il ferme.
+
+## Organisation
+- Page principale : Reprendre (Échap), Paramètres, Nouveau monde…, Quitter (rouge, à part).
+- **Paramètres** : rubrique « Animations sur la carte » (sélecteur à quatre cases, la case choisie
+  en bleu, ligne d'aide), rubrique « Développement » (mode debug, déplacé ici). Retour (Échap).
+- **Nouveau monde** : avertissement « La partie en cours sera perdue » en tête, graine
+  (champ, Copier, Coller), Regénérer avec cette graine, Graine au hasard, Retour (Échap).
+  La graine est sélectionnée à l'ouverture de cette page (et non plus du menu).
+
+## Vitesse des animations (`settings.rs`, `feedback.rs`)
+- Rythme multipliant toutes les durées de la mise en scène : Lente 1,5, Normale 1, Rapide 0,5,
+  Instantanée 0. Les textes flottants gardent leur durée (temps de lecture) ; les cercles
+  d'impact aussi, seul leur instant suit le rythme.
+- Vitesse normale ralentie à la demande de Benjamin : 0,2 s par case (0,15 avant), 1,3 s au
+  plus par trajet (1 s avant).
+- Fichier `parametres.txt` (`clé = valeur`, `#` commentaire, valeur inconnue ignorée) dans
+  `%APPDATA%\CivBuilder` ; il suit un nouveau monde (qui relance le jeu). Le mode capture ne le
+  lit ni ne l'écrit, pour que les vues restent les mêmes chez tous.
+- Vérification : le mode capture ajoute les trois pages du menu à ses vues.
+
+## Suite
+- D'autres paramètres trouveront leur rubrique dans cette page (son, interface, caméra) ; les
+  options de carte (touche O) restent à part, car on les change en regardant la carte.

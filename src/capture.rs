@@ -14,6 +14,7 @@ use crate::game::{DebugMode, GameMap, GameState, HexPos, ShownFog, Territory, Un
 use crate::hex::Hex;
 use crate::hostile::{Camp, Village};
 use crate::map::Relief;
+use crate::menu::{GameMenu, MenuPage};
 use crate::render::MapLayer;
 use crate::units::UnitKind;
 use crate::view3d::{Cam3d, ViewMode, stale_channels, tile_height, to_3d};
@@ -51,13 +52,14 @@ impl Plugin for CapturePlugin {
 }
 
 /// Une vue à enregistrer : nom du fichier, case visée, distance et orientation de la caméra,
-/// carte affichée.
+/// carte affichée, page du menu Échap ouverte par-dessus (s'il y en a une).
 struct Shot {
     name: String,
     target: Hex,
     distance: f32,
     yaw: f32,
     layer: MapLayer,
+    menu: Option<MenuPage>,
 }
 
 #[derive(Resource)]
@@ -93,6 +95,7 @@ fn run_capture(
     mut exit: MessageWriter<AppExit>,
     relief: Option<ResMut<crate::view3d::Relief>>,
     fog: Res<ShownFog>,
+    mut menu: ResMut<GameMenu>,
 ) {
     capture.frame += 1;
     let m = &map.0;
@@ -127,11 +130,11 @@ fn run_capture(
             cam.distance = 260.0;
             let mut shots = Vec::new();
             for (k, &h) in path.iter().enumerate().skip(2).step_by(4) {
-                shots.push(Shot { name: format!("exploration_{k:02}"), target: h, distance: 220.0, yaw: 0.4 * k as f32, layer: MapLayer::Normal });
+                shots.push(Shot { name: format!("exploration_{k:02}"), target: h, distance: 220.0, yaw: 0.4 * k as f32, layer: MapLayer::Normal, menu: None });
             }
             if let Some(&h) = path.last() {
-                shots.push(Shot { name: "exploration_ensemble".into(), target: path[path.len() / 2], distance: 700.0, yaw: 0.0, layer: MapLayer::Normal });
-                shots.push(Shot { name: "exploration_fin".into(), target: h, distance: 220.0, yaw: 2.0, layer: MapLayer::Normal });
+                shots.push(Shot { name: "exploration_ensemble".into(), target: path[path.len() / 2], distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: None });
+                shots.push(Shot { name: "exploration_fin".into(), target: h, distance: 220.0, yaw: 2.0, layer: MapLayer::Normal, menu: None });
             }
             capture.shots = shots;
             capture.walk = path.into_iter().rev().collect();
@@ -183,7 +186,7 @@ fn run_capture(
             mode.is_3d = true;
             // Vues
             let mut shots = Vec::new();
-            let mut add_on = |name: &str, target: Hex, distance: f32, yaw: f32, layer: MapLayer| shots.push(Shot { name: name.into(), target, distance, yaw, layer });
+            let mut add_on = |name: &str, target: Hex, distance: f32, yaw: f32, layer: MapLayer| shots.push(Shot { name: name.into(), target, distance, yaw, layer, menu: None });
             let mut add = |name: &str, target: Hex, distance: f32, yaw: f32| add_on(name, target, distance, yaw, MapLayer::Normal);
             if let Some(h) = hill {
                 add("ville_colline", h, 260.0, 0.0);
@@ -215,6 +218,10 @@ fn run_capture(
             if let Some(h) = fastest {
                 add_on("courants", h, 700.0, 0.0, MapLayer::Currents);
                 add_on("courants_loin", h, 2_200.0, 0.0, MapLayer::Currents);
+            }
+            // Pages du menu Échap, par-dessus la vue de départ
+            for (name, page) in [("menu", MenuPage::Main), ("menu_parametres", MenuPage::Settings), ("menu_nouveau_monde", MenuPage::NewWorld)] {
+                shots.push(Shot { name: name.into(), target: start, distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: Some(page) });
             }
             info!("Mode capture : {} vues, {} villes fondées", shots.len(), cities_at.len());
             capture.shots = shots;
@@ -260,6 +267,8 @@ fn run_capture(
             if *layer != shot.layer {
                 *layer = shot.layer;
             }
+            menu.open = shot.menu.is_some();
+            menu.page = shot.menu.unwrap_or_default();
             capture.next += 1;
             capture.shooting = true;
             capture.wait = SETTLE_FRAMES;
