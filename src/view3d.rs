@@ -505,6 +505,26 @@ fn unexplored_height() -> f32 {
     meters_to_height(150.0)
 }
 
+/// Cases dont les lits creusés gardés ne sont plus ceux qu'on calculerait sur le relief actuel, et
+/// plus grand écart de hauteur d'eau (vérification du mode capture, relief 3D à jour).
+pub fn stale_channels(relief: &mut Relief, map: &GameMap, fog: &ShownFog) -> (Vec<Hex>, f32) {
+    relief.axis_cache.clear();
+    let mut stale = Vec::new();
+    let mut worst = 0.0f32;
+    let hexes: Vec<Hex> = relief.channels.keys().copied().collect();
+    for hex in hexes {
+        let fresh = relief.channels_near(hex, |h| fog.explored.contains(&map.0.canonical(h)));
+        let kept = &relief.channels[&hex];
+        if *kept != fresh {
+            for (a, b) in kept.iter().zip(&fresh) {
+                worst = a.levels.iter().zip(&b.levels).fold(worst, |w, (x, y)| w.max((x - y).abs()));
+            }
+            stale.push(hex);
+        }
+    }
+    (stale, worst)
+}
+
 /// Hauteur affichée d'une case : inexplorée, elle reste plate (son relief n'est pas connu).
 pub fn shown_height(map: &GameMap, fog: &ShownFog, hex: Hex) -> f32 {
     let hex = map.0.canonical(hex);
@@ -1152,12 +1172,15 @@ fn update_relief_3d(
         }
     };
     let started = std::time::Instant::now();
-    let mut reshaped = Vec::new();
-    let mut processed = Vec::new();
+    // (case, numéro du paquet où elle a été refaite)
+    let mut reshaped: Vec<(Hex, usize)> = Vec::new();
+    let mut processed: Vec<(Hex, usize)> = Vec::new();
     let mut pending = batch.into_iter().peekable();
     // Par paquets : préparation (relief, lits) dans l'ordre, puis maillages construits en
     // parallèle sur tous les cœurs, jusqu'à épuisement du temps alloué à l'image
+    let mut paquet = 0;
     while pending.peek().is_some() && started.elapsed().as_secs_f32() * 1000.0 < budget {
+        paquet += 1;
         let chunk: Vec<Hex> = pending.by_ref().take(RELIEF_CHUNK).collect();
         let count = chunk.len();
         let mut jobs = Vec::with_capacity(count);
@@ -1166,15 +1189,15 @@ fn update_relief_3d(
             queue.color.remove(&hex);
             if reshape || !relief.tops.contains_key(&hex) {
                 relief.tops.insert(hex, compute_top(hex, height, link, water));
-                reshaped.push(hex);
+                reshaped.push((hex, paquet));
                 // Les hauteurs d'eau des lits proches dépendent de ce relief
                 for h in map.0.range(hex, 2) {
                     relief.axis_cache.remove(&h);
                 }
             }
-            processed.push(hex);
+            processed.push((hex, paquet));
         }
-        for &hex in &processed[processed.len() - count..] {
+        for &(hex, _) in &processed[processed.len() - count..] {
             // Lits qui touchent la case (la surface d'un lac ou de la mer reste plate, une case
             // inexplorée aussi)
             let near = if water(hex) || !fog.explored.contains(&hex) { Vec::new() } else { relief.channels_near(hex, |h| fog.explored.contains(&map.0.canonical(h))) };
@@ -1252,12 +1275,27 @@ fn update_relief_3d(
             }
         }
     }
+    // Surfaces d'eau des cases reconstruites et de leurs voisines (une rivière d'arête est
+    // dessinée par une seule des deux cases)
+    // (un simple changement de carte ne change pas l'eau : rien à refaire ; fait avant la remise en
+    // file ci-dessous, qui redemande les surfaces d'eau pour l'image suivante)
+    let mut redo: HashSet<Hex> = HashSet::new();
+    let reshaped_set: HashSet<Hex> = reshaped.iter().map(|&(h, _)| h).collect();
+    for &(hex, _) in &processed {
+        if !queue.levels.remove(&hex) && !reshaped_set.contains(&hex) {
+            continue;
+        }
+        redo.extend(map.0.range(hex, 1).filter(|h| relief.water.contains_key(h)));
+    }
     // Le relief d'une case change la hauteur de l'eau des lits voisins : les cases proches qui
-    // ont des cours d'eau sont reconstruites (couleurs et lits seulement)
-    let done: HashSet<Hex> = processed.iter().copied().collect();
-    for hex in &reshaped {
-        for h in map.0.range(*hex, 3) {
-            if !done.contains(&h)
+    // ont des cours d'eau sont reconstruites (couleurs et lits seulement). Une case déjà refaite
+    // dans un paquet précédent de cette image a taillé ses lits avec l'ancien relief : elle est
+    // refaite aussi (sinon ses lits gardent une hauteur d'eau périmée, différente de celle des
+    // voisines : marches, écume, eau sous la berge au bord de la zone qu'on explore)
+    let done: HashMap<Hex, usize> = processed.iter().copied().collect();
+    for &(hex, paquet) in &reshaped {
+        for h in map.0.range(hex, 3) {
+            if done.get(&h).is_none_or(|&p| p < paquet)
                 && !queue.geometry.contains(&h)
                 && relief.channels.contains_key(&h)
                 && map.0.contains(h)
@@ -1266,17 +1304,6 @@ fn update_relief_3d(
                 queue.levels.insert(h);
             }
         }
-    }
-    // Surfaces d'eau des cases reconstruites et de leurs voisines (une rivière d'arête est
-    // dessinée par une seule des deux cases)
-    // (un simple changement de carte ne change pas l'eau : rien à refaire)
-    let mut redo: HashSet<Hex> = HashSet::new();
-    let reshaped: HashSet<Hex> = reshaped.into_iter().collect();
-    for hex in processed {
-        if !queue.levels.remove(&hex) && !reshaped.contains(&hex) {
-            continue;
-        }
-        redo.extend(map.0.range(hex, 1).filter(|h| relief.water.contains_key(h)));
     }
     let explored = |h: Hex| fog.explored.contains(&map.0.canonical(h));
     for hex in redo {
