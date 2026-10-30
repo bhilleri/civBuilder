@@ -19,6 +19,8 @@
 ### Performances
 - **Vue 3D plus fluide pendant la construction du relief** : 60 images/s tenues (45 à 52 auparavant), et relief de toute la carte révélée construit en ≈ 7 s au lieu de ≈ 19 s (graine 777, mesuré avec la trace Chrome de Bevy). Les surfaces d'eau sont refaites sur tous les cœurs et comptées dans le temps alloué par image ; les paquets de cases sont plus gros (2 par cœur) ; l'ordre de traitement (cases les plus proches de la vue d'abord) est gardé d'une image à l'autre ; la hauteur d'un tronçon de cours d'eau n'est plus calculée inutilement.
 - Tables du jeu passées au hachage rapide de Bevy (foldhash) au lieu de celui de la bibliothèque standard.
+- **Cartes du réseau hydrographique et des plaques en 3D** : plus de baisse d'images par seconde en passant à ces cartes en plein défilement (50 à 56 images/s auparavant pendant ≈ 2 s, 60 désormais). Les tracés posés sur le relief sont gardés d'une image à l'autre et recalculés seulement quand l'exploration ou la forme du sol changent (plaques : 7,4 → 1 ms par image ; réseau : 6,2 → 3,2 ms, les chevrons animés restant calculés à chaque image).
+- Le relief en construction prend moins de temps par image quand les images deviennent trop longues (moins de 60 par seconde), puis revient peu à peu à son budget.
 
 ### Outils de développement
 - **Mode capture** : `CIVBUILDER_CAPTURE=<dossier>` met en scène villes et unités (relief accidenté, montagne), passe en 3D et enregistre plusieurs vues en PNG (dont la carte des courants marins), puis ferme le jeu : le rendu se vérifie sans jouer.

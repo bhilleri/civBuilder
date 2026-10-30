@@ -96,6 +96,10 @@ pub struct Relief {
     /// Nombre de reconstructions du sol de chaque case : ce qui y est posé (unités, villes…) est
     /// replacé quand il change.
     generation: HashMap<Hex, u32>,
+    /// Version de la forme du sol (profils, relief interne, lits) : change quand la hauteur du sol
+    /// peut avoir changé quelque part, pas pour un simple changement de couleurs. Les tracés posés
+    /// sur le sol (cartes du réseau et des plaques) sont recalculés quand elle change.
+    pub shape: u32,
     /// Tour d'est en ouest de la planète. Tout est rangé par case de la carte, la géométrie
     /// (lits, formes de l'eau) à la position de la case dans la carte : une case vue au-delà du
     /// raccord est lue dans la carte, sa géométrie décalée d'un tour.
@@ -659,7 +663,7 @@ fn setup_3d(
     // Relief interne de toutes les cases (pour placer les arbres sous la limite des arbres)
     let wrap = map.0.wrap();
     let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect::<BumpMap>().with_wrap(wrap);
-    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), generation: HashMap::new(), wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
+    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), generation: HashMap::new(), shape: 0, wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
     let fresh_water = [
         materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.25, ..default() }),
         materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.45, 0.5), perceptual_roughness: 0.25, ..default() }),
@@ -1045,7 +1049,7 @@ fn link(map: &GameMap, fog: &ShownFog, a: Hex, b: Hex) -> Link {
 fn update_relief_3d(
     fog: Res<ShownFog>,
     map: Res<GameMap>,
-    mode: Res<ViewMode>,
+    (mode, time): (Res<ViewMode>, Res<Time<Real>>),
     cam: Res<Cam3d>,
     assets: Option<Res<Assets3d>>,
     relief: Option<ResMut<Relief>>,
@@ -1090,6 +1094,7 @@ fn update_relief_3d(
     }
     if fog.is_changed() || sites_changed {
         relief.bumps = explored_bumps(&map.0, &fog, &sites);
+        relief.shape += 1;
     }
     // Changement de carte (normale / relief / climat) : seules les couleurs changent, le relief déjà
     // calculé est réutilisé. La vision peut déborder du bord de la carte : on ne garde que la carte.
@@ -1145,7 +1150,14 @@ fn update_relief_3d(
         queue.order.clear();
         return;
     }
-    let budget = if mode.is_3d { RELIEF_BUDGET_MS } else { RELIEF_BUDGET_2D_MS };
+    // Images trop longues (moins de 60 par seconde, par exemple quand une carte dessine beaucoup
+    // de tracés) : le relief prend moins de temps par image, puis revient peu à peu à son budget
+    if time.delta_secs() * 1000.0 > RELIEF_SLOW_FRAME_MS {
+        queue.slowdown = (queue.slowdown + 0.15).min(RELIEF_SLOWDOWN_MAX);
+    } else {
+        queue.slowdown = (queue.slowdown - 0.02).max(0.0);
+    }
+    let budget = if mode.is_3d { RELIEF_BUDGET_MS } else { RELIEF_BUDGET_2D_MS } * (1.0 - queue.slowdown);
     // Ordre de traitement gardé d'une image à l'autre : refait seulement quand la vue s'est
     // déplacée (ou après l'arrivée de beaucoup de cases d'un coup)
     if queue.order_focus.is_none_or(|f| map.0.distance(f, focus) > RELIEF_REFOCUS) || queue.order.is_empty() {
@@ -1206,6 +1218,7 @@ fn update_relief_3d(
             queue.color.remove(&hex);
             if reshape || !relief.tops.contains_key(&hex) {
                 relief.tops.insert(hex, compute_top(hex, height, link, water));
+                relief.shape += 1;
                 reshaped.push((hex, paquet));
                 // Les hauteurs d'eau des lits proches dépendent de ce relief
                 for h in map.0.range(hex, 2) {
@@ -1218,10 +1231,9 @@ fn update_relief_3d(
             // Lits qui touchent la case (la surface d'un lac ou de la mer reste plate, une case
             // inexplorée aussi)
             let near = if water(hex) || !fog.explored.contains(&hex) { Vec::new() } else { relief.channels_near(hex, |h| fog.explored.contains(&map.0.canonical(h))) };
-            if near.is_empty() {
-                relief.channels.remove(&hex);
-            } else {
-                relief.channels.insert(hex, near.clone());
+            let before = if near.is_empty() { relief.channels.remove(&hex) } else { relief.channels.insert(hex, near.clone()) };
+            if before.unwrap_or_default() != near {
+                relief.shape += 1;
             }
             let color = hex_color(hex);
             // Case de fleuve : ses berges prennent la couleur des cases voisines (de terre)
@@ -1488,6 +1500,8 @@ struct ReliefQueue {
     /// Durée moyenne d'un paquet, et des surfaces d'eau par case traitée (ms).
     chunk_ms: f32,
     water_ms: f32,
+    /// Part du budget retirée après des images trop longues (0 : budget entier).
+    slowdown: f32,
 }
 
 impl ReliefQueue {
@@ -1521,6 +1535,10 @@ impl ReliefQueue {
 const RELIEF_BUDGET_MS: f32 = 6.0;
 /// Temps de préparation du relief 3D par image pendant qu'on joue en 2D (ms).
 const RELIEF_BUDGET_2D_MS: f32 = 3.0;
+/// Durée d'image au-delà de laquelle le budget du relief est réduit (un peu plus qu'une image à
+/// 60 par seconde), et réduction maximale.
+const RELIEF_SLOW_FRAME_MS: f32 = 17.5;
+const RELIEF_SLOWDOWN_MAX: f32 = 0.75;
 /// Cases préparées puis construites ensemble (en parallèle), par cœur.
 const RELIEF_CHUNK_PER_THREAD: usize = 2;
 /// Déplacement du centre de la vue (en cases) au-delà duquel l'ordre de traitement est refait.
@@ -2105,21 +2123,48 @@ fn sync_seam_copies(
 }
 
 /// Carte des plaques en 3D : frontières (traits épais posés sur le relief), mouvements des
-/// plaques et points chauds, comme en 2D.
+/// plaques et points chauds, comme en 2D. Les tracés posés sur le sol sont gardés d'une image à
+/// l'autre et recalculés seulement quand l'exploration ou la forme du sol changent.
 fn draw_plates_3d(
     mode: Res<ViewMode>,
     layer: Res<MapLayer>,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    mut cache: Local<PlatesCache>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
+    // (l'exploration peut changer pendant qu'une autre carte est affichée)
+    if fog.is_changed() {
+        cache.shape = None;
+    }
     let Some(relief) = relief else { return };
     if !mode.is_3d || *layer != MapLayer::Plates {
         return;
     }
-    let m = &map.0;
+    if cache.shape != Some(relief.shape) {
+        *cache = plates_3d(&map.0, &fog, &relief);
+    }
+    for (points, color) in &cache.lines {
+        gizmos.linestrip(points.iter().copied(), *color);
+    }
+    for &(from, to) in &cache.arrows {
+        gizmos.arrow(from, to, crate::render::PLATE_ARROW).with_tip_length(7.0);
+    }
+}
+
+/// Tracés de la carte des plaques en 3D, posés sur le sol (forme du sol `shape`).
+#[derive(Default)]
+struct PlatesCache {
+    shape: Option<u32>,
+    lines: Vec<(Vec<Vec3>, Color)>,
+    arrows: Vec<(Vec3, Vec3)>,
+}
+
+/// Frontières, mouvements et points chauds des plaques explorées, posés sur le relief.
+fn plates_3d(m: &crate::map::WorldMap, fog: &ShownFog, relief: &Relief) -> PlatesCache {
     let lift = |p: Vec2, up: f32| relief.on_ground(p.x, p.y, up);
+    let mut lines = Vec::new();
     for e in &m.plates().edges {
         let h = m.hex_at(e.cell);
         let other = m.canonical(h + DIRECTIONS[usize::from(e.dir)]);
@@ -2131,19 +2176,16 @@ fn draw_plates_3d(
         let (r, g, bl) = e.kind.color();
         // Deux traits côte à côte : plus épais que les autres lignes
         for up in [1.5, 2.5] {
-            gizmos.linestrip((0..=4).map(|k| lift(a.lerp(b, k as f32 / 4.0), up)), Color::srgb(r, g, bl));
+            lines.push(((0..=4).map(|k| lift(a.lerp(b, k as f32 / 4.0), up)).collect(), Color::srgb(r, g, bl)));
         }
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
-        if let Some((from, to)) = plate_arrow(m, hex) {
-            gizmos.arrow(lift(from, 6.0), lift(to, 6.0), crate::render::PLATE_ARROW).with_tip_length(7.0);
-        }
-    }
+    let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| plate_arrow(m, hex)).map(|(from, to)| (lift(from, 6.0), lift(to, 6.0))).collect();
     for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(*h)) {
         let (x, y) = h.to_world();
         for radius in [0.45, 0.2] {
-            let points = (0..=24).map(|k| lift(Vec2::new(x, y) + Vec2::from_angle(k as f32 / 24.0 * std::f32::consts::TAU) * HEX_SIZE * radius, 3.0));
-            gizmos.linestrip(points, crate::render::HOTSPOT);
+            let points = (0..=24).map(|k| lift(Vec2::new(x, y) + Vec2::from_angle(k as f32 / 24.0 * std::f32::consts::TAU) * HEX_SIZE * radius, 3.0)).collect();
+            lines.push((points, crate::render::HOTSPOT));
         }
     }
+    PlatesCache { shape: Some(relief.shape), lines, arrows }
 }

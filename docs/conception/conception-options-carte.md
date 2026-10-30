@@ -48,7 +48,7 @@ Toujours affichés quand ils s'appliquent : village, camp, unité hostile, aper�
 
 ## Carte du réseau hydrographique (`MapLayer::Network`)
 
-- Fond neutre (terres crème, lacs bleu pâle, mer bleu gris) ; tous les cours d'eau et lacs nommés connus tracés : fleuves en traits épais (3,5 px en 2D), rivières et pourtours de lacs en traits fins (2 px) ; en 3D, lignes posées sur le relief.
+- Fond neutre (terres crème, lacs bleu pâle, mer bleu gris) ; tous les cours d'eau et lacs nommés connus tracés : fleuves en traits épais (3,5 px en 2D), rivières et pourtours de lacs en traits fins (2 px) ; en 3D, lignes posées sur le relief (gardées d'une image à l'autre, recalculées quand l'exploration ou la forme du sol changent ; voir `conception-altitude.md`, « Performances »).
 - Couleur selon le **rang par rapport au déversoir final** (`NamedRiver::level`, `NamedLake::level`, calculés dans `basins.rs`) : 0 bleu nuit (se jette dans la mer, un lac salé ou une mer intérieure), 1 bleu, 2 turquoise, 3 vert, 4 et plus olive. Un cours qui se jette dans un autre a un rang de plus ; un lac a le rang du cours qui en sort ; le **principal cours qui entre dans un lac garde le rang du lac** (il le traverse), les autres ont un rang de plus.
 - Chevrons du courant d'une teinte plus sombre que le trait.
 - Le survol garde ses couleurs : le réseau survolé n'est pas dessiné par la carte, mais par la surbrillance par-dessus.
