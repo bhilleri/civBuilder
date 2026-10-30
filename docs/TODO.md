@@ -8,10 +8,9 @@ Voir `conception/conception-plaques.md`.
 ## 2. Mers fermées traitées comme les golfes — fait (30/10)
 Voir `conception/conception-toponymie.md` (mers fermées : fermeture + taille).
 
-## 3. Seuils sous-marins
-Utiliser la profondeur pour délimiter les mers : un passage peu profond (plateau) entre deux bassins
-profonds compte comme une demi-fermeture (Gibraltar pour la Méditerranée, détroits danois pour la
-Baltique) ; préférer la ligne du seuil comme limite de la mer.
+## 3. Seuils sous-marins — fait (30/10)
+Voir `conception/conception-toponymie.md`. Constat : sur 11 graines, aucune mer fermée (les grandes
+poches sont des entonnoirs ouverts) ; à voir avec Benjamin s'il faut en provoquer à la génération.
 
 ## 4. Unités, villes, camps, villages enfouis dans le relief (3D)
 Ils sont parfois « ensevelis » sous le relief. Hypothèse (à confirmer avec une capture) : leur

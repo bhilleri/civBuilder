@@ -12,8 +12,9 @@
 //! 4. **Mers, golfes, baies**, une question d'échelle : un cercle venu du large balaie la mer
 //!    (rayons de 1 à 12 cases) ; ce qu'il n'atteint pas est à l'abri derrière un goulet. Chaque
 //!    poche est prolongée jusqu'à la ligne entre les caps de son entrée et gardée si elle s'enfonce
-//!    assez par rapport à son entrée. Très fermée (entrée d'au plus un tiers de sa largeur) et
-//!    d'au moins 150 cases : mer fermée, balayée à son tour par son propre cercle (ses golfes et
+//!    assez par rapport à son entrée. Très fermée (seuil d'au plus un tiers de sa largeur ; le
+//!    seuil est le passage le plus étroit près de l'entrée, où un haut-fond compte pour moitié) et
+//!    d'au moins 150 cases : mer fermée, qui commence à son seuil, balayée à son tour par son propre cercle (ses golfes et
 //!    baies sont dedans). Sinon, bordée surtout par une terre : golfe (21 cases et plus, sans
 //!    limite haute) ou baie (3 à 20 cases) ; par plusieurs terres (île et continent, arc d'îles) :
 //!    mer bordière, prolongée sur le plateau continental voisin. Contours réguliers, sans trou ni
@@ -130,6 +131,9 @@ const WHOLE_BASIN_SHARE: f32 = 0.85;
 /// tant de cases (plus petite, ou plus ouverte : golfe).
 const CLOSED_MOUTH_SHARE: f32 = 0.33;
 const CLOSED_SEA_MIN_CELLS: usize = 150;
+/// Poids d'une case peu profonde (plateau) dans la largeur d'un passage : un seuil sous-marin
+/// ferme à demi (Gibraltar pour la Méditerranée, détroits danois pour la Baltique).
+const SILL_WEIGHT: f32 = 0.5;
 /// Identifiants provisoires des mers fermées vues comme des étendues à part (au-delà des océans).
 const CLOSED_BASE: u16 = 30_000;
 /// Largeur maximale d'un détroit (cases) et taille minimale des terres qu'il sépare.
@@ -362,7 +366,7 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
     //    a) Mers fermées : les poches très fermées et assez grandes, les plus grandes échelles
     //       d'abord, contours lissés
     let by_scale = |found: &mut Vec<Candidate>| found.sort_by(|a, b| b.scale.cmp(&a.scale).then(b.cells.len().cmp(&a.cells.len())).then(a.cells[0].cmp(&b.cells[0])));
-    let mut found = candidates(&grid, water, &dist, &seas.basin_of, &land_id, &land_size, ocean_min, true);
+    let mut found = candidates(&grid, water, shelf, &dist, &seas.basin_of, &land_id, &land_size, ocean_min, true);
     by_scale(&mut found);
     let basin_size = |c: usize| seas.basin_of[c].map_or(0, |b| seas.zones[b as usize].cells.len());
     let mut sea_cells: Vec<Vec<usize>> = Vec::new();
@@ -387,7 +391,7 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
     //       (ses golfes sont dedans) ; une baie peut être dans un golfe, un golfe dans une mer
     let closed_size: Vec<usize> = sea_cells.iter().map(Vec::len).collect();
     let region_of: Vec<Option<u16>> = (0..n).map(|c| sea_of[c].map_or(seas.basin_of[c], |s| Some(CLOSED_BASE + s as u16))).collect();
-    let mut found = candidates(&grid, water, &dist, &region_of, &land_id, &land_size, ocean_min, false);
+    let mut found = candidates(&grid, water, shelf, &dist, &region_of, &land_id, &land_size, ocean_min, false);
     by_scale(&mut found);
     let region_size = |c: usize| match region_of[c] {
         Some(r) if r >= CLOSED_BASE => closed_size[usize::from(r - CLOSED_BASE)],
@@ -585,9 +589,10 @@ struct Candidate {
 /// (surface rapportée au carré de l'entrée, profondeur). Bordée surtout par une seule terre :
 /// golfe (au moins `GULF_MIN_CELLS` cases) ou baie ; par plusieurs terres (île et continent, arc
 /// d'îles) et assez grande : mer bordière. Très fermée et assez grande (`closed_seas`) : mer fermée,
-/// quelles que soient ses terres.
+/// quelles que soient ses terres, qui commence à son seuil (le passage le plus étroit près de
+/// l'entrée, une case du plateau `shelf` y comptant pour moitié).
 #[allow(clippy::too_many_arguments)]
-fn candidates(grid: &Grid, water: &[bool], dist: &[u16], basin_of: &[Option<u16>], land_id: &[usize], land_size: &[usize], ocean_min: usize, closed_seas: bool) -> Vec<Candidate> {
+fn candidates(grid: &Grid, water: &[bool], shelf: &[bool], dist: &[u16], basin_of: &[Option<u16>], land_id: &[usize], land_size: &[usize], ocean_min: usize, closed_seas: bool) -> Vec<Candidate> {
     let n = water.len();
     let mut out = Vec::new();
     for &r in &SCALES {
@@ -775,9 +780,25 @@ fn candidates(grid: &Grid, water: &[bool], dist: &[u16], basin_of: &[Option<u16>
             if quality < min_quality || deepest < min_depth || (deepest as f32) < DEPTH_PER_MOUTH * mouth as f32 {
                 continue;
             }
-            // Largeur intérieure : deux fois l'éloignement maximal à la côte
+            // Mer fermée : largeur intérieure (deux fois l'éloignement maximal à la côte) et seuil,
+            // la plus étroite des tranches parallèles à l'entrée (cases à même éloignement de
+            // l'entrée), dans la première moitié de la poche ; une case peu profonde (plateau) y
+            // compte pour moitié : un haut-fond ferme à demi le passage
             let inside = 2 * pocket.iter().map(|&c| dist[c]).max().unwrap_or(0);
-            let closed = closed_seas && len >= CLOSED_SEA_MIN_CELLS && mouth as f32 <= CLOSED_MOUTH_SHARE * f32::from(inside.saturating_sub(1));
+            let mut section = vec![0f32; usize::from(deepest) + 1];
+            for (&c, &d) in &depth {
+                section[usize::from(d)] += if shelf[c] { SILL_WEIGHT } else { 1.0 };
+            }
+            let (sill, narrowest) =
+                (1..=usize::from((deepest / 2).max(1))).map(|k| (k, section[k])).min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0))).unwrap_or((1, mouth as f32));
+            let closed = closed_seas && narrowest <= CLOSED_MOUTH_SHARE * f32::from(inside.saturating_sub(1)) && {
+                // (la mer commence au seuil : ce qui est en deçà reste au large)
+                let kept = pocket.iter().filter(|&&c| usize::from(depth[&c]) >= sill).count();
+                kept >= CLOSED_SEA_MIN_CELLS
+            };
+            if closed {
+                pocket.retain(|c| usize::from(depth[c]) >= sill);
+            }
             let kind = if closed {
                 SeaKind::Sea
             } else if single {
@@ -1105,6 +1126,29 @@ mod tests {
         let gulf = seas.inlet_of[at(39, 5)].expect("golfe");
         assert_eq!(seas.zones[gulf as usize].kind, SeaKind::Gulf);
         assert_eq!(seas.zones[gulf as usize].parent, Some(sea as usize));
+    }
+
+    #[test]
+    fn seuil_sous_marin() {
+        // Une mer de 40 × 14 cases reliée à l'océan par un chenal de 6 cases de large : trop
+        // ouvert pour une mer fermée ; avec un haut-fond (plateau) en travers du chenal, le passage
+        // est à demi fermé, la mer fermée commence au seuil
+        let (w, h) = (100, 60);
+        let water: Vec<bool> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                y >= 40 || ((8..22).contains(&y) && (25..65).contains(&x)) || ((40..46).contains(&x) && (22..40).contains(&y))
+            })
+            .collect();
+        let at = |x: i32, y: i32| (y * w + x) as usize;
+        let sill: Vec<bool> = (0..w * h).map(|i| water[i as usize] && (40..46).contains(&(i % w)) && (30..33).contains(&(i / w))).collect();
+        let open = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()]);
+        assert!(open.coastal_of[at(45, 15)].is_none(), "sans seuil : pas de mer fermée");
+        let seas = compute(w, h, Wrap::NONE, &water, &sill);
+        let sea = seas.coastal_of[at(45, 15)].expect("mer fermée derrière le seuil");
+        assert_eq!(seas.zones[sea as usize].kind, SeaKind::Sea);
+        assert_eq!(seas.coastal_of[at(42, 26)], Some(sea), "le chenal en deçà du seuil est dans la mer");
+        assert!(seas.coastal_of[at(42, 37)].is_none(), "au-delà du seuil, le large");
     }
 
     #[test]

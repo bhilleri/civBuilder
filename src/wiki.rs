@@ -406,7 +406,7 @@ fn terrain() -> Article {
             p("La mer est partagée en étendues nommées, d'après ses côtes, de la plus vaste à la plus précise : les \
                océans (découpés là où la mer se resserre entre les terres ; le nom d'un grand océan est répété en \
                plusieurs endroits) ; les mers, fermées (derrière une entrée étroite par rapport à leur largeur, \
-               jusqu'à la ligne entre les caps, avec leurs golfes et baies) ou parties d'un océan à l'abri entre plusieurs \
+               un haut-fond la fermant à demi ; elles commencent à ce seuil, avec leurs golfes et baies) ou parties d'un océan à l'abri entre plusieurs \
                terres (une côte et des îles, un arc d'îles), prolongées sur le plateau continental ; les golfes \
                (21 cases et plus, sans limite : un golfe peut être immense) et les baies (3 à 20 cases), échancrures \
                d'une même terre derrière une entrée plus étroite qu'elles ne sont profondes, jusqu'à la ligne entre \
