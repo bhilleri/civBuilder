@@ -2,6 +2,15 @@
 
 ## 0.3.0 (en cours)
 
+### Déplacements et combats visibles, journal hiérarchisé
+- **Les unités ne se téléportent plus** : elles glissent case par case le long de leur trajet (0,15 s par case, un long trajet dure au plus 1 s), en 2D comme en 3D (figurines posées sur le relief pendant la marche ; anneau de sélection et barre de PV suivent).
+- **Combats mis en scène** : au corps à corps, l'attaquant s'élance vers sa cible et revient ; un tireur recule légèrement et un trait vole jusqu'à la cible. Au moment du coup, la cible tressaille, un cercle d'impact s'élargit et les **PV perdus s'affichent en chiffres flottants** au-dessus des deux unités (taille selon la force du coup). Les barres de PV gardent leur valeur jusqu'à l'impact.
+- **Unité dispersée** : elle s'efface sur place, avec « Dispersé ! » (ennemi) ou « Unité perdue » (la vôtre) et un cercle sombre.
+- **Villages et camps** : la récompense s'affiche sur le site à l'arrivée de l'unité (« +25 or », « +1 habitant à Paris », « Embuscade ! 2 milices »).
+- **Ordre de la fin du tour** : vos unités bougent ensemble, puis chaque action hostile visible se joue l'une après l'autre ; une action hostile hors de vue n'est pas montrée et ne fait pas attendre. Les règles restent instantanées : la mise en scène suit, sans jamais bloquer les commandes.
+- **Journal (en haut à droite) hiérarchisé** : chaque message a une importance (routine, information, succès, alerte, critique) et un liseré de sa couleur. Un nouveau message glisse depuis la droite et s'éclaire d'un flash qui s'éteint, plus long et en pulsations pour les alertes (2) et les messages critiques (3, avec un contour). Les alertes et messages critiques gardent une teinte de fond ; les anciens messages s'estompent. Critique : unité perdue, village hostile ; alerte : combat, famine, production bloquée ; succès : ville fondée, ennemi dispersé, récompense.
+- **Mode capture « mise en scène »** (`CIVBUILDER_CAPTURE_FEEDBACK=1` avec `CIVBUILDER_CAPTURE`) : un corps à corps, un tir, une attaque hostile mortelle et la visite d'un village, photographiés à sept instants de leur animation, en 2D puis en 3D.
+
 ### Continents moins compacts
 - **Plusieurs continents** au lieu d'une masse unique : la croûte continentale forme 4 à 6 grands blocs de tailles très inégales (aucun au-delà de 45 %) et 3 à 6 microcontinents, allongés et sinueux, séparés par l'océan (au moins ~280 km). Chaque grand bloc (hors le premier) a 15 % de chances de naître soudé à un autre (comme l'Afrique et l'Eurasie). Les blocs naissent loin des pôles et poussent moins volontiers aux hautes latitudes.
 - **Les continents ne suivent plus les plaques** : un continent peut chevaucher deux plaques (chaîne de collision ou rift en plein continent), une plaque porter un continent et un océan. La nature d'une frontière dépend de la croûte de part et d'autre (subduction le long d'un continent, arc d'îles plus loin en plein océan). Une plaque est dite continentale si elle porte surtout du continent ; sa vitesse dépend de sa part de continent. Infobulle de la carte des plaques : croûte de la case.

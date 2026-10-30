@@ -1,6 +1,7 @@
 //! État du jeu côté ECS : composants, ressources, initialisation et fin de tour.
 
 use crate::explore::{self, ExploreOutcome, ExploreWorld};
+use crate::feedback::{Actor, Cues};
 use crate::hex::Hex;
 use crate::hostile::{self, Blocked, Danger, EnemyZoc, Hostile, HostileTurnPending, KnownVillages, Occupancy, WorldSeed};
 use crate::map::WorldMap;
@@ -70,16 +71,57 @@ pub struct Territory(pub HashMap<Hex, Entity>);
 #[derive(Resource, Default)]
 pub struct Selection(pub Option<Entity>);
 
+/// Importance d'un message du journal : règle la force de sa mise en évidence à l'écran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Importance {
+    /// Retour d'une commande (ordre refusé, production choisie) : discret.
+    Routine,
+    /// Information de la partie (production terminée, croissance).
+    Info,
+    /// Bonne nouvelle (ville fondée, récompense, ennemi dispersé).
+    Success,
+    /// À surveiller (combat, famine, production bloquée).
+    Warning,
+    /// Grave (unité perdue, village hostile).
+    Critical,
+}
+
+/// Message du journal, numéroté pour que l'interface repère les nouveaux.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogEntry {
+    pub id: u64,
+    pub text: String,
+    pub importance: Importance,
+}
+
+/// Nombre de messages gardés au journal.
+pub const LOG_LENGTH: usize = 6;
+
 /// Journal des événements, affiché dans l'interface.
 #[derive(Resource, Default)]
-pub struct GameLog(pub Vec<String>);
+pub struct GameLog {
+    entries: Vec<LogEntry>,
+    next_id: u64,
+}
 
 impl GameLog {
+    /// Message de routine (retour d'une commande).
     pub fn push(&mut self, msg: impl Into<String>) {
-        self.0.push(msg.into());
-        if self.0.len() > 6 {
-            self.0.remove(0);
+        self.notify(Importance::Routine, msg);
+    }
+
+    /// Message d'une importance donnée.
+    pub fn notify(&mut self, importance: Importance, msg: impl Into<String>) {
+        self.entries.push(LogEntry { id: self.next_id, text: msg.into(), importance });
+        self.next_id += 1;
+        if self.entries.len() > LOG_LENGTH {
+            self.entries.remove(0);
         }
+    }
+
+    /// Messages gardés, du plus ancien au plus récent.
+    pub fn entries(&self) -> &[LogEntry] {
+        &self.entries
     }
 }
 
@@ -169,7 +211,7 @@ fn spawn_starting_units(
     spawn_unit(&mut commands, UnitKind::Militia, free.next().unwrap_or(start));
     spawn_unit(&mut commands, UnitKind::Scout, free.next().unwrap_or(start));
     selection.0 = Some(settler);
-    log.push("Bienvenue ! Fondez votre capitale avec le colon (touche B).");
+    log.notify(Importance::Info, "Bienvenue ! Fondez votre capitale avec le colon (touche B).");
 }
 
 /// Fonde une ville avec le colon `settler`. Retourne un message d'erreur si impossible.
@@ -224,10 +266,10 @@ pub fn move_unit(
     match unit.advance_exploring(&mut hex, map, &mut fog.explored, blocked, occupied, zoc) {
         MoveOutcome::Moved => {}
         MoveOutcome::Unreachable => {
-            log.push(format!("{} : destination inaccessible, ordre annulé.", unit.kind.name()));
+            log.notify(Importance::Info, format!("{} : destination inaccessible, ordre annulé.", unit.kind.name()));
         }
         MoveOutcome::TooLong => {
-            log.push(format!("{} : trajet bien plus long que prévu, ordre suspendu.", unit.kind.name()));
+            log.notify(Importance::Info, format!("{} : trajet bien plus long que prévu, ordre suspendu.", unit.kind.name()));
         }
     }
     relocate(pos, hex, occupied);
@@ -308,6 +350,7 @@ fn end_turn(
     danger: Res<Danger>,
     villages: Res<KnownVillages>,
     mut hostile_turn: ResMut<HostileTurnPending>,
+    mut cues: ResMut<Cues>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
 ) {
@@ -327,11 +370,11 @@ fn end_turn(
         state.gold += report.gold;
         let name = city.state.name.clone();
         if report.grew {
-            log.push(format!("{name} gagne un habitant."));
+            log.notify(Importance::Info, format!("{name} gagne un habitant."));
             claim_territory(&mut territory.0, *entity, *center, rules::territory_radius(city.state.population), map);
         }
         if report.starved {
-            log.push(format!("{name} souffre de famine !"));
+            log.notify(Importance::Warning, format!("{name} souffre de famine !"));
         }
         if let Some(kind) = report.built {
             new_units.push((*entity, kind, *center, name));
@@ -368,6 +411,7 @@ fn end_turn(
         if pos.0 != before {
             own.remove(&before);
             own.insert(pos.0);
+            cues.walk(entity, before, &unit.0.last_steps, Actor::Player);
         }
     }
 
@@ -377,7 +421,7 @@ fn end_turn(
             Some(at) => {
                 occupied.insert(at);
                 spawn_unit(&mut commands, kind, at);
-                log.push(format!("{name} a produit : {}.", kind.name()));
+                log.notify(Importance::Info, format!("{name} a produit : {}.", kind.name()));
             }
             None => {
                 if let Ok((_, _, mut city)) = cities.get_mut(city_entity) {
@@ -386,7 +430,7 @@ fn end_turn(
                         city.state.population += 1;
                     }
                 }
-                log.push(format!("{name} : pas de place pour {}, la production attend.", kind.name()));
+                log.notify(Importance::Warning, format!("{name} : pas de place pour {}, la production attend.", kind.name()));
             }
         }
     }

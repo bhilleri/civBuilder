@@ -5,6 +5,7 @@
 //! caméra active : ils restent lisibles quel que soit le zoom ou l'inclinaison.
 //! Les barres de PV des unités en 3D suivent le même principe (la 2D dessine les siennes).
 
+use crate::feedback::{HeldHp, Motion};
 use crate::game::{City, GameMap, ShownFog, HexPos, Unit};
 use crate::hostile::Hostile;
 use crate::rules::MAX_HP;
@@ -39,11 +40,13 @@ struct Anchor {
     /// Montrée seulement si sa case est explorée et assez grande à l'écran (rayon en pixels).
     explored_only: bool,
     min_px: f32,
+    /// Point du monde 2D suivi à la place du centre de la case (unité en déplacement mis en scène).
+    glide: Option<Vec2>,
 }
 
 impl Anchor {
     fn new(hex: Hex, up_2d: f32, up_3d: f32, only_3d: bool) -> Self {
-        Anchor { hex, up_2d, up_3d, only_3d, hidden: false, under_token: false, explored_only: false, min_px: 0.0 }
+        Anchor { hex, up_2d, up_3d, only_3d, hidden: false, under_token: false, explored_only: false, min_px: 0.0, glide: None }
     }
 }
 
@@ -707,25 +710,29 @@ fn spawn_hp_bars_3d(mut commands: Commands, units: Query<(Entity, &HexPos), Adde
 /// Suit l'unité (case, toit de ville, brouillard) et règle le remplissage ; la barre disparaît avec l'unité.
 fn update_hp_bars_3d(
     mut commands: Commands,
-    units: Query<(&Unit, &HexPos, Has<Hostile>)>,
+    time: Res<Time>,
+    units: Query<(&Unit, &HexPos, Has<Hostile>, Option<&Motion>, Option<&HeldHp>)>,
     cities: Query<&HexPos, With<City>>,
     fog: Res<ShownFog>,
     mut bars: Query<(Entity, &HpBar3d, &mut Anchor, &Children)>,
     mut fills: Query<(&mut Node, &mut BackgroundColor), With<HpFill3d>>,
 ) {
     for (entity, bar, mut anchor, children) in &mut bars {
-        let Ok((unit, pos, hostile)) = units.get(bar.0) else {
+        let Ok((unit, pos, hostile, motion, held)) = units.get(bar.0) else {
             commands.entity(entity).despawn();
             continue;
         };
-        let hp = unit.0.hp.clamp(0, MAX_HP);
-        let hidden = hp >= MAX_HP || (hostile && !fog.visible.contains(&pos.0));
-        let on_roof = if cities.iter().any(|c| c.0 == pos.0) { CITY_HEIGHT } else { 0.0 };
+        let now = time.elapsed_secs_f64();
+        let hp = HeldHp::shown(held, unit.0.hp, now).clamp(0, MAX_HP);
+        let glide = motion.and_then(|m| m.sample(now)).map(|p| p.at);
+        let hidden = hp >= MAX_HP || (hostile && motion.is_none() && !fog.visible.contains(&pos.0));
+        let on_roof = if glide.is_none() && cities.iter().any(|c| c.0 == pos.0) { CITY_HEIGHT } else { 0.0 };
         let up_3d = TOKEN_LIFT + on_roof;
-        if anchor.hex != pos.0 || anchor.hidden != hidden || anchor.up_3d != up_3d {
+        if anchor.hex != pos.0 || anchor.hidden != hidden || anchor.up_3d != up_3d || anchor.glide != glide {
             anchor.hex = pos.0;
             anchor.hidden = hidden;
             anchor.up_3d = up_3d;
+            anchor.glide = glide;
         }
         let ratio = hp as f32 / MAX_HP as f32;
         let color = if ratio > 0.6 {
@@ -767,7 +774,13 @@ fn place_labels(
     let tilt = (-transform.forward().y).clamp(0.2, 1.0);
     for (anchor, mut node, mut vis, is_city, is_site) in &mut labels {
         let world = if mode.is_3d {
-            to_3d(anchor.hex, shown_height(&map, &fog, anchor.hex) + anchor.up_3d)
+            match anchor.glide {
+                Some(p) => {
+                    let under = map.0.canonical(Hex::from_world(p.x, p.y));
+                    Vec3::new(p.x, shown_height(&map, &fog, under) + anchor.up_3d, -p.y)
+                }
+                None => to_3d(anchor.hex, shown_height(&map, &fog, anchor.hex) + anchor.up_3d),
+            }
         } else {
             let (x, y) = anchor.hex.to_world();
             Vec3::new(x, y + anchor.up_2d, 0.0)
@@ -962,7 +975,7 @@ fn update_hovered_label(mode: Res<HighlightMode>, names: Query<(&RiverName, &Int
 
 /// Copie d'un point du monde la plus proche de la caméra (planète : un tour près) : une
 /// étiquette vue au-delà du raccord s'affiche de ce côté-là.
-fn near_camera(map: &GameMap, p: Vec3, camera_x: f32) -> Vec3 {
+pub(crate) fn near_camera(map: &GameMap, p: Vec3, camera_x: f32) -> Vec3 {
     let world = map.0.wrap().world_width();
     if world <= 0.0 {
         return p;

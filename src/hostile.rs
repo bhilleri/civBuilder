@@ -6,7 +6,8 @@
 
 use crate::battle::{self, Side};
 use crate::combat::{self, Fate};
-use crate::game::{City, GameLog, GameMap, GameState, HexPos, Selection, Territory, Unit, claim_territory, spawn_unit};
+use crate::feedback::{Actor, Cues, Tone};
+use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, Selection, Territory, Unit, claim_territory, spawn_unit};
 use crate::hex::Hex;
 use crate::map::MoveCosts;
 use crate::rules::{self, UnitKind};
@@ -129,7 +130,8 @@ pub fn visit_sites(
     mut state: ResMut<GameState>,
     mut territory: ResMut<Territory>,
     mut log: ResMut<GameLog>,
-    movers: Query<(&Unit, &HexPos), (Without<Hostile>, Changed<HexPos>)>,
+    mut cues: ResMut<Cues>,
+    movers: Query<(Entity, &Unit, &HexPos), (Without<Hostile>, Changed<HexPos>)>,
     villages: Query<(Entity, &HexPos, &SiteName), With<Village>>,
     camps: Query<(Entity, &HexPos, &SiteName), With<Camp>>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
@@ -140,8 +142,10 @@ pub fn visit_sites(
     }
     let touched: HashSet<Hex> = movers
         .iter()
-        .flat_map(|(u, p)| u.0.last_steps.iter().copied().chain([p.0]))
+        .flat_map(|(_, u, p)| u.0.last_steps.iter().copied().chain([p.0]))
         .collect();
+    // Unité qui est passée sur une case (la récompense s'affiche à son arrivée)
+    let visitor = |h: Hex| movers.iter().find(|(_, u, p)| p.0 == h || u.0.last_steps.contains(&h)).map(|(e, ..)| e);
     let mut rng = rand::rng();
     let mut taken: HashSet<Hex> = others.iter().map(|p| p.0).chain(cities.iter().map(|(_, p, _)| p.0)).collect();
 
@@ -149,7 +153,8 @@ pub fn visit_sites(
         if touched.contains(&pos.0) {
             commands.entity(camp).despawn();
             state.gold += CAMP_CAPTURE_GOLD;
-            log.push(format!("{} dispersé : +{CAMP_CAPTURE_GOLD} or.", name.0));
+            log.notify(Importance::Success, format!("{} dispersé : +{CAMP_CAPTURE_GOLD} or.", name.0));
+            cues.reward(pos.0, visitor(pos.0), format!("+{CAMP_CAPTURE_GOLD} or"), Tone::Gold);
         }
     }
 
@@ -166,11 +171,13 @@ pub fn visit_sites(
                 city.state.population += 1;
                 let radius = rules::territory_radius(city.state.population);
                 claim_territory(&mut territory.0, entity, center.0, radius, &map.0);
-                log.push(format!("Village de {} : les habitants rejoignent {} (+1 habitant).", name.0, city.state.name));
+                log.notify(Importance::Success, format!("Village de {} : les habitants rejoignent {} (+1 habitant).", name.0, city.state.name));
+                cues.reward(pos.0, visitor(pos.0), format!("+1 habitant à {}", city.state.name), Tone::Growth);
             }
             VillageEvent::Trade { gold } => {
                 state.gold += gold;
-                log.push(format!("Village de {} : échanges commerciaux, +{gold} or.", name.0));
+                log.notify(Importance::Success, format!("Village de {} : échanges commerciaux, +{gold} or.", name.0));
+                cues.reward(pos.0, visitor(pos.0), format!("+{gold} or"), Tone::Gold);
             }
             VillageEvent::Hostile { warriors } => {
                 let mut free: Vec<Hex> = map
@@ -187,7 +194,9 @@ pub fn visit_sites(
                     spawn_hostile(&mut commands, at, pos.0);
                     spawned += 1;
                 }
-                log.push(format!("Village de {} hostile : {spawned} milice(s) hostile(s) surgissent !", name.0));
+                log.notify(Importance::Critical, format!("Village de {} hostile : {spawned} milice(s) hostile(s) surgissent !", name.0));
+                let text = if spawned > 1 { format!("Embuscade ! {spawned} milices") } else { "Embuscade !".to_string() };
+                cues.reward(pos.0, visitor(pos.0), text, Tone::Danger);
             }
         }
     }
@@ -200,6 +209,7 @@ pub fn hostile_turn(
     mut pending: ResMut<HostileTurnPending>,
     map: Res<GameMap>,
     mut log: ResMut<GameLog>,
+    mut cues: ResMut<Cues>,
     mut selection: ResMut<Selection>,
     mut camps: Query<(&HexPos, &mut Camp)>,
     mut hostiles: Query<(Entity, &mut Unit, &mut HexPos, &HostileHome), (With<Hostile>, Without<Camp>)>,
@@ -295,6 +305,7 @@ pub fn hostile_turn(
                     let (_, mut unit, mut pos, _) = hostiles.get_mut(entity).unwrap();
                     taken.remove(&pos.0);
                     taken.insert(next);
+                    cues.walk(entity, pos.0, &[next], Actor::Hostile);
                     pos.0 = next;
                     unit.0.moved_this_turn = true;
                 }
@@ -321,6 +332,7 @@ pub fn hostile_turn(
             unit.0.moved_this_turn = true;
             taken.remove(&pos.0);
             taken.insert(step);
+            cues.walk(entity, pos.0, &[step], Actor::Hostile);
             pos.0 = step;
             here = step;
             if unit.0.moves_left == 0 {
@@ -339,8 +351,9 @@ pub fn hostile_turn(
         let result = battle::fight(
             &mut commands,
             &mut log,
-            Side { entity, unit: &mut attacker.0, hostile: true },
-            Side { entity: prey, unit: &mut defender.0, hostile: false },
+            &mut cues,
+            Side { entity, at: here, unit: &mut attacker.0, hostile: true },
+            Side { entity: prey, at: prey_pos, unit: &mut defender.0, hostile: false },
             &e,
         );
         if result.defender_died {
@@ -353,6 +366,7 @@ pub fn hostile_turn(
                 let (_, _, mut pos, _) = hostiles.get_mut(entity).unwrap();
                 taken.remove(&pos.0);
                 taken.insert(prey_pos);
+                cues.walk(entity, pos.0, &[prey_pos], Actor::Hostile);
                 pos.0 = prey_pos;
             }
         }

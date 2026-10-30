@@ -286,6 +286,8 @@ struct Mirror3d {
     is_unit: bool,
     /// Dernier placement (case, reconstruction de son sol, sur un donjon) : replacée quand il change.
     placed: Option<(Hex, u32, bool)>,
+    /// Déplacée par une animation (`feedback`) : replacée sur sa case quand elle se termine.
+    animated: bool,
 }
 
 /// Élément d'une ville, d'un camp ou d'un village posé sur le sol à sa place (repère 2D par
@@ -456,6 +458,7 @@ impl Plugin for View3dPlugin {
                     update_decor_3d,
                     spawn_mirrors,
                     sync_mirrors,
+                    animate_mirrors,
                     far_icons,
                     scale_units,
                     draw_overlays_3d,
@@ -1594,7 +1597,7 @@ fn spawn_mirrors(
         // Socle aux couleurs du camp (incliné comme le sol), figurine debout dessus, icône du type
         // au-dessus en vue lointaine
         commands
-            .spawn((Mirror3d { source, is_unit: true, placed: None }, Transform::default(), Visibility::Hidden, layer()))
+            .spawn((Mirror3d { source, is_unit: true, placed: None, animated: false }, Transform::default(), Visibility::Hidden, layer()))
             .with_children(|p| {
                 p.spawn((Socle3d, Mesh3d(a.socle.clone()), MeshMaterial3d(material.clone()), Transform::default(), Visibility::Inherited, layer()));
                 // Barque (visible sur un fleuve) : coque et deux pointes
@@ -1665,7 +1668,7 @@ fn spawn_site_model(commands: &mut Commands, a: &Assets3d, meshes: &mut Assets<M
     let k = &a.sites;
     let none = Quat::IDENTITY;
     commands
-        .spawn((Mirror3d { source, is_unit: false, placed: None }, Transform::default(), Visibility::Hidden, layer()))
+        .spawn((Mirror3d { source, is_unit: false, placed: None, animated: false }, Transform::default(), Visibility::Hidden, layer()))
         .with_children(|p| {
             if is_camp {
                 p.spawn(patch(meshes, &k.camp_ground, outline(25.0, 24, 0.0, 1)));
@@ -1705,7 +1708,7 @@ fn spawn_city_model(commands: &mut Commands, a: &Assets3d, meshes: &mut Assets<M
     let k = &a.city;
     let none = Quat::IDENTITY;
     commands
-        .spawn((Mirror3d { source, is_unit: false, placed: None }, Transform::default(), Visibility::Hidden, layer()))
+        .spawn((Mirror3d { source, is_unit: false, placed: None, animated: false }, Transform::default(), Visibility::Hidden, layer()))
         .with_children(|p| {
             p.spawn(patch(meshes, &k.paving, outline(HEX_SIZE * 0.9, 6, 90.0, 4)));
             for i in 0..6 {
@@ -1782,7 +1785,8 @@ fn sync_mirrors(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
-    sources: Query<(&HexPos, Has<Hostile>, Has<Village>, Has<Camp>)>,
+    sources: Query<(&HexPos, Has<Hostile>, Has<Village>, Has<Camp>, Has<crate::feedback::Motion>)>,
+    retired: Query<(), With<crate::feedback::Retired>>,
     cities: Query<&HexPos, With<City>>,
     mut mirrors: Query<(Entity, &mut Mirror3d, &mut Transform, &mut Visibility, Option<&Children>)>,
     mut parts: Query<(&Grounded, &mut Transform), Without<Mirror3d>>,
@@ -1795,8 +1799,11 @@ fn sync_mirrors(
     let Some(relief) = relief else { return };
     let city_tiles: HashSet<Hex> = cities.iter().map(|p| map.0.canonical(p.0)).collect();
     for (entity, mut mirror, mut transform, mut vis, children) in &mut mirrors {
-        let Ok((pos, hostile, village, camp)) = sources.get(mirror.source) else {
-            commands.entity(entity).despawn();
+        let Ok((pos, hostile, village, camp, moving)) = sources.get(mirror.source) else {
+            // (une unité dispersée reste montrée le temps de son effacement)
+            if !retired.contains(mirror.source) {
+                commands.entity(entity).despawn();
+            }
             continue;
         };
         let hex = map.0.canonical(pos.0);
@@ -1871,7 +1878,7 @@ fn sync_mirrors(
             }
         }
         let visible = if hostile {
-            fog.visible.contains(&pos.0)
+            moving || fog.visible.contains(&pos.0)
         } else if village || camp {
             fog.explored.contains(&pos.0)
         } else {
@@ -1880,6 +1887,36 @@ fn sync_mirrors(
         let wanted_vis = if visible { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != wanted_vis {
             *vis = wanted_vis;
+        }
+    }
+}
+
+/// Figurines en déplacement mis en scène (`feedback`) : posées sur le sol au point de leur
+/// animation ; replacées exactement sur leur case quand elle se termine.
+fn animate_mirrors(
+    time: Res<Time>,
+    relief: Option<Res<Relief>>,
+    motions: Query<&crate::feedback::Motion>,
+    mut mirrors: Query<(&mut Mirror3d, &mut Transform)>,
+) {
+    let Some(relief) = relief else { return };
+    let now = time.elapsed_secs_f64();
+    for (mut mirror, mut transform) in &mut mirrors {
+        if !mirror.is_unit {
+            continue;
+        }
+        match motions.get(mirror.source).ok().and_then(|m| m.sample(now)) {
+            Some(pose) => {
+                mirror.animated = true;
+                transform.translation = relief.on_ground(pose.at.x, pose.at.y, 0.0);
+                transform.scale = Vec3::splat(pose.scale);
+            }
+            None if mirror.animated => {
+                mirror.animated = false;
+                mirror.placed = None;
+                transform.scale = Vec3::ONE;
+            }
+            None => {}
         }
     }
 }

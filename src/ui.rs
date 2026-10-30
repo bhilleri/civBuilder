@@ -1,6 +1,6 @@
 //! Interface : barre du haut, panneau de sélection, infos de case, journal, bouton de fin de tour.
 
-use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, Selection, Unit};
+use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, Importance, Selection, Unit};
 use crate::input::{HoverPath, HoveredHex, OrderPath};
 use crate::rules::{self, UnitKind};
 use crate::render::{
@@ -15,8 +15,21 @@ struct TopBarText;
 struct SelectionText;
 #[derive(Component)]
 struct HoverText;
+/// Journal (en haut à droite) : une ligne par message.
 #[derive(Component)]
-struct LogText;
+struct LogList;
+/// Ligne du journal : message, instant d'apparition, importance.
+#[derive(Component)]
+struct LogRow {
+    id: u64,
+    born: f64,
+    importance: Importance,
+}
+/// Liseré coloré et texte d'une ligne du journal.
+#[derive(Component)]
+struct LogAccent;
+#[derive(Component)]
+struct LogLine;
 #[derive(Component)]
 struct EndTurnButton;
 /// Bouton de bascule 2D / 3D.
@@ -69,6 +82,7 @@ impl Plugin for UiPlugin {
                     update_selection_panel,
                     update_hover_text,
                     update_log,
+                    animate_log.after(update_log),
                     update_basin_legend,
                 ),
             );
@@ -97,17 +111,19 @@ fn setup_ui(mut commands: Commands) {
         children![(TopBarText, text("", 18.0))],
     ));
 
-    // Journal (en haut à droite)
+    // Journal (en haut à droite) : les lignes sont ajoutées par `update_log`
     commands.spawn((
+        LogList,
         panel(Node {
             position_type: PositionType::Absolute,
             top: Val::Px(8.0),
             right: Val::Px(8.0),
-            max_width: Val::Px(420.0),
-            padding: UiRect::all(Val::Px(10.0)),
+            width: Val::Px(440.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(2.0),
+            padding: UiRect::all(Val::Px(5.0)),
             ..default()
         }),
-        children![(LogText, text("", 14.0))],
     ));
 
     // Panneau de production (à gauche, sous la barre du haut), masqué hors sélection de ville
@@ -1154,9 +1170,121 @@ fn update_hover_text(
     set_text(&mut text, content);
 }
 
-fn update_log(log: Res<GameLog>, mut text: Single<&mut Text, With<LogText>>) {
-    if log.is_changed() {
-        set_text(&mut text, log.0.join("\n"));
+/// Mise en évidence d'un message selon son importance : couleur du liseré, durée et force du
+/// flash d'arrivée, nombre de pulsations, teinte gardée ensuite, couleur du texte.
+struct LogStyle {
+    accent: Color,
+    flash_secs: f64,
+    pulses: f32,
+    peak: f32,
+    resting: f32,
+    text: Color,
+}
+
+fn log_style(importance: Importance) -> LogStyle {
+    match importance {
+        Importance::Routine => LogStyle { accent: Color::srgb(0.45, 0.47, 0.52), flash_secs: 0.0, pulses: 1.0, peak: 0.0, resting: 0.0, text: Color::srgb(0.72, 0.73, 0.77) },
+        Importance::Info => LogStyle { accent: Color::srgb(0.35, 0.62, 1.0), flash_secs: 0.9, pulses: 1.0, peak: 0.22, resting: 0.0, text: Color::srgb(0.92, 0.92, 0.95) },
+        Importance::Success => LogStyle { accent: Color::srgb(0.98, 0.78, 0.28), flash_secs: 1.3, pulses: 1.0, peak: 0.32, resting: 0.05, text: Color::srgb(0.98, 0.95, 0.86) },
+        Importance::Warning => LogStyle { accent: Color::srgb(1.0, 0.56, 0.16), flash_secs: 1.8, pulses: 2.0, peak: 0.40, resting: 0.08, text: Color::srgb(1.0, 0.93, 0.85) },
+        Importance::Critical => LogStyle { accent: Color::srgb(0.96, 0.24, 0.20), flash_secs: 2.6, pulses: 3.0, peak: 0.55, resting: 0.14, text: Color::srgb(1.0, 0.88, 0.85) },
+    }
+}
+
+/// Lignes du journal : retire celles qui en sont sorties, ajoute les nouvelles en bas.
+fn update_log(
+    mut commands: Commands,
+    time: Res<Time>,
+    log: Res<GameLog>,
+    list: Single<Entity, With<LogList>>,
+    rows: Query<(Entity, &LogRow)>,
+) {
+    if !log.is_changed() {
+        return;
+    }
+    let now = time.elapsed_secs_f64();
+    let entries = log.entries();
+    for (entity, row) in &rows {
+        if !entries.iter().any(|e| e.id == row.id) {
+            commands.entity(entity).despawn();
+        }
+    }
+    let shown: Vec<u64> = rows.iter().map(|(_, r)| r.id).collect();
+    for entry in entries.iter().filter(|e| !shown.contains(&e.id)) {
+        let style = log_style(entry.importance);
+        let size = if entry.importance == Importance::Critical { 15.0 } else { 14.0 };
+        commands.entity(*list).with_child((
+            LogRow { id: entry.id, born: now, importance: entry.importance },
+            Node {
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(7.0),
+                padding: UiRect::new(Val::Px(0.0), Val::Px(8.0), Val::Px(3.0), Val::Px(3.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            Outline::new(Val::Px(1.0), Val::ZERO, Color::NONE),
+            UiTransform::default(),
+            children![
+                (LogAccent, Node { width: Val::Px(3.0), border_radius: BorderRadius::all(Val::Px(2.0)), ..default() }, BackgroundColor(style.accent)),
+                (LogLine, Node { flex_grow: 1.0, flex_shrink: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), ..default() }, Text::new(entry.text.clone()), TextFont::from_font_size(size), TextColor(style.text)),
+            ],
+        ));
+    }
+}
+
+/// Animation des lignes du journal : glissement d'entrée, flash (et pulsations pour les messages
+/// importants) qui s'éteint, teinte gardée pour les alertes, messages anciens estompés.
+fn animate_log(
+    time: Res<Time>,
+    log: Res<GameLog>,
+    mut rows: Query<(&LogRow, &Children, &mut BackgroundColor, &mut Outline, &mut UiTransform), Without<LogAccent>>,
+    mut texts: Query<&mut TextColor, With<LogLine>>,
+) {
+    let now = time.elapsed_secs_f64();
+    let newest = log.entries().last().map_or(0, |e| e.id);
+    for (row, children, mut bg, mut outline, mut ui) in &mut rows {
+        let style = log_style(row.importance);
+        let age = now - row.born;
+        // Glissement depuis la droite et léger grossissement à l'arrivée (plus marqué si grave)
+        let enter = (age / 0.3).clamp(0.0, 1.0) as f32;
+        let ease = 1.0 - (1.0 - enter) * (1.0 - enter);
+        let grow = if row.importance >= Importance::Warning { 0.05 } else { 0.0 };
+        let translation = Val2::px(28.0 * (1.0 - ease), 0.0);
+        let scale = Vec2::splat(1.0 + grow * (1.0 - ease));
+        if ui.translation != translation || ui.scale != scale {
+            ui.translation = translation;
+            ui.scale = scale;
+        }
+        // Flash qui s'éteint, en pulsations pour les alertes
+        let flash = if age < style.flash_secs {
+            let u = (age / style.flash_secs) as f32;
+            let pulse = if style.pulses > 1.0 { 0.55 + 0.45 * (u * style.pulses * std::f32::consts::TAU).cos() } else { 1.0 };
+            style.peak * (1.0 - u) * pulse
+        } else {
+            0.0
+        };
+        let tint = style.accent.with_alpha(style.resting.max(flash));
+        if bg.0 != tint {
+            bg.0 = tint;
+        }
+        let ring = if row.importance >= Importance::Warning { style.accent.with_alpha(flash * 1.6) } else { Color::NONE };
+        if outline.color != ring {
+            outline.color = ring;
+        }
+        // Anciens messages estompés (les alertes restent lisibles)
+        let rank = newest.saturating_sub(row.id) as f32;
+        let floor = if row.importance >= Importance::Warning { 0.8 } else { 0.55 };
+        let alpha = (1.0 - 0.09 * rank).max(floor) * ease.max(0.15);
+        for child in children.iter() {
+            if let Ok(mut color) = texts.get_mut(child) {
+                let wanted = style.text.with_alpha(alpha);
+                if color.0 != wanted {
+                    color.0 = wanted;
+                }
+            }
+        }
     }
 }
 

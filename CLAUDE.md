@@ -17,7 +17,8 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   montagne, trois unités en barque sur un fleuve, carte révélée), passe en 3D, enregistre ~8 vues en PNG dans le dossier (ville, unités,
   vue lointaine, camp, village, carte des courants marins) puis se ferme (≈ 30 s après la génération). Lire les images pour
   vérifier un rendu ; ajouter des vues dans `src/capture.rs` si besoin. Le dossier de captures
-  va dans le scratchpad, pas dans le dépôt.
+  va dans le scratchpad, pas dans le dépôt. Avec `CIVBUILDER_CAPTURE_FEEDBACK=1` en plus : animations
+  des combats et d'une visite de village (`feedback.rs`), vues à sept instants, en 2D puis en 3D.
 - Tests : `cargo test --no-default-features` (suite complète ≈ 5-6 min : la génération des mondes
   est longue ; pendant le développement, lancer les tests du module touché, par ex.
   `cargo test --no-default-features seas::`).

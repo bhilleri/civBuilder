@@ -126,6 +126,7 @@ Tests unitaires de la logique (hexagones, carte, climat, hydrologie, pathfinding
 - **Flanquement** : +2 en attaque de mêlée par allié adjacent à la cible.
 - **Zone de contrôle** (infanterie de mêlée : milice, guerriers, lanciers, piquiers) : une unité ennemie qui entre sur une case adjacente s'arrête pour le tour ; elle peut encore attaquer. Le trajet d'approche d'une attaque ne traverse pas de zone de contrôle.
 - **Soins** : +10 PV par tour sans bouger ni combattre (+20 en territoire ami).
+- **Mise en scène** (module `feedback.rs`) : les règles sont instantanées, l'affichage suit. Déplacements case par case, élan de l'attaquant ou trait du tireur, chiffres flottants des PV perdus, effacement des unités dispersées, récompense des villages sur place ; vos unités d'abord, puis chaque action hostile visible l'une après l'autre. Journal hiérarchisé par importance (liseré coloré, flash et pulsations à l'arrivée selon la gravité).
 - **Hostiles** : ils attaquent vos unités à 2 cases au plus (près de leur base), seulement si le combat leur est favorable ; blessés, ils restent sur place pour se soigner. Un camp vide est dispersé en y entrant (+25 or).
 
 ## Architecture
@@ -151,17 +152,18 @@ src/
 ├── units.rs        Types d'unités et statistiques (pur, testé)
 ├── combat.rs       Combat : mêlée et tir, charge, terrain, flanquement, hauteur, prévision (pur, testé)
 ├── battle.rs       ECS : engagement (terrain, flanquement), combat, journal, dispersion
+├── feedback.rs     Mise en scène des actions : glissements, élans et tirs, chiffres flottants, effacements (calendrier testé)
 ├── rules.rs        Déplacements, soins, villes, croissance, production (pur, testé)
 ├── game.rs         ECS : composants, ressources, fin de tour, brouillard
 ├── render.rs       Affichage des cases, unités, villes, frontières
 ├── input.rs        Caméra, sélection, ordres
-├── ui.rs           Interface (barre du haut, panneaux, journal, boutons)
+├── ui.rs           Interface (barre du haut, panneaux, journal hiérarchisé, boutons)
 ├── wiki.rs         Wiki du jeu : contenu tiré des données et des règles, fenêtre de lecture
 ├── labels.rs       Étiquettes ancrées sur la carte (bannières des villes, tours d'arrivée en 3D)
 ├── search.rs       Accès aux lieux : recherche (index, filtres), légendes et étiquettes cliquables, cadrage de la caméra
 ├── relief.rs       Relief continu de la vue 3D : profil des cases, raccords, maillage (pur, testé)
 ├── figures.rs      Figurines 3D des unités, faites de formes simples (une par type)
-├── capture.rs      Mode capture (CIVBUILDER_CAPTURE) : mise en scène, vues 3D enregistrées en PNG
+├── capture.rs      Mode capture (CIVBUILDER_CAPTURE) : mise en scène, vues 3D enregistrées en PNG (CIVBUILDER_CAPTURE_FEEDBACK : animations des combats)
 └── view3d.rs       Vue 3D optionnelle (relief, forêts, figurines, villes et camps posés sur le sol), synchronisée avec la vue 2D
 ```
 

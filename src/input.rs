@@ -6,6 +6,7 @@ use crate::game::{
 };
 use crate::hex::Hex;
 use crate::explore::ExploreWorld;
+use crate::feedback::{Actor, Cues};
 use crate::battle::{self, Side};
 use crate::combat::{self, Preview};
 use crate::hostile::{Blocked, Danger, EnemyZoc, Hostile, KnownVillages, Occupancy};
@@ -267,6 +268,7 @@ fn mouse_commands(
     enemy_zoc: Res<EnemyZoc>,
     mut selection: ResMut<Selection>,
     mut log: ResMut<GameLog>,
+    mut cues: ResMut<Cues>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
     mut hostiles: Query<(Entity, &mut Unit, &HexPos), With<Hostile>>,
     cities: Query<(Entity, &HexPos), With<City>>,
@@ -317,6 +319,7 @@ fn mouse_commands(
         if !approach.is_empty() {
             unit.0.set_order(pos.0, approach, &known);
             move_unit(&mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            cues.walk(selected, from, &unit.0.last_steps, Actor::Player);
             if !rules::in_attack_position(&map.0, kind, pos.0, target) || unit.0.moves_left == 0 {
                 log.push(format!("{} : approche interrompue.", kind.name()));
                 return;
@@ -329,14 +332,16 @@ fn mouse_commands(
         let result = battle::fight(
             &mut commands,
             &mut log,
-            Side { entity: selected, unit: &mut unit.0, hostile: false },
-            Side { entity: foe, unit: &mut foe_unit.0, hostile: true },
+            &mut cues,
+            Side { entity: selected, at: here, unit: &mut unit.0, hostile: false },
+            Side { entity: foe, at: target, unit: &mut foe_unit.0, hostile: true },
             &e,
         );
         if result.attacker_died {
             selection.0 = None;
         } else if result.attacker_advances() {
             // Le vainqueur d'un corps à corps avance sur la case libérée
+            cues.walk(selected, here, &[target], Actor::Player);
             pos.0 = target;
             unit.0.last_steps = vec![target];
         }
@@ -359,6 +364,8 @@ fn mouse_commands(
         let [(_, mut a, mut pa), (_, _, mut pb)] = units.get_many_mut([selected, other]).unwrap();
         pa.0 = target;
         pb.0 = from;
+        cues.walk(selected, from, &[target], Actor::Player);
+        cues.walk(other, target, &[from], Actor::Player);
         a.0.clear_order();
         a.0.moves_left = a.0.moves_left.saturating_sub(cost.unwrap_or(1));
         a.0.moved_this_turn = true;
@@ -373,6 +380,9 @@ fn mouse_commands(
         Some(path) => {
             unit.0.set_order(pos.0, path, &known);
             move_unit(&mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            if pos.0 != from {
+                cues.walk(selected, from, &unit.0.last_steps, Actor::Player);
+            }
         }
         None => log.push("Destination inaccessible."),
     }
@@ -388,14 +398,14 @@ fn keyboard_commands(
     mut log: ResMut<GameLog>,
     mut end_turn: ResMut<EndTurnRequested>,
     mut fog: ResMut<Fog>,
-    knowledge: (Res<Blocked>, Res<Occupancy>, Res<Danger>, Res<KnownVillages>),
+    knowledge: (Res<Blocked>, Res<Occupancy>, Res<Danger>, Res<KnownVillages>, ResMut<Cues>),
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
     mut cities: Query<(&mut City, &HexPos)>,
     camera: Single<&mut Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
     mut cam3d: ResMut<crate::view3d::Cam3d>,
 ) {
     // Ce que le joueur sait de la carte (regroupé : un système Bevy accepte 16 paramètres au plus)
-    let (blocked, occupancy, danger, villages) = knowledge;
+    let (blocked, occupancy, danger, villages, mut cues) = knowledge;
     if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
         end_turn.0 = true;
     }
@@ -453,7 +463,11 @@ fn keyboard_commands(
                     .villages(&villages.0)
                     .danger(&danger.0)
                 .threats(&threats);
+                let before = pos.0;
                 explore_unit(&mut unit.0, &mut pos, &world, &mut occupied, &mut fog, &mut log);
+                if pos.0 != before {
+                    cues.walk(entity, before, &unit.0.last_steps, Actor::Player);
+                }
             }
         }
         if keys.just_pressed(KeyCode::KeyB) {
@@ -464,7 +478,7 @@ fn keyboard_commands(
                 let existing: Vec<Hex> = cities.iter().map(|(_, p)| p.0).collect();
                 match found_city(&mut commands, entity, at, &map.0, &existing, &mut state, &mut territory) {
                     Ok(city) => {
-                        log.push(format!("Nouvelle ville fondée (tour {}).", state.turn));
+                        log.notify(crate::game::Importance::Success, format!("Nouvelle ville fondée (tour {}).", state.turn));
                         selection.0 = Some(city);
                     }
                     Err(reason) => log.push(format!("Impossible de fonder ici : {reason}.")),

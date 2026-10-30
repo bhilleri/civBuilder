@@ -2,7 +2,9 @@
 //! résultat aux deux unités, l'inscrit au journal et disperse les vaincus.
 
 use crate::combat::{self, AttackKind, Engagement, Fighter};
-use crate::game::GameLog;
+use crate::feedback::{Actor, Cue, Cues, Retired, Strike};
+use crate::game::{GameLog, HexPos, Importance, Unit};
+use crate::hostile::{Hostile, HostileHome};
 use crate::hex::Hex;
 use crate::map::{Terrain, WorldMap};
 use crate::rules::{self, UnitState};
@@ -12,6 +14,8 @@ use bevy::prelude::*;
 /// Une unité engagée dans un combat.
 pub struct Side<'a> {
     pub entity: Entity,
+    /// Case de l'unité au moment du combat.
+    pub at: Hex,
     pub unit: &'a mut UnitState,
     pub hostile: bool,
 }
@@ -73,8 +77,14 @@ impl FightResult {
     }
 }
 
-/// Résout un combat, l'inscrit au journal et disperse les unités à 0 PV.
-pub fn fight(commands: &mut Commands, log: &mut GameLog, attacker: Side, defender: Side, e: &Engagement) -> FightResult {
+/// Retire du jeu une unité dispersée ; elle reste montrée le temps de son effacement
+/// (voir `feedback`), puis disparaît.
+fn retire(commands: &mut Commands, entity: Entity) {
+    commands.entity(entity).remove::<(Unit, HexPos, Hostile, HostileHome)>().insert(Retired);
+}
+
+/// Résout un combat, l'inscrit au journal, le fait mettre en scène et disperse les unités à 0 PV.
+pub fn fight(commands: &mut Commands, log: &mut GameLog, cues: &mut Cues, attacker: Side, defender: Side, e: &Engagement) -> FightResult {
     let (att_name, def_name) = (label(&attacker), label(&defender));
     let outcome = combat::apply(attacker.unit, defender.unit, e, &mut rand::rng());
     let mut msg = match outcome.kind {
@@ -98,15 +108,39 @@ pub fn fight(commands: &mut Commands, log: &mut GameLog, attacker: Side, defende
         attacker_died: outcome.attacker_hp == 0,
         defender_died: outcome.defender_hp == 0,
     };
+    cues.0.push(Cue::Strike(Strike {
+        attacker: attacker.entity,
+        defender: defender.entity,
+        from: attacker.at,
+        target: defender.at,
+        ranged: outcome.kind == AttackKind::Ranged,
+        actor: if attacker.hostile { Actor::Hostile } else { Actor::Player },
+        // (PV réellement perdus : un coup ne retire pas plus que ce qui reste)
+        to_defender: e.defender.hp - outcome.defender_hp,
+        to_attacker: e.attacker.hp - outcome.attacker_hp,
+        attacker_hp: outcome.attacker_hp,
+        defender_hp: outcome.defender_hp,
+        defender_is_player: !defender.hostile,
+    }));
     if result.defender_died {
         msg += &format!(" {} est dispersé(e) !", capitalize(&def_name));
-        commands.entity(defender.entity).despawn();
+        retire(commands, defender.entity);
     }
     if result.attacker_died {
         msg += &format!(" {} est dispersé(e) !", capitalize(&att_name));
-        commands.entity(attacker.entity).despawn();
+        retire(commands, attacker.entity);
     }
-    log.push(msg);
+    // Perte d'une unité du joueur : critique ; ennemi dispersé : succès ; sinon combat (alerte)
+    let lost = (result.defender_died && !defender.hostile) || (result.attacker_died && !attacker.hostile);
+    let won = (result.defender_died && defender.hostile) || (result.attacker_died && attacker.hostile);
+    let importance = if lost {
+        Importance::Critical
+    } else if won {
+        Importance::Success
+    } else {
+        Importance::Warning
+    };
+    log.notify(importance, msg);
     result
 }
 

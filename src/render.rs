@@ -1,5 +1,6 @@
 //! Affichage : cases de la carte, brouillard, unités, villes, frontières (gizmos).
 
+use crate::feedback::{HeldHp, Motion};
 use crate::game::{City, Fog, GameMap, HexPos, Selection, ShownFog, Territory, Unit};
 use crate::pathfinding::reachable;
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
@@ -1252,22 +1253,29 @@ fn add_unit_visuals(
 }
 
 /// Met à jour les barres de PV des unités dont l'état a changé.
+/// Pendant un combat mis en scène, la barre garde les PV d'avant le coup jusqu'à l'impact.
 fn update_hp_bars(
     palette: Res<Palette>,
-    units: Query<(&Unit, &Children), Changed<Unit>>,
+    time: Res<Time>,
+    units: Query<(&Unit, &Children, Option<&HeldHp>), Or<(Changed<Unit>, With<HeldHp>)>>,
     mut bars: Query<&mut Visibility, (With<HpBar>, Without<HpFill>)>,
     mut fills: Query<(&mut Transform, &mut MeshMaterial2d<ColorMaterial>, &mut Visibility), With<HpFill>>,
 ) {
-    for (unit, children) in &units {
-        let hp = unit.0.hp.clamp(0, crate::rules::MAX_HP);
+    let now = time.elapsed_secs_f64();
+    for (unit, children, held) in &units {
+        let hp = HeldHp::shown(held, unit.0.hp, now).clamp(0, crate::rules::MAX_HP);
         let wounded = hp < crate::rules::MAX_HP;
         let shown = if wounded { Visibility::Inherited } else { Visibility::Hidden };
         for child in children.iter() {
-            if let Ok(mut vis) = bars.get_mut(child) {
+            if let Ok(mut vis) = bars.get_mut(child)
+                && *vis != shown
+            {
                 *vis = shown;
             }
             if let Ok((mut transform, mut material, mut vis)) = fills.get_mut(child) {
-                *vis = shown;
+                if *vis != shown {
+                    *vis = shown;
+                }
                 let ratio = hp as f32 / crate::rules::MAX_HP as f32;
                 transform.scale.x = HP_BAR_WIDTH * ratio;
                 transform.translation.x = -HP_BAR_WIDTH * (1.0 - ratio) / 2.0;
@@ -1335,11 +1343,12 @@ fn add_site_visuals(
     }
 }
 
-/// Visibilité selon le brouillard : sites une fois découverts, guerriers hostiles seulement à vue.
+/// Visibilité selon le brouillard : sites une fois découverts, guerriers hostiles seulement à vue
+/// (ou pendant un déplacement mis en scène, qui n'est montré que s'il passe à vue).
 fn update_entity_visibility(
     fog: Res<ShownFog>,
     mut sites: Query<(&HexPos, &mut Visibility), (Or<(With<Village>, With<Camp>)>, Without<Hostile>)>,
-    mut hostiles: Query<(&HexPos, &mut Visibility), With<Hostile>>,
+    mut hostiles: Query<(&HexPos, &mut Visibility, Has<Motion>), With<Hostile>>,
 ) {
     let apply = |visible: bool, vis: &mut Visibility| {
         let wanted = if visible { Visibility::Inherited } else { Visibility::Hidden };
@@ -1350,8 +1359,8 @@ fn update_entity_visibility(
     for (pos, mut vis) in &mut sites {
         apply(fog.explored.contains(&pos.0), &mut vis);
     }
-    for (pos, mut vis) in &mut hostiles {
-        apply(fog.visible.contains(&pos.0), &mut vis);
+    for (pos, mut vis, moving) in &mut hostiles {
+        apply(moving || fog.visible.contains(&pos.0), &mut vis);
     }
 }
 
@@ -1532,7 +1541,9 @@ fn spawn_turn_labels(
     }
 }
 
-fn sync_transforms(mut moved: Query<(&HexPos, &mut Transform), Changed<HexPos>>) {
+/// Recale les entités sur leur case quand elles changent de case (les animations de `feedback`
+/// s'appliquent ensuite).
+pub(crate) fn sync_transforms(mut moved: Query<(&HexPos, &mut Transform), Changed<HexPos>>) {
     for (pos, mut transform) in &mut moved {
         let z = transform.translation.z;
         transform.translation = hex_translation(pos.0, z);
@@ -1549,6 +1560,8 @@ fn draw_overlays(
     positions: Query<&HexPos>,
     units: Query<&Unit>,
     cities: Query<&City>,
+    motions: Query<&Motion>,
+    time: Res<Time>,
 ) {
     // Frontières : arêtes entre une case possédée et une case non possédée (ou d'une autre ville)
     for (&hex, &owner) in &territory.0 {
@@ -1562,8 +1575,10 @@ fn draw_overlays(
 
     let Some(selected) = selection.0 else { return };
     let Ok(pos) = positions.get(selected) else { return };
+    // (l'anneau suit l'unité pendant son déplacement mis en scène)
     let (x, y) = pos.0.to_world();
-    gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.85, Color::srgb(1.0, 0.9, 0.2));
+    let ring = motions.get(selected).ok().and_then(|m| m.sample(time.elapsed_secs_f64())).map_or(Vec2::new(x, y), |p| p.at);
+    gizmos.circle_2d(ring, HEX_SIZE * 0.85, Color::srgb(1.0, 0.9, 0.2));
 
     if let Ok(city) = cities.get(selected) {
         for h in &city.worked {

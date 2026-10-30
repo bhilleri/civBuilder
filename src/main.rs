@@ -12,6 +12,7 @@ mod combat;
 mod currents;
 mod erosion;
 mod explore;
+mod feedback;
 mod figures;
 mod game;
 mod hex;
@@ -53,5 +54,6 @@ fn main() {
             ..default()
         }))
         .add_plugins((fonts::FontsPlugin, game::GamePlugin, hostile::HostilePlugin, render::RenderPlugin, input::InputPlugin, ui::UiPlugin, view3d::View3dPlugin, labels::LabelsPlugin, highlight::HighlightPlugin, options::OptionsPlugin, wiki::WikiPlugin, menu::MenuPlugin, seam::SeamPlugin, search::SearchPlugin, capture::CapturePlugin))
+        .add_plugins(feedback::FeedbackPlugin)
         .run();
 }

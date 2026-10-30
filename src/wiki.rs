@@ -586,6 +586,15 @@ fn mechanics() -> Article {
                attaque ne traverse pas de zone de contrôle."),
             h("Soins"),
             p("Une unité qui ne bouge ni ne combat pendant un tour récupère 10 PV (20 en territoire ami)."),
+            h("Sur la carte"),
+            p("Les unités se déplacent case par case et les combats se voient : élan de l'attaquant ou trait du \
+               tireur, PV perdus en chiffres rouges au-dessus des deux unités, « Dispersé ! » ou « Unité perdue » \
+               quand une unité disparaît. La récompense d'un village ou d'un camp s'affiche sur place. En fin de \
+               tour, vos unités bougent d'abord, puis les actions barbares visibles se jouent l'une après l'autre."),
+            p("Journal (en haut à droite) : la couleur du liseré dit l'importance du message — gris pour un retour \
+               de commande, bleu pour une information, doré pour une bonne nouvelle, orange pour une alerte \
+               (combat, famine), rouge pour un message critique (unité perdue, village hostile). Les alertes et \
+               messages critiques clignotent à leur arrivée et restent teintés."),
         ],
     }
 }

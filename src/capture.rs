@@ -6,6 +6,9 @@
 //! Avec en plus `CIVBUILDER_CAPTURE_EXPLORE=1`, la carte n'est pas révélée : un éclaireur longe un
 //! fleuve case par case (exploration progressive, relief 3D construit au fil des pas), puis des
 //! vues sont prises le long de son trajet (bords des cours d'eau découverts en marchant).
+//! Avec `CIVBUILDER_CAPTURE_FEEDBACK=1` : mise en scène des actions (voir `feedback`) — un corps à
+//! corps, un tir, une attaque hostile mortelle et la visite d'un village, photographiés à
+//! plusieurs instants de leur animation, en 2D puis en 3D.
 
 use crate::game::{DebugMode, GameMap, GameState, HexPos, ShownFog, Territory, Unit, found_city, spawn_unit};
 use crate::hex::Hex;
@@ -36,6 +39,11 @@ impl Plugin for CapturePlugin {
             return;
         }
         info!("Mode capture : images dans {}", dir.display());
+        if std::env::var_os("CIVBUILDER_CAPTURE_FEEDBACK").is_some() {
+            app.insert_resource(FeedbackCapture { dir, frame: 0, round: 0, cast: Vec::new(), started: None, shot: 0, wait: 0 })
+                .add_systems(Update, run_feedback_capture);
+            return;
+        }
         let explore = std::env::var_os("CIVBUILDER_CAPTURE_EXPLORE").is_some();
         app.insert_resource(Capture { dir, frame: 0, shots: Vec::new(), next: 0, wait: 0, shooting: false, explore, walk: Vec::new(), walker: None })
             .add_systems(Update, run_capture);
@@ -258,4 +266,160 @@ fn run_capture(
         }
         _ => {}
     }
+}
+
+/// Instants (s après les actions) des vues prises pendant la mise en scène.
+const FEEDBACK_SHOTS: [f64; 7] = [0.1, 0.22, 0.36, 0.6, 0.85, 1.15, 1.6];
+
+/// Mode capture de la mise en scène : un tour par vue (2D puis 3D).
+#[derive(Resource)]
+struct FeedbackCapture {
+    dir: PathBuf,
+    frame: u32,
+    /// 0 : vue 2D, 1 : vue 3D.
+    round: u32,
+    /// Acteurs du tour : cavalier, milice blessée, archer, milice mourante, lancier mourant,
+    /// guerrier hostile, éclaireur, puis cases du village et de l'étape avant lui.
+    cast: Vec<(Entity, Hex)>,
+    started: Option<f64>,
+    shot: usize,
+    wait: u32,
+}
+
+/// Zone de terre (rayon 3 entièrement franchissable) la plus proche de `near`, à au moins `away`
+/// cases de `avoid`.
+fn land_patch(m: &crate::map::WorldMap, near: Hex, avoid: Option<Hex>, away: i32) -> Option<Hex> {
+    let passable = |h: Hex| {
+        let h = m.canonical(h);
+        m.contains(h) && m.get(h).is_some_and(|t| t.move_cost().is_some()) && m.relief(h) != Relief::Peak
+    };
+    let mut by_distance: Vec<Hex> = m.hexes().collect();
+    by_distance.sort_by_key(|&h| m.distance(h, near));
+    by_distance.into_iter().find(|&h| avoid.is_none_or(|a| m.distance(a, h) >= away) && m.range(h, 3).all(passable))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_feedback_capture(
+    mut commands: Commands,
+    mut capture: ResMut<FeedbackCapture>,
+    map: Res<GameMap>,
+    time: Res<Time>,
+    mut mode: ResMut<ViewMode>,
+    mut cam: ResMut<Cam3d>,
+    mut debug: ResMut<DebugMode>,
+    mut log: ResMut<crate::game::GameLog>,
+    mut cues: ResMut<crate::feedback::Cues>,
+    mut units: Query<(&mut Unit, &mut HexPos)>,
+    camera: Single<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    use crate::battle::{Side, engagement, fight};
+    use crate::feedback::Actor;
+    capture.frame += 1;
+    if capture.wait > 0 {
+        capture.wait -= 1;
+        return;
+    }
+    let m = &map.0;
+    let at = |h: Hex, dq: i32, dr: i32| m.canonical(h + Hex::new(dq, dr));
+    // Mise en place d'un tour : les acteurs autour d'une zone de terre (une autre pour la 3D)
+    if capture.cast.is_empty() {
+        if capture.frame < 3 {
+            return;
+        }
+        let start = m.find_start().unwrap_or_default();
+        let first = land_patch(m, start, None, 0);
+        let patch = if capture.round == 0 { first } else { land_patch(m, start, first, 9) };
+        let Some(h) = patch else {
+            error!("Mode capture (mise en scène) : pas de zone de terre");
+            exit.write(AppExit::Success);
+            return;
+        };
+        let mut cast = Vec::new();
+        let player = |commands: &mut Commands, kind: UnitKind, hex: Hex| (spawn_unit(commands, kind, hex), hex);
+        let hostile = |commands: &mut Commands, hex: Hex| {
+            let e = spawn_unit(commands, UnitKind::Militia, hex);
+            commands.entity(e).insert((crate::hostile::Hostile, crate::hostile::HostileHome(hex)));
+            (e, hex)
+        };
+        cast.push(player(&mut commands, UnitKind::HeavyCavalry, at(h, -2, 0)));
+        cast.push(hostile(&mut commands, at(h, -1, 0)));
+        cast.push(player(&mut commands, UnitKind::ExpertArcher, at(h, 1, -2)));
+        cast.push(hostile(&mut commands, at(h, 3, -2)));
+        cast.push(player(&mut commands, UnitKind::Spearman, at(h, 0, 2)));
+        cast.push(hostile(&mut commands, at(h, 1, 2)));
+        cast.push(player(&mut commands, UnitKind::Scout, at(h, -2, 3)));
+        let village = at(h, 0, 3);
+        commands.spawn((Village, crate::hostile::SiteName("Kaldvik".into()), HexPos(village)));
+        cast.push((Entity::PLACEHOLDER, village));
+        cast.push((Entity::PLACEHOLDER, at(h, -1, 3)));
+        capture.cast = cast;
+        debug.0 = true;
+        mode.is_3d = capture.round == 1;
+        let (x, y) = h.to_world();
+        let (mut t, mut projection) = camera.into_inner();
+        t.translation.x = x;
+        t.translation.y = y;
+        if let Projection::Orthographic(o) = projection.as_mut() {
+            o.scale = 0.42;
+        }
+        cam.target = to_3d(h, tile_height(m, h));
+        cam.distance = 300.0;
+        cam.yaw = 0.0;
+        info!("Mode capture (mise en scène) : tour {} autour de {h:?}", capture.round);
+        capture.wait = if capture.round == 1 { SETTLE_FRAMES + 60 } else { 60 };
+        return;
+    }
+    // Les actions, toutes résolues dans la même image comme en jeu
+    let Some(started) = capture.started else {
+        let c = capture.cast.clone();
+        for (e, hp) in [(c[1].0, 30), (c[3].0, 8), (c[4].0, 6)] {
+            if let Ok((mut u, _)) = units.get_mut(e) {
+                u.0.hp = hp;
+            }
+        }
+        let mut duel = |a: (Entity, Hex), d: (Entity, Hex), hostile: bool| {
+            let Ok([(mut ua, _), (mut ud, _)]) = units.get_many_mut([a.0, d.0]) else { return };
+            let e = engagement(m, (&ua.0, a.1), (&ud.0, d.1), std::iter::empty(), false);
+            let attacker = Side { entity: a.0, at: a.1, unit: &mut ua.0, hostile };
+            let defender = Side { entity: d.0, at: d.1, unit: &mut ud.0, hostile: !hostile };
+            fight(&mut commands, &mut log, &mut cues, attacker, defender, &e);
+        };
+        duel(c[0], c[1], false);
+        duel(c[2], c[3], false);
+        duel(c[5], c[4], true);
+        // L'éclaireur entre dans le village en deux pas
+        let ((scout, from), village, step) = (c[6], c[7].1, c[8].1);
+        if let Ok((mut u, mut pos)) = units.get_mut(scout) {
+            u.0.last_steps = vec![step, village];
+            pos.0 = village;
+        }
+        cues.walk(scout, from, &[step, village], Actor::Player);
+        capture.started = Some(time.elapsed_secs_f64());
+        return;
+    };
+    // Vues aux instants prévus
+    let elapsed = time.elapsed_secs_f64() - started;
+    if let Some(&when) = FEEDBACK_SHOTS.get(capture.shot) {
+        if elapsed >= when {
+            let view = if capture.round == 0 { "2d" } else { "3d" };
+            let path = capture.dir.join(format!("{view}_{:02}_{when:.2}s.png", capture.shot));
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+            capture.shot += 1;
+        }
+        return;
+    }
+    if elapsed < 2.5 {
+        return;
+    }
+    if capture.round == 0 {
+        // Tour suivant en 3D, sur une autre zone
+        capture.round = 1;
+        capture.cast.clear();
+        capture.started = None;
+        capture.shot = 0;
+        return;
+    }
+    info!("Mode capture (mise en scène) : terminé");
+    exit.write(AppExit::Success);
 }
