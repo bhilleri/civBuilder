@@ -18,7 +18,7 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 
 ## Choix de Benjamin
 - Le joueur voit des **mètres** ; si ce n'est pas assez clair, on passera à des classes d'altitude pour l'affichage (et alors pour le combat).
-- **Montagne franchissable à 3 PM, seuls les pics infranchissables.**
+- **Montagne franchissable à 3 PM, seuls les pics infranchissables.** Revu le 30/10/2026 (voir « Franchir une montagne ») : « les montagnes étaient passables, mais au prix de beaucoup de temps ».
 - 5 reliefs : plat, vallonné, accidenté, montagne, pic (la représentation pourra être revue).
 - Ajout des cartes **Altitude** (m) et **Relief** (plat → pic).
 - Plutôt que plus de niveaux de sol (7 auparavant : mer + 6 tranches), passer à l'altitude continue (étape B).
@@ -43,9 +43,23 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 | Plat | terrain | terrain | — | |
 | Vallonné | +1 PM | +1 production | +3 | pas de charge |
 | Accidenté | +2 PM | +1 production, −1 nourriture | +3 | pas de charge |
-| Montagne | 3 PM | 0 / 1 / 0 | +6 | pas de charge, pas de ville, pas de bonus d'eau douce |
+| Montagne | 4 à 8 PM selon l'altitude | 0 / 1 / 0 | +6 | pas de charge, pas de ville, pas de bonus d'eau douce |
 | Pic | infranchissable | rien | — | |
-- Coûts relief + terrain plafonnés à 3 PM (sauf terrain déjà plus cher).
+- Coûts collines / accidenté + terrain plafonnés à 3 PM (`RELIEF_MOVE_CAP`, sauf terrain déjà plus cher).
+
+## Franchir une montagne (30/10/2026)
+- **Constat de Benjamin** : les déplacements en montagne ne sont pas assez pénalisés, les trajets les plus rapides sont souvent des lignes droites.
+- **Cause** : on entre sur une case dès qu'il reste 1 PM, et ce qui dépassait était perdu. L'infanterie a 2 PM : forêt (2), marais (3), accidenté (3), montagne (3), et même montagne + forte montée (5) coûtaient tous un tour par case ; la montagne n'était que deux fois plus lente que la plaine, et la cavalerie (4 PM) y faisait plaine + montagne dans le même tour. Monter le coût de la montagne n'aurait rien changé.
+- **Choix de Benjamin** : les pistes 1 à 3 (dette de PM, coût selon l'altitude, coût selon l'unité) ; rivières et fleuves gardent leur règle (le coût est celui du franchissement ou de la barque) ; indication visuelle sur les unités immobilisées.
+- **Dette de PM** (`StepCost`, `UnitState::move_debt`, `map::turn_moves`) : un pas a une part terrain (case d'arrivée, relief, montée) et une part eau (traversée de rivière, entrée dans un fleuve). Avec `left` PM, il reste `left − total` (au moins 0) et la dette augmente de `terrain − left` (au moins 0). Au début du tour, la dette est payée d'abord, jusqu'à tous les PM ; sans PM, l'unité est **immobilisée** (`immobilized`) — ni déplacement ni attaque. Effet de bord voulu : forêt et marais se distinguent enfin pour l'infanterie (une forêt prise avec 1 PM laisse 1 PM dû).
+- **Coût selon l'altitude** (`mountain_move_cost`) : 4 PM de 1 500 à 2 000 m, +1 PM par tranche de 500 m, au plus 8 PM. Les cols, points bas des crêtes, et les vallées creusées par l'érosion deviennent les passages, sans avoir à les repérer.
+- **Coût selon l'unité** (`UnitKind::mountain_cost`, appliqué par `rules::ForUnit`) : cavalerie ×2 (les chevaux passent les cols, menés à la bride, lentement : Hannibal, les Mongols dans l'Altaï), éclaireur ×2/3 arrondi au-dessus, les autres ×1.
+- Exemples (montagne à 4 / 6 / 8 PM, entrée avec tous ses PM) : infanterie (2 PM) immobilisée 1 / 2 / 3 tours ; éclaireur (3 PM, coûts 3 / 4 / 6) 0 / 0 (1 PM dû) / 1 tour ; cavalerie légère (4 PM, coûts 8 / 12 / 16) 1 / 2 / 3 tours ; cavalerie lourde (3 PM) 1 (puis 1 PM) / 3 / 4 tours.
+- **Recherche du plus rapide** (`find_path_turns`) : une case de passage est notée par le tour et les PM du prochain départ (la dette y est soldée, c'est tout l'état utile) ; la destination, par le tour d'arrivée. `path_turns`, `reachable`, l'approche d'une attaque, l'exploration automatique et les barbares suivent la même règle (les barbares immobilisés ne jouent pas).
+- **Bilan** (`bilan_montagnes`, cartes 192 × 111) — montagnes à 4 / 5 / 6 / 7 / 8 PM : graine 777 : 24 / 54 / 101 / 109 / 90 (378) ; graine 2 : 86 / 81 / 44 / 24 / 59 (294) ; graine 5 : 44 / 82 / 92 / 67 / 85 (370). Traversées de massif par une milice (d'une case à 4 cases d'une montagne à la case opposée) : le trajet le plus rapide passe par au moins 2 montagnes dans 14 cas sur 39 (777), 8 sur 69 (2), 8 sur 52 (5) ; les autres contournent ou passent par un col.
+- **Vérifié en captures** (graine 777) : pastille sur l'unité immobilisée en 3D (vue `unites_montagne`) et en 2D (nouvelle vue `unites_montagne_2d` du mode capture).
+- **Affichage** : pastille orange en haut à droite du jeton (2D et 3D, `labels::StuckBadge`), avec le nombre de tours sans bouger qui restent (`UnitState::stuck_turns`) ; panneau de l'unité : « Immobilisé(e) par le terrain : encore N tour(s) sans bouger » ou « N PM dus au prochain tour ».
+- **Limites** : la recherche de cible de l'exploration automatique garde des coûts communs à toutes les unités (la cavalerie n'y voit pas le double de la montagne, seulement en marchant) ; une case inconnue coûte toujours 2 PM, une montagne cachée par le brouillard n'est donc découverte qu'en approchant.
 - Pentes en mètres (`climb_cost`) : montée < 400 m gratuite, < 900 m +1 PM, au-delà +2 PM ; descente gratuite.
 - Falaise : écart de 3 classes d'altitude (≈ 1 000 m) : infranchissable, pas de mêlée ni de flanquement à travers.
 - Combat : `Fighter { altitude (m), relief }` ; en hauteur si ≥ 250 m (`HIGHER_GROUND_M`) : +2 défense de mêlée, +20 % de tir ; tireur plus bas d'autant : portée −1.

@@ -1,7 +1,7 @@
 //! Recherche de chemin A* sur la grille hexagonale (logique pure).
 
 use crate::hex::Hex;
-use crate::map::MoveCosts;
+use crate::map::{MoveCosts, turn_moves};
 use std::cmp::Reverse;
 use bevy::platform::collections::{HashMap, HashSet};
 use std::collections::BinaryHeap;
@@ -51,19 +51,29 @@ pub fn find_path(map: &impl MoveCosts, start: Hex, goal: Hex) -> Option<Vec<Hex>
 /// Chemin le plus rapide pour une unité, en tours puis en PM restants (et non en coût total) :
 /// on peut entrer sur une case tant qu'il reste au moins 1 PM, quel que soit son coût. Une
 /// traversée chère (rivière, fleuve) faite d'un coup peut donc arriver plus tôt qu'un détour
-/// moins coûteux en tout. Même règle que `reachable` et `rules::path_turns`.
-pub fn find_path_turns(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: u32, max_moves: u32) -> Option<Vec<Hex>> {
+/// moins coûteux en tout. Le terrain plus cher que les PM restants laisse une dette (`debt` au
+/// départ) qui retarde le départ des tours suivants. Même règle que `reachable` et `rules::path_turns`.
+pub fn find_path_turns(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: u32, debt: u32, max_moves: u32) -> Option<Vec<Hex>> {
     if start == goal {
         return Some(Vec::new());
     }
     map.move_cost(goal)?;
     let max_moves = max_moves.max(1);
-    // Clé : (tours commencés, PM dépensés dans le tour), à minimiser ; une unité sans PM
-    // restant repart au tour suivant avec tous ses PM
+    // Clé : (tours commencés, PM dépensés dans le tour), à minimiser
     let key = |turn: u32, left: u32| (u64::from(turn) << 32) | u64::from(u32::MAX - left);
-    let mut best: HashMap<Hex, (u64, u32, u32)> = HashMap::from([(start, (key(0, moves_left), 0, moves_left))]);
+    // Une unité sans PM restant repart au premier tour où la dette lui en laisse : ce départ
+    // résume tout son état (la dette est soldée), et sert de clé aux cases de passage
+    let resume = |mut turn: u32, mut left: u32, mut debt: u32| {
+        while left == 0 {
+            turn += 1;
+            (left, debt) = turn_moves(max_moves, debt);
+        }
+        (turn, left)
+    };
+    let (turn0, left0) = resume(0, moves_left, debt);
+    let mut best: HashMap<Hex, (u64, u32, u32)> = HashMap::from([(start, (key(turn0, left0), turn0, left0))]);
     let mut came_from: HashMap<Hex, Hex> = HashMap::new();
-    let mut open = BinaryHeap::from([Reverse((key(0, moves_left), start))]);
+    let mut open = BinaryHeap::from([Reverse((key(turn0, left0), start))]);
     while let Some(Reverse((k, current))) = open.pop() {
         let (bk, turn, left) = best[&current];
         if k > bk {
@@ -82,13 +92,14 @@ pub fn find_path_turns(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: 
             path.reverse();
             return Some(path);
         }
-        let (turn, left) = if left == 0 { (turn + 1, max_moves) } else { (turn, left) };
         for next in map.wrap().neighbors(current) {
-            let Some(step) = map.step_cost(current, next) else { continue };
-            let after = left.saturating_sub(step);
-            let nk = key(turn, after);
+            let Some(step) = map.step(current, next) else { continue };
+            let (after, owed) = step.spend(left);
+            // La destination compte à l'arrivée ; une case de passage, au départ suivant
+            let (nt, nl) = if next == goal { (turn, after) } else { resume(turn, after, owed) };
+            let nk = key(nt, nl);
             if best.get(&next).is_none_or(|&(b, _, _)| nk < b) {
-                best.insert(next, (nk, turn, after));
+                best.insert(next, (nk, nt, nl));
                 came_from.insert(next, current);
                 open.push(Reverse((nk, next)));
             }
@@ -197,9 +208,9 @@ mod tests {
         map.set_river(a, 0, 150.0);
         let cheapest = find_path(&map, a, b).unwrap();
         assert_eq!(cheapest.len(), 2, "le moins coûteux contourne l'arête");
-        let fastest = find_path_turns(&map, a, b, 1, 2).unwrap();
+        let fastest = find_path_turns(&map, a, b, 1, 0, 2).unwrap();
         assert_eq!(fastest, vec![b]);
-        assert_eq!(path_turns(&map, a, &fastest, 1, 2), vec![1]);
+        assert_eq!(path_turns(&map, a, &fastest, 1, 0, 2), vec![1]);
     }
 
     /// La surbrillance doit concorder avec le nombre de tours affiché sur le trajet.
@@ -212,8 +223,8 @@ mod tests {
             for moves in 1..=3 {
                 let reach = reachable(&map, start, moves);
                 for target in start.range(5).filter(|&h| h != start) {
-                    let this_turn = find_path_turns(&map, start, target, moves, moves)
-                        .is_some_and(|p| path_turns(&map, start, &p, moves, moves).last() == Some(&1));
+                    let this_turn = find_path_turns(&map, start, target, moves, 0, moves)
+                        .is_some_and(|p| path_turns(&map, start, &p, moves, 0, moves).last() == Some(&1));
                     assert_eq!(reach.contains(&target), this_turn, "graine {seed}, {moves} PM, {target:?}");
                 }
             }

@@ -52,7 +52,8 @@ impl Plugin for CapturePlugin {
 }
 
 /// Une vue à enregistrer : nom du fichier, case visée, distance et orientation de la caméra,
-/// carte affichée, page du menu Échap ouverte par-dessus (s'il y en a une).
+/// carte affichée, page du menu Échap ouverte par-dessus (s'il y en a une), vue 2D (échelle de
+/// la caméra orthographique) plutôt que 3D.
 struct Shot {
     name: String,
     target: Hex,
@@ -60,6 +61,7 @@ struct Shot {
     yaw: f32,
     layer: MapLayer,
     menu: Option<MenuPage>,
+    view_2d: Option<f32>,
 }
 
 #[derive(Resource)]
@@ -90,12 +92,12 @@ fn run_capture(
     mut state: ResMut<GameState>,
     mut territory: ResMut<Territory>,
     units: Query<(Entity, &Unit, &HexPos)>,
-    camps: Query<&HexPos, With<Camp>>,
-    villages: Query<&HexPos, With<Village>>,
+    (camps, villages): (Query<&HexPos, With<Camp>>, Query<&HexPos, With<Village>>),
     mut exit: MessageWriter<AppExit>,
     relief: Option<ResMut<crate::view3d::Relief>>,
     fog: Res<ShownFog>,
     mut menu: ResMut<GameMenu>,
+    camera_2d: Single<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
 ) {
     capture.frame += 1;
     let m = &map.0;
@@ -130,11 +132,11 @@ fn run_capture(
             cam.distance = 260.0;
             let mut shots = Vec::new();
             for (k, &h) in path.iter().enumerate().skip(2).step_by(4) {
-                shots.push(Shot { name: format!("exploration_{k:02}"), target: h, distance: 220.0, yaw: 0.4 * k as f32, layer: MapLayer::Normal, menu: None });
+                shots.push(Shot { name: format!("exploration_{k:02}"), target: h, distance: 220.0, yaw: 0.4 * k as f32, layer: MapLayer::Normal, menu: None, view_2d: None });
             }
             if let Some(&h) = path.last() {
-                shots.push(Shot { name: "exploration_ensemble".into(), target: path[path.len() / 2], distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: None });
-                shots.push(Shot { name: "exploration_fin".into(), target: h, distance: 220.0, yaw: 2.0, layer: MapLayer::Normal, menu: None });
+                shots.push(Shot { name: "exploration_ensemble".into(), target: path[path.len() / 2], distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: None, view_2d: None });
+                shots.push(Shot { name: "exploration_fin".into(), target: h, distance: 220.0, yaw: 2.0, layer: MapLayer::Normal, menu: None, view_2d: None });
             }
             capture.shots = shots;
             capture.walk = path.into_iter().rev().collect();
@@ -169,7 +171,13 @@ fn run_capture(
             let mountain = by_distance.iter().copied().find(|&h| m.relief(h) == Relief::Mountain && passable(h) && land_around(h, 2) >= 16).unwrap_or(start);
             let spots: Vec<Hex> = m.range(mountain, 2).filter(|&h| passable(h) && !taken.contains(&m.canonical(h))).collect();
             for (kind, &h) in UnitKind::ALL.iter().zip(&spots) {
-                spawn_unit(&mut commands, *kind, m.canonical(h));
+                let e = spawn_unit(&mut commands, *kind, m.canonical(h));
+                // En montagne : immobilisée par la dette de PM (pastille orange)
+                if m.relief(m.canonical(h)) == Relief::Mountain {
+                    let mut state = crate::rules::UnitState::new(*kind);
+                    (state.moves_left, state.immobilized, state.move_debt) = (0, true, 2 * kind.max_moves());
+                    commands.entity(e).insert(Unit(state));
+                }
             }
             // Trois unités en barque sur un fleuve (cases de fleuve voisines)
             let used: Vec<Hex> = taken.iter().copied().chain(spots.iter().map(|&h| m.canonical(h))).collect();
@@ -186,7 +194,9 @@ fn run_capture(
             mode.is_3d = true;
             // Vues
             let mut shots = Vec::new();
-            let mut add_on = |name: &str, target: Hex, distance: f32, yaw: f32, layer: MapLayer| shots.push(Shot { name: name.into(), target, distance, yaw, layer, menu: None });
+            let mut add_on = |name: &str, target: Hex, distance: f32, yaw: f32, layer: MapLayer| {
+                shots.push(Shot { name: name.into(), target, distance, yaw, layer, menu: None, view_2d: None })
+            };
             let mut add = |name: &str, target: Hex, distance: f32, yaw: f32| add_on(name, target, distance, yaw, MapLayer::Normal);
             if let Some(h) = hill {
                 add("ville_colline", h, 260.0, 0.0);
@@ -221,8 +231,10 @@ fn run_capture(
             }
             // Pages du menu Échap, par-dessus la vue de départ
             for (name, page) in [("menu", MenuPage::Main), ("menu_parametres", MenuPage::Settings), ("menu_nouveau_monde", MenuPage::NewWorld)] {
-                shots.push(Shot { name: name.into(), target: start, distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: Some(page) });
+                shots.push(Shot { name: name.into(), target: start, distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: Some(page), view_2d: None });
             }
+            // Unités en montagne en 2D (pastille d'unité immobilisée)
+            shots.push(Shot { name: "unites_montagne_2d".into(), target: mountain, distance: 0.0, yaw: 0.0, layer: MapLayer::Normal, menu: None, view_2d: Some(0.42) });
             info!("Mode capture : {} vues, {} villes fondées", shots.len(), cities_at.len());
             capture.shots = shots;
             capture.wait = SETTLE_FRAMES;
@@ -261,9 +273,23 @@ fn run_capture(
                 exit.write(AppExit::Success);
                 return;
             };
+            // (changer de vue recale la caméra : seulement si la vue change)
+            if mode.is_3d != shot.view_2d.is_none() {
+                mode.is_3d = shot.view_2d.is_none();
+            }
+            // (la vue 2D se recale sur la cible 3D en changeant de vue : elle la reçoit aussi)
             cam.target = to_3d(shot.target, tile_height(m, shot.target));
-            cam.distance = shot.distance;
-            cam.yaw = shot.yaw;
+            if let Some(scale) = shot.view_2d {
+                let (x, y) = shot.target.to_world();
+                let (mut t, mut projection) = camera_2d.into_inner();
+                (t.translation.x, t.translation.y) = (x, y);
+                if let Projection::Orthographic(o) = projection.as_mut() {
+                    o.scale = scale;
+                }
+            } else {
+                cam.distance = shot.distance;
+                cam.yaw = shot.yaw;
+            }
             if *layer != shot.layer {
                 *layer = shot.layer;
             }

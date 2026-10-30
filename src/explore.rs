@@ -15,7 +15,7 @@
 
 use crate::hex::{Hex, Wrap};
 use crate::map::{MoveCosts, WorldMap};
-use crate::rules::UnitState;
+use crate::rules::{ForUnit, UnitState};
 use std::cmp::Reverse;
 use bevy::platform::collections::HashSet;
 use std::collections::BinaryHeap;
@@ -333,8 +333,8 @@ pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, e
             continue;
         }
         unit.path.remove(0);
-        let cost = map.step_cost(*pos, next).expect("le chemin d'exploration n'emprunte que du terrain franchissable");
-        unit.moves_left = unit.moves_left.saturating_sub(cost);
+        let step = ForUnit::new(map, unit.kind).step(*pos, next);
+        unit.pay(step.expect("le chemin d'exploration n'emprunte que du terrain franchissable"));
         *pos = next;
         unit.last_steps.push(next);
         unit.moved_this_turn = true;

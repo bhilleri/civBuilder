@@ -1454,7 +1454,7 @@ fn update_reach_overlay(
     if unit.0.zoc_stopped {
         return;
     }
-    let cells = reachable(&known, pos, moves);
+    let cells = reachable(&crate::rules::ForUnit::new(&known, unit.0.kind), pos, moves);
     if cells.is_empty() {
         return;
     }

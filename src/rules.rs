@@ -1,7 +1,7 @@
 //! Règles du jeu indépendantes du moteur : unités, villes, croissance, production.
 
 use crate::hex::{Hex, Wrap};
-use crate::map::{KnownMap, MoveCosts, WorldMap, Yields};
+use crate::map::{KnownMap, MoveCosts, StepCost, WorldMap, Yields, turn_moves};
 use crate::combat::{self, AttackKind};
 use crate::pathfinding::{find_path, find_path_turns};
 use bevy::platform::collections::HashSet;
@@ -18,6 +18,10 @@ pub const MAX_HP: i32 = 100;
 pub struct UnitState {
     pub kind: UnitKind,
     pub moves_left: u32,
+    /// PM dus pour un terrain plus cher que les PM qu'il restait (montagne…), retirés des tours suivants.
+    pub move_debt: u32,
+    /// La dette a pris tous les PM de ce tour-ci : l'unité ne peut pas bouger.
+    pub immobilized: bool,
     /// Chemin restant à parcourir (ordre de déplacement sur plusieurs tours).
     pub path: Vec<Hex>,
     /// L'unité a « passé son tour » (ou est fortifiée) : ignorée par « unité suivante ».
@@ -63,6 +67,8 @@ impl UnitState {
         Self {
             kind,
             moves_left: kind.max_moves(),
+            move_debt: 0,
+            immobilized: false,
             path: Vec::new(),
             sleeping: false,
             order_budget: None,
@@ -91,13 +97,14 @@ impl UnitState {
     }
 
     /// Début de tour : soins si l'unité ne s'est ni déplacée ni battue au tour précédent
-    /// (+10 PV, +20 en territoire ami), puis PM restaurés et indicateurs remis à zéro.
+    /// (+10 PV, +20 en territoire ami), puis PM restaurés (moins la dette) et indicateurs remis à zéro.
     pub fn start_turn(&mut self, in_friendly_territory: bool) {
         if !self.moved_this_turn && !self.fought_this_turn && self.hp < MAX_HP {
             let heal = if in_friendly_territory { 20 } else { 10 };
             self.hp = (self.hp + heal).min(MAX_HP);
         }
-        self.moves_left = self.kind.max_moves();
+        (self.moves_left, self.move_debt) = turn_moves(self.kind.max_moves(), self.move_debt);
+        self.immobilized = self.moves_left == 0;
         self.moved_this_turn = false;
         self.fought_this_turn = false;
         self.has_attacked = false;
@@ -111,12 +118,25 @@ impl UnitState {
         self.order_spent = 0;
     }
 
+    /// Paie un pas : PM restants, et dette pour le terrain qui dépasse les PM qu'il restait.
+    pub fn pay(&mut self, step: StepCost) {
+        let (left, debt) = step.spend(self.moves_left);
+        self.moves_left = left;
+        self.move_debt += debt;
+    }
+
+    /// Tours sans pouvoir bouger qui restent à cause de la dette (celui-ci compris s'il l'est).
+    pub fn stuck_turns(&self) -> u32 {
+        u32::from(self.immobilized) + self.move_debt / self.kind.max_moves().max(1)
+    }
+
     pub fn needs_orders(&self) -> bool {
         self.moves_left > 0 && self.path.is_empty() && !self.sleeping && !self.auto_explore
     }
 
     /// Avance le long de l'ordre tant qu'il reste des points de mouvement.
-    /// Règle « à la Civ V » : on peut toujours entrer sur une case s'il reste au moins 1 PM.
+    /// On peut toujours entrer sur une case s'il reste au moins 1 PM ; le terrain qui coûte plus
+    /// que les PM restants laisse une dette, payée sur les tours suivants (voir [`StepCost`]).
     ///
     /// Découverte du terrain : à chaque pas, l'unité révèle les cases
     /// autour d'elle (`explored`) et recalcule son trajet vers la destination avec ce qu'elle
@@ -137,8 +157,8 @@ impl UnitState {
         let mut blocked = blocked.clone();
         while self.moves_left > 0 && !self.zoc_stopped {
             let Some(&destination) = self.path.last() else { break };
-            let known = KnownMap::new(map, explored).blocking(&blocked);
-            let Some(path) = find_path_turns(&known, *pos, destination, self.moves_left, self.kind.max_moves()) else {
+            let known = ForUnit::new(KnownMap::new(map, explored).blocking(&blocked), self.kind);
+            let Some(path) = find_path_turns(&known, *pos, destination, self.moves_left, self.move_debt, self.kind.max_moves()) else {
                 self.clear_order();
                 return MoveOutcome::Unreachable;
             };
@@ -158,12 +178,12 @@ impl UnitState {
             }
             self.path.remove(0);
             // La case suivante est voisine, donc déjà révélée (vision ≥ 1) : son coût est le vrai.
-            let Some(cost) = map.step_cost(*pos, next) else {
+            let Some(step) = ForUnit::new(map, self.kind).step(*pos, next) else {
                 self.clear_order();
                 return MoveOutcome::Unreachable;
             };
-            self.moves_left = self.moves_left.saturating_sub(cost);
-            self.order_spent += cost;
+            self.pay(step);
+            self.order_spent += step.total();
             *pos = next;
             self.last_steps.push(next);
             self.moved_this_turn = true;
@@ -198,9 +218,39 @@ impl<M: MoveCosts> MoveCosts for AvoidZoc<'_, M> {
         if hex != self.goal && self.zoc.contains(&hex) { None } else { self.inner.move_cost(hex) }
     }
 
-    fn step_cost(&self, from: Hex, to: Hex) -> Option<u32> {
+    fn step(&self, from: Hex, to: Hex) -> Option<StepCost> {
         self.move_cost(to)?;
-        self.inner.step_cost(from, to)
+        self.inner.step(from, to)
+    }
+
+    fn wrap(&self) -> Wrap {
+        self.inner.wrap()
+    }
+}
+
+/// Coûts de déplacement vus par un type d'unité : le pas en montagne suit [`UnitKind::mountain_cost`].
+pub struct ForUnit<M: MoveCosts> {
+    inner: M,
+    kind: UnitKind,
+}
+
+impl<M: MoveCosts> ForUnit<M> {
+    pub fn new(inner: M, kind: UnitKind) -> Self {
+        Self { inner, kind }
+    }
+}
+
+impl<M: MoveCosts> MoveCosts for ForUnit<M> {
+    fn move_cost(&self, hex: Hex) -> Option<u32> {
+        self.inner.move_cost(hex)
+    }
+
+    fn step(&self, from: Hex, to: Hex) -> Option<StepCost> {
+        let mut step = self.inner.step(from, to)?;
+        if step.mountain {
+            step.terrain = self.kind.mountain_cost(step.terrain);
+        }
+        Some(step)
     }
 
     fn wrap(&self) -> Wrap {
@@ -240,6 +290,7 @@ pub fn attack_approach(
         return None;
     }
     let reach = unit.kind.stats().range.max(1);
+    let known = &ForUnit::new(known, unit.kind);
     world
         .range(target, reach)
         .filter(|&h| h != target && known.move_cost(h).is_some() && in_attack_position(world, unit.kind, h, target))
@@ -271,19 +322,23 @@ fn steps(from: Hex, path: &[Hex]) -> impl Iterator<Item = (Hex, Hex)> + '_ {
 }
 
 /// Pour chaque case d'un chemin, numéro du tour où l'unité l'atteint
-/// (1 = ce tour-ci). Même règle que [`UnitState::advance`] : on peut entrer
-/// sur une case tant qu'il reste au moins 1 PM ; sinon on attend le tour suivant.
-pub fn path_turns(map: &impl MoveCosts, from: Hex, path: &[Hex], moves_left: u32, max_moves: u32) -> Vec<u32> {
+/// (1 = ce tour-ci). Même règle que [`UnitState::advance_exploring`] : on peut entrer
+/// sur une case tant qu'il reste au moins 1 PM ; sinon on attend le tour suivant, ou plusieurs
+/// tant que la dette (`debt`, puis celle laissée par un terrain trop cher) prend tous les PM.
+pub fn path_turns(map: &impl MoveCosts, from: Hex, path: &[Hex], moves_left: u32, debt: u32, max_moves: u32) -> Vec<u32> {
+    let max_moves = max_moves.max(1);
     let mut turn = 1;
-    let mut moves = moves_left;
+    let (mut moves, mut debt) = (moves_left, debt);
     steps(from, path)
         .map(|(a, b)| {
-            if moves == 0 {
+            while moves == 0 {
                 turn += 1;
-                moves = max_moves;
+                (moves, debt) = turn_moves(max_moves, debt);
             }
-            let cost = map.step_cost(a, b).unwrap_or(1);
-            moves = moves.saturating_sub(cost);
+            let step = map.step(a, b).unwrap_or(StepCost::terrain(1));
+            let (left, owed) = step.spend(moves);
+            moves = left;
+            debt += owed;
             turn
         })
         .collect()
@@ -464,14 +519,108 @@ mod tests {
         let path: Vec<Hex> = (2..8).map(|c| Hex::from_offset(c, 2)).collect();
         let from = Hex::from_offset(1, 2);
         // 6 cases de plaine à 2 PM/tour : 2 cases par tour
-        assert_eq!(path_turns(&map, from, &path, 2, 2), vec![1, 1, 2, 2, 3, 3]);
+        assert_eq!(path_turns(&map, from, &path, 2, 0, 2), vec![1, 1, 2, 2, 3, 3]);
         // unité ayant déjà bougé (0 PM) : départ au tour suivant
-        assert_eq!(path_turns(&map, from, &path, 0, 2), vec![2, 2, 3, 3, 4, 4]);
-        // une forêt avec 1 PM restant reste accessible, et vide les PM
+        assert_eq!(path_turns(&map, from, &path, 0, 0, 2), vec![2, 2, 3, 3, 4, 4]);
+        // une forêt avec 1 PM restant reste accessible, mais le PM qui manque est dû au tour suivant
         map.set(path[1], Terrain::Forest);
-        assert_eq!(path_turns(&map, from, &path, 2, 2), vec![1, 1, 2, 2, 3, 3]);
+        assert_eq!(path_turns(&map, from, &path, 2, 0, 2), vec![1, 1, 2, 3, 3, 4]);
         map.set(path[0], Terrain::Forest);
-        assert_eq!(path_turns(&map, from, &path, 2, 2), vec![1, 2, 3, 3, 4, 4]);
+        assert_eq!(path_turns(&map, from, &path, 2, 0, 2), vec![1, 2, 3, 3, 4, 4]);
+        // dette de départ : 3 PM dus, à 2 PM par tour → immobile au tour 2, 1 PM au tour 3
+        let plain = WorldMap::filled(12, 12, Terrain::Plains);
+        assert_eq!(path_turns(&plain, from, &path, 0, 3, 2), vec![3, 4, 4, 5, 5, 6]);
+    }
+
+    /// Montagne : le coût dépasse les PM, la dette immobilise l'unité les tours suivants.
+    #[test]
+    fn dette_en_montagne() {
+        use crate::map::{MOUNTAIN_MOVE_MIN, StepCost};
+        let mut map = WorldMap::filled(8, 8, Terrain::Plains);
+        let (a, b) = (Hex::from_offset(2, 2), Hex::from_offset(3, 2));
+        map.set_relief(b, Relief::Mountain);
+        let mut unit = UnitState::new(UnitKind::Militia);
+        unit.pay(ForUnit::new(&map, unit.kind).step(a, b).unwrap());
+        assert_eq!((unit.moves_left, unit.move_debt), (0, MOUNTAIN_MOVE_MIN - 2));
+        assert_eq!(unit.stuck_turns(), 1, "4 PM à 2 PM par tour : un tour immobilisé");
+        unit.start_turn(false);
+        assert!(unit.immobilized && unit.moves_left == 0 && unit.stuck_turns() == 1);
+        unit.start_turn(false);
+        assert!(!unit.immobilized && unit.moves_left == 2 && unit.stuck_turns() == 0);
+        // Rivière et fleuve : arrêt sans dette
+        let river = StepCost { terrain: 1, water: 2, mountain: false };
+        assert_eq!(river.spend(1), (0, 0));
+        // Cavalerie : double ; éclaireur : deux tiers
+        let cav = ForUnit::new(&map, UnitKind::LightCavalry).step(a, b).unwrap();
+        let scout = ForUnit::new(&map, UnitKind::Scout).step(a, b).unwrap();
+        assert_eq!((cav.terrain, scout.terrain), (2 * MOUNTAIN_MOVE_MIN, 3));
+    }
+
+    /// Un massif large de 3 cases : la ligne droite (≈ 2 tours par montagne) perd face au
+    /// contournement par la plaine, qui reste possible.
+    #[test]
+    fn contourne_un_massif() {
+        let mut map = WorldMap::filled(20, 14, Terrain::Plains);
+        for c in 8..11 {
+            for r in 3..11 {
+                map.set_relief(Hex::from_offset(c, r), Relief::Mountain);
+            }
+        }
+        let (from, to) = (Hex::from_offset(5, 6), Hex::from_offset(13, 6));
+        let path = find_path_turns(&map, from, to, 2, 0, 2).unwrap();
+        assert!(path.iter().all(|&h| map.relief(h) != Relief::Mountain), "contournement : {path:?}");
+        // Sans détour possible (massif sur toute la hauteur), on traverse quand même
+        for r in 0..14 {
+            for c in 8..11 {
+                map.set_relief(Hex::from_offset(c, r), Relief::Mountain);
+            }
+        }
+        let path = find_path_turns(&map, from, to, 2, 0, 2).unwrap();
+        assert!(path.iter().any(|&h| map.relief(h) == Relief::Mountain));
+    }
+
+    /// Bilan (à lancer à la main) : montagnes par coût, et part des trajets de 6 à 12 cases
+    /// partant d'une montagne qui la quittent par le plus court en tours plutôt qu'à travers le massif.
+    #[test]
+    #[ignore]
+    fn bilan_montagnes() {
+        use crate::map::{MOUNTAIN_MOVE_MAX, MOUNTAIN_MOVE_MIN};
+        for seed in [777, 2, 5] {
+            let map = WorldMap::generate(192, 111, seed);
+            let mountains: Vec<Hex> = map.hexes().filter(|&h| map.relief(h) == Relief::Mountain).collect();
+            let by_cost: Vec<usize> = (MOUNTAIN_MOVE_MIN..=MOUNTAIN_MOVE_MAX)
+                .map(|c| mountains.iter().filter(|&&h| map.move_cost(h) == Some(c)).count())
+                .collect();
+            // Traversées : d'une case plate à 4 cases d'une montagne vers la case opposée
+            let (mut crossings, mut through) = (0, 0);
+            for &m in mountains.iter().step_by(7) {
+                for d in 0..3 {
+                    let dir = crate::hex::DIRECTIONS[d];
+                    let far = Hex { q: dir.q * 4, r: dir.r * 4 };
+                    let (a, b) = (map.canonical(m + far), map.canonical(m - far));
+                    if map.relief(a) >= Relief::Mountain || map.relief(b) >= Relief::Mountain || map.move_cost(a).is_none() || map.move_cost(b).is_none() {
+                        continue;
+                    }
+                    let Some(path) = find_path_turns(&ForUnit::new(&map, UnitKind::Militia), a, b, 2, 0, 2) else { continue };
+                    crossings += 1;
+                    through += usize::from(path.iter().filter(|&&h| map.relief(h) == Relief::Mountain).count() >= 2);
+                }
+            }
+            println!(
+                "graine {seed} : {} montagnes, par coût {MOUNTAIN_MOVE_MIN}..{MOUNTAIN_MOVE_MAX} PM : {by_cost:?} ; \
+                 traversées de massif (milice) : {through}/{crossings} passent par au moins 2 montagnes",
+                mountains.len()
+            );
+        }
+    }
+
+    #[test]
+    fn montagne_selon_l_altitude() {
+        use crate::map::{MOUNTAIN_MOVE_MAX, MOUNTAIN_MOVE_MIN, mountain_move_cost};
+        assert_eq!(mountain_move_cost(1_500.0), MOUNTAIN_MOVE_MIN);
+        assert_eq!(mountain_move_cost(1_999.0), MOUNTAIN_MOVE_MIN);
+        assert_eq!(mountain_move_cost(2_600.0), MOUNTAIN_MOVE_MIN + 2);
+        assert_eq!(mountain_move_cost(6_000.0), MOUNTAIN_MOVE_MAX);
     }
 
     /// Le calcul prévisionnel doit concorder avec le déplacement réel tour par tour.
@@ -480,8 +629,10 @@ mod tests {
         let mut map = corridor(14, 3);
         map.set_hills(Hex::from_offset(4, 3), true);
         map.set(Hex::from_offset(6, 3), Terrain::Forest);
+        // Une montagne : la dette immobilise l'unité, la prévision doit le savoir
+        map.set_relief(Hex::from_offset(8, 3), Relief::Mountain);
         let path: Vec<Hex> = (2..11).map(|c| Hex::from_offset(c, 3)).collect();
-        let expected = path_turns(&map, Hex::from_offset(1, 3), &path, 1, 2);
+        let expected = path_turns(&map, Hex::from_offset(1, 3), &path, 1, 0, 2);
         let mut unit = UnitState::new(UnitKind::Militia);
         unit.moves_left = 1;
         unit.path = path.clone();
@@ -492,7 +643,7 @@ mod tests {
             let before = unit.path.len();
             unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new());
             reached.extend(std::iter::repeat_n(turn, before - unit.path.len()));
-            unit.moves_left = unit.kind.max_moves();
+            unit.start_turn(false);
         }
         assert_eq!(reached, expected);
     }

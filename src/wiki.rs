@@ -4,8 +4,8 @@
 use crate::combat::{self, CHARGE_BONUS, FLANK_BONUS, HIGHER_GROUND_DEFENSE, HIGH_GROUND_PERCENT, TERRAIN_DEFENSE};
 use crate::hostile::{CAMP_CAPTURE_GOLD, CAMP_MAX_UNITS, CAMP_SPAWN_INTERVAL, HUNT_RANGE, WANDER_RADIUS, WOUNDED_HP};
 use crate::map::{
-    CLIMB_GENTLE_M, CLIMB_STEEP_M, HILL_MOVE_COST, HILL_PRODUCTION, MOUNTAIN_MOVE_COST, MOUNTAIN_YIELDS, RUGGED_MOVE_COST, Relief, Terrain,
-    UNKNOWN_MOVE_COST,
+    CLIMB_GENTLE_M, CLIMB_STEEP_M, HILL_MOVE_COST, HILL_PRODUCTION, MOUNTAIN_MIN_M, MOUNTAIN_MOVE_MAX, MOUNTAIN_MOVE_MIN, MOUNTAIN_STEP_M,
+    MOUNTAIN_YIELDS, RELIEF_MOVE_CAP, RUGGED_MOVE_COST, Relief, Terrain, UNKNOWN_MOVE_COST,
 };
 use crate::rules::{DETOUR_TOLERANCE_PERCENT, MAX_HP, MIN_CITY_DISTANCE, growth_threshold};
 use crate::sites::{CAMP_MIN_FROM_START, LAND_PER_CAMP, LAND_PER_VILLAGE, VILLAGE_MIN_FROM_START};
@@ -316,7 +316,7 @@ fn terrain() -> Article {
                     format!("+{TERRAIN_DEFENSE}"),
                 ),
                 Relief::Mountain => (
-                    format!("{MOUNTAIN_MOVE_COST} PM"),
+                    format!("{MOUNTAIN_MOVE_MIN} à {MOUNTAIN_MOVE_MAX} PM"),
                     format!("{} / {} / {}", MOUNTAIN_YIELDS.food, MOUNTAIN_YIELDS.production, MOUNTAIN_YIELDS.gold),
                     format!("+{}", 2 * TERRAIN_DEFENSE),
                 ),
@@ -360,10 +360,14 @@ fn terrain() -> Article {
             p(format!(
                 "Le relief est interne à la case et s'ajoute au terrain : une forêt peut être vallonnée, une toundra \
                  montagneuse. Il dépend de la dénivelée avec les cases voisines et de l'altitude. Les coûts d'un relief \
-                 vallonné ou accidenté s'ajoutent au terrain sans dépasser {MOUNTAIN_MOVE_COST} PM ; une montagne coûte \
-                 toujours {MOUNTAIN_MOVE_COST} PM. Collines, relief accidenté et montagne empêchent la charge de \
+                 vallonné ou accidenté s'ajoutent au terrain sans dépasser {RELIEF_MOVE_CAP} PM. Une montagne coûte \
+                 {MOUNTAIN_MOVE_MIN} PM jusqu'à {} m, puis 1 PM de plus par tranche de {MOUNTAIN_STEP_M:.0} m, jusqu'à \
+                 {MOUNTAIN_MOVE_MAX} PM : les cols et les vallées, plus bas que les crêtes, sont les passages les plus \
+                 rapides (la cavalerie paie le double, l'éclaireur les deux tiers). Ce qui dépasse les PM de l'unité \
+                 est dû sur les tours suivants (voir « Mécaniques »). Collines, relief accidenté et montagne empêchent la charge de \
                  cavalerie ; leur bonus de défense se cumule avec la forêt, la jungle ou la taïga. Seuls les pics, les \
-                 plus hauts sommets, sont infranchissables ; on ne fonde pas de ville en montagne."
+                 plus hauts sommets, sont infranchissables ; on ne fonde pas de ville en montagne.",
+                MOUNTAIN_MIN_M + MOUNTAIN_STEP_M
             )),
             table_icons(&["Relief", "Déplacement", "Rendements", "Défense"], reliefs),
             h("Altitude"),
@@ -490,6 +494,11 @@ fn unit_traits(k: UnitKind) -> Vec<String> {
     if k.can_charge() {
         traits.push(format!("Charge : +{CHARGE_BONUS} en attaque s'il s'est déplacé ce tour-ci."));
     }
+    match k.mountain_cost(6) {
+        12 => traits.push("En montagne, les chevaux sont menés à la bride : le coût du terrain est doublé.".into()),
+        4 => traits.push("Léger et habitué aux sentiers : la montagne ne lui coûte que les deux tiers.".into()),
+        _ => {}
+    }
     // Bonus de type : on interroge la règle de combat contre chaque famille
     let mut bonuses: Vec<String> = Vec::new();
     for other in UnitKind::ALL {
@@ -547,7 +556,10 @@ fn mechanics() -> Article {
             h("Déplacement"),
             p(format!(
                 "Une unité peut entrer sur une case tant qu'il lui reste au moins 1 PM, quel que soit le coût de la \
-                 case. Un ordre (clic droit) peut durer plusieurs tours : le numéro du tour d'arrivée s'affiche le long \
+                 case. Mais le terrain se paie en entier : les PM qui manquaient sont une dette, retirée des PM des \
+                 tours suivants. Une montagne ({MOUNTAIN_MOVE_MIN} à {MOUNTAIN_MOVE_MAX} PM) peut ainsi immobiliser \
+                 une unité plusieurs tours : une pastille orange sur l'unité donne le nombre de tours sans bouger qui \
+                 restent. Traverser une rivière ou entrer dans un fleuve arrête seulement l'unité, sans dette. Un ordre (clic droit) peut durer plusieurs tours : le numéro du tour d'arrivée s'affiche le long \
                  du trajet. Les trajets ne s'appuient que sur le terrain connu ; une case inexplorée est supposée \
                  franchissable mais coûte {UNKNOWN_MOVE_COST} PM. L'unité recalcule son trajet en découvrant le terrain ; \
                  l'ordre est suspendu s'il devient plus de {DETOUR_TOLERANCE_PERCENT} % plus long que prévu."

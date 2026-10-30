@@ -10,7 +10,7 @@ use crate::feedback::{Actor, Cues, Tone};
 use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, Selection, Territory, Unit, claim_territory, spawn_unit};
 use crate::hex::Hex;
 use crate::map::MoveCosts;
-use crate::rules::{self, UnitKind};
+use crate::rules::{self, ForUnit, UnitKind};
 use crate::sites::{self, VillageEvent};
 use bevy::prelude::*;
 use rand::Rng;
@@ -264,6 +264,11 @@ pub fn hostile_turn(
         let Ok((_, me, pos, home)) = hostiles.get(entity) else { continue };
         let (mut here, home) = (pos.0, home.0);
         let me = me.0.clone();
+        // Immobilisé par la dette de PM (montagne) : ni déplacement ni attaque ce tour-ci
+        if me.moves_left == 0 {
+            continue;
+        }
+        let costs = ForUnit::new(map, me.kind);
         let hostile_positions: Vec<Hex> = hostiles.iter().filter(|(e, ..)| *e != entity).map(|(_, _, p, _)| p.0).collect();
 
         // Proie : unité du joueur proche (et pas trop loin de la base) contre laquelle le combat est
@@ -303,6 +308,7 @@ pub fn hostile_turn(
                     .collect();
                 if let Some(&next) = options.choose(&mut rng) {
                     let (_, mut unit, mut pos, _) = hostiles.get_mut(entity).unwrap();
+                    unit.0.pay(costs.step(here, next).unwrap_or_default());
                     taken.remove(&pos.0);
                     taken.insert(next);
                     cues.walk(entity, pos.0, &[next], Actor::Hostile);
@@ -324,11 +330,10 @@ pub fn hostile_turn(
                         && rules::in_attack_position(map, me.kind, *h, prey_pos)
                         && !taken.contains(h)
                 })
-                .min_by_key(|h| (map.step_cost(here, *h).unwrap_or(9), *h));
+                .min_by_key(|h| (costs.step_cost(here, *h).unwrap_or(99), *h));
             let Some(step) = step else { continue };
             let (_, mut unit, mut pos, _) = hostiles.get_mut(entity).unwrap();
-            let cost = map.step_cost(here, step).unwrap_or(1);
-            unit.0.moves_left = unit.0.moves_left.saturating_sub(cost);
+            unit.0.pay(costs.step(here, step).unwrap_or_default());
             unit.0.moved_this_turn = true;
             taken.remove(&pos.0);
             taken.insert(step);

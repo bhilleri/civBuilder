@@ -163,6 +163,17 @@ impl UnitKind {
     pub fn can_charge(self) -> bool {
         matches!(self, UnitKind::LightCavalry | UnitKind::HeavyCavalry)
     }
+
+    /// Coût d'un pas en montagne pour ce type d'unité, à partir du coût de base (PM) : la
+    /// cavalerie le paie double (chevaux menés à la bride sur les sentiers), l'éclaireur, léger
+    /// et habitué aux sentiers, deux tiers (arrondi au-dessus).
+    pub fn mountain_cost(self, base: u32) -> u32 {
+        match self.class() {
+            UnitClass::Cavalry => base * 2,
+            _ if self == UnitKind::Scout => (base * 2).div_ceil(3),
+            _ => base,
+        }
+    }
 }
 
 #[cfg(test)]

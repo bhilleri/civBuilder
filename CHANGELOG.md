@@ -2,6 +2,13 @@
 
 ## 0.3.0 (en cours)
 
+### Les montagnes coûtent du temps
+- **Dette de PM** : on entre toujours sur une case avec au moins 1 PM, mais le terrain se paie en entier ; les PM qui manquaient sont retirés des tours suivants. Une unité à 2 PM ne traverse plus une montagne aussi vite qu'une forêt : une montagne peut l'immobiliser un à trois tours. Forêt, marais et relief accidenté se distinguent eux aussi (un PM manquant est dû au tour suivant). Traverser une rivière ou entrer dans un fleuve arrête l'unité, sans dette (règle inchangée).
+- **Montagne selon l'altitude** : 4 PM jusqu'à 2 000 m, +1 PM par tranche de 500 m, jusqu'à 8 PM (au lieu de 3 PM partout). Les cols et les vallées, plus bas que les crêtes, deviennent les passages les plus rapides ; contourner un massif bat souvent la ligne droite.
+- **Selon l'unité** : la cavalerie paie la montagne double (chevaux menés à la bride), l'éclaireur les deux tiers.
+- Les trajets prévus (numéros de tour), la zone atteignable, l'exploration automatique et les barbares suivent la même règle.
+- **Unité immobilisée** : une pastille orange sur son jeton (2D et 3D) donne le nombre de tours sans bouger qui restent ; le panneau de l'unité le dit aussi.
+
 ### Déplacements et combats visibles, journal hiérarchisé
 - **Les unités ne se téléportent plus** : elles glissent case par case le long de leur trajet (0,2 s par case, un long trajet dure au plus 1,3 s, à la vitesse normale), en 2D comme en 3D (figurines posées sur le relief pendant la marche ; anneau de sélection et barre de PV suivent).
 - **Combats mis en scène** : au corps à corps, l'attaquant s'élance vers sa cible et revient ; un tireur recule légèrement et un trait vole jusqu'à la cible. Au moment du coup, la cible tressaille, un cercle d'impact s'élargit et les **PV perdus s'affichent en chiffres flottants** au-dessus des deux unités (taille selon la force du coup). Les barres de PV gardent leur valeur jusqu'à l'impact.

@@ -37,6 +37,8 @@ struct Anchor {
     hidden: bool,
     /// Barre de PV : posée sous le jeton, à une taille qui suit le zoom.
     under_token: bool,
+    /// Pastille d'une unité : posée sur le bord haut-droit du jeton, quel que soit le zoom.
+    token_corner: bool,
     /// Montrée seulement si sa case est explorée et assez grande à l'écran (rayon en pixels).
     explored_only: bool,
     min_px: f32,
@@ -46,9 +48,28 @@ struct Anchor {
 
 impl Anchor {
     fn new(hex: Hex, up_2d: f32, up_3d: f32, only_3d: bool) -> Self {
-        Anchor { hex, up_2d, up_3d, only_3d, hidden: false, under_token: false, explored_only: false, min_px: 0.0, glide: None }
+        Anchor {
+            hex,
+            up_2d,
+            up_3d,
+            only_3d,
+            hidden: false,
+            under_token: false,
+            token_corner: false,
+            explored_only: false,
+            min_px: 0.0,
+            glide: None,
+        }
     }
 }
+
+/// Pastille d'une unité immobilisée par la dette de PM (montagne) : tours sans bouger qui restent.
+#[derive(Component)]
+struct StuckBadge(Entity);
+#[derive(Component)]
+struct StuckText;
+const STUCK_BG: Color = Color::srgb(0.88, 0.47, 0.10);
+const STUCK_LIFT: f32 = 12.0;
 
 /// Nom d'un village tribal ou d'un camp barbare, sous son icône.
 #[derive(Component)]
@@ -143,6 +164,8 @@ impl Plugin for LabelsPlugin {
                 update_turn_labels_3d,
                 spawn_hp_bars_3d,
                 update_hp_bars_3d,
+                spawn_stuck_badges,
+                update_stuck_badges,
                 spawn_site_labels,
                 despawn_site_labels,
                 spawn_sea_names,
@@ -685,6 +708,71 @@ fn spawn_turn_labels(commands: &mut Commands, path: &[Hex], turns: &[u32], backg
     }
 }
 
+fn spawn_stuck_badges(mut commands: Commands, units: Query<(Entity, &HexPos), Added<Unit>>) {
+    for (unit, pos) in &units {
+        commands.spawn((
+            StuckBadge(unit),
+            Anchor { hidden: true, token_corner: true, ..Anchor::new(pos.0, 0.0, TOKEN_LIFT, false) },
+            Node {
+                position_type: PositionType::Absolute,
+                min_width: Val::Px(20.0),
+                height: Val::Px(20.0),
+                padding: UiRect::horizontal(Val::Px(4.0)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border: UiRect::all(Val::Px(2.0)),
+                border_radius: BorderRadius::all(Val::Px(10.0)),
+                ..default()
+            },
+            UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
+            BackgroundColor(STUCK_BG),
+            BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.85)),
+            GlobalZIndex(-1),
+            Visibility::Hidden,
+            children![(StuckText, Text::new(""), TextFont::from_font_size(13.0), TextColor(Color::WHITE))],
+        ));
+    }
+}
+
+/// Suit l'unité comme sa barre de PV ; montrée tant que la dette l'empêche de bouger un tour entier.
+fn update_stuck_badges(
+    mut commands: Commands,
+    time: Res<Time>,
+    units: Query<(&Unit, &HexPos, Has<Hostile>, Option<&Motion>)>,
+    cities: Query<&HexPos, With<City>>,
+    fog: Res<ShownFog>,
+    mut badges: Query<(Entity, &StuckBadge, &mut Anchor, &Children)>,
+    mut texts: Query<&mut Text, With<StuckText>>,
+) {
+    let now = time.elapsed_secs_f64();
+    for (entity, badge, mut anchor, children) in &mut badges {
+        let Ok((unit, pos, hostile, motion)) = units.get(badge.0) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let turns = unit.0.stuck_turns();
+        let glide = motion.and_then(|m| m.sample(now)).map(|p| p.at);
+        let hidden = turns == 0 || (hostile && motion.is_none() && !fog.visible.contains(&pos.0));
+        let on_roof = if glide.is_none() && cities.iter().any(|c| c.0 == pos.0) { CITY_HEIGHT } else { 0.0 };
+        // En 3D, à hauteur des têtes des figurines
+        let up_3d = TOKEN_LIFT + STUCK_LIFT + on_roof;
+        if anchor.hex != pos.0 || anchor.hidden != hidden || anchor.up_3d != up_3d || anchor.glide != glide {
+            anchor.hex = pos.0;
+            anchor.hidden = hidden;
+            anchor.up_3d = up_3d;
+            anchor.glide = glide;
+        }
+        let label = turns.to_string();
+        for child in children.iter() {
+            if let Ok(mut text) = texts.get_mut(child)
+                && text.0 != label
+            {
+                text.0 = label.clone();
+            }
+        }
+    }
+}
+
 fn spawn_hp_bars_3d(mut commands: Commands, units: Query<(Entity, &HexPos), Added<Unit>>) {
     for (unit, pos) in &units {
         commands.spawn((
@@ -800,6 +888,15 @@ fn place_labels(
             if edge.is_none_or(|e| e.distance(center) < anchor.min_px) {
                 screen = None;
             }
+        }
+        if anchor.token_corner
+            && let Some(center) = screen
+        {
+            // Bord haut-droit du disque du jeton (écrasé verticalement par l'inclinaison en 3D)
+            let edge = camera.world_to_viewport(&cam_global, world + transform.right() * TOKEN_RADIUS).ok();
+            let radius = edge.map_or(16.0, |e| e.distance(center)).max(8.0);
+            let squash = if mode.is_3d { tilt } else { 1.0 };
+            screen = Some(center + Vec2::new(radius * 0.7, -radius * squash * 0.7 - 2.0));
         }
         if anchor.under_token
             && let Some(center) = screen

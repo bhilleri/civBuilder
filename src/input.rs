@@ -12,7 +12,7 @@ use crate::combat::{self, Preview};
 use crate::hostile::{Blocked, Danger, EnemyZoc, Hostile, KnownVillages, Occupancy};
 use crate::map::{KnownMap, MoveCosts};
 use crate::pathfinding::find_path_turns;
-use crate::rules::{self, UnitKind};
+use crate::rules::{self, ForUnit, UnitKind};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -229,13 +229,17 @@ fn update_hover_path(
             let turns = vec![1; path.len()];
             (path, turns)
         }
-        (Some(target), Some((unit, pos)), None) => match find_path_turns(&known, pos.0, target, unit.0.moves_left, unit.0.kind.max_moves()) {
-            Some(path) => {
-                let turns = rules::path_turns(&known, pos.0, &path, unit.0.moves_left, unit.0.kind.max_moves());
-                (path, turns)
+        (Some(target), Some((unit, pos)), None) => {
+            let u = &unit.0;
+            let known = ForUnit::new(&known, u.kind);
+            match find_path_turns(&known, pos.0, target, u.moves_left, u.move_debt, u.kind.max_moves()) {
+                Some(path) => {
+                    let turns = rules::path_turns(&known, pos.0, &path, u.moves_left, u.move_debt, u.kind.max_moves());
+                    (path, turns)
+                }
+                None => (Vec::new(), Vec::new()),
             }
-            None => (Vec::new(), Vec::new()),
-        },
+        }
         _ => (Vec::new(), Vec::new()),
     };
     if hover.path != hover_path || hover.turns != hover_turns {
@@ -247,7 +251,8 @@ fn update_hover_path(
 
     let (order_path, order_turns) = match &selected {
         Some((unit, pos)) if !unit.0.path.is_empty() => {
-            let turns = rules::path_turns(&known, pos.0, &unit.0.path, unit.0.moves_left, unit.0.kind.max_moves());
+            let u = &unit.0;
+            let turns = rules::path_turns(&ForUnit::new(&known, u.kind), pos.0, &u.path, u.moves_left, u.move_debt, u.kind.max_moves());
             (unit.0.path.clone(), turns)
         }
         _ => (Vec::new(), Vec::new()),
@@ -356,8 +361,8 @@ fn mouse_commands(
     // 2) Une de nos unités : échange de place si elle est adjacente
     if let Some(other) = units.iter().find(|(e, _, p)| *e != selected && p.0 == target).map(|(e, _, _)| e) {
         // Échange possible seulement si chacune peut aller sur la case de l'autre (pas de falaise)
-        let cost = map.0.step_cost(from, target);
-        if map.0.distance(from, target) != 1 || moves == 0 || cost.is_none() || map.0.step_cost(target, from).is_none() {
+        let step = ForUnit::new(&map.0, kind).step(from, target);
+        if map.0.distance(from, target) != 1 || moves == 0 || step.is_none() || map.0.step_cost(target, from).is_none() {
             log.push("Case occupée par une de vos unités (échange possible avec une unité adjacente).");
             return;
         }
@@ -367,7 +372,7 @@ fn mouse_commands(
         cues.walk(selected, from, &[target], Actor::Player);
         cues.walk(other, target, &[from], Actor::Player);
         a.0.clear_order();
-        a.0.moves_left = a.0.moves_left.saturating_sub(cost.unwrap_or(1));
+        a.0.pay(step.unwrap_or_default());
         a.0.moved_this_turn = true;
         a.0.last_steps = vec![target];
         return;
@@ -375,8 +380,8 @@ fn mouse_commands(
 
     // 3) Déplacement (en contournant nos autres unités)
     let (_, mut unit, mut pos) = units.get_mut(selected).unwrap();
-    let known = KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now);
-    match find_path_turns(&known, from, target, unit.0.moves_left, unit.0.kind.max_moves()) {
+    let known = ForUnit::new(KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now), kind);
+    match find_path_turns(&known, from, target, unit.0.moves_left, unit.0.move_debt, unit.0.kind.max_moves()) {
         Some(path) => {
             unit.0.set_order(pos.0, path, &known);
             move_unit(&mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);

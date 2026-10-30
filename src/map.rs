@@ -9,21 +9,76 @@ use crate::hydro::{self, Hydrology};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use bevy::platform::collections::HashSet;
 
+/// Coût d'un pas vers une case voisine, en deux parts. Le terrain (relief et montée compris) se
+/// paie en entier : ce qui dépasse les PM restants est une dette, retirée des PM des tours suivants
+/// (une montagne immobilise plusieurs tours). L'eau (traversée d'une rivière, entrée dans un fleuve)
+/// arrête seulement l'unité, sans dette.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StepCost {
+    pub terrain: u32,
+    pub water: u32,
+    /// Case d'arrivée en montagne (coût propre à chaque type d'unité).
+    pub mountain: bool,
+}
+
+impl StepCost {
+    /// Pas sans eau ni montagne.
+    pub fn terrain(terrain: u32) -> Self {
+        Self { terrain, ..Self::default() }
+    }
+
+    /// Coût total du pas (PM).
+    pub fn total(self) -> u32 {
+        self.terrain + self.water
+    }
+
+    /// PM restants et dette après ce pas, fait avec `left` PM.
+    pub fn spend(self, left: u32) -> (u32, u32) {
+        (left.saturating_sub(self.total()), self.terrain.saturating_sub(left))
+    }
+}
+
+/// PM d'un nouveau tour et dette restante : la dette est payée d'abord, jusqu'à `max_moves`.
+/// Aucun PM : l'unité est immobilisée ce tour-ci.
+pub fn turn_moves(max_moves: u32, debt: u32) -> (u32, u32) {
+    let paid = debt.min(max_moves);
+    (max_moves - paid, debt - paid)
+}
+
 /// Source des coûts de déplacement utilisée par le pathfinding.
 pub trait MoveCosts {
     /// Coût du terrain de `hex` ; `None` = infranchissable ou hors carte.
     fn move_cost(&self, hex: Hex) -> Option<u32>;
 
-    /// Coût d'un pas de `from` vers sa voisine `to` : terrain d'arrivée + pente.
+    /// Coût détaillé d'un pas de `from` vers sa voisine `to` : terrain d'arrivée, pente, eau.
     /// `None` = infranchissable (terrain, falaise…).
-    fn step_cost(&self, from: Hex, to: Hex) -> Option<u32> {
+    fn step(&self, from: Hex, to: Hex) -> Option<StepCost> {
         let _ = from;
-        self.move_cost(to)
+        self.move_cost(to).map(StepCost::terrain)
+    }
+
+    /// Coût total d'un pas de `from` vers sa voisine `to` (voir [`MoveCosts::step`]).
+    fn step_cost(&self, from: Hex, to: Hex) -> Option<u32> {
+        self.step(from, to).map(StepCost::total)
     }
 
     /// Tour d'est en ouest de la carte (voisines, distances).
     fn wrap(&self) -> Wrap {
         Wrap::NONE
+    }
+}
+
+impl<M: MoveCosts + ?Sized> MoveCosts for &M {
+    fn move_cost(&self, hex: Hex) -> Option<u32> {
+        (**self).move_cost(hex)
+    }
+
+    fn step(&self, from: Hex, to: Hex) -> Option<StepCost> {
+        (**self).step(from, to)
+    }
+
+    fn wrap(&self) -> Wrap {
+        (**self).wrap()
     }
 }
 
@@ -62,7 +117,7 @@ pub enum Relief {
     Hills,
     /// Relief accidenté : gorges, crêtes, versants raides.
     Rugged,
-    /// Montagne : franchissable, à 3 PM.
+    /// Montagne : franchissable, de 4 à 8 PM selon l'altitude.
     Mountain,
     /// Pic : sommet infranchissable.
     Peak,
@@ -92,7 +147,7 @@ impl Relief {
         }
     }
 
-    /// Surcoût de déplacement (PM) ajouté au terrain, sous le plafond `MOUNTAIN_MOVE_COST`.
+    /// Surcoût de déplacement (PM) ajouté au terrain, sous le plafond `RELIEF_MOVE_CAP`.
     pub fn move_extra(self) -> u32 {
         match self {
             Relief::Flat => 0,
@@ -139,24 +194,19 @@ impl LevelEdge {
 /// Vérité terrain : utilisée pour le déplacement effectif et dans les tests.
 impl MoveCosts for WorldMap {
     fn move_cost(&self, hex: Hex) -> Option<u32> {
-        if self.is_fleuve(hex) {
-            return Some(FLEUVE_MOVE_COST);
-        }
-        let base = self.get(hex)?.move_cost()?;
-        match self.relief(hex) {
-            Relief::Peak => None,
-            Relief::Mountain => Some(MOUNTAIN_MOVE_COST),
-            r => Some((base + r.move_extra()).min(MOUNTAIN_MOVE_COST.max(base))),
-        }
+        self.enter_cost(hex).map(StepCost::total)
     }
 
-    fn step_cost(&self, from: Hex, to: Hex) -> Option<u32> {
-        let terrain = self.move_cost(to)?;
+    fn step(&self, from: Hex, to: Hex) -> Option<StepCost> {
+        let mut step = self.enter_cost(to)?;
         if self.cliff_between(from, to) {
             return None;
         }
-        let river = if self.river_between(from, to) { RIVER_CROSSING_COST } else { 0 };
-        Some(terrain + river + climb_cost(self.elevation(from)?, self.elevation(to)?))
+        if self.river_between(from, to) {
+            step.water += RIVER_CROSSING_COST;
+        }
+        step.terrain += climb_cost(self.elevation(from)?, self.elevation(to)?);
+        Some(step)
     }
 
     fn wrap(&self) -> Wrap {
@@ -198,13 +248,13 @@ impl MoveCosts for KnownMap<'_> {
         }
     }
 
-    /// La pente n'est connue qu'entre deux cases explorées.
-    fn step_cost(&self, from: Hex, to: Hex) -> Option<u32> {
+    /// La pente et les rivières ne sont connues qu'entre deux cases explorées.
+    fn step(&self, from: Hex, to: Hex) -> Option<StepCost> {
         let cost = self.move_cost(to)?;
-        if self.explored.contains(&from) && self.explored.contains(&to) {
-            self.map.step_cost(from, to)
-        } else {
-            Some(cost)
+        match (self.explored.contains(&from), self.explored.contains(&to)) {
+            (true, true) => self.map.step(from, to),
+            (false, true) => self.map.enter_cost(to),
+            _ => Some(StepCost::terrain(cost)),
         }
     }
 
@@ -225,13 +275,25 @@ const PEAK_SHARE: f64 = 0.01;
 const MOUNTAIN_SHARE: f64 = 0.05;
 const RUGGED_SHARE: f64 = 0.08;
 const HILL_SHARE: f64 = 0.15;
-const MOUNTAIN_MIN_M: f32 = 1_500.0;
+pub const MOUNTAIN_MIN_M: f32 = 1_500.0;
 const PEAK_MIN_M: f32 = 2_400.0;
 /// Un pic peut avoir une voisine un peu plus haute que lui (crête), de cet écart au plus (m).
 const PEAK_TOLERANCE_M: f32 = 200.0;
-/// Montagne : 3 PM (plafond aussi pour les autres reliefs) ; relief accidenté +2 PM.
-pub const MOUNTAIN_MOVE_COST: u32 = 3;
+/// Montagne : `MOUNTAIN_MOVE_MIN` PM jusqu'à `MOUNTAIN_MIN_M` + `MOUNTAIN_STEP_M`, puis +1 PM par
+/// tranche de `MOUNTAIN_STEP_M`, jusqu'à `MOUNTAIN_MOVE_MAX` PM : les cols et les vallées, plus bas
+/// que les crêtes, sont les passages les plus rapides.
+pub const MOUNTAIN_MOVE_MIN: u32 = 4;
+pub const MOUNTAIN_MOVE_MAX: u32 = 8;
+pub const MOUNTAIN_STEP_M: f32 = 500.0;
+/// Plafond des autres reliefs (terrain + collines ou relief accidenté) ; relief accidenté +2 PM.
+pub const RELIEF_MOVE_CAP: u32 = 3;
 pub const RUGGED_MOVE_COST: u32 = 2;
+
+/// Coût d'une case de montagne selon son altitude (m).
+pub fn mountain_move_cost(elevation_m: f32) -> u32 {
+    let steps = ((elevation_m - MOUNTAIN_MIN_M) / MOUNTAIN_STEP_M).floor().max(0.0) as u32;
+    (MOUNTAIN_MOVE_MIN + steps).min(MOUNTAIN_MOVE_MAX)
+}
 /// Rendements d'une montagne (pâturages d'altitude, pierre).
 pub const MOUNTAIN_YIELDS: Yields = Yields::new(0, 1, 0);
 /// Collines : +1 de production et +1 PM par rapport au terrain de base.
@@ -1124,6 +1186,22 @@ impl WorldMap {
         match (self.level(a), self.level(b)) {
             (Some(la), Some(lb)) if la > 0 && lb > 0 => is_cliff(la, lb),
             _ => false,
+        }
+    }
+
+    /// Coût pour entrer dans la case, sans la pente ni la rivière de l'arête franchie
+    /// (fleuve : de l'eau ; montagne : selon l'altitude). `None` = infranchissable.
+    pub fn enter_cost(&self, hex: Hex) -> Option<StepCost> {
+        if self.is_fleuve(hex) {
+            return Some(StepCost { water: FLEUVE_MOVE_COST, ..StepCost::default() });
+        }
+        let base = self.get(hex)?.move_cost()?;
+        match self.relief(hex) {
+            Relief::Peak => None,
+            Relief::Mountain => {
+                Some(StepCost { terrain: mountain_move_cost(self.elevation(hex)?), mountain: true, ..StepCost::default() })
+            }
+            r => Some(StepCost::terrain((base + r.move_extra()).min(RELIEF_MOVE_CAP.max(base)))),
         }
     }
 
@@ -2138,11 +2216,11 @@ mod tests {
         assert_eq!(m.move_cost(h), Some(3));
         assert_eq!(m.describe(h), "Forêt tempérée vallonnée");
         m.set_relief(h, Relief::Mountain);
-        assert_eq!(m.move_cost(h), Some(MOUNTAIN_MOVE_COST), "montagne franchissable");
+        assert_eq!(m.move_cost(h), Some(MOUNTAIN_MOVE_MIN), "montagne franchissable");
         assert_eq!(m.yields(h), Some(MOUNTAIN_YIELDS));
         assert_eq!(m.describe(h), "Montagne (forêt tempérée)");
         m.set_relief(h, Relief::Rugged);
-        assert_eq!(m.move_cost(h), Some(MOUNTAIN_MOVE_COST), "forêt accidentée : plafond");
+        assert_eq!(m.move_cost(h), Some(RELIEF_MOVE_CAP), "forêt accidentée : plafond");
         assert_eq!(m.yields(h), Some(Yields::new(0, 3, 0)));
         assert_eq!(m.describe(h), "Forêt tempérée accidentée");
         m.set_relief(h, Relief::Peak);

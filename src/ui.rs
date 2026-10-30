@@ -883,6 +883,12 @@ fn update_selection_panel(
             if u.zoc_stopped {
                 s += "\nArrêté(e) par une zone de contrôle : plus de déplacement ce tour-ci";
             }
+            match u.stuck_turns() {
+                0 if u.move_debt > 0 => s += &format!("\nTerrain difficile : {} PM dus au prochain tour", u.move_debt),
+                0 => {}
+                n if u.immobilized => s += &format!("\nImmobilisé(e) par le terrain : encore {n} tour(s) sans bouger"),
+                n => s += &format!("\nTerrain difficile : {n} tour(s) sans bouger à venir"),
+            }
             s += "\n\nClic droit : se déplacer / attaquer un ennemi\nEspace : passer   ·   Tab : unité suivante";
             if u.auto_explore {
                 s += "\nExploration automatique en cours (E pour arrêter)";
