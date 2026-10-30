@@ -12,7 +12,7 @@ use bevy::mesh::PrimitiveTopology;
 use crate::rules::UnitKind;
 use crate::waterways::{WaterKind, WaterShape, hex_water};
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 
 const Z_TILE: f32 = 0.0;
 const Z_HILLS: f32 = 0.3;
@@ -1648,7 +1648,7 @@ fn draw_plates_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, v
             gizmos.arrow_2d(from, to, PLATE_ARROW).with_tip_length(6.0);
         }
     }
-    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(h)) {
+    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(*h)) {
         let (x, y) = h.to_world();
         gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.45, HOTSPOT);
         gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.2, HOTSPOT);

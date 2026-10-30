@@ -3,7 +3,8 @@
 use crate::hex::Hex;
 use crate::map::MoveCosts;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
+use std::collections::BinaryHeap;
 
 /// Chemin le moins coûteux de `start` à `goal` (start exclu, goal inclus).
 /// `None` si la destination est inaccessible.
@@ -253,7 +254,7 @@ mod tests {
         explored.extend(b.range(1));
         let known = KnownMap::new(&map, &explored);
         let path = find_path(&known, a, b).unwrap();
-        let unknown_steps = path.iter().filter(|h| !explored.contains(h)).count();
+        let unknown_steps = path.iter().filter(|h| !explored.contains(*h)).count();
         assert_eq!(unknown_steps, 0, "le trajet doit emprunter la bande connue : {path:?}");
     }
 

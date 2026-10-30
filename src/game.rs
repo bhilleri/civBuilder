@@ -6,7 +6,7 @@ use crate::hostile::{self, Blocked, Danger, EnemyZoc, Hostile, HostileTurnPendin
 use crate::map::WorldMap;
 use crate::rules::{self, CityState, MoveOutcome, UnitKind, UnitState};
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 
 pub const MAP_WIDTH: i32 = 192;
 pub const MAP_HEIGHT: i32 = 111;

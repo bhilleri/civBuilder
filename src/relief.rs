@@ -14,7 +14,7 @@
 
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex, Wrap};
 use bevy::math::{Vec2, Vec3};
-use std::collections::HashMap;
+use bevy::platform::collections::HashMap;
 
 /// Relief interne d'une case (collines, relief accidenté, montagne, pic) : déformation du sol
 /// ajoutée au profil de la case. `amp` : ampleur des crêtes et ravines (bruit continu sur toute
@@ -839,7 +839,7 @@ pub fn build_hex(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use bevy::platform::collections::HashMap;
 
     fn tops(heights: &HashMap<Hex, f32>, link: impl Fn(Hex, Hex) -> Link + Copy) -> HashMap<Hex, HexTop> {
         let h = |x: Hex| *heights.get(&x).unwrap_or(&0.0);

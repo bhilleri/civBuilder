@@ -14,7 +14,7 @@ use crate::sites::{self, VillageEvent};
 use bevy::prelude::*;
 use rand::Rng;
 use rand::seq::IndexedRandom;
-use std::collections::HashSet;
+use bevy::platform::collections::HashSet;
 
 /// Nombre de tours entre deux recrutements d'un camp.
 pub const CAMP_SPAWN_INTERVAL: u32 = 6;

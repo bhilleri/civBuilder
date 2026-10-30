@@ -29,7 +29,7 @@ use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextCursorStyle, TextEdit};
 use bevy::window::PrimaryWindow;
-use std::collections::{HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 
 /// Un lieu de la carte.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

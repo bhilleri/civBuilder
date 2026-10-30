@@ -7,7 +7,7 @@ use crate::currents;
 use crate::basins::{self, Basin, Basins, NamedRiver};
 use crate::hydro::{self, Hydrology};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
-use std::collections::HashSet;
+use bevy::platform::collections::HashSet;
 
 /// Source des coûts de déplacement utilisée par le pathfinding.
 pub trait MoveCosts {
@@ -727,7 +727,7 @@ impl WorldMap {
             coast.dedup();
             let coast: Vec<&CellInfo> = coast.iter().map(|&j| &cells[j]).collect();
             let latitude = zone.cells.iter().map(|&c| self.latitude(self.hex_at(c))).sum::<f32>() / zone.cells.len() as f32;
-            let members: std::collections::HashSet<usize> = zone.cells.iter().copied().collect();
+            let members: bevy::platform::collections::HashSet<usize> = zone.cells.iter().copied().collect();
             let river = mouths
                 .iter()
                 .filter(|(sea, _)| members.contains(sea))
@@ -1449,10 +1449,10 @@ impl WorldMap {
         // dans les terres. Une case de mer isolée qui avalerait de grands fleuves n'a pas de sens :
         // elles deviennent des cuvettes de terre, que l'hydrologie remplit (lac qui déborde vers
         // la vraie mer, ou cuvette sèche en climat aride)
-        let ponds: std::collections::HashSet<Hex> = {
+        let ponds: bevy::platform::collections::HashSet<Hex> = {
             let wet = |h: Hex| map.index(h).is_some_and(|i| elevations[i].1 < sea);
-            let mut seen = std::collections::HashSet::new();
-            let mut ponds = std::collections::HashSet::new();
+            let mut seen = bevy::platform::collections::HashSet::new();
+            let mut ponds = bevy::platform::collections::HashSet::new();
             for &(start, e) in &elevations {
                 if e >= sea || seen.contains(&start) {
                     continue;
@@ -1508,7 +1508,7 @@ impl WorldMap {
             let t = if e1 > e0 { ((e - e0) / (e1 - e0)).clamp(0.0, 1.0) as f32 } else { 1.0 };
             m0 + (m1 - m0) * t
         };
-        let land_levels: std::collections::HashMap<Hex, u8> =
+        let land_levels: bevy::platform::collections::HashMap<Hex, u8> =
             elevations.iter().filter(|&&(h, e)| !is_sea(h, e)).map(|&(h, e)| (h, if ponds.contains(&h) { 1 } else { level_of(e) })).collect();
         // 3) Altitude (m) et classe d'altitude de chaque case de terre
         let mut surface = vec![climate::Surface::Water; (width * height) as usize];
@@ -1950,7 +1950,7 @@ mod tests {
         // Aucune étendue de mer de moins de `MIN_INLAND_SEA_CELLS` cases enfermée dans les terres
         for seed in [2, 777] {
             let m = WorldMap::generate_in(128, 74, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 74));
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = bevy::platform::collections::HashSet::new();
             for start in m.hexes().filter(|&h| m.get(h).is_some_and(|t| t.is_sea())) {
                 if !seen.insert(start) {
                     continue;
@@ -2337,7 +2337,7 @@ mod planete {
             println!("  cases ≥ {t} m³/s : {c}");
         }
         // Lacs : tailles (composantes connexes)
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = bevy::platform::collections::HashSet::new();
         let mut sizes = Vec::new();
         for x in m.hexes() {
             if m.get(x) != Some(Terrain::Lake) || !seen.insert(x) { continue; }

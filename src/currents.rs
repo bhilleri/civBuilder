@@ -208,7 +208,7 @@ pub fn simulate(width: i32, height: i32, surface: &[Surface], wind: &[(f32, f32)
             // continent rattaché au pôle, et l'eau tourne autour de l'autre pôle)
             let ring: Vec<usize> = (0..n).filter(|&i| unknown[i] && sea[i] && unit[i] > 0.2 && unit[i] < 0.8).collect();
             let sign = if pole == north { 1.0 } else { -1.0 };
-            let columns: std::collections::HashSet<i32> = ring.iter().filter(|&&i| grid.lat[i] * sign > 0.0).map(|&i| i as i32 % width).collect();
+            let columns: bevy::platform::collections::HashSet<i32> = ring.iter().filter(|&&i| grid.lat[i] * sign > 0.0).map(|&i| i as i32 % width).collect();
             if !grid.wraps || columns.len() < width as usize {
                 continue;
             }

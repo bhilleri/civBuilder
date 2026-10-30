@@ -82,7 +82,7 @@ Chiffres antérieurs aux mares de mer (à remesurer) : ruissellement 236 900 m³
 - **Cartes** : normale, relief, climat, bassins versants, débits, réseau hydrographique.
 - **Étiquettes**, **surbrillance**, **carte du réseau** : voir `conception-options-carte.md`.
 - **Bord de la zone explorée** : `clip_to_explored` ; en 3D, une case inexplorée qui porte une rivière d'arête visible prend les lits de ses voisines explorées.
-- **3D** : hauteur de l'eau sur les axes, surface mélangée, lit taillé, maillage par paquets, cascades et plages.
+- **3D** : hauteur de l'eau sur les axes, surface mélangée, lit taillé, maillage par paquets, cascades et plages. Surfaces d'eau refaites en parallèle et comptées dans le budget de temps par image (voir `conception-altitude.md`, « Performances de la construction du relief 3D »).
 
 ## À faire ensuite
 

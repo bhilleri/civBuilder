@@ -4,7 +4,7 @@ use crate::hex::{Hex, Wrap};
 use crate::map::{KnownMap, MoveCosts, WorldMap, Yields};
 use crate::combat::{self, AttackKind};
 use crate::pathfinding::{find_path, find_path_turns};
-use std::collections::HashSet;
+use bevy::platform::collections::HashSet;
 
 // ---------------------------------------------------------------- Unités
 

@@ -435,7 +435,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
     // ±60°. On prend celle de la frontière alentour (moyenne des arêtes entre les deux mêmes
     // plaques à moins de `BOUNDARY_SMOOTH` cases), orientée de la plaque de la case vers l'autre
     let reach = BOUNDARY_SMOOTH * cell_km;
-    let mut by_pair: std::collections::HashMap<(u8, u8), Vec<usize>> = std::collections::HashMap::new();
+    let mut by_pair: bevy::platform::collections::HashMap<(u8, u8), Vec<usize>> = bevy::platform::collections::HashMap::new();
     for (k, e) in raw.iter().enumerate() {
         let (a, b) = (plate_of[e.cell], plate_of[e.neighbor]);
         by_pair.entry((a.min(b), a.max(b))).or_default().push(k);
@@ -933,7 +933,7 @@ mod tests {
             names.dedup();
             assert_eq!(names.len(), p.plates.len());
             // Des frontières de plusieurs natures, et des points chauds loin d'elles
-            let kinds: std::collections::HashSet<_> = p.edges.iter().map(|e| e.kind).collect();
+            let kinds: bevy::platform::collections::HashSet<_> = p.edges.iter().map(|e| e.kind).collect();
             assert!(kinds.len() >= 3, "graine {seed} : {kinds:?}");
         }
     }

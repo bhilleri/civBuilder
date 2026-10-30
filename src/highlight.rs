@@ -21,7 +21,7 @@ use crate::map::WorldMap;
 use crate::render::MapLayer;
 use crate::view3d::{Gizmos3d, Relief, ViewMode};
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 
 /// Couleurs du tracé.
 pub const HOVERED_COLOR: Color = Color::srgb(1.0, 0.22, 0.18);
@@ -332,10 +332,37 @@ fn flow_marks(run: &[Vec2], time: f32) -> Vec<(Vec2, Vec2)> {
     marks
 }
 
-/// Dessine les tracés d'un élément (2D ou 3D) et, pour un cours d'eau, les chevrons du courant.
+/// Tracés d'un élément posés sur le relief 3D (un par tracé 2D) : un tracé d'un seul point
+/// devient un petit rond.
+fn lift_runs(runs: &[Vec<Vec2>], relief: &Relief) -> Vec<Vec<Vec3>> {
+    runs.iter()
+        .map(|run| {
+            if run.len() == 1 {
+                let c = run[0];
+                (0..=12)
+                    .map(|k| {
+                        let p = c + Vec2::from_angle(k as f32 / 12.0 * std::f32::consts::TAU) * 4.0;
+                        relief.on_ground(p.x, p.y, 1.5)
+                    })
+                    .collect()
+            } else {
+                // Le tracé épouse le relief : points intermédiaires sur chaque segment
+                run.windows(2)
+                    .flat_map(|w| (0..4).map(move |k| w[0].lerp(w[1], k as f32 / 4.0)))
+                    .chain(run.last().copied())
+                    .map(|p| relief.on_ground(p.x, p.y, 1.5))
+                    .collect()
+            }
+        })
+        .collect()
+}
+
+/// Dessine les tracés d'un élément (2D, ou 3D avec les tracés posés sur le relief `lifted`) et,
+/// pour un cours d'eau, les chevrons du courant.
 #[allow(clippy::too_many_arguments)]
 fn draw_feature<G: GizmoConfigGroup>(
-    runs: Vec<Vec<Vec2>>,
+    runs: &[Vec<Vec2>],
+    lifted: Option<&[Vec<Vec3>]>,
     river: bool,
     color: Color,
     chevron: Color,
@@ -345,42 +372,26 @@ fn draw_feature<G: GizmoConfigGroup>(
     gizmos_2d: &mut Gizmos<G>,
     gizmos_3d: &mut Gizmos<Gizmos3d>,
 ) {
-    for run in runs {
-        if run.len() == 1 {
-            // Un seul point connu : un petit rond
-            if is_3d {
-                if let Some(relief) = relief {
-                    let c = run[0];
-                    let ring = (0..=12).map(|k| {
-                        let p = c + Vec2::from_angle(k as f32 / 12.0 * std::f32::consts::TAU) * 4.0;
-                        relief.on_ground(p.x, p.y, 1.5)
-                    });
-                    gizmos_3d.linestrip(ring, color);
-                }
-            } else {
-                gizmos_2d.circle_2d(run[0], 4.0, color);
-            }
-            continue;
-        }
-        // Sens du courant (pas pour le pourtour d'un lac)
-        let marks = if river { flow_marks(&run, time) } else { Vec::new() };
+    for (i, run) in runs.iter().enumerate() {
         if is_3d {
-            let Some(relief) = relief else { continue };
-            // Le tracé épouse le relief : points intermédiaires sur chaque segment
-            let points = run
-                .windows(2)
-                .flat_map(|w| (0..4).map(move |k| w[0].lerp(w[1], k as f32 / 4.0)))
-                .chain(run.last().copied())
-                .map(|p| relief.on_ground(p.x, p.y, 1.5));
-            gizmos_3d.linestrip(points.collect::<Vec<_>>(), color);
-            for (p, dir) in marks {
+            let (Some(lifted), Some(relief)) = (lifted, relief) else { return };
+            gizmos_3d.linestrip(lifted[i].iter().copied(), color);
+            // Sens du courant (pas pour le pourtour d'un lac)
+            if !river || run.len() == 1 {
+                continue;
+            }
+            for (p, dir) in flow_marks(run, time) {
                 let side = dir.perp() * 2.6;
                 let back = p - dir * 3.5;
                 let at = |q: Vec2| relief.on_ground(q.x, q.y, 2.2);
                 gizmos_3d.linestrip([at(back + side), at(p), at(back - side)], chevron);
             }
+        } else if run.len() == 1 {
+            // Un seul point connu : un petit rond
+            gizmos_2d.circle_2d(run[0], 4.0, color);
         } else {
-            gizmos_2d.linestrip_2d(run, color);
+            gizmos_2d.linestrip_2d(run.iter().copied(), color);
+            let marks = if river { flow_marks(run, time) } else { Vec::new() };
             for (p, dir) in marks {
                 let side = dir.perp() * 3.0;
                 let back = p - dir * 4.0;
@@ -414,8 +425,18 @@ fn draw_highlight(
     for (feature, color) in layers {
         let runs = feature_lines(&map.0, &fog, feature);
         let river = matches!(feature, Feature::River(_));
-        draw_feature(runs, river, color, FLOW_COLOR, mode.is_3d, relief.as_deref(), time.elapsed_secs(), &mut gizmos_2d, &mut gizmos_3d);
+        let lifted = relief.as_deref().filter(|_| mode.is_3d).map(|r| lift_runs(&runs, r));
+        draw_feature(&runs, lifted.as_deref(), river, color, FLOW_COLOR, mode.is_3d, relief.as_deref(), time.elapsed_secs(), &mut gizmos_2d, &mut gizmos_3d);
     }
+}
+
+/// Tracés de la carte du réseau hydrographique gardés d'une image à l'autre : tracés connus de
+/// chaque élément (dans l'ordre de dessin), et en 3D posés sur le relief (forme du sol `shape`).
+#[derive(Default)]
+struct NetworkCache {
+    runs: Vec<(Feature, Vec<Vec<Vec2>>)>,
+    lifted: Vec<Vec<Vec<Vec3>>>,
+    shape: Option<u32>,
 }
 
 /// Carte du réseau hydrographique : tous les cours d'eau et lacs connus, colorés selon leur rang
@@ -432,11 +453,34 @@ fn draw_network_map(
     mut fleuves_2d: Gizmos<NetworkGizmos2d>,
     mut streams_2d: Gizmos<StreamGizmos2d>,
     mut gizmos_3d: Gizmos<Gizmos3d>,
+    mut cache: Local<NetworkCache>,
 ) {
+    // (l'exploration peut changer pendant qu'une autre carte est affichée)
+    if fog.is_changed() {
+        cache.runs.clear();
+        cache.shape = None;
+    }
     if *layer != MapLayer::Network {
         return;
     }
     let basins = map.0.basins();
+    // Tracés connus, gardés d'une image à l'autre : les petits d'abord, les grands cours restent
+    // au-dessus
+    if cache.runs.is_empty() {
+        let lakes = (0..basins.lakes.len()).map(|l| (Feature::Lake(l), feature_lines(&map.0, &fog, Feature::Lake(l))));
+        let rivers = (0..basins.rivers.len()).rev().map(|r| (Feature::River(r), river_runs(&map.0, &fog, &basins.rivers[r]))).filter(|(_, runs)| !runs.is_empty());
+        cache.runs = lakes.chain(rivers).collect();
+        cache.shape = None;
+    }
+    // En 3D, posés sur le relief : recalculés quand la forme du sol change
+    let relief = relief.as_deref();
+    if mode.is_3d
+        && let Some(relief) = relief
+        && cache.shape != Some(relief.shape)
+    {
+        cache.lifted = cache.runs.iter().map(|(_, runs)| lift_runs(runs, relief)).collect();
+        cache.shape = Some(relief.shape);
+    }
     // Le réseau survolé est dessiné par la surbrillance, au-dessus
     let lit: HashSet<Feature> = hovered.0.map_or_else(HashSet::new, |main| {
         let net = network(basins, main);
@@ -447,24 +491,25 @@ fn draw_network_map(
         let s = c.to_srgba();
         Color::srgb(s.red * 0.45, s.green * 0.45, s.blue * 0.45)
     };
-    // Les petits d'abord : les grands cours restent au-dessus
-    for (l, lake) in basins.lakes.iter().enumerate().filter(|(l, _)| !lit.contains(&Feature::Lake(*l))) {
-        let color = level_color(lake.level);
-        draw_feature(feature_lines(&map.0, &fog, Feature::Lake(l)), false, color, color, mode.is_3d, relief.as_deref(), t, &mut streams_2d, &mut gizmos_3d);
-    }
-    for (r, river) in basins.rivers.iter().enumerate().rev() {
-        if lit.contains(&Feature::River(r)) {
+    for (i, (feature, runs)) in cache.runs.iter().enumerate() {
+        if lit.contains(feature) {
             continue;
         }
-        let color = level_color(river.level);
-        let runs = river_runs(&map.0, &fog, river);
-        if runs.is_empty() {
-            continue;
-        }
-        if river.fleuve {
-            draw_feature(runs, true, color, dark(color), mode.is_3d, relief.as_deref(), t, &mut fleuves_2d, &mut gizmos_3d);
-        } else {
-            draw_feature(runs, true, color, dark(color), mode.is_3d, relief.as_deref(), t, &mut streams_2d, &mut gizmos_3d);
+        let lifted = cache.lifted.get(i).map(Vec::as_slice).filter(|_| cache.shape.is_some());
+        match *feature {
+            Feature::Lake(l) => {
+                let color = level_color(basins.lakes[l].level);
+                draw_feature(runs, lifted, false, color, color, mode.is_3d, relief, t, &mut streams_2d, &mut gizmos_3d);
+            }
+            Feature::River(r) => {
+                let river = &basins.rivers[r];
+                let color = level_color(river.level);
+                if river.fleuve {
+                    draw_feature(runs, lifted, true, color, dark(color), mode.is_3d, relief, t, &mut fleuves_2d, &mut gizmos_3d);
+                } else {
+                    draw_feature(runs, lifted, true, color, dark(color), mode.is_3d, relief, t, &mut streams_2d, &mut gizmos_3d);
+                }
+            }
         }
     }
 }
