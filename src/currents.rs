@@ -71,7 +71,10 @@ const UPWELLING_LATITUDES: (f32, f32) = (3.0, 45.0);
 const UPWELLING_COOLING: f32 = 6.0;
 /// Itérations des résolutions (arrêt avant si la solution ne bouge plus).
 const MAX_SWEEPS: usize = 6_000;
-const SOR: f64 = 1.7;
+/// Facteurs de surrelaxation essayés tour à tour : l'équation n'étant pas symétrique, la
+/// surrelaxation peut diverger sur certains bassins ; à 1 (Gauss-Seidel), elle converge toujours
+/// (coefficients positifs).
+const SOR: [f64; 3] = [1.7, 1.4, 1.0];
 
 /// Courants et température de surface de chaque case (valeurs nulles sur terre).
 #[derive(Clone, Debug, Default)]
@@ -268,7 +271,8 @@ pub fn simulate(width: i32, height: i32, surface: &[Surface], wind: &[(f32, f32)
 /// Résout `r ∇²ψ + β ∂ψ/∂x = forcing` sur les cases inconnues (les autres gardent la valeur de
 /// `psi`), par surrelaxation. Discrétisation sur les six voisins : Σ c_j (ψ_j − ψ_i) = forcing,
 /// c_j = 2r / 3d² + β e_x / 3d (tous positifs : la couche de Stommel fait au moins une demi-case).
-fn solve_stommel(grid: &Grid, unknown: &[bool], beta: &[f64], r: f64, forcing: &[f64], mut psi: Vec<f64>) -> Vec<f64> {
+/// Si la surrelaxation diverge, on reprend avec un facteur plus faible.
+fn solve_stommel(grid: &Grid, unknown: &[bool], beta: &[f64], r: f64, forcing: &[f64], psi: Vec<f64>) -> Vec<f64> {
     let d = grid.d;
     let cells: Vec<usize> = (0..psi.len()).filter(|&i| unknown[i]).collect();
     // Coefficients rapportés à 2r / 3d² (ψ en m²/s)
@@ -277,21 +281,36 @@ fn solve_stommel(grid: &Grid, unknown: &[bool], beta: &[f64], r: f64, forcing: &
         .map(|&i| grid.neighbors[i].iter().map(|&(j, (ex, _))| (j, 1.0 + beta[i] * ex * d / (2.0 * r))).collect())
         .collect();
     let rhs: Vec<f64> = cells.iter().map(|&i| forcing[i] * 3.0 * d * d / (2.0 * r)).collect();
-    for _ in 0..MAX_SWEEPS {
-        let (mut change, mut size) = (0.0f64, 1e-30f64);
-        for (k, &i) in cells.iter().enumerate() {
-            let (mut sum, mut weight) = (0.0, 0.0);
-            for &(j, c) in &coef[k] {
-                sum += c * psi[j];
-                weight += c;
+    // Ordre de grandeur de ψ au départ (valeurs fixées et forçage) : bien au-delà, ça diverge
+    let scale = psi.iter().chain(&rhs).fold(1e-30f64, |m, v| m.max(v.abs())) * 1e6;
+    let start = psi;
+    let mut psi = start.clone();
+    for (attempt, &omega) in SOR.iter().enumerate() {
+        psi.clone_from(&start);
+        let mut diverged = false;
+        for _ in 0..MAX_SWEEPS {
+            let (mut change, mut size) = (0.0f64, 1e-30f64);
+            for (k, &i) in cells.iter().enumerate() {
+                let (mut sum, mut weight) = (0.0, 0.0);
+                for &(j, c) in &coef[k] {
+                    sum += c * psi[j];
+                    weight += c;
+                }
+                let new = (sum - rhs[k]) / weight;
+                let step = omega * (new - psi[i]);
+                psi[i] += step;
+                change = change.max(step.abs());
+                size = size.max(psi[i].abs());
             }
-            let new = (sum - rhs[k]) / weight;
-            let step = SOR * (new - psi[i]);
-            psi[i] += step;
-            change = change.max(step.abs());
-            size = size.max(psi[i].abs());
+            if !size.is_finite() || size > scale * cells.len() as f64 {
+                diverged = true;
+                break;
+            }
+            if change < 1e-8 * size {
+                break;
+            }
         }
-        if change < 1e-8 * size {
+        if !diverged || attempt == SOR.len() - 1 {
             break;
         }
     }

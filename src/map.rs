@@ -841,7 +841,7 @@ impl WorldMap {
                 }
                 k += 1;
             }
-            let oceanic = island.iter().any(|&c| self.plates.plate(c).is_some_and(|p| p.kind == plates::PlateKind::Oceanic));
+            let oceanic = island.iter().any(|&c| self.plates.crust.get(c) == Some(&plates::PlateKind::Oceanic));
             if island.len() > ISLAND_MAX_CELLS || !oceanic {
                 // (grande terre : finir de la marquer)
                 while k < island.len() {
@@ -1571,7 +1571,7 @@ impl WorldMap {
             // Fosses : le long des subductions et des arcs d'îles, côté plaque océanique qui plonge
             for &(i, _) in &sea_cells {
                 let boundary = map.plates.boundary.get(i).copied().flatten();
-                let oceanic = map.plates.plate(i).is_some_and(|p| p.kind == plates::PlateKind::Oceanic);
+                let oceanic = map.plates.crust.get(i) == Some(&plates::PlateKind::Oceanic);
                 if oceanic && dist[i] >= 2 && matches!(boundary, Some(plates::Boundary::Subduction | plates::Boundary::IslandArc)) {
                     let wobble = sample(&shelf_noise, map.hex_at(i), 6.0) as f32;
                     map.depth[i] = map.depth[i].max(TRENCH_DEPTH_M + 1_500.0 + 1_500.0 * wobble);
@@ -2417,14 +2417,14 @@ mod tectonique {
             let fleuve_steps = m.hexes().filter(|&h| m.is_fleuve(h) && drop_over(h, 150.0)).count();
             let steps = format!("rivières {river_steps}, fleuves {fleuve_steps} / {}", m.hexes().filter(|&h| m.is_fleuve(h)).count());
             let lakes = format!("{} (au-delà de 55° : {})", m.hexes().filter(|&h| lake(h)).count(), m.hexes().filter(|&h| lake(h) && m.latitude(h).abs() > 55.0).count());
-            let cont_land = land.iter().filter(|&&h| m.plate(h).is_some_and(|p| p.kind == crate::plates::PlateKind::Continental)).count();
+            let cont_land = land.iter().filter(|&&h| m.index(h).is_some_and(|i| m.plates.continental(i))).count();
             // Passages maritimes qui font le tour, près de chaque pôle (26 lignes) et en tout
             let passage = |rows: std::ops::Range<i32>| {
                 let sea: Vec<bool> = m.hexes().map(|h| rows.contains(&h.to_offset().1) && m.get(h).is_some_and(|t| t.is_sea())).collect();
                 if crate::plates::has_sea_passage(&sea, 192) { "oui" } else { "non" }
             };
-            let cont = m.hexes().filter(|&h| m.plate(h).is_some_and(|p| p.kind == crate::plates::PlateKind::Continental)).count();
-            println!("graine {seed} : plaques continentales {:.0} % des cases", cont as f32 / n * 100.0);
+            let cont = m.hexes().filter(|&h| m.index(h).is_some_and(|i| m.plates.continental(i))).count();
+            println!("graine {seed} : croûte continentale {:.0} % des cases", cont as f32 / n * 100.0);
             let polar_land = m.hexes().filter(|&h| m.latitude(h).abs() > 70.0 && !m.get(h).unwrap().is_water()).count();
             println!(
                 "graine {seed} : passage nord {}, sud {}, en tout {} ; terres au-delà de 70° : {polar_land}",
@@ -2433,7 +2433,7 @@ mod tectonique {
                 passage(0..111)
             );
             println!(
-                "graine {seed} ({:.1} s) : ruptures {steps} ; terres {:.0} % des cases, {:.0} % de la surface ; sur plaques continentales {:.0} % ; montagnes {} pics {} accidenté {} ; lacs {} ; départ {:?}",
+                "graine {seed} ({:.1} s) : ruptures {steps} ; terres {:.0} % des cases, {:.0} % de la surface ; sur croûte continentale {:.0} % ; montagnes {} pics {} accidenté {} ; lacs {} ; départ {:?}",
                 t.elapsed().as_secs_f32(),
                 land.len() as f32 / n * 100.0,
                 land_area / total * 100.0,

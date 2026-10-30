@@ -2,7 +2,11 @@
 
 ## 0.3.0 (en cours)
 
-### Continents moins compacts (étape 1 : côtes découpées)
+### Continents moins compacts
+- **Plusieurs continents** au lieu d'une masse unique : la croûte continentale forme 4 à 6 grands blocs de tailles très inégales (aucun au-delà de 45 %) et 3 à 6 microcontinents, allongés et sinueux, séparés par l'océan (au moins ~280 km). Chaque grand bloc (hors le premier) a 15 % de chances de naître soudé à un autre (comme l'Afrique et l'Eurasie). Les blocs naissent loin des pôles et poussent moins volontiers aux hautes latitudes.
+- **Les continents ne suivent plus les plaques** : un continent peut chevaucher deux plaques (chaîne de collision ou rift en plein continent), une plaque porter un continent et un océan. La nature d'une frontière dépend de la croûte de part et d'autre (subduction le long d'un continent, arc d'îles plus loin en plein océan). Une plaque est dite continentale si elle porte surtout du continent ; sa vitesse dépend de sa part de continent. Infobulle de la carte des plaques : croûte de la case.
+- Plateau continental tout autour de la croûte continentale.
+- Courants marins : le calcul reprend avec une surrelaxation plus douce s'il diverge (certaines formes d'océans le faisaient diverger).
 - **Côtes découpées** : la mer entre dans les continents (golfes, péninsules, bras de mer, mers peu profondes à l'intérieur des terres). Le rivage vient d'un bruit déformé et une part fixe des plaques continentales émerge (≈ 78 %, le reste en mers peu profondes), quelle que soit la graine ; les marges sans subduction descendent en plateau continental. Les mondes changent, à graine égale.
 - Bilan `formes_des_terres` (masses de terre, part de la plus grande, découpage des côtes ; `FORMES_ASCII` : carte en caractères).
 

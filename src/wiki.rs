@@ -383,8 +383,12 @@ fn terrain() -> Article {
                sur les versants jusqu'à la limite des arbres. Les cours d'eau coulent dans des vallées. Les côtes \
                basses descendent en plage jusqu'à la mer, les plus hautes tombent en falaise."),
             h("Plaques tectoniques"),
-            p("La planète est découpée en une douzaine de plaques (carte des plaques, touche T) : continentales \
-               (teintes chaudes, épaisses, elles portent les continents) ou océaniques (teintes froides). Chacune dérive \
+            p("La planète est découpée en une douzaine de plaques (carte des plaques, touche T), surtout \
+               continentales (teintes chaudes) ou surtout océaniques (teintes froides). La croûte continentale, épaisse \
+               et légère, porte les terres : elle forme quelques grands blocs de tailles très inégales et des \
+               microcontinents, séparés par l'océan, posés sur les plaques sans suivre leurs frontières (un \
+               continent peut chevaucher deux plaques, une plaque porter à la fois un continent et un océan ; \
+               l'infobulle de la carte des plaques donne la croûte de la case). Chacune dérive \
                à 1 à 9 cm par an (flèches) en tournant un peu sur elle-même : sa vitesse change d'un endroit à \
                l'autre. Les plaques sont calculées sur la carte elle-même, qui fait le tour de la planète d'est en \
                ouest : une case a la même taille partout, rien n'est étiré près des pôles. Chaque pôle est occupé \
@@ -395,8 +399,10 @@ fn terrain() -> Article {
                subduction (l'océan plonge sous le continent : chaîne côtière, fosse au large) ou un arc d'îles \
                (deux océans) ; deux plaques qui s'écartent ouvrent un rift continental ou une dorsale ; deux \
                plaques qui glissent l'une contre l'autre forment une faille transformante. Les points chauds, loin \
-               des frontières, sont des volcans isolés. Le relief en découle : les continents sont posés sur \
-               les plaques continentales, dont la mer recouvre les parties basses (golfes, bras de mer, mers peu \
+               des frontières, sont des volcans isolés. La nature d'une frontière dépend de la croûte de part et \
+               d'autre : la même frontière peut être une subduction le long d'un continent puis un arc d'îles en \
+               plein océan. Le relief en découle : les continents sont posés sur la croûte continentale, dont la \
+               mer recouvre les parties basses et le pourtour (plateau continental) (golfes, bras de mer, mers peu \
                profondes : environ un cinquième de la croûte continentale est sous l'eau, comme sur Terre) ; une \
                collision dresse une grande chaîne et un haut plateau, une \
                subduction une cordillère le long de la côte et une fosse au large, deux océans qui se rapprochent \

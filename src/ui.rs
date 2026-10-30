@@ -1241,6 +1241,10 @@ fn plate_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
         plate.kind.name(),
         v.length()
     );
+    // (une plaque peut porter continent et océan : la croûte de la case)
+    if let Some(crust) = map.contains(h).then(|| map.plates().crust.get(map.cell(h))).flatten() {
+        note += &format!(" ; croûte {}", crust.name());
+    }
     if let Some(b) = map.plate_boundary(h) {
         note += &format!(" ; frontière : {}", b.name());
     }

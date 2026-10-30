@@ -1,6 +1,7 @@
 //! Plaques tectoniques (logique pure) : la planète est découpée en une douzaine de plaques de
-//! forme irrégulière, continentales (épaisses, elles portent les terres) ou océaniques (fond
-//! marin), qui se déplacent chacune dans sa direction. Le long des frontières, le mouvement
+//! forme irrégulière, qui se déplacent chacune dans sa direction. Elles portent de la croûte
+//! continentale (épaisse, elle porte les terres : quelques blocs de tailles très inégales, posés
+//! sans suivre les frontières) et de la croûte océanique (fond marin). Le long des frontières, le mouvement
 //! relatif des deux plaques dit ce qui s'y passe :
 //! - elles se rapprochent : collision (deux continents : grande chaîne et haut plateau),
 //!   subduction (l'océan plonge sous le continent : chaîne côtière et fosse au large), arc
@@ -13,15 +14,14 @@
 //! d'est en ouest (les plaques passent le raccord), les pôles sont ses bords, une case a la même
 //! taille partout (pas de plaques étirées en bandes près des pôles comme sur une sphère
 //! projetée).
-//! Sur une planète, le relief en découle (`Plates::elevation`) : continents sur les plaques
-//! continentales, chaînes, fosses, arcs d'îles, rifts et chapelets d'îles le long des frontières
+//! Sur une planète, le relief en découle (`Plates::elevation`) : continents sur la croûte
+//! continentale, chaînes, fosses, arcs d'îles, rifts et chapelets d'îles le long des frontières
 //! et au-dessus des points chauds.
 
 use crate::hex::{DIRECTIONS, Hex, Wrap};
 use bevy::math::{Vec2, Vec3};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -29,8 +29,32 @@ use std::collections::BinaryHeap;
 /// Nombre de plaques (tiré entre ces bornes).
 const MIN_PLATES: usize = 10;
 const MAX_PLATES: usize = 14;
-/// Part de la surface couverte par les plaques continentales (visée).
+/// Part des cases de croûte continentale (visée).
 const CONTINENTAL_SHARE: f32 = 0.45;
+/// Grands blocs de croûte continentale (tirés entre ces bornes), de tailles très inégales.
+const CRUST_BLOCKS: (usize, usize) = (4, 6);
+/// Part maximale d'un grand bloc dans la croûte continentale (sur Terre, l'Afrique-Eurasie fait
+/// un peu plus de la moitié des terres).
+const MAX_BLOCK_SHARE: f32 = 0.45;
+/// Microcontinents (nombre tiré entre ces bornes) et leur taille (cases).
+const MICROCONTINENTS: (usize, usize) = (3, 6);
+const MICRO_CELLS: (usize, usize) = (25, 110);
+/// Distance minimale (km) entre deux blocs de croûte continentale : un océan les sépare.
+const CRUST_GAP_KM: f32 = 280.0;
+/// Chance qu'un grand bloc (hors le premier) naisse contre un autre et s'y soude (comme
+/// l'Afrique et l'Eurasie).
+const JOINED_CHANCE: f64 = 0.15;
+/// Allongement maximal d'un bloc (surcoût de croissance en travers de son axe).
+const ELONGATION: f32 = 1.8;
+/// Ampleur de la déformation des bords de la croûte continentale (cases).
+const CRUST_WARP_CELLS: f32 = 4.0;
+/// Hautes latitudes (part de la distance de l'équateur au pôle) où les blocs de croûte
+/// continentale poussent moins volontiers, et surcoût de croissance au pôle (s'ajoute au bruit,
+/// de 0 à 1).
+const HIGH_LATITUDE: f32 = 0.55;
+const HIGH_LATITUDE_COST: f32 = 1.5;
+/// Marge (cases) entre la croûte continentale et les plaques polaires.
+const POLAR_MARGIN: usize = 2;
 /// Vitesses (cm/an) : les plaques océaniques vont plus vite que les continentales.
 const OCEANIC_SPEED: (f32, f32) = (3.0, 9.0);
 const CONTINENTAL_SPEED: (f32, f32) = (1.0, 4.5);
@@ -48,14 +72,15 @@ const BOUNDARY_SMOOTH: f32 = 3.5;
 const LIFT_SMOOTHING: usize = 4;
 /// Socle des continents : amplitude et longueur d'onde (km) du bruit des côtes.
 const COAST: (f32, f32) = (0.55, 1_100.0);
-/// Part des plaques continentales au-dessus de la mer, avant le relief des frontières (sur
+/// Part de la croûte continentale au-dessus de la mer, avant le relief des frontières (sur
 /// Terre, environ 70 % de la croûte continentale émerge ; le reste fait les plateaux et les mers
 /// peu profondes).
 const EMERGED: f32 = 0.78;
 /// Déformation du bruit des côtes : longueur d'onde et amplitude du décalage (km).
 const WARP_KM: (f32, f32) = (1_200.0, 650.0);
-/// Plateau continental des marges passives : profondeur (altitude relative) et largeur (km).
-const SHELF: (f32, f32) = (0.22, 220.0);
+/// Plateau continental au bord de la croûte continentale : profondeur (altitude relative) et
+/// largeur (km).
+const SHELF: (f32, f32) = (0.15, 200.0);
 /// Rotation d'une plaque sur elle-même : au plus cette part de sa vitesse par 1 000 km.
 const SPIN_SHARE: f32 = 0.35;
 /// Plaques océaniques forcées le long de chaque pôle (tirées entre ces bornes).
@@ -190,6 +215,10 @@ pub struct Plates {
     /// Distance de chaque case à la frontière la plus proche (km, sur la carte).
     #[cfg_attr(not(test), allow(dead_code))]
     pub boundary_km: Vec<f32>,
+    /// Croûte de chaque case : continentale (épaisse, elle porte les terres) ou océanique.
+    pub crust: Vec<PlateKind>,
+    /// Distance de chaque case au bord de sa croûte (km : à la plus proche case de l'autre nature).
+    pub crust_km: Vec<f32>,
     /// Points chauds (cases).
     pub hotspots: Vec<Hex>,
     /// Arête de frontière la plus proche de chaque case (indice dans `edges`).
@@ -206,6 +235,11 @@ impl Plates {
     /// Plaque d'une case (indice dans `plates`).
     pub fn plate(&self, cell: usize) -> Option<&Plate> {
         self.plate_of.get(cell).and_then(|&p| self.plates.get(usize::from(p)))
+    }
+
+    /// La case est sur de la croûte continentale.
+    pub fn continental(&self, cell: usize) -> bool {
+        self.crust.get(cell) == Some(&PlateKind::Continental)
     }
 }
 
@@ -380,28 +414,55 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
         sizes[usize::from(p)] += 1;
     }
 
-    // Nature : les plaques polaires sont océaniques ; parmi les autres, des plaques tirées au
-    // hasard deviennent continentales tant qu'elles rapprochent de la part visée de la carte
-    let mut order: Vec<usize> = (0..count).filter(|&p| !polar[p]).collect();
-    order.shuffle(&mut rng);
-    let mut kinds = vec![PlateKind::Oceanic; count];
-    let mut covered = 0usize;
-    let target = CONTINENTAL_SHARE * n as f32;
-    for &p in &order {
-        if (covered + sizes[p]) as f32 - target <= target - covered as f32 {
-            kinds[p] = PlateKind::Continental;
-            covered += sizes[p];
+    // Croûte continentale : des blocs de tailles très inégales, posés sans tenir compte des
+    // frontières (un continent peut chevaucher plusieurs plaques, une plaque porter continent et
+    // océan), espacés les uns des autres ; jamais sur les plaques polaires ni tout contre elles
+    let neighbors: Vec<Vec<usize>> = (0..n).map(neighbors_of).collect();
+    let mut allowed: Vec<bool> = (0..n).map(|i| !polar[usize::from(plate_of[i])]).collect();
+    for _ in 0..POLAR_MARGIN {
+        allowed = (0..n).map(|i| allowed[i] && neighbors[i].iter().all(|&j| allowed[j])).collect();
+    }
+    let crust_noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(314_159)).set_octaves(4).set_frequency(1.0);
+    let crust_rough: Vec<f32> = unit.iter().map(|&p| (at(&crust_noise, p, 6.0) as f32 * 0.5 + 0.5).clamp(0.0, 1.0)).collect();
+    // Hautes latitudes (0 jusqu'à 55 % de la distance au pôle, 1 au pôle) : les blocs y poussent
+    // moins volontiers et n'y naissent pas (sinon un continent longe toute une plaque polaire)
+    let (mid, half) = ((y_lo + y_hi) / 2.0, (y_hi - y_lo) / 2.0);
+    let high: Vec<f32> = pos.iter().map(|p| (((p.y - mid).abs() / half - HIGH_LATITUDE) / (1.0 - HIGH_LATITUDE)).clamp(0.0, 1.0)).collect();
+    let crust_rough: Vec<f32> = crust_rough.iter().zip(&high).map(|(r, h)| r + HIGH_LATITUDE_COST * h).collect();
+    let allowed_seed: Vec<bool> = (0..n).map(|i| allowed[i] && high[i] < 0.3).collect();
+    let grown = continental_crust(&allowed, &allowed_seed, &pos, &crust_rough, &neighbors, world_km, cell_km, &mut rng);
+    // Bords déformés par un bruit plus fin que celui des frontières : péninsules, échancrures
+    let crust_warp: [Fbm<Perlin>; 2] = [57_721u32, 66_743].map(|k| Fbm::new(seed.wrapping_add(k)).set_octaves(3).set_frequency(1.0));
+    let continental: Vec<bool> = (0..n)
+        .map(|i| {
+            let d = Vec2::new(at(&crust_warp[0], unit[i], 11.0) as f32, at(&crust_warp[1], unit[i], 11.0) as f32);
+            allowed[i] && grown[cell_at(pos[i] + d * CRUST_WARP_CELLS * cell_km)]
+        })
+        .collect();
+    let crust: Vec<PlateKind> = continental.iter().map(|&c| if c { PlateKind::Continental } else { PlateKind::Oceanic }).collect();
+    let crust_km = {
+        let inland = distance_km(&neighbors, &pos, world_km, |i| !continental[i]);
+        let offshore = distance_km(&neighbors, &pos, world_km, |i| continental[i]);
+        (0..n).map(|i| if continental[i] { inland[i] } else { offshore[i] }).collect::<Vec<f32>>()
+    };
+    // Nature d'une plaque : celle de la plus grande part de sa croûte
+    let mut on_continent = vec![0usize; count];
+    for i in 0..n {
+        if continental[i] {
+            on_continent[usize::from(plate_of[i])] += 1;
         }
     }
+    let share: Vec<f32> = (0..count).map(|p| on_continent[p] as f32 / sizes[p].max(1) as f32).collect();
+    let kinds: Vec<PlateKind> = share.iter().map(|&s| if s >= 0.5 { PlateKind::Continental } else { PlateKind::Oceanic }).collect();
 
-    // Mouvements : chaque plaque dérive dans une direction tirée au hasard, à une vitesse selon
-    // sa nature, en tournant un peu sur elle-même (les noms sont donnés ensuite par la toponymie).
+    // Mouvements : chaque plaque dérive dans une direction tirée au hasard, d'autant plus vite
+    // qu'elle porte moins de continent, en tournant un peu sur elle-même (les noms sont donnés ensuite par la toponymie).
     // Une plaque polaire fait le tour de la carte : elle ne tourne pas (sa vitesse sauterait à
     // l'opposé de son centre)
     let plates: Vec<Plate> = (0..count)
         .map(|p| {
-            let (lo, hi) = if kinds[p] == PlateKind::Oceanic { OCEANIC_SPEED } else { CONTINENTAL_SPEED };
-            let speed = rng.random_range(lo..hi);
+            let mix = |(o, c): (f32, f32)| o + (c - o) * share[p];
+            let speed = rng.random_range(mix((OCEANIC_SPEED.0, CONTINENTAL_SPEED.0))..mix((OCEANIC_SPEED.1, CONTINENTAL_SPEED.1)));
             let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
             let spin = rng.random_range(-1.0..1.0) * speed * SPIN_SHARE * if polar[p] { 0.0 } else { 1.0 };
             let center = pos[index(seeds[p]).unwrap_or(0)];
@@ -454,10 +515,11 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
             }
         }
         let normal = normal.try_normalize().unwrap_or(e.normal);
-        let (pa, pb) = (usize::from(a), usize::from(b));
         let (va, vb) = (speed_at(a, e.mid), speed_at(b, e.mid));
         let closing = -(vb - va).dot(normal);
-        let kind = classify(plates[pa].kind, plates[pb].kind, closing);
+        // La nature de la frontière dépend de la croûte de part et d'autre (une même frontière
+        // peut passer d'une subduction le long d'un continent à un arc d'îles en plein océan)
+        let kind = classify(crust[e.cell], crust[e.neighbor], closing);
         for c in [e.cell, e.neighbor] {
             if boundary[c].is_none_or(|(_, s)| closing.abs() > s) {
                 boundary[c] = Some((kind, closing.abs()));
@@ -466,7 +528,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
         }
         let under = match kind {
             Boundary::Subduction => {
-                if plates[pa].kind == PlateKind::Oceanic { a } else { b }
+                if crust[e.cell] == PlateKind::Oceanic { a } else { b }
             }
             // Celle qui avance le plus vite vers la frontière
             Boundary::IslandArc => {
@@ -505,7 +567,7 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
     // Points chauds : loin des frontières, de préférence sous un océan, espacés
     let far: Vec<usize> = (0..n).filter(|&i| boundary_km[i] >= HOTSPOT_FROM_BOUNDARY as f32 * cell_km).collect();
     let mut keyed: Vec<(bool, f32, usize)> =
-        far.into_iter().map(|i| (plates[usize::from(plate_of[i])].kind == PlateKind::Continental, rng.random_range(0.0..1.0f32), i)).collect();
+        far.into_iter().map(|i| (continental[i], rng.random_range(0.0..1.0f32), i)).collect();
     keyed.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
     let far: Vec<usize> = keyed.into_iter().map(|(_, _, i)| i).collect();
     let wanted = rng.random_range(HOTSPOTS.0..=HOTSPOTS.1);
@@ -519,7 +581,112 @@ pub fn generate(width: i32, height: i32, wrap: Wrap, seed: u32, cell_km: f32) ->
         }
     }
 
-    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, hotspots, nearest_edge, pos, world_km, width }
+    Plates { plates, plate_of, velocity, edges, boundary, boundary_km, crust, crust_km, hotspots, nearest_edge, pos, world_km, width }
+}
+
+/// Croûte continentale de chaque case : des blocs de tailles très inégales (quelques grands,
+/// quelques microcontinents) qui poussent chacun depuis un germe sur un sol au coût bruité,
+/// plus vite le long d'un axe (blocs allongés), sur les cases `allowed` (germes sur `allowed_seed`), à `CRUST_GAP_KM` au
+/// moins des blocs déjà posés (sauf un bloc né soudé à un autre). Germes aussi loin que possible
+/// des blocs déjà posés. Le total vise `CONTINENTAL_SHARE` des cases.
+fn continental_crust(allowed: &[bool], allowed_seed: &[bool], pos: &[Vec2], rough: &[f32], neighbors: &[Vec<usize>], world_km: f32, cell_km: f32, rng: &mut StdRng) -> Vec<bool> {
+    let n = allowed.len();
+    let target = (CONTINENTAL_SHARE * n as f32) as usize;
+    let majors = rng.random_range(CRUST_BLOCKS.0..=CRUST_BLOCKS.1);
+    let micro: Vec<usize> = (0..rng.random_range(MICROCONTINENTS.0..=MICROCONTINENTS.1)).map(|_| rng.random_range(MICRO_CELLS.0..=MICRO_CELLS.1)).collect();
+    // Tailles des grands blocs : poids tirés au carré (de 2 % à 100 %), du plus grand au plus petit
+    let weights: Vec<f32> = (0..majors).map(|_| rng.random_range(0.15f32..1.0).powi(2)).collect();
+    let rest = target.saturating_sub(micro.iter().sum()) as f32;
+    let total: f32 = weights.iter().sum();
+    let mut shares: Vec<f32> = weights.iter().map(|w| w / total).collect();
+    shares.sort_unstable_by(|a, b| b.total_cmp(a));
+    // Aucun bloc au-delà de `MAX_BLOCK_SHARE` : l'excédent va aux autres, en proportion
+    let excess = (shares[0] - MAX_BLOCK_SHARE).max(0.0);
+    let others: f32 = shares[1..].iter().sum();
+    shares[0] -= excess;
+    for s in &mut shares[1..] {
+        *s += excess * *s / others.max(1e-6);
+    }
+    let mut sizes: Vec<usize> = shares.iter().map(|s| (s * rest) as usize).collect();
+    sizes.extend(micro);
+    let mut crust = vec![false; n];
+    let mut carry = 0;
+    let key = |c: f32| (c * 1000.0) as u64;
+    for (b, &size) in sizes.iter().enumerate() {
+        let size = size + carry;
+        let away = if b == 0 { vec![f32::MAX; n] } else { distance_km(neighbors, pos, world_km, |i| crust[i]) };
+        let joined = b > 0 && b < majors && rng.random_bool(JOINED_CHANCE);
+        let free = |crust: &[bool], i: usize| allowed[i] && !crust[i] && (joined || away[i] >= CRUST_GAP_KM);
+        // Germe : parmi des cases tirées au hasard, la plus loin des blocs déjà posés (ou, pour un
+        // bloc soudé, la plus proche au-delà de l'écart)
+        let candidates: Vec<usize> = (0..80).map(|_| rng.random_range(0..n)).filter(|&i| free(&crust, i) && allowed_seed[i] && away[i] >= CRUST_GAP_KM).collect();
+        let start = if joined {
+            candidates.iter().copied().min_by(|&a, &b| away[a].total_cmp(&away[b]))
+        } else {
+            candidates.iter().copied().max_by(|&a, &b| away[a].total_cmp(&away[b]))
+        };
+        let Some(start) = start else {
+            carry = size;
+            continue;
+        };
+        let across = Vec2::from_angle(rng.random_range(0.0..std::f32::consts::PI)).perp();
+        let stretch = rng.random_range(0.0..ELONGATION);
+        let mut best = vec![f32::MAX; n];
+        let mut queue: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
+        best[start] = 0.0;
+        queue.push(Reverse((0, start)));
+        let mut grown = 0;
+        while let Some(Reverse((k, i))) = queue.pop() {
+            if grown >= size {
+                break;
+            }
+            if crust[i] || k > key(best[i]) {
+                continue;
+            }
+            crust[i] = true;
+            grown += 1;
+            for &j in &neighbors[i] {
+                if !free(&crust, j) {
+                    continue;
+                }
+                let step = offset(pos[i], pos[j], world_km);
+                let cost = step.length() / cell_km * (1.0 + 6.0 * rough[j] * rough[j]) * (1.0 + stretch * step.normalize_or_zero().dot(across).abs());
+                let c = best[i] + cost;
+                if c < best[j] {
+                    best[j] = c;
+                    queue.push(Reverse((key(c), j)));
+                }
+            }
+        }
+        carry = size.saturating_sub(grown);
+    }
+    crust
+}
+
+/// Distance (km, sur la carte) de chaque case à la plus proche case `source` (0 pour elles,
+/// `f32::MAX` s'il n'y en a pas).
+fn distance_km(neighbors: &[Vec<usize>], pos: &[Vec2], world_km: f32, source: impl Fn(usize) -> bool) -> Vec<f32> {
+    let n = neighbors.len();
+    let key = |c: f32| (c * 1000.0) as u64;
+    let mut d = vec![f32::MAX; n];
+    let mut queue: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
+    for i in (0..n).filter(|&i| source(i)) {
+        d[i] = 0.0;
+        queue.push(Reverse((0, i)));
+    }
+    while let Some(Reverse((k, i))) = queue.pop() {
+        if k > key(d[i]) {
+            continue;
+        }
+        for &j in &neighbors[i] {
+            let c = d[i] + offset(pos[i], pos[j], world_km).length();
+            if c < d[j] {
+                d[j] = c;
+                queue.push(Reverse((key(c), j)));
+            }
+        }
+    }
+    d
 }
 
 /// Profil en cloche : 1 en 0, ≈ 0,37 à `width`.
@@ -549,10 +716,11 @@ impl Plates {
             let z = 1.0 / f64::from(wavelength_km);
             f.get([f64::from(p.x) * z, f64::from(p.y) * z, f64::from(p.z) * z]) as f32
         };
-        let continental = |i: usize| self.plates[usize::from(self.plate_of[i])].kind == PlateKind::Continental;
+        let continental = |i: usize| self.continental(i);
         // Socle des continents. Les côtes viennent d'un bruit déformé (point de lecture décalé
-        // par un autre bruit) : golfes, péninsules, mers peu profondes. Le rivage est placé pour
-        // qu'une part fixe des plaques continentales émerge (`EMERGED`), quelle que soit la graine
+        // par un autre bruit) : golfes, péninsules, mers peu profondes ; le bord de la croûte
+        // continentale descend en plateau continental. Le rivage est placé pour qu'une part fixe
+        // de la croûte continentale émerge (`EMERGED`), quelle que soit la graine
         let mut socle: Vec<f32> = (0..n)
             .map(|i| {
                 if !continental(i) {
@@ -560,7 +728,7 @@ impl Plates {
                 }
                 let p = cylinder(self.pos[i], self.world_km);
                 let shift = Vec3::new(at(&warp.0, p, WARP_KM.0), at(&warp.1, p, WARP_KM.0), at(&warp.2, p, WARP_KM.0));
-                COAST.0 * at(&coast, p + shift * WARP_KM.1, COAST.1) + 0.16 * at(&shelf, p, 5_000.0)
+                COAST.0 * at(&coast, p + shift * WARP_KM.1, COAST.1) + 0.16 * at(&shelf, p, 5_000.0) - SHELF.0 * bell(self.crust_km[i], SHELF.1)
             })
             .collect();
         let mut sorted: Vec<f32> = (0..n).filter(|&i| continental(i)).map(|i| socle[i]).collect();
@@ -598,7 +766,6 @@ impl Plates {
                     let on_edge = mine == sides.0 || mine == sides.1;
                     let f = (edge.closing.abs() / 4.0).clamp(0.5, 1.6);
                     let under = edge.under == mine;
-                    let mixed = self.plates[usize::from(sides.0)].kind != self.plates[usize::from(sides.1)].kind;
                     lift = match edge.kind {
                         _ if !on_edge => 0.0,
                         Boundary::Collision => f * (0.62 * bell(d, 180.0) + 0.26 * bell(d, 600.0)),
@@ -608,9 +775,6 @@ impl Plates {
                         Boundary::IslandArc => f * 0.62 * bell(d - 130.0, 75.0) * (0.45 + 0.55 * (at(&arc, p, 300.0) * 0.5 + 0.5)),
                         Boundary::Rift => f * (-0.24 * bell(d, 70.0) + 0.09 * bell(d - 130.0, 70.0)),
                         Boundary::Ridge if !continental => 0.16 * f * bell(d, 170.0),
-                        // Marge passive (continent bordé d'océan sans subduction) : plateau
-                        // continental qui descend sous la mer
-                        Boundary::Ridge | Boundary::Transform if continental && mixed => -SHELF.0 * bell(d, SHELF.1),
                         Boundary::Ridge => 0.0,
                         Boundary::Transform => 0.05 * at(&hills, p, 300.0) * bell(d, 120.0),
                     };
@@ -923,8 +1087,8 @@ mod tests {
                 }
                 assert_eq!(size, plate.cells, "graine {seed} : {} d'un seul tenant", plate.name);
             }
-            // Environ 40 % de surface continentale, des deux natures
-            let cont: usize = p.plates.iter().filter(|pl| pl.kind == PlateKind::Continental).map(|pl| pl.cells).sum();
+            // Environ 45 % de croûte continentale
+            let cont = (0..192 * 111).filter(|&i| p.continental(i)).count();
             let share = cont as f32 / (192.0 * 111.0);
             assert!((0.25..0.6).contains(&share), "graine {seed} : {share}");
             // Noms tous différents
@@ -1038,8 +1202,8 @@ mod tests {
             let p = planet(seed);
             let e = p.elevation(seed, 40.0);
             let n = e.len();
-            let continental = |i: usize| p.plate(i).unwrap().kind == PlateKind::Continental;
-            // Les terres (au-dessus de 0) sont surtout sur les plaques continentales
+            let continental = |i: usize| p.continental(i);
+            // Les terres (au-dessus de 0) sont surtout sur la croûte continentale
             let land: Vec<usize> = (0..n).filter(|&i| e[i] >= 0.0).collect();
             let on_cont = land.iter().filter(|&&i| continental(i)).count();
             assert!(on_cont * 100 >= land.len() * 85, "graine {seed} : {on_cont}/{}", land.len());
@@ -1087,9 +1251,62 @@ mod tests {
         assert_ne!(planet(43).plate_of, a.plate_of);
     }
 
+    #[test]
+    fn croute_continentale_en_blocs() {
+        for seed in [777, 2, 5, 4242] {
+            let p = planet(seed);
+            let n = p.plate_of.len();
+            let neighbors = p.neighbor_graph(40.0);
+            // Plusieurs blocs séparés (continents et microcontinents)
+            let mut seen = vec![false; n];
+            let mut blocks = Vec::new();
+            for start in 0..n {
+                if !p.continental(start) || seen[start] {
+                    continue;
+                }
+                seen[start] = true;
+                let (mut stack, mut size) = (vec![start], 0);
+                while let Some(i) = stack.pop() {
+                    size += 1;
+                    for &(j, _) in &neighbors[i] {
+                        if p.continental(j) && !seen[j] {
+                            seen[j] = true;
+                            stack.push(j);
+                        }
+                    }
+                }
+                blocks.push(size);
+            }
+            blocks.sort_unstable_by(|a, b| b.cmp(a));
+            assert!(blocks.iter().filter(|&&b| b >= 25).count() >= 3, "graine {seed} : blocs {blocks:?}");
+            assert!(blocks[0] * 100 < n * 35, "graine {seed} : un bloc couvre {} cases", blocks[0]);
+            // Jamais sur une plaque polaire (les lignes du bord en font partie)
+            for row in [0, 110] {
+                let polar = p.plate_of[row * 192];
+                assert!((0..n).all(|i| p.plate_of[i] != polar || !p.continental(i)), "graine {seed} : croûte continentale sur la plaque polaire");
+            }
+            // Un continent chevauche au moins une frontière (collision ou rift sur la croûte
+            // continentale, des deux côtés) ; une plaque porte à la fois continent et océan
+            assert!(p.edges.iter().any(|e| p.continental(e.cell) && p.continental(e.neighbor)), "graine {seed}");
+            let mixed = (0..p.plates.len()).any(|k| {
+                let cells: Vec<usize> = (0..n).filter(|&i| usize::from(p.plate_of[i]) == k).collect();
+                let cont = cells.iter().filter(|&&i| p.continental(i)).count();
+                cont * 5 >= cells.len() && cont * 5 <= cells.len() * 4
+            });
+            assert!(mixed, "graine {seed} : aucune plaque mi-continentale mi-océanique");
+            // La nature d'une frontière suit la croûte de part et d'autre
+            for e in &p.edges {
+                let (a, b) = (p.crust[e.cell], p.crust[e.neighbor]);
+                assert_eq!(e.kind, classify(a, b, e.closing));
+            }
+        }
+    }
+
     /// Bilan des formes des terres (à lancer à la main, relief brut sans érosion, mer sous 0) :
     /// masses de terre, part de la plus grande, découpage des côtes (longueur de côte rapportée à
-    /// celle d'un disque de même surface : 1 pour un disque). `FORMES_ASCII` : carte en caractères.
+    /// celle d'un disque de même surface : 1 pour un disque). `FORMES_ASCII` : carte en caractères
+    /// (`#` terre sur croûte continentale, `+` terre sur croûte océanique, `:` mer sur croûte
+    /// continentale, `.` océan).
     #[test]
     #[ignore]
     fn formes_des_terres() {
@@ -1124,10 +1341,10 @@ mod tests {
             masses.sort_unstable_by(|a, b| b.cmp(a));
             let total: usize = masses.iter().map(|m| m.0).sum();
             let cut = |m: &(usize, usize)| m.1 as f32 / (6.93 * (m.0 as f32).sqrt());
-            let cont: Vec<usize> = (0..n).filter(|&i| p.plates[usize::from(p.plate_of[i])].kind == PlateKind::Continental).collect();
+            let cont: Vec<usize> = (0..n).filter(|&i| p.continental(i)).collect();
             let emerged = cont.iter().filter(|&&i| land(i)).count() as f32 / cont.len().max(1) as f32 * 100.0;
             println!(
-                "graine {seed} : plaques continentales émergées à {emerged:.0} % ; terres {:.0} % ; masses ≥ 300 cases {}, ≥ 30 {} ; plus grande {:.0} % des terres ; tailles {:?} ; découpage {:?}",
+                "graine {seed} : croûte continentale émergée à {emerged:.0} % ; terres {:.0} % ; masses ≥ 300 cases {}, ≥ 30 {} ; plus grande {:.0} % des terres ; tailles {:?} ; découpage {:?}",
                 total as f32 / n as f32 * 100.0,
                 masses.iter().filter(|m| m.0 >= 300).count(),
                 masses.iter().filter(|m| m.0 >= 30).count(),
@@ -1137,7 +1354,7 @@ mod tests {
             );
             if std::env::var("FORMES_ASCII").is_ok() {
                 for row in (0..111).step_by(2) {
-                    let line: String = (0..192).step_by(2).map(|c| if land(row * 192 + c) { '#' } else { '.' }).collect();
+                    let line: String = (0..192).step_by(2).map(|c| match (land(row * 192 + c), p.continental(row * 192 + c)) { (true, true) => '#', (true, false) => '+', (false, true) => ':', _ => '.' }).collect();
                     println!("{line}");
                 }
             }

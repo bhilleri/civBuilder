@@ -34,7 +34,7 @@ frontière de plaque, forme ronde de la croissance), et les plaques continentale
 soudent par collision. Trois étapes, chacune vérifiée par bilan et captures :
 - [x] a. **Côtes découpées** (fait, 30/10) : socle continental plus bas, bruit déformé (golfes, péninsules,
   mers peu profondes), plateau continental sur les marges.
-- [ ] b. **Blocs de croûte continentale dans les plaques** (au lieu de plaques entièrement
+- [x] b. **Blocs de croûte continentale dans les plaques** (fait, 30/10) (au lieu de plaques entièrement
   continentales) : tailles très inégales, microcontinents, un continent peut chevaucher plusieurs
   plaques (chaînes de collision intérieures) et une plaque porter continent et océan ; règle
   d'espacement entre blocs (pas de supercontinent systématique). Nature des frontières selon la
