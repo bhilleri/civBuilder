@@ -49,6 +49,10 @@ pub enum MapTarget {
     Bank(usize),
     /// Indice de la plaque.
     Plate(usize),
+    /// Unité (entité), pour les renvois du journal.
+    Unit(Entity),
+    /// Case seule : dernière position connue d'une unité ou d'un site disparu (journal).
+    Spot(Hex),
 }
 
 /// Catégorie de lieu (filtres de la recherche).
@@ -112,7 +116,7 @@ impl MapTarget {
     /// Le lieu est une zone dont on dessine le pourtour (un cours d'eau ou un lac a déjà sa
     /// surbrillance).
     fn outlined(self) -> bool {
-        matches!(self, MapTarget::City(_) | MapTarget::Site(_) | MapTarget::Basin(_) | MapTarget::Plate(_) | MapTarget::Sea(_) | MapTarget::Bank(_))
+        !matches!(self, MapTarget::River(_) | MapTarget::Lake(_))
     }
 }
 
@@ -150,12 +154,14 @@ pub struct PointedTarget {
     /// Banc de poissons survolé sur la carte des ressources.
     map_hover: Option<MapTarget>,
     keyboard: Option<MapTarget>,
+    /// Renvoi du journal survolé.
+    pub link: Option<MapTarget>,
     flash: Option<(MapTarget, f32)>,
 }
 
 impl PointedTarget {
     pub fn current(&self) -> Option<MapTarget> {
-        self.hover.or(self.map_hover).or(self.keyboard).or(self.flash.map(|(t, _)| t))
+        self.hover.or(self.link).or(self.map_hover).or(self.keyboard).or(self.flash.map(|(t, _)| t))
     }
 }
 
@@ -485,7 +491,8 @@ fn target_hexes(map: &WorldMap, fog: &ShownFog, territory: &Territory, entity_he
     let basins = map.basins();
     let mut hexes: Vec<Hex> = match target {
         MapTarget::City(e) => territory.0.iter().filter(|(_, owner)| **owner == e).map(|(h, _)| *h).chain(entity_hex).collect(),
-        MapTarget::Site(_) => entity_hex.into_iter().collect(),
+        MapTarget::Site(_) | MapTarget::Unit(_) => entity_hex.into_iter().collect(),
+        MapTarget::Spot(h) => vec![h],
         MapTarget::River(r) => basins.rivers.get(r).map_or_else(Vec::new, |river| {
             river.spots.iter().flat_map(|&(a, b)| [a, b]).map(|c| map.hex_at(c)).filter(explored).collect()
         }),
@@ -562,7 +569,7 @@ fn focus_camera(
 ) {
     for &FocusTarget(target) in requests.read() {
         let entity_hex = match target {
-            MapTarget::City(e) | MapTarget::Site(e) => positions.get(e).ok().map(|p| p.0),
+            MapTarget::City(e) | MapTarget::Site(e) | MapTarget::Unit(e) => positions.get(e).ok().map(|p| p.0),
             _ => None,
         };
         let points: Vec<Vec2> = target_hexes(&map.0, &fog, &territory, entity_hex, target).into_iter().map(|h| Vec2::from(h.to_world())).collect();
@@ -711,7 +718,7 @@ fn draw_pointed_area(
     };
     if cache.as_ref().is_none_or(|(t, _)| *t != target) || fog.is_changed() || territory.is_changed() {
         let entity_hex = match target {
-            MapTarget::City(e) | MapTarget::Site(e) => positions.get(e).ok().map(|p| p.0),
+            MapTarget::City(e) | MapTarget::Site(e) | MapTarget::Unit(e) => positions.get(e).ok().map(|p| p.0),
             _ => None,
         };
         let hexes = target_hexes(&map.0, &fog, &territory, entity_hex, target);

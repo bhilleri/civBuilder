@@ -1,7 +1,7 @@
 //! Caméra et commandes du joueur (souris + clavier).
 
 use crate::game::{
-    City, EndTurnRequested, Fog, GameLog, GameMap, GameState, HexPos, Selection, Territory, Unit, explore_unit, found_city,
+    City, EndTurnRequested, Fog, GameLog, GameMap, GameState, HexPos, LogText, Selection, Territory, Unit, explore_unit, found_city,
     move_unit, movement_blocked, reserved_by_others,
 };
 use crate::hex::Hex;
@@ -300,7 +300,7 @@ fn mouse_commands(
     if blocked.0.contains(&target) {
         let Some(foe) = hostiles.iter().find(|(_, _, p)| p.0 == target).map(|(e, _, _)| e) else { return };
         if !kind.can_attack() {
-            log.push(format!("{} : cette unité ne peut pas attaquer.", kind.name()));
+            log.push(LogText::new().unit(kind.name(), selected, from).text(" : cette unité ne peut pas attaquer."));
             return;
         }
         let known = KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now);
@@ -312,16 +312,16 @@ fn mouse_commands(
             } else {
                 "cible hors de portée ce tour-ci"
             };
-            log.push(format!("{} : {reason}.", kind.name()));
+            log.push(LogText::new().unit(kind.name(), selected, from).text(format!(" : {reason}.")));
             return;
         };
         let (_, mut unit, mut pos) = units.get_mut(selected).unwrap();
         if !approach.is_empty() {
             unit.0.set_order(pos.0, approach, &known);
-            move_unit(&mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            move_unit(selected, &mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
             cues.walk(selected, from, &unit.0.last_steps, Actor::Player);
             if !rules::in_attack_position(&map.0, kind, pos.0, target) || unit.0.moves_left == 0 {
-                log.push(format!("{} : approche interrompue.", kind.name()));
+                log.push(LogText::new().unit(kind.name(), selected, pos.0).text(" : approche interrompue."));
                 return;
             }
         }
@@ -349,7 +349,7 @@ fn mouse_commands(
     }
 
     if snapshot.zoc_stopped {
-        log.push(format!("{} : arrêté(e) par une zone de contrôle ennemie jusqu'au prochain tour.", kind.name()));
+        log.push(LogText::new().unit(kind.name(), selected, from).text(" : arrêté(e) par une zone de contrôle ennemie jusqu'au prochain tour."));
         return;
     }
 
@@ -379,7 +379,7 @@ fn mouse_commands(
     match find_path_turns(&known, from, target, unit.0.moves_left, unit.0.kind.max_moves()) {
         Some(path) => {
             unit.0.set_order(pos.0, path, &known);
-            move_unit(&mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            move_unit(selected, &mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
             if pos.0 != from {
                 cues.walk(selected, from, &unit.0.last_steps, Actor::Player);
             }
@@ -444,16 +444,16 @@ fn keyboard_commands(
         if keys.just_pressed(KeyCode::KeyE) {
             let name = unit.0.kind.name();
             if !unit.0.kind.can_auto_explore() {
-                log.push(format!("{name} : exploration automatique réservée aux unités militaires et éclaireurs."));
+                log.push(LogText::new().unit(name, entity, pos.0).text(" : exploration automatique réservée aux unités militaires et éclaireurs."));
             } else if unit.0.auto_explore {
                 unit.0.auto_explore = false;
                 unit.0.clear_order();
-                log.push(format!("{name} : exploration automatique arrêtée."));
+                log.push(LogText::new().unit(name, entity, pos.0).text(" : exploration automatique arrêtée."));
             } else {
                 unit.0.clear_order();
                 unit.0.sleeping = false;
                 unit.0.auto_explore = true;
-                log.push(format!("{name} : exploration automatique activée."));
+                log.push(LogText::new().unit(name, entity, pos.0).text(" : exploration automatique activée."));
                 let blocked_now = movement_blocked(&blocked.0, &occupancy.own);
                 let mut occupied = occupancy.all.clone();
                 let threats: bevy::platform::collections::HashSet<Hex> = occupancy.all.difference(&occupancy.own).copied().collect();
@@ -464,7 +464,7 @@ fn keyboard_commands(
                     .danger(&danger.0)
                 .threats(&threats);
                 let before = pos.0;
-                explore_unit(&mut unit.0, &mut pos, &world, &mut occupied, &mut fog, &mut log);
+                explore_unit(entity, &mut unit.0, &mut pos, &world, &mut occupied, &mut fog, &mut log);
                 if pos.0 != before {
                     cues.walk(entity, before, &unit.0.last_steps, Actor::Player);
                 }
@@ -477,8 +477,8 @@ fn keyboard_commands(
                 let at = pos.0;
                 let existing: Vec<Hex> = cities.iter().map(|(_, p)| p.0).collect();
                 match found_city(&mut commands, entity, at, &map.0, &existing, &mut state, &mut territory) {
-                    Ok(city) => {
-                        log.notify(crate::game::Importance::Success, format!("Nouvelle ville fondée (tour {}).", state.turn));
+                    Ok((city, name)) => {
+                        log.notify(crate::game::Importance::Success, LogText::new().text("Nouvelle ville fondée : ").city(name, city, at).text(format!(" (tour {}).", state.turn)));
                         selection.0 = Some(city);
                     }
                     Err(reason) => log.push(format!("Impossible de fonder ici : {reason}.")),
@@ -489,7 +489,7 @@ fn keyboard_commands(
     }
 
     // --- Commandes de ville : choix de la production
-    if let Ok((mut city, _)) = cities.get_mut(selected) {
+    if let Ok((mut city, center)) = cities.get_mut(selected) {
         let choices = [
             (KeyCode::Digit1, KeyCode::Numpad1),
             (KeyCode::Digit2, KeyCode::Numpad2),
@@ -506,7 +506,7 @@ fn keyboard_commands(
                 let kind = UnitKind::ALL[i];
                 if city.state.producing != Some(kind) {
                     city.state.producing = Some(kind);
-                    log.push(format!("{} produit désormais : {}.", city.state.name, kind.name()));
+                    log.push(LogText::new().city(&city.state.name, selected, center.0).text(format!(" produit désormais : {}.", kind.name())));
                 }
             }
         }
