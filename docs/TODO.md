@@ -12,7 +12,7 @@ Voir `conception/conception-toponymie.md` (mers fermées : fermeture + taille).
 Voir `conception/conception-toponymie.md`. Constat : sur 11 graines, aucune mer fermée (les grandes
 poches sont des entonnoirs ouverts) ; à voir avec Benjamin s'il faut en provoquer à la génération.
 
-## 4. Unités, villes, camps, villages enfouis dans le relief (3D) — fait (30/10), à vérifier à l'écran
+## 4. Unités, villes, camps, villages enfouis dans le relief (3D) — fait (30/10), vérifié en captures
 Posés sur le vrai sol, sites qui suivent le terrain (pas de terrasse), figurines 3D des unités.
 Voir `conception/conception-altitude.md`.
 

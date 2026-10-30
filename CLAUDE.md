@@ -12,6 +12,12 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 
 ## Commandes
 - Lancer le jeu : `cargo run` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74`).
+- **Captures d'écran** (vérification visuelle sans jouer) : `CIVBUILDER_SEED=777 CIVBUILDER_CAPTURE=<dossier> cargo run`
+  → met en scène (deux villes dont une sur un relief accidenté, les douze types d'unités près d'une
+  montagne, carte révélée), passe en 3D, enregistre ~8 vues en PNG dans le dossier (ville, unités,
+  vue lointaine, camp, village) puis se ferme (≈ 30 s après la génération). Lire les images pour
+  vérifier un rendu ; ajouter des vues dans `src/capture.rs` si besoin. Le dossier de captures
+  va dans le scratchpad, pas dans le dépôt.
 - Tests : `cargo test --no-default-features` (suite complète ≈ 5-6 min : la génération des mondes
   est longue ; pendant le développement, lancer les tests du module touché, par ex.
   `cargo test --no-default-features seas::`).

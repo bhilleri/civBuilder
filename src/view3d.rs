@@ -369,7 +369,9 @@ const SOCLE_HEIGHT: f32 = 1.2;
 /// Au-delà de cette distance de la caméra 3D, l'icône du type d'unité flotte au-dessus de la
 /// figurine (de loin, la figurine seule ne se lit plus).
 const FAR_ICON_DISTANCE: f32 = 1_100.0;
-const FAR_ICON_LIFT: f32 = 26.0;
+const FAR_ICON_LIFT: f32 = 20.0;
+/// Taille de l'icône (fois le carré de 26) à la distance d'apparition.
+const FAR_ICON_SCALE: f32 = 0.9;
 const CITY_WALL_RADIUS: f32 = 26.0;
 const CITY_WALL_HEIGHT: f32 = 7.0;
 const CITY_TOWER_HEIGHT: f32 = 12.0;
@@ -386,6 +388,10 @@ struct Assets3d {
     fresh_water: [Handle<StandardMaterial>; 2],
     socle: Handle<Mesh>,
     icon_quad: Handle<Mesh>,
+    /// Pastille aux couleurs du camp derrière l'icône lointaine.
+    icon_disc: Handle<Mesh>,
+    /// Matières (non éclairées) des pastilles : joueur, hostile.
+    icon_backs: [Handle<StandardMaterial>; 2],
     figures: crate::figures::FigureKit,
     player: Handle<StandardMaterial>,
     hostile: Handle<StandardMaterial>,
@@ -782,6 +788,8 @@ fn setup_3d(
         fresh_water,
         socle: meshes.add(Cylinder::new(SOCLE_RADIUS, SOCLE_HEIGHT)),
         icon_quad: meshes.add(Rectangle::new(26.0, 26.0)),
+        icon_disc: meshes.add(Circle::new(16.0)),
+        icon_backs: [Color::srgb(0.20, 0.45, 0.95), Color::srgb(0.78, 0.17, 0.15)].map(|c| materials.add(StandardMaterial { base_color: c, unlit: true, ..default() })),
         figures: crate::figures::FigureKit::new(&mut meshes, &mut materials),
         player,
         hostile,
@@ -1436,7 +1444,8 @@ fn spawn_mirrors(
                     Transform::from_xyz(0.0, FAR_ICON_LIFT, 0.0).with_rotation(upright),
                     Visibility::Hidden,
                     layer(),
-                ));
+                ))
+                .with_child((Mesh3d(a.icon_disc.clone()), MeshMaterial3d(a.icon_backs[usize::from(hostile)].clone()), Transform::from_xyz(0.0, 0.0, -0.2), layer()));
             });
     }
     for source in &cities {
@@ -1689,13 +1698,17 @@ fn far_icons(mode: Res<ViewMode>, cam: Res<Cam3d>, mut icons: Query<(&mut Transf
     }
     let far = cam.distance > FAR_ICON_DISTANCE;
     let facing = camera_transform(&cam).rotation;
+    // (taille à l'écran à peu près constante : agrandie avec la distance)
+    let size = Vec3::splat(cam.distance / FAR_ICON_DISTANCE * FAR_ICON_SCALE);
     for (mut t, mut vis) in &mut icons {
         let wanted = if far { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != wanted {
             *vis = wanted;
         }
-        if far && t.rotation != facing {
+        if far && (t.rotation != facing || t.scale != size) {
             t.rotation = facing;
+            t.scale = size;
+            t.translation.y = FAR_ICON_LIFT * size.y;
         }
     }
 }

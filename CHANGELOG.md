@@ -4,8 +4,11 @@
 
 ### Vue 3D : unités et sites sur le relief
 - Les unités, villes, camps et villages ne sont plus « ensevelis » dans le relief : chacun est posé sur le vrai sol 3D, et replacé quand le sol de sa case est refait.
-- **Figurines 3D** des unités, faites de formes simples : un personnage ou un cavalier aux couleurs de son camp, avec ce qui distingue son type (bouclier, épée, lance, pique, arc, carquois, ballot du colon…), sur un socle bleu ou rouge incliné comme le sol. De loin, l'icône du type flotte au-dessus. La vue 2D garde ses icônes.
+- **Figurines 3D** des unités, faites de formes simples : un personnage ou un cavalier aux couleurs de son camp, avec ce qui distingue son type (bouclier, épée, lance, pique, arc, carquois, ballot du colon…), sur un socle bleu ou rouge incliné comme le sol. De loin, l'icône du type flotte au-dessus, sur une pastille aux couleurs du camp, de taille à peu près constante à l'écran. La vue 2D garde ses icônes.
 - Les villes et camps **suivent le terrain** (plus de terrasse) : remparts, tours, maisons, huttes, tentes et pieux posés chacun sur le sol à sa place, avec des fondations côté pente ; sols pavés et de terre battue drapés sur le relief. Sous un site, le relief est adouci, pas aplani.
+
+### Outils de développement
+- **Mode capture** : `CIVBUILDER_CAPTURE=<dossier>` met en scène villes et unités (relief accidenté, montagne), passe en 3D et enregistre plusieurs vues en PNG, puis ferme le jeu : le rendu se vérifie sans jouer.
 
 ### Altitude et relief
 - L'altitude en mètres devient la référence : déplacements, combat, climat et infobulle (« 2 950 m »).

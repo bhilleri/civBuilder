@@ -6,6 +6,7 @@
 mod fonts;
 mod basins;
 mod battle;
+mod capture;
 mod climate;
 mod combat;
 mod erosion;
@@ -50,6 +51,6 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins((fonts::FontsPlugin, game::GamePlugin, hostile::HostilePlugin, render::RenderPlugin, input::InputPlugin, ui::UiPlugin, view3d::View3dPlugin, labels::LabelsPlugin, highlight::HighlightPlugin, options::OptionsPlugin, wiki::WikiPlugin, menu::MenuPlugin, seam::SeamPlugin, search::SearchPlugin))
+        .add_plugins((fonts::FontsPlugin, game::GamePlugin, hostile::HostilePlugin, render::RenderPlugin, input::InputPlugin, ui::UiPlugin, view3d::View3dPlugin, labels::LabelsPlugin, highlight::HighlightPlugin, options::OptionsPlugin, wiki::WikiPlugin, menu::MenuPlugin, seam::SeamPlugin, search::SearchPlugin, capture::CapturePlugin))
         .run();
 }

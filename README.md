@@ -47,6 +47,8 @@ Pour une version optimisée : `cargo run --release`.
 
 Pour rejouer une carte précise, fixer sa graine (affichée dans la console au lancement) : `$env:CIVBUILDER_SEED=12345; cargo run` (PowerShell).
 
+**Mode capture** (vérifier le rendu sans jouer) : `$env:CIVBUILDER_CAPTURE="captures"; cargo run` met en scène deux villes (dont une sur un relief accidenté), les douze types d'unités près d'une montagne, révèle la carte, passe en 3D et enregistre plusieurs vues en PNG dans le dossier `captures` (ville, unités de près et de loin, camp, village), puis se ferme (module `capture.rs`).
+
 > Les icônes sont chargées depuis le dossier `assets/`. Avec `cargo run`, Bevy le trouve automatiquement ;
 > si vous lancez directement l'exécutable (`target\release\civbuilder.exe`), copiez `assets/` à côté de lui.
 
@@ -154,6 +156,7 @@ src/
 ├── search.rs       Accès aux lieux : recherche (index, filtres), légendes et étiquettes cliquables, cadrage de la caméra
 ├── relief.rs       Relief continu de la vue 3D : profil des cases, raccords, maillage (pur, testé)
 ├── figures.rs      Figurines 3D des unités, faites de formes simples (une par type)
+├── capture.rs      Mode capture (CIVBUILDER_CAPTURE) : mise en scène, vues 3D enregistrées en PNG
 └── view3d.rs       Vue 3D optionnelle (relief, forêts, figurines, villes et camps posés sur le sol), synchronisée avec la vue 2D
 ```
 
