@@ -2,18 +2,9 @@
 
 Décidées avec Benjamin (fin octobre 2026), dans l'ordre conseillé.
 
-## 1. Plaques océaniques polaires et passage maritime
-Benjamin n'est pas satisfait du débordement des plaques au-delà des bords (marges cachées de
-20 lignes, voir `conception/conception-plaques.md`). À la place :
-- une ou plusieurs **plaques océaniques forcées** le long du bord nord et du bord sud (germes près
-  des bords, croissance d'abord le long du bord), le reste des plaques réparti entre les deux ;
-- but : plus de masses de terre collées aux bords, des mers polaires **navigables**, et **au moins
-  un passage maritime qui fait le tour de la carte** (test : depuis une case de mer, faire le tour
-  complet par la mer ; si une chaîne d'îles ferme le passage, raboter le relief) ;
-- frontières réelles avec les plaques voisines (arcs d'îles, fosses, dorsales, chaînes côtières à
-  haute latitude) ;
-- retirer les marges cachées et le dosage « partie visible » ; garder le bord comme déversoir de
-  l'eau ; revérifier la part des terres (~40 %) avec `bilan_tectonique`.
+## 1. Plaques océaniques polaires et passage maritime — fait (30/10), à valider à l'écran
+Voir `conception/conception-plaques.md`. Reste à juger : largeur des bandes polaires (10 à 18
+lignes), part des terres (37 à 42 % selon la graine).
 
 ## 2. Mers fermées traitées comme les golfes (cas « mer Baltique »)
 Constat (capture de la « Mer des Glaces ») : la partie sud de la mer n'était pas couverte et sa

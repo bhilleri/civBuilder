@@ -1366,6 +1366,9 @@ impl WorldMap {
             // (l'eau qui atteint le bord, aux pôles, s'en va : la terre continue au-delà)
             let outlet: Vec<bool> = (0..e.len()).map(|i| matches!(i as i32 / width, r if r == 0 || r == height - 1)).collect();
             crate::erosion::erode(&mut e, &neighbors, &map.plates.cell_area(), &outlet, crate::erosion::ErosionParams::default());
+            // Au moins un passage maritime fait le tour de la planète (sinon, une chaîne d'îles
+            // ou une terre qui le ferme est rabotée près d'un pôle)
+            plates::open_sea_passage(&mut e, width);
             e
         } else {
             Vec::new()
@@ -2363,6 +2366,20 @@ mod tectonique {
             let steps = format!("rivières {river_steps}, fleuves {fleuve_steps} / {}", m.hexes().filter(|&h| m.is_fleuve(h)).count());
             let lakes = format!("{} (au-delà de 55° : {})", m.hexes().filter(|&h| lake(h)).count(), m.hexes().filter(|&h| lake(h) && m.latitude(h).abs() > 55.0).count());
             let cont_land = land.iter().filter(|&&h| m.plate(h).is_some_and(|p| p.kind == crate::plates::PlateKind::Continental)).count();
+            // Passages maritimes qui font le tour, près de chaque pôle (26 lignes) et en tout
+            let passage = |rows: std::ops::Range<i32>| {
+                let sea: Vec<bool> = m.hexes().map(|h| rows.contains(&h.to_offset().1) && m.get(h).is_some_and(|t| t.is_sea())).collect();
+                if crate::plates::has_sea_passage(&sea, 192) { "oui" } else { "non" }
+            };
+            let cont = m.hexes().filter(|&h| m.plate(h).is_some_and(|p| p.kind == crate::plates::PlateKind::Continental)).count();
+            println!("graine {seed} : plaques continentales {:.0} % des cases", cont as f32 / n * 100.0);
+            let polar_land = m.hexes().filter(|&h| m.latitude(h).abs() > 70.0 && !m.get(h).unwrap().is_water()).count();
+            println!(
+                "graine {seed} : passage nord {}, sud {}, en tout {} ; terres au-delà de 70° : {polar_land}",
+                passage(0..26),
+                passage(85..111),
+                passage(0..111)
+            );
             println!(
                 "graine {seed} ({:.1} s) : ruptures {steps} ; terres {:.0} % des cases, {:.0} % de la surface ; sur plaques continentales {:.0} % ; montagnes {} pics {} accidenté {} ; lacs {} ; départ {:?}",
                 t.elapsed().as_secs_f32(),

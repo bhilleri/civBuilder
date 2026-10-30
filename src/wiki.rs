@@ -370,10 +370,10 @@ fn terrain() -> Article {
                (teintes chaudes, épaisses, elles portent les continents) ou océaniques (teintes froides). Chacune dérive \
                à 1 à 9 cm par an (flèches) en tournant un peu sur elle-même : sa vitesse change d'un endroit à \
                l'autre. Les plaques sont calculées sur la carte elle-même, qui fait le tour de la planète d'est en \
-               ouest : une case a la même taille partout, rien n'est étiré près des pôles. La géologie continue \
-               au-delà du bord : des plaques débordent au-dessus et au-dessous de la carte (invisibles), leurs \
-               frontières peuvent passer près d'un pôle, et l'eau qui atteint le bord s'en va, comme si la terre \
-               continuait. Le long d'une frontière, deux plaques qui se rapprochent \
+               ouest : une case a la même taille partout, rien n'est étiré près des pôles. Chaque pôle est occupé \
+               par une ou deux plaques océaniques, en bande le long du bord : les mers polaires sont navigables et \
+               au moins un passage maritime fait le tour de la planète (si une terre ou une chaîne d'îles le \
+               fermait, elle est rabotée). L'eau qui atteint le bord s'en va. Le long d'une frontière, deux plaques qui se rapprochent \
                forment une collision (deux continents : grande chaîne de montagnes et haut plateau), une \
                subduction (l'océan plonge sous le continent : chaîne côtière, fosse au large) ou un arc d'îles \
                (deux océans) ; deux plaques qui s'écartent ouvrent un rift continental ou une dorsale ; deux \
