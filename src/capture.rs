@@ -185,7 +185,10 @@ fn run_capture(
             add("unites_montagne", mountain, 230.0, 0.0);
             add("unites_montagne_cote", mountain, 230.0, 2.6);
             add("unites_moyen", mountain, 900.0, 0.0);
+            // (juste après l'apparition des icônes : figurines encore grandes, sous l'icône)
+            add("unites_seuil_icones", mountain, 1_150.0, 0.0);
             add("unites_loin", mountain, 1_500.0, 0.0);
+            add("ville_loin", start, 1_150.0, 0.6);
             if let Some(h) = river {
                 add("fleuve", h, 200.0, 0.3);
             }

@@ -398,6 +398,10 @@ const UNIT_SCALE_MAX: f32 = 3.0;
 /// figurine (de loin, la figurine seule ne se lit plus).
 const FAR_ICON_DISTANCE: f32 = 1_100.0;
 const FAR_ICON_LIFT: f32 = 20.0;
+/// Avancée de l'icône vers la caméra (part de la distance qui les sépare) : bien plus que
+/// l'étendue du groupe de figurines agrandies (~35 de haut, anneau de 25 de rayon), et plus que
+/// l'avance des lignes 3D (`depth_bias` des gizmos), qui ne la barrent donc plus.
+const FAR_ICON_PULL: f32 = 0.25;
 /// Taille de l'icône (fois le carré de 26) à la distance d'apparition.
 const FAR_ICON_SCALE: f32 = 0.9;
 /// Dimensions d'une ville 3D (repère local : origine sur le sol au centre de la case ; chaque
@@ -1901,24 +1905,46 @@ fn scale_units(mode: Res<ViewMode>, cam: Res<Cam3d>, mut parts: Query<(&mut Tran
 }
 
 /// Icônes des unités en vue lointaine : tournées vers la caméra, cachées de près (la figurine
-/// suffit).
-fn far_icons(mode: Res<ViewMode>, cam: Res<Cam3d>, mut icons: Query<(&mut Transform, &mut Visibility), With<FarIcon>>) {
+/// suffit). Chacune est avancée vers l'œil de la caméra le long du rayon qui la vise : elle reste
+/// à la même place à l'écran (taille corrigée d'autant) mais passe devant ses figurines, qui ne
+/// la traversent plus.
+fn far_icons(
+    mode: Res<ViewMode>,
+    cam: Res<Cam3d>,
+    map: Res<GameMap>,
+    mirrors: Query<&Transform, (With<Mirror3d>, Without<FarIcon>)>,
+    mut icons: Query<(&ChildOf, &mut Transform, &mut Visibility), With<FarIcon>>,
+) {
     if !mode.is_3d {
         return;
     }
     let far = cam.distance > FAR_ICON_DISTANCE;
-    let facing = camera_transform(&cam).rotation;
+    let eye = camera_transform(&cam);
+    let world = map.0.wrap().world_width();
     // (taille à l'écran à peu près constante : agrandie avec la distance)
-    let size = Vec3::splat(cam.distance / FAR_ICON_DISTANCE * FAR_ICON_SCALE);
-    for (mut t, mut vis) in &mut icons {
+    let size = cam.distance / FAR_ICON_DISTANCE * FAR_ICON_SCALE;
+    for (parent, mut t, mut vis) in &mut icons {
         let wanted = if far { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != wanted {
             *vis = wanted;
         }
-        if far && (t.rotation != facing || t.scale != size) {
-            t.rotation = facing;
-            t.scale = size;
-            t.translation.y = FAR_ICON_LIFT * size.y;
+        if !far {
+            continue;
+        }
+        let Ok(mirror) = mirrors.get(parent.parent()) else { continue };
+        // Rayon de l'œil vers la place de l'icône, pris par le plus court autour de la planète
+        // (une unité montrée par une caméra fantôme est vue à un tour près)
+        let lift = Vec3::Y * FAR_ICON_LIFT * size;
+        let mut ray = mirror.translation + lift - eye.translation;
+        if world > 0.0 {
+            ray.x -= (ray.x / world).round() * world;
+        }
+        let translation = lift - ray * FAR_ICON_PULL;
+        let scale = Vec3::splat(size * (1.0 - FAR_ICON_PULL));
+        if t.rotation != eye.rotation || t.scale != scale || t.translation != translation {
+            t.rotation = eye.rotation;
+            t.scale = scale;
+            t.translation = translation;
         }
     }
 }

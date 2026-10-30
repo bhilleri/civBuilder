@@ -29,6 +29,7 @@
 
 ### Corrections
 - Vue 3D : en explorant autour des cours d'eau, des cases gardaient un lit creusé avec une hauteur d'eau périmée (trou noir dans le sol, marche ou écume, eau sous la berge). Une case refaite plus tôt dans la même image qu'une voisine dont le relief venait d'être recalculé n'était plus remise en file ; elle l'est désormais (graine 4242 : 7 cases fausses, jusqu'à 25 d'écart d'eau → 0).
+- Vue 3D lointaine : l'icône d'une unité était traversée par les casques et les armes de ses figurines (agrandies, plus hautes que l'icône), et en zoomant on voyait la figurine par-dessus ; les lignes de frontière la barraient aussi. L'icône est désormais avancée vers la caméra le long du rayon qui la vise (même place et même taille à l'écran) : elle passe devant ses figurines, le relief voisin et les lignes 3D. De près, seule la figurine reste, comme avant.
 
 ### Altitude et relief
 - L'altitude en mètres devient la référence : déplacements, combat, climat et infobulle (« 2 950 m »).
