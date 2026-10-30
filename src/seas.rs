@@ -513,8 +513,9 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
         let in_sea = cand.cells.iter().filter(|&&c| sea_of[c].is_some()).count();
         let in_gulf = cand.cells.iter().filter(|&&c| gulf_of[c].is_some()).count();
         if cand.kind == SeaKind::Sea {
-            // (pas de mer bordière dans une mer fermée)
-            if in_sea as f32 > 0.2 * len as f32 || in_gulf as f32 > 0.5 * len as f32 {
+            // (pas de mer bordière dans une mer, fermée ou à part : seulement dans un océan)
+            let in_sea_basin = seas.basin_of[cand.cells[0]].is_some_and(|b| seas.zones[b as usize].kind == SeaKind::Sea);
+            if in_sea_basin || in_sea as f32 > 0.2 * len as f32 || in_gulf as f32 > 0.5 * len as f32 {
                 continue;
             }
             let mut cells: Vec<usize> = cand.cells.iter().copied().filter(|&c| sea_of[c].is_none()).collect();
@@ -1305,34 +1306,43 @@ mod tests {
 
     #[test]
     fn monde_genere() {
-        let m = crate::map::WorldMap::generate_in(192, 111, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
-        let s = m.seas();
-        let count = |k: SeaKind| s.zones.iter().filter(|z| z.kind == k).count();
-        println!(
-            "océans {}, mers {}, golfes {}, baies {}, détroits {}",
-            count(SeaKind::Ocean),
-            count(SeaKind::Sea),
-            count(SeaKind::Gulf),
-            count(SeaKind::Bay),
-            count(SeaKind::Strait)
-        );
-        for z in &s.zones {
-            println!("  {:<8} {:<28} {:>5} cases", z.kind.label(), z.name, z.cells.len());
-        }
-        assert!((1..=8).contains(&count(SeaKind::Ocean)));
-        assert!(count(SeaKind::Ocean) + count(SeaKind::Sea) >= 2);
-        assert!(count(SeaKind::Gulf) + count(SeaKind::Bay) >= 3);
-        // Toute case de mer ouverte est dans un océan ou une mer ; chaque étendue a un nom unique
-        for h in m.hexes() {
-            let c = m.cell(h);
-            if m.get(h).is_some_and(|t| t.is_sea()) && m.basins().lake_of[c].is_none() {
-                assert!(s.basin_of[c].is_some(), "{h:?}");
+        // 985384862 : une mer à part (bassin qui touche l'océan polaire) avait une mer bordière
+        for seed in [777, 985384862] {
+            let m = crate::map::WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let s = m.seas();
+            let count = |k: SeaKind| s.zones.iter().filter(|z| z.kind == k).count();
+            println!(
+                "graine {seed} : océans {}, mers {}, golfes {}, baies {}, détroits {}",
+                count(SeaKind::Ocean),
+                count(SeaKind::Sea),
+                count(SeaKind::Gulf),
+                count(SeaKind::Bay),
+                count(SeaKind::Strait)
+            );
+            for z in &s.zones {
+                println!("  {:<8} {:<28} {:>5} cases", z.kind.label(), z.name, z.cells.len());
             }
-        }
-        let mut names = HashSet::new();
-        for z in &s.zones {
-            assert!(!z.name.is_empty());
-            assert!(names.insert(z.name.to_lowercase()), "{} répété", z.name);
+            assert!((1..=8).contains(&count(SeaKind::Ocean)));
+            assert!(count(SeaKind::Ocean) + count(SeaKind::Sea) >= 2);
+            assert!(count(SeaKind::Gulf) + count(SeaKind::Bay) >= 3);
+            // Toute case de mer ouverte est dans un océan ou une mer ; chaque étendue a un nom unique
+            for h in m.hexes() {
+                let c = m.cell(h);
+                if m.get(h).is_some_and(|t| t.is_sea()) && m.basins().lake_of[c].is_none() {
+                    assert!(s.basin_of[c].is_some(), "{h:?}");
+                }
+            }
+            // Une mer dans une autre étendue (mer bordière ou fermée) est dans un océan, jamais dans une mer
+            for z in s.zones.iter().filter(|z| z.kind == SeaKind::Sea) {
+                if let Some(p) = z.parent {
+                    assert_eq!(s.zones[p].kind, SeaKind::Ocean, "{} dans {}", z.name, s.zones[p].name);
+                }
+            }
+            let mut names = HashSet::new();
+            for z in &s.zones {
+                assert!(!z.name.is_empty());
+                assert!(names.insert(z.name.to_lowercase()), "{} répété", z.name);
+            }
         }
     }
 
