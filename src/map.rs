@@ -632,6 +632,35 @@ pub mod marine {
 pub const CLIMATE_PASSES: usize = 3;
 
 /// Carte rectangulaire stockée en coordonnées offset (odd-r).
+/// Règle du relief de la génération : note d'escarpement d'une case (dénivelée avec les voisines
+/// et bruit propre, classés parmi les terres, et altitude) et notes des dernières cases de chaque
+/// relief ; un pic est un sommet local de montagne au moins aussi haut que le plus bas des pics.
+#[derive(Clone, Debug)]
+struct ReliefRule {
+    /// Dénivelées et bruits des terres à la génération, triés (rang d'une valeur nouvelle).
+    local_sorted: Vec<f32>,
+    rough_sorted: Vec<f32>,
+    /// Bruit propre de chaque case (toutes, eau comprise).
+    rough: Vec<f32>,
+    /// Par case de terre à la génération : dénivelée et rangs (dénivelée, bruit) alors calculés,
+    /// repris tels quels tant que la dénivelée n'a pas changé (ex aequo départagés comme alors).
+    generated: Vec<Option<(f32, f32, f32)>>,
+    /// Note minimale d'une montagne, d'un relief accidenté, de collines.
+    thresholds: [f32; 3],
+    /// Altitude du plus bas des pics (m).
+    peak_floor_m: f32,
+}
+
+/// Rang (0 à 1) d'une valeur parmi des valeurs triées.
+fn rank_in(sorted: &[f32], v: f32) -> f32 {
+    sorted.partition_point(|&x| x < v) as f32 / sorted.len().max(1) as f32
+}
+
+/// Note d'escarpement : dénivelée et bruit propre (rangs parmi les terres) et altitude.
+fn relief_score(local_rank: f32, rough_rank: f32, elevation_m: f32) -> f32 {
+    0.45 * local_rank + 0.3 * rough_rank + 0.35 * (elevation_m / PEAK_M).clamp(0.0, 1.0)
+}
+
 #[derive(Clone, Debug)]
 pub struct WorldMap {
     pub width: i32,
@@ -670,6 +699,9 @@ pub struct WorldMap {
     /// Bancs de poissons : eaux poissonneuses d'un seul tenant, nommées.
     banks: Vec<FishingBank>,
     bank_of: Vec<Option<u16>>,
+    /// Règle du relief de la génération, pour recalculer le relief d'une case modifiée (vide pour
+    /// une carte remplie à la main).
+    relief_rule: Option<ReliefRule>,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -700,6 +732,7 @@ impl WorldMap {
             marine: vec![0; n],
             banks: Vec::new(),
             bank_of: vec![None; n],
+            relief_rule: None,
             step_cache: std::sync::OnceLock::new(),
         }
     }
@@ -1081,6 +1114,60 @@ impl WorldMap {
         if let Some(i) = self.index(hex) {
             self.relief[i] = if self.tiles[i].is_water() || self.hydro.fleuve[i] { Relief::Flat } else { relief };
         }
+    }
+
+    /// Relief que la génération donnerait à une case de terre avec les altitudes actuelles
+    /// (note d'escarpement comparée aux seuils de la carte ; un fleuve est plat) ; les pics à
+    /// part (`could_be_peak`). `None` : eau, ou carte sans règle du relief.
+    pub fn natural_relief(&self, hex: Hex) -> Option<Relief> {
+        let rule = self.relief_rule.as_ref()?;
+        let i = self.index(hex)?;
+        if self.tiles[i].is_water() {
+            return None;
+        }
+        if self.hydro.fleuve[i] {
+            return Some(Relief::Flat);
+        }
+        let local = self
+            .wrap
+            .neighbors(hex)
+            .iter()
+            .filter_map(|&nb| self.index(nb))
+            // (les lacs viennent après le relief : leur fond compte comme une terre, comme alors)
+            .filter(|&j| !self.tiles[j].is_sea())
+            .map(|j| (self.elevation[i] - self.elevation[j]).abs())
+            .fold(0.0, f32::max);
+        let (local_rank, rough_rank) = match rule.generated[i] {
+            Some((before, l, r)) if before == local => (l, r),
+            Some((_, _, r)) => (rank_in(&rule.local_sorted, local), r),
+            None => (rank_in(&rule.local_sorted, local), rank_in(&rule.rough_sorted, rule.rough[i])),
+        };
+        let score = relief_score(local_rank, rough_rank, self.elevation[i]);
+        Some(if score >= rule.thresholds[0] {
+            if self.elevation[i] >= MOUNTAIN_MIN_M { Relief::Mountain } else { Relief::Rugged }
+        } else if score >= rule.thresholds[1] {
+            Relief::Rugged
+        } else if score >= rule.thresholds[2] {
+            Relief::Hills
+        } else {
+            Relief::Flat
+        })
+    }
+
+    /// Une montagne pourrait être un pic : assez haute (au moins `PEAK_MIN_M` et le plus bas des
+    /// pics de la génération) et sommet local (aucune voisine plus haute de `PEAK_TOLERANCE_M`).
+    /// La règle « jamais deux pics côte à côte » est à vérifier à part.
+    pub fn could_be_peak(&self, hex: Hex) -> bool {
+        self.relief(hex) == Relief::Mountain && self.could_be_peak_ignoring_relief(hex)
+    }
+
+    /// Hauteur et position d'un pic (`could_be_peak` sans regarder le relief actuel).
+    pub fn could_be_peak_ignoring_relief(&self, hex: Hex) -> bool {
+        let (Some(rule), Some(i)) = (self.relief_rule.as_ref(), self.index(hex)) else { return false };
+        let e = self.elevation[i];
+        e >= PEAK_MIN_M
+            && e >= rule.peak_floor_m
+            && self.wrap.neighbors(hex).iter().filter_map(|&nb| self.index(nb)).all(|j| self.elevation[j] <= e + PEAK_TOLERANCE_M)
     }
 
     /// La case a des collines.
@@ -1732,13 +1819,32 @@ impl WorldMap {
         };
         let rough: Vec<f32> = land_cells.iter().map(|&i| sample(&rough_noise, hex_of(i), 2.5) as f32).collect();
         let (local_rank, rough_rank) = (rank(&local), rank(&rough));
-        let score: Vec<f32> = (0..land_cells.len())
-            .map(|k| 0.45 * local_rank[k] + 0.3 * rough_rank[k] + 0.35 * (map.elevation[land_cells[k]] / PEAK_M).clamp(0.0, 1.0))
-            .collect();
+        let score: Vec<f32> = (0..land_cells.len()).map(|k| relief_score(local_rank[k], rough_rank[k], map.elevation[land_cells[k]])).collect();
         let mut by_score: Vec<usize> = (0..land_cells.len()).filter(|&k| !ponds.contains(&hex_of(land_cells[k]))).collect();
         by_score.sort_by(|&a, &b| score[b].total_cmp(&score[a]));
         let count = |share: f64| (land_cells.len() as f64 * share).round() as usize;
         let (mountains, rugged, hills) = (count(MOUNTAIN_SHARE), count(RUGGED_SHARE), count(HILL_SHARE));
+        // Règle gardée pour la console de debug : note de la dernière case de chaque relief
+        let last_score = |n: usize| by_score.get(n.saturating_sub(1)).map_or(f32::MAX, |&k| score[k]);
+        let sorted = |v: &[f32]| {
+            let mut v = v.to_vec();
+            v.sort_by(f32::total_cmp);
+            v
+        };
+        let mut rule = ReliefRule {
+            local_sorted: sorted(&local),
+            rough_sorted: sorted(&rough),
+            rough: (0..map.tiles.len()).map(|i| sample(&rough_noise, hex_of(i), 2.5) as f32).collect(),
+            generated: {
+                let mut g = vec![None; map.tiles.len()];
+                for (k, &i) in land_cells.iter().enumerate() {
+                    g[i] = Some((local[k], local_rank[k], rough_rank[k]));
+                }
+                g
+            },
+            thresholds: [last_score(mountains), last_score(mountains + rugged), last_score(mountains + rugged + hills)],
+            peak_floor_m: f32::MAX,
+        };
         for (rank, &k) in by_score.iter().enumerate() {
             let i = land_cells[k];
             map.relief[i] = if rank < mountains {
@@ -1770,8 +1876,10 @@ impl WorldMap {
                 continue;
             }
             map.relief[i] = Relief::Peak;
+            rule.peak_floor_m = rule.peak_floor_m.min(map.elevation[i]);
             peaks += 1;
         }
+        map.relief_rule = Some(rule);
         let relief_base = map.relief.clone();
         map.region = region;
         // 4) à 6) Climat, terrain, cours d'eau et lacs, en `CLIMATE_PASSES` passes : à partir de la

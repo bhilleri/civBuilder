@@ -12,7 +12,7 @@
 //! biome à partir du climat, ni les cours d'eau, ni le climat des voisines). Précédées de `~`,
 //! elles sont **locales** : ce qui en découle directement est recalculé sur la case (température
 //! selon l'altitude, biome selon le climat, altitude minimale d'une montagne ou d'un pic) et ses
-//! voisines (jamais deux pics côte à côte). `verifier` liste les incohérences de la carte. Le
+//! voisines (relief selon la dénivelée, comme à la génération ; jamais deux pics côte à côte). `verifier` liste les incohérences de la carte. Le
 //! rendu des cases voisines suit (relief 3D partagé, décor, eau), voir `console.rs`.
 //!
 //! Ce module décode, complète et explique les commandes, applique celles qui touchent la carte
@@ -113,8 +113,8 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "verifier", args: &[("col", Arg::Col, true), ("lig", Arg::Row, true), ("rayon", Arg::Number, true)], help: "Incohérences de la carte (toute la carte, ou autour d'une case) : pics côte à côte, montagne ou pic trop bas, relief sur un fleuve, biome que le climat ne donne pas, rivière qui remonte, lac à deux niveaux.", group: Group::Observe },
     Spec { name: "trouver", args: &[("critère", Arg::Criteria, false)], help: "Cases qui remplissent tous les critères, les plus proches d'abord. Critères : terrain=, relief=, voisin= (terrain ou relief d'une voisine), fleuve=oui|non, eau=oui|non, alt<, alt>, temp<, temp>, pluie<, pluie>, pres=col,lig (sinon le centre de la vue), max=n.", group: Group::Observe },
     Spec { name: "terrain", args: &[AT[0], AT[1], ("terrain", Arg::Terrain, false)], help: "Change le terrain (une case d'eau devient plate, la mer descend au niveau 0). Avec ~, le terrain imposé reste, même s'il ne suit pas le climat.", group: Group::Edit },
-    Spec { name: "relief", args: &[AT[0], AT[1], ("relief", Arg::Relief, false)], help: "Change le relief d'une case de terre (un fleuve reste plat). Avec ~ : une montagne monte au moins à 1 500 m, un pic à 2 400 m (température et biome suivent), les pics voisins deviennent montagnes.", group: Group::Edit },
-    Spec { name: "altitude", args: &[AT[0], AT[1], ("mètres", Arg::Number, false)], help: "Change l'altitude du sol d'une case de terre, et sa classe d'altitude (falaises). Avec ~ : la température suit (-6,5 °C par 1 000 m), puis le biome ; une montagne trop basse devient accidentée, un pic trop bas montagne.", group: Group::Edit },
+    Spec { name: "relief", args: &[AT[0], AT[1], ("relief", Arg::Relief, false)], help: "Change le relief d'une case de terre (un fleuve reste plat). Avec ~ : une montagne monte au moins à 1 500 m, un pic à 2 400 m (température et biome suivent), les pics voisins n'en sont plus ; le relief des voisines suit leur nouvelle dénivelée.", group: Group::Edit },
+    Spec { name: "altitude", args: &[AT[0], AT[1], ("mètres", Arg::Number, false)], help: "Change l'altitude du sol d'une case de terre, et sa classe d'altitude (falaises). Avec ~ : la température suit (-6,5 °C par 1 000 m), puis le biome ; le relief de la case et de ses voisines est recalculé comme à la génération (dénivelée avec les voisines, altitude), pics compris.", group: Group::Edit },
     Spec { name: "temperature", args: &[AT[0], AT[1], ("°C", Arg::Number, false)], help: "Change la température moyenne annuelle et celle des saisons (limite des neiges en 3D). Avec ~, le biome suit.", group: Group::Edit },
     Spec { name: "pluie", args: &[AT[0], AT[1], ("mm", Arg::Number, false)], help: "Change les précipitations annuelles et celles des saisons (carte du climat). Avec ~, le biome suit ; les cours d'eau, jamais.", group: Group::Edit },
     Spec { name: "pinceau", args: &[("rayon", Arg::Number, false)], help: "Les modifications suivantes s'appliquent aussi aux cases à moins de « rayon » cases (0 : la case seule).", group: Group::Edit },
@@ -670,8 +670,10 @@ fn settle(map: &mut WorldMap, hex: Hex, field: Field, before: f32) -> (Vec<Hex>,
             }
         }
     }
+    // (carte sans règle du relief : seulement les altitudes minimales ; sinon voir `reshape`)
     if let Field::Altitude(_) = field
         && land
+        && map.natural_relief(hex).is_none()
     {
         let demoted = match map.relief(hex) {
             Relief::Peak if ground < PEAK_MIN_M => Some(if ground < MOUNTAIN_MIN_M { Relief::Rugged } else { Relief::Mountain }),
@@ -707,6 +709,45 @@ fn settle(map: &mut WorldMap, hex: Hex, field: Field, before: f32) -> (Vec<Hex>,
         && !biome_fits(map, hex, t)
     {
         notes.push(format!("{at} : {} imposé, le climat donnerait {}", token(t.name()), biome_climate(map, hex).map_or("—".into(), |c| token(biome(c).name()))));
+    }
+    (changed, notes)
+}
+
+/// Relief recalculé comme à la génération autour des cases dont l'altitude (ou la terre) a changé
+/// (`moved`) : la dénivelée avec les voisines change aussi la leur. Les cases au relief imposé
+/// (`fixed`) le gardent. Puis les pics : un pic qui n'est plus un sommet assez haut redevient
+/// montagne, une montagne qui l'est devient pic (les plus hautes d'abord, jamais côte à côte).
+fn reshape(map: &mut WorldMap, moved: &[Hex], fixed: &[Hex]) -> (Vec<Hex>, Vec<String>) {
+    let mut changed = Vec::new();
+    let mut notes = Vec::new();
+    let around: Vec<Hex> = render_area(map, moved, 1).into_iter().filter(|h| !fixed.contains(h)).collect();
+    // (toutes les notes d'abord, sur les altitudes nouvelles, puis les reliefs)
+    let wanted: Vec<(Hex, Relief)> = around.iter().filter_map(|&h| map.natural_relief(h).map(|r| (h, r))).collect();
+    for &(h, r) in &wanted {
+        let now = map.relief(h);
+        let base = if now == Relief::Peak { Relief::Mountain } else { now };
+        if base != r {
+            map.set_relief(h, r);
+            changed.push(h);
+            notes.push(format!("{} : relief {} → {} (dénivelée avec les voisines)", coords(map, h), token(now.name()), token(r.name())));
+        }
+    }
+    let mut candidates: Vec<Hex> = wanted.iter().map(|&(h, _)| h).filter(|&h| map.relief(h) == Relief::Mountain || map.relief(h) == Relief::Peak).collect();
+    candidates.sort_by(|&a, &b| map.elevation(b).unwrap_or(0.0).total_cmp(&map.elevation(a).unwrap_or(0.0)));
+    for h in candidates {
+        let was_peak = map.relief(h) == Relief::Peak;
+        // (examinée comme une montagne : elle-même n'empêche pas d'être un pic)
+        map.set_relief(h, Relief::Mountain);
+        let peak_near = map.neighbors(h).iter().any(|&n| map.relief(map.canonical(n)) == Relief::Peak);
+        let peak = map.could_be_peak(h) && !peak_near;
+        if peak {
+            map.set_relief(h, Relief::Peak);
+        }
+        if peak != was_peak {
+            changed.push(h);
+            let (a, b) = if peak { ("montagne", "pic") } else { ("pic", "montagne") };
+            notes.push(format!("{} : relief {a} → {b} ({})", coords(map, h), if peak { "sommet local assez haut" } else { "plus un sommet assez haut" }));
+        }
     }
     (changed, notes)
 }
@@ -961,8 +1002,10 @@ impl Session {
                 if spread {
                     notes.push(format!("pinceau : pic en {}, montagnes autour", coords(map, center)));
                 }
+                let mut moved = Vec::new();
                 for &h in &cells {
                     let before = map.elevation(h).unwrap_or(0.0);
+                    let was_water = map.get(h).is_some_and(|t| t.is_water());
                     let field = if spread && h != center { Field::Relief(Relief::Mountain) } else { field };
                     match set_field(map, h, field) {
                         Ok(()) => {
@@ -971,10 +1014,19 @@ impl Session {
                                 let (more, said) = settle(map, h, field, before);
                                 changed.extend(more);
                                 notes.extend(said);
+                                if map.elevation(h).unwrap_or(0.0) != before || map.get(h).is_some_and(|t| t.is_water()) != was_water {
+                                    moved.push(h);
+                                }
                             }
                         }
                         Err(_) => skipped += 1,
                     }
+                }
+                if !moved.is_empty() {
+                    let fixed: &[Hex] = if matches!(field, Field::Relief(_)) { &cells } else { &[] };
+                    let (more, said) = reshape(map, &moved, fixed);
+                    changed.extend(more);
+                    notes.extend(said);
                 }
                 let edited = cells.len() - skipped;
                 changed.sort_by_key(|h| h.to_offset());
@@ -1205,7 +1257,7 @@ mod tests {
         assert!(r.ok, "{:?}", r.lines);
         assert!((m.temperature(h).unwrap() - (t0 - 13.0)).abs() < 0.01);
         assert!(biome_fits(&m, h, m.get(h).unwrap()), "{:?}", r.lines);
-        // Pic posé bas : il monte à 2 400 m ; un pic voisin redevient montagne
+        // Pic posé bas : il monte à 2 400 m ; un pic voisin n'en est plus un
         let n = m.canonical(m.neighbors(h)[0]);
         let nat = coords(&m, n);
         s.run(&mut m, &format!("relief {nat} montagne"), None, focus);
@@ -1215,7 +1267,8 @@ mod tests {
         assert!(r.ok, "{:?}", r.lines);
         assert_eq!(m.relief(h), Relief::Peak);
         assert!(m.elevation(h).unwrap() >= PEAK_MIN_M);
-        assert_eq!(m.relief(n), Relief::Mountain);
+        // (puis son relief est recalculé selon sa dénivelée : montagne ou accidenté, plus un pic)
+        assert_ne!(m.relief(n), Relief::Peak);
         assert!(r.changed.contains(&n));
         assert!(verify(&m, Some((h, 1))).iter().all(|i| i.kind != "pics-voisins" && i.kind != "relief-altitude"));
         // Brut : deux pics côte à côte et un pic trop bas sont signalés
@@ -1228,6 +1281,18 @@ mod tests {
         assert!(s.run(&mut m, &format!("~relief {at} pic"), None, focus).ok);
         assert_eq!(m.relief(h), Relief::Peak);
         assert!(m.neighbors(h).iter().map(|&n| m.canonical(n)).filter(|&n| !m.is_fleuve(n) && m.get(n).is_some_and(|t| !t.is_water())).all(|n| m.relief(n) == Relief::Mountain && m.elevation(n).unwrap() >= MOUNTAIN_MIN_M));
+        s.run(&mut m, "pinceau 0", None, focus);
+        // Plateau relevé d'un bloc : le centre n'a plus de dénivelée, il n'est pas montagne ; les
+        // bords, au-dessus de la plaine, sont escarpés
+        let c = plain(&m);
+        let cat = coords(&m, c);
+        s.run(&mut m, "pinceau 2", None, focus);
+        let r = s.run(&mut m, &format!("~altitude {cat} 2600"), None, focus);
+        assert!(r.ok, "{:?}", r.lines);
+        assert!(m.relief(c) != Relief::Mountain && m.relief(c) != Relief::Peak, "centre du plateau : {:?}", m.relief(c));
+        let edge: Vec<Hex> = m.range(c, 2).map(|h| m.canonical(h)).filter(|&h| m.distance(h, c) == 2 && !m.is_fleuve(h) && m.get(h).is_some_and(|t| !t.is_water())).collect();
+        assert!(edge.iter().any(|&h| matches!(m.relief(h), Relief::Mountain | Relief::Rugged)), "{:?}", r.lines);
+        assert_eq!(verify(&m, Some((c, 3))).iter().filter(|i| i.kind == "pics-voisins" || i.kind == "relief-altitude").count(), 0);
         s.run(&mut m, "pinceau 0", None, focus);
         // « ~ » réservé aux modifications d'une case
         assert!(!s.run(&mut m, "~aller 3 3", None, focus).ok);
@@ -1253,5 +1318,25 @@ mod tests {
         assert!(kinds.iter().any(|k| *k == "eau-retenue" || *k == "riviere-remonte"), "{kinds:?}");
         let r = s.run(&mut m, &format!("verifier {hat} 2"), None, h);
         assert!(r.lines[0].starts_with("OK ") && !r.lines[0].starts_with("OK 0 "), "{:?}", r.lines);
+    }
+
+    #[test]
+    fn relief_recalcule_comme_a_la_generation() {
+        for seed in [777, 2] {
+            let m = WorldMap::generate_in(96, 56, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
+            let land: Vec<Hex> = m.hexes().filter(|&h| m.get(h).is_some_and(|t| !t.is_water())).collect();
+            let mut wrong = Vec::new();
+            for &h in &land {
+                let generated = if m.relief(h) == Relief::Peak { Relief::Mountain } else { m.relief(h) };
+                if m.natural_relief(h) != Some(generated) {
+                    wrong.push((coords(&m, h), generated, m.natural_relief(h)));
+                }
+                if m.relief(h) == Relief::Peak {
+                    assert!(m.could_be_peak_ignoring_relief(h), "pic {} non reconnu", coords(&m, h));
+                }
+            }
+            println!("graine {seed} : {} / {} cases de relief différent : {:?}", wrong.len(), land.len(), &wrong[..wrong.len().min(8)]);
+            assert!(wrong.is_empty(), "graine {seed} : {} cases", wrong.len());
+        }
     }
 }

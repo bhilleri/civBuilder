@@ -201,9 +201,22 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
 ## Étape 2 : modifications locales et vérification (01/11/2026)
 - **`~` devant une modification** : recalcul de ce qui en découle directement, sur la case et
   ses voisines (`settle`) :
-  - altitude → température (gradient `LAPSE` du climat, -6,5 °C par 1 000 m), puis biome ; une
-    montagne sous 1 500 m devient accidentée, un pic sous 2 400 m montagne (règles de la
-    génération) ;
+  - altitude → température (gradient `LAPSE` du climat, -6,5 °C par 1 000 m), puis biome ; et
+    **relief recalculé comme à la génération** (décision de Benjamin, 01/11 : une montagne est
+    d'abord une dénivelée entre cases, pas une altitude). La génération note chaque case de terre :
+    45 % rang de la plus grande dénivelée avec une voisine, 30 % rang d'un bruit propre, 35 %
+    altitude (rapportée à 4 800 m) ; les 5 % mieux notées sont montagnes (au moins 1 500 m, sinon
+    accidentées), puis 8 % accidentées, 15 % collines ; un pic est un sommet local de montagne
+    (aucune voisine plus haute de 200 m) d'au moins 2 400 m, les plus hauts d'abord jusqu'à 1 % des
+    terres, jamais côte à côte. Comme le classement est relatif à toute la carte, la carte garde
+    la règle (`ReliefRule` : dénivelées et bruits triés, rangs de chaque case à la génération,
+    notes des dernières cases de chaque relief, altitude du plus bas pic) ; `natural_relief` note
+    une case avec les altitudes actuelles (rangs de la génération repris tant que la dénivelée
+    n'a pas changé : ex aequo départagés comme alors ; les lacs, venus après, comptent comme la
+    terre qu'ils couvrent). Test : sur les graines 777 et 2, 0 case de relief différent de la
+    génération. Après une modification locale, le relief des cases modifiées et de leurs voisines
+    est recalculé (`reshape`), puis les pics (un pic qui n'est plus un sommet assez haut redevient
+    montagne ; une montagne qui l'est devient pic, les plus hautes d'abord, jamais côte à côte) ;
   - température, pluie → biome (`map::biome`, avec les saisons : une température ou une pluie
     modifiée décale ou met à l'échelle celles des quatre saisons, même en brut) ;
   - relief montagne ou pic → altitude relevée au minimum (1 500 ou 2 400 m, température et biome
@@ -227,13 +240,18 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
     désert (graine 777 : 8 m sous le seuil, 1 600 m³/s).
   - **Bilan** (`bilan_verifier`, 128 × 74) : 0 incohérence sur les graines 777, 2, 5 et 4242 ;
     test : 0 sur 96 × 56 (777), et un barrage de 1 500 m sur un fleuve est signalé.
-- Vérifié en script (graine 777) : plaine relevée à 2 800 m au pinceau (température 20 → 6 °C,
+- Vérifié en script (graine 777) : plaine relevée d'un bloc à 2 600 m au pinceau 2 → dessus
+  plat (forêt), bords accidentés ou montagnes, quatre pics sur le rebord ; une case seule à
+  3 500 m → pic, voisines vallonnées ou accidentées ; `verifier` : 0.
+- Vérifié en script (graine 777, avant le recalcul du relief) : plaine relevée à 2 800 m au pinceau (température 20 → 6 °C,
   jungle et savane → forêt tempérée et prairie), pic au centre, montagnes autour ; à -8 °C,
   toundra et neige en 3D ; `verifier` signale le fleuve coupé par le massif.
 
 ## Limites
 - Brut : une forêt reste une forêt à 30 °C, un lac posé n'a pas d'exutoire, les cours d'eau ne
   suivent pas l'altitude ; le coût des pas, lui, est recalculé.
+- Local : le nombre de pics n'est pas plafonné (1 % des terres à la génération) : le rebord d'un
+  plateau relevé au-dessus du plus bas pic de la carte peut en porter plusieurs.
 - Local : l'évaporation potentielle ne suit pas la température (l'aridité ne change qu'avec la
   pluie) ; le climat des voisines ne change pas (pas de pluie orographique, pas d'ombre
   pluviométrique) ; les cours d'eau ne suivent jamais (étape 3 : `regenerer`).
