@@ -384,7 +384,9 @@ fn terrain() -> Article {
                marque une falaise ; en 3D, le sol est à sa hauteur réelle en mètres, les falaises sont des parois rocheuses, \
                et le relief des cases (collines, montagnes, pics) est modelé dans le sol : crêtes et ravines continues \
                d'une case à l'autre, roche sur les pentes raides, neige en hauteur (plus bas dans le froid), arbres \
-               sur les versants jusqu'à la limite des arbres. Les cours d'eau coulent dans des vallées. Les côtes \
+               sur les versants jusqu'à la limite des arbres. Chaque montagne a un sommet rocheux arrondi, relié aux \
+               montagnes voisines par une arête plus basse, et peu d'arbres (petits conifères au pied) ; un pic, \
+               infranchissable, se reconnaît à son aiguille bien plus haute et sans arbres. Les cours d'eau coulent dans des vallées. Les côtes \
                basses descendent en plage jusqu'à la mer, les plus hautes tombent en falaise."),
             h("Plaques tectoniques"),
             p("La planète est découpée en une douzaine de plaques (carte des plaques, touche T), surtout \

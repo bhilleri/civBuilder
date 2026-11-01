@@ -210,6 +210,12 @@ fn run_capture(
             add("unites_seuil_icones", mountain, 1_150.0, 0.0);
             add("unites_loin", mountain, 1_500.0, 0.0);
             add("ville_loin", start, 1_150.0, 0.6);
+            // Pic voisin d'une montagne : les deux doivent rester distincts (près, de côté, de loin)
+            if let Some(h) = by_distance.iter().copied().find(|&h| m.relief(h) == Relief::Peak && m.neighbors(h).iter().any(|&n| m.relief(m.canonical(n)) == Relief::Mountain)) {
+                add("pic", h, 300.0, 0.0);
+                add("pic_cote", h, 300.0, 2.0);
+                add("pic_loin", h, 800.0, 0.0);
+            }
             if let Some(h) = river {
                 add("fleuve", h, 200.0, 0.3);
             }

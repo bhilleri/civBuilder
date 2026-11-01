@@ -127,12 +127,12 @@ fn explored_bumps(map: &crate::map::WorldMap, fog: &ShownFog, sites: &HashSet<He
 fn bumps_for(map: &crate::map::WorldMap, hex: Hex) -> Option<Bumps> {
     let (amp, summit) = match map.relief(hex) {
         CellRelief::Flat => return None,
-        // (pas de sommet propre à chaque montagne : un damier de cônes ; les crêtes viennent du
-        // bruit continu, seuls les pics ont leur sommet)
+        // (montagnes et pics ont un sommet au centre de la case, reliés en chaîne à leurs voisins
+        // par une arête plus basse : pas de damier de cônes ; le pic est nettement plus haut)
         CellRelief::Hills => (5.0, 0.0),
         CellRelief::Rugged => (9.0, 0.0),
-        CellRelief::Mountain => (17.0, 0.0),
-        CellRelief::Peak => (16.0, 24.0),
+        CellRelief::Mountain => (19.0, 8.0),
+        CellRelief::Peak => (16.0, 34.0),
     };
     let snowline = if map.get(hex) == Some(Terrain::Snow) {
         0.0
@@ -140,7 +140,7 @@ fn bumps_for(map: &crate::map::WorldMap, hex: Hex) -> Option<Bumps> {
         // (collines et reliefs bas ne sont enneigés que sur un terrain de neige)
         ((map.temperature(hex).unwrap_or(5.0) + 12.0) * 2.0).clamp(10.0, 40.0)
     };
-    Some(Bumps { amp, summit, snowline })
+    Some(Bumps { amp, summit, needle: map.relief(hex) == CellRelief::Peak, snowline })
 }
 
 impl Relief {
@@ -721,14 +721,22 @@ fn setup_3d(
             };
             // Emplacements (position, hausse) sous la limite des arbres ; seconde couronne (entre
             // les premiers) pour les forêts denses
-            let spots: Vec<(Vec2, f32)> = ring6.iter().map(|&a| (polar(a, 21.0), 0.0)).filter(|&(at, _)| below_treeline(at)).collect();
-            let inner: Vec<Vec2> = ring6.iter().map(|&a| polar(a + 30.0, 24.5)).filter(|&at| below_treeline(at)).collect();
+            // En montagne : étage montagnard, arbres clairsemés (un emplacement sur deux, pas de
+            // seconde couronne), conifères à la place des feuillus
+            let montane = relief_kind == CellRelief::Mountain;
+            let spots: Vec<(Vec2, f32)> = ring6.iter().step_by(if montane { 2 } else { 1 }).map(|&a| (polar(a, 21.0), 0.0)).filter(|&(at, _)| below_treeline(at)).collect();
+            let inner: Vec<Vec2> = if montane { Vec::new() } else { ring6.iter().map(|&a| polar(a + 30.0, 24.5)).filter(|&at| below_treeline(at)).collect() };
             // Feuillu : tronc et houppier rond
             let broad = |at: Vec2, up: f32, leaf: &Handle<StandardMaterial>, size: f32, pieces: &mut Vec<_>| {
                 pieces.push((trunk_mesh.clone(), trunk.clone(), at, up + 4.0 * size, Vec3::new(size, size, size)));
                 pieces.push((crown_mesh.clone(), leaf.clone(), at, up + 10.5 * size, Vec3::new(size, 0.85 * size, size)));
             };
             match t {
+                Terrain::Forest if montane => {
+                    for &(at, up) in &spots {
+                        pieces.push((conifer_mesh.clone(), conifer.clone(), at, up + 7.0, Vec3::splat(0.8)));
+                    }
+                }
                 Terrain::Forest => {
                     for &(at, up) in &spots {
                         broad(at, up, &broadleaf, 1.0, &mut pieces);

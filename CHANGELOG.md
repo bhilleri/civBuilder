@@ -7,6 +7,8 @@
 - **Montagne selon l'altitude** : 4 PM jusqu'à 2 000 m, +1 PM par tranche de 500 m, jusqu'à 8 PM (au lieu de 3 PM partout). Les cols et les vallées, plus bas que les crêtes, deviennent les passages les plus rapides ; contourner un massif bat souvent la ligne droite.
 - **Selon l'unité** : la cavalerie paie la montagne double (chevaux menés à la bride), l'éclaireur les deux tiers.
 - Les trajets prévus (numéros de tour), la zone atteignable, l'exploration automatique et les barbares suivent la même règle.
+- **Montagnes plus visibles en 3D**, même en forêt : chaque montagne a son sommet rocheux en dôme, relié aux montagnes voisines par une arête plus basse (un massif forme une chaîne avec des cols) ; la roche monte plus vite avec la hauteur ; les ravines sont ombrées et les crêtes éclairées ; la végétation y est d'étage montagnard (arbres clairsemés au pied, petits conifères au lieu des feuillus). Les **pics** restent distincts : une aiguille bien plus haute et sans arbres. La neige suit toujours le froid : une montagne froide est enneigée elle aussi.
+- **Mode capture** : trois vues d'un pic voisin d'une montagne (près, de côté, de loin).
 - **Unité immobilisée** : une pastille orange sur son jeton (2D et 3D) donne le nombre de tours sans bouger qui restent ; le panneau de l'unité le dit aussi.
 
 ### Déplacements et combats visibles, journal hiérarchisé
