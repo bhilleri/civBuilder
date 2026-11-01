@@ -43,8 +43,9 @@ soudent par collision. Trois étapes, chacune vérifiée par bilan et captures :
   (moyen), jeune océan entre deux côtes qui se répondent (rapide).
 
 ## Plus tard
-- [ ] Console de debug, étapes 2 et 3 : modifications cohérentes (`~`), `verifier`,
-  `regenerer eau|climat`, `riviere tracer`, unités et tours (voir `conception/conception-interface.md`).
+- [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
+- [ ] Console de debug, étape 3 : `regenerer eau|climat`, `riviere tracer`, unités, villes, tours,
+  `chemin` (voir `conception/conception-interface.md`).
 - [ ] Banquise jouable (eau gelée, selon la température de la mer).
 - [ ] Toponymie étapes 3 à 6 : continents, îles, archipels, péninsules, isthmes ; chaînes, massifs,
   cols ; régions naturelles ; barre de lieu (voir `conception/conception-toponymie.md`).

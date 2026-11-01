@@ -9,14 +9,18 @@
 //! (0 en haut, nord), comme dans l'infobulle en mode debug.
 //!
 //! Les modifications sont **brutes** : seul le champ demandé change, rien n'est recalculé (ni le
-//! biome à partir du climat, ni les cours d'eau, ni le climat des voisines). Le rendu des cases
-//! voisines suit (relief 3D partagé, décor, eau), voir `console.rs`.
+//! biome à partir du climat, ni les cours d'eau, ni le climat des voisines). Précédées de `~`,
+//! elles sont **locales** : ce qui en découle directement est recalculé sur la case (température
+//! selon l'altitude, biome selon le climat, altitude minimale d'une montagne ou d'un pic) et ses
+//! voisines (jamais deux pics côte à côte). `verifier` liste les incohérences de la carte. Le
+//! rendu des cases voisines suit (relief 3D partagé, décor, eau), voir `console.rs`.
 //!
 //! Ce module décode, complète et explique les commandes, applique celles qui touchent la carte
 //! et renvoie les autres (caméra, captures…) sous forme d'`Effect` à la console.
 
+use crate::climate::LAPSE;
 use crate::hex::Hex;
-use crate::map::{Relief, Terrain, WorldMap};
+use crate::map::{BiomeClimate, MARSH_ARIDITY, MARSH_MAX_LEVEL, MOUNTAIN_MIN_M, PEAK_MIN_M, Relief, Terrain, WorldMap, biome};
 use crate::render::MapLayer;
 use crate::search::fold;
 
@@ -26,6 +30,20 @@ pub const UNDO_DEPTH: usize = 20;
 pub const FIND_DEFAULT_MAX: usize = 10;
 /// Rayon maximal du pinceau (cases).
 pub const BRUSH_MAX: i32 = 6;
+/// Incohérences détaillées par `verifier` (les plus proches du centre de la vue).
+pub const VERIFY_SHOWN: usize = 20;
+/// Variation locale de l'aridité à la génération (sols, exposition : ±25 %, voir `generate_in`),
+/// avec une marge : un biome est cohérent s'il est celui d'une aridité dans cet intervalle.
+const ARIDITY_JITTER: [f32; 2] = [0.7, 1.3];
+/// Écart d'altitude toléré (m) entre une case et sa case aval, ou entre deux cases d'un même lac,
+/// et profondeur à partir de laquelle une cuvette retient l'eau.
+const WATER_TOLERANCE_M: f32 = 1.0;
+/// Cuvette sans lac signalée : traversée par plus de ce débit (m³/s ; une cuvette sèche, en climat
+/// aride, ne reçoit presque rien) et plus profonde que cela (m ; la génération laisse un grand
+/// fleuve traverser une cuvette peu profonde de terre aride, comme un désert sous le niveau de la
+/// mer).
+const POOL_MIN_FLOW: f32 = 1.0;
+const POOL_MIN_DEPTH_M: f32 = 20.0;
 
 // ---------------------------------------------------------------- Description des commandes
 
@@ -45,7 +63,7 @@ impl Group {
         match self {
             Group::Observe => "Observer",
             Group::Camera => "Caméra et captures",
-            Group::Edit => "Modifier la carte (brut : rien n'est recalculé)",
+            Group::Edit => "Modifier la carte (brut ; « ~ » devant : recalcul local)",
             Group::Console => "Console",
         }
     }
@@ -92,12 +110,13 @@ const AT_OPT: [(&str, Arg, bool); 2] = [("col", Arg::Col, true), ("lig", Arg::Ro
 /// Toutes les commandes, dans l'ordre de l'aide.
 pub const SPECS: &[Spec] = &[
     Spec { name: "info", args: &AT_OPT, help: "Toutes les données d'une case (sans coordonnées : la case sous le curseur) : terrain, relief, altitude, climat, eau, coût d'un pas vers chaque voisine.", group: Group::Observe },
+    Spec { name: "verifier", args: &[("col", Arg::Col, true), ("lig", Arg::Row, true), ("rayon", Arg::Number, true)], help: "Incohérences de la carte (toute la carte, ou autour d'une case) : pics côte à côte, montagne ou pic trop bas, relief sur un fleuve, biome que le climat ne donne pas, rivière qui remonte, lac à deux niveaux.", group: Group::Observe },
     Spec { name: "trouver", args: &[("critère", Arg::Criteria, false)], help: "Cases qui remplissent tous les critères, les plus proches d'abord. Critères : terrain=, relief=, voisin= (terrain ou relief d'une voisine), fleuve=oui|non, eau=oui|non, alt<, alt>, temp<, temp>, pluie<, pluie>, pres=col,lig (sinon le centre de la vue), max=n.", group: Group::Observe },
-    Spec { name: "terrain", args: &[AT[0], AT[1], ("terrain", Arg::Terrain, false)], help: "Change le terrain (une case d'eau devient plate, la mer descend au niveau 0).", group: Group::Edit },
-    Spec { name: "relief", args: &[AT[0], AT[1], ("relief", Arg::Relief, false)], help: "Change le relief d'une case de terre (un fleuve reste plat).", group: Group::Edit },
-    Spec { name: "altitude", args: &[AT[0], AT[1], ("mètres", Arg::Number, false)], help: "Change l'altitude du sol d'une case de terre, et sa classe d'altitude (falaises).", group: Group::Edit },
-    Spec { name: "temperature", args: &[AT[0], AT[1], ("°C", Arg::Number, false)], help: "Change la température moyenne annuelle (limite des neiges en 3D) ; le biome ne suit pas.", group: Group::Edit },
-    Spec { name: "pluie", args: &[AT[0], AT[1], ("mm", Arg::Number, false)], help: "Change les précipitations annuelles (carte du climat) ; le biome et les cours d'eau ne suivent pas.", group: Group::Edit },
+    Spec { name: "terrain", args: &[AT[0], AT[1], ("terrain", Arg::Terrain, false)], help: "Change le terrain (une case d'eau devient plate, la mer descend au niveau 0). Avec ~, le terrain imposé reste, même s'il ne suit pas le climat.", group: Group::Edit },
+    Spec { name: "relief", args: &[AT[0], AT[1], ("relief", Arg::Relief, false)], help: "Change le relief d'une case de terre (un fleuve reste plat). Avec ~ : une montagne monte au moins à 1 500 m, un pic à 2 400 m (température et biome suivent), les pics voisins deviennent montagnes.", group: Group::Edit },
+    Spec { name: "altitude", args: &[AT[0], AT[1], ("mètres", Arg::Number, false)], help: "Change l'altitude du sol d'une case de terre, et sa classe d'altitude (falaises). Avec ~ : la température suit (-6,5 °C par 1 000 m), puis le biome ; une montagne trop basse devient accidentée, un pic trop bas montagne.", group: Group::Edit },
+    Spec { name: "temperature", args: &[AT[0], AT[1], ("°C", Arg::Number, false)], help: "Change la température moyenne annuelle et celle des saisons (limite des neiges en 3D). Avec ~, le biome suit.", group: Group::Edit },
+    Spec { name: "pluie", args: &[AT[0], AT[1], ("mm", Arg::Number, false)], help: "Change les précipitations annuelles et celles des saisons (carte du climat). Avec ~, le biome suit ; les cours d'eau, jamais.", group: Group::Edit },
     Spec { name: "pinceau", args: &[("rayon", Arg::Number, false)], help: "Les modifications suivantes s'appliquent aussi aux cases à moins de « rayon » cases (0 : la case seule).", group: Group::Edit },
     Spec { name: "annuler", args: &[], help: "Annule la dernière modification de la carte.", group: Group::Edit },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
@@ -206,8 +225,11 @@ pub enum Criterion {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Info(Option<Hex>),
+    /// Zone vérifiée (case et rayon), sinon toute la carte.
+    Verify(Option<(Hex, i32)>),
     Find { criteria: Vec<Criterion>, near: Option<Hex>, max: usize },
-    Edit(Hex, Field),
+    /// Case, champ, recalcul local (`~`).
+    Edit(Hex, Field, bool),
     Brush(i32),
     Undo,
     Goto(Hex),
@@ -261,8 +283,18 @@ fn criterion(map: &WorldMap, word: &str) -> Result<(Option<Criterion>, Option<He
     Ok((Some(c), None, None))
 }
 
+/// Ligne sans le `~` d'une modification locale, et ce `~`.
+fn split_local(line: &str) -> (&str, bool) {
+    let t = line.trim_start();
+    match t.strip_prefix('~') {
+        Some(rest) => (rest, true),
+        None => (line, false),
+    }
+}
+
 /// Décode une ligne de commande.
 pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
+    let (line, local) = split_local(line);
     let words: Vec<&str> = line.split_whitespace().collect();
     let Some((&first, args)) = words.split_first() else { return Err("commande vide".into()) };
     let name = token(first);
@@ -275,11 +307,20 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
     if args.len() < required || (!free && args.len() > spec.args.len()) {
         return Err(format!("usage : {}", spec.usage()));
     }
+    if local && spec.group != Group::Edit || local && matches!(spec.name, "pinceau" | "annuler") {
+        return Err(format!("« ~ » ne s'applique qu'aux modifications d'une case, pas à « {} »", spec.name));
+    }
     let at = || cell(map, args[0], args[1]);
     Ok(match spec.name {
         "info" => match args {
             [] => Command::Info(None),
             [c, r] => Command::Info(Some(cell(map, c, r)?)),
+            _ => return Err(format!("usage : {}", spec.usage())),
+        },
+        "verifier" => match args {
+            [] => Command::Verify(None),
+            [c, r] => Command::Verify(Some((cell(map, c, r)?, 3))),
+            [c, r, radius] => Command::Verify(Some((cell(map, c, r)?, number(radius, "rayon")?.round().clamp(0.0, 50.0) as i32))),
             _ => return Err(format!("usage : {}", spec.usage())),
         },
         "trouver" => {
@@ -292,11 +333,11 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             }
             Command::Find { criteria, near, max }
         }
-        "terrain" => Command::Edit(at()?, Field::Terrain(pick(args[2], &terrain_tokens(), "terrain")?)),
-        "relief" => Command::Edit(at()?, Field::Relief(pick(args[2], &relief_tokens(), "relief")?)),
-        "altitude" => Command::Edit(at()?, Field::Altitude(number(args[2], "altitude")?)),
-        "temperature" => Command::Edit(at()?, Field::Temperature(number(args[2], "température")?)),
-        "pluie" => Command::Edit(at()?, Field::Rain(number(args[2], "pluie")?.max(0.0))),
+        "terrain" => Command::Edit(at()?, Field::Terrain(pick(args[2], &terrain_tokens(), "terrain")?), local),
+        "relief" => Command::Edit(at()?, Field::Relief(pick(args[2], &relief_tokens(), "relief")?), local),
+        "altitude" => Command::Edit(at()?, Field::Altitude(number(args[2], "altitude")?), local),
+        "temperature" => Command::Edit(at()?, Field::Temperature(number(args[2], "température")?), local),
+        "pluie" => Command::Edit(at()?, Field::Rain(number(args[2], "pluie")?.max(0.0)), local),
         "pinceau" => Command::Brush((number(args[0], "rayon")?.round() as i32).clamp(0, BRUSH_MAX)),
         "annuler" => Command::Undo,
         "aller" => Command::Goto(at()?),
@@ -353,6 +394,11 @@ fn common_prefix(words: &[String]) -> String {
 
 /// Complète le dernier mot de la ligne : nom de commande, puis valeurs possibles de l'argument.
 pub fn complete(line: &str) -> Completion {
+    let (rest, local) = split_local(line);
+    if local {
+        let c = complete(rest);
+        return Completion { line: format!("~{}", c.line), candidates: c.candidates };
+    }
     let ends_with_space = line.is_empty() || line.ends_with(' ');
     let mut words: Vec<&str> = line.split_whitespace().collect();
     let current = if ends_with_space { "" } else { words.pop().unwrap_or("") };
@@ -403,6 +449,7 @@ pub fn complete(line: &str) -> Completion {
 
 /// Aide en une ligne pour la saisie en cours : forme d'appel et effet de la commande tapée.
 pub fn hint(line: &str) -> String {
+    let (line, _) = split_local(line);
     let Some(first) = line.split_whitespace().next() else { return "Tab : compléter · ↑ ↓ : historique · aide : liste des commandes".into() };
     match spec(&token(first)) {
         Some(s) => format!("{} — {}", s.usage(), s.help),
@@ -416,7 +463,10 @@ pub fn hint(line: &str) -> String {
 /// Texte de `aide` (liste) ou de `aide <commande>` (détail et valeurs possibles).
 pub fn help(about: Option<&str>) -> Result<Vec<String>, String> {
     let Some(name) = about else {
-        let mut lines = vec!["OK aide — Tab complète, « aide <commande> » détaille ; cases : colonne puis ligne (infobulle)".to_string()];
+        let mut lines = vec![
+            "OK aide — Tab complète, « aide <commande> » détaille ; cases : colonne puis ligne (infobulle)".to_string(),
+            "~ devant une modification : recalcul local (température, biome, pics) ; sans : brut".to_string(),
+        ];
         for g in Group::ALL {
             lines.push(format!("{} : {}", g.title(), SPECS.iter().filter(|s| s.group == g).map(|s| s.name).collect::<Vec<_>>().join(", ")));
         }
@@ -552,6 +602,252 @@ fn field_text(field: Field) -> String {
     }
 }
 
+// ---------------------------------------------------------------- Cohérence
+
+/// Climat d'une case pour le choix du biome (`None` : eau, ou carte sans climat simulé).
+fn biome_climate(map: &WorldMap, hex: Hex) -> Option<BiomeClimate> {
+    if map.get(hex)?.is_water() {
+        return None;
+    }
+    let i = map.cell(hex);
+    let c = map.climate();
+    let temperature = *c.temperature.get(i)?;
+    let (coldest, _) = c.coldest_warmest(i)?;
+    Some(BiomeClimate {
+        temperature,
+        aridity: c.aridity(i)?,
+        coldest,
+        dry_seasons: c.dry_seasons(i)?.iter().filter(|&&d| d).count() as u8,
+        dry_summer: c.dry_summer(i)?,
+    })
+}
+
+/// Le terrain d'une case de terre est celui que donne son climat (à la variation locale de
+/// l'aridité près) ; un marais demande un sol humide qui ne gèle pas, bas et plat.
+fn biome_fits(map: &WorldMap, hex: Hex, t: Terrain) -> bool {
+    let Some(c) = biome_climate(map, hex) else { return true };
+    if t == Terrain::Marsh {
+        return c.aridity >= MARSH_ARIDITY * ARIDITY_JITTER[0] && c.temperature > 0.0 && map.relief(hex) == Relief::Flat && map.level(hex).is_some_and(|l| l <= MARSH_MAX_LEVEL);
+    }
+    let steps = 12;
+    (0..=steps).any(|k| {
+        let f = ARIDITY_JITTER[0] + (ARIDITY_JITTER[1] - ARIDITY_JITTER[0]) * k as f32 / steps as f32;
+        biome(BiomeClimate { aridity: c.aridity * f, ..c }) == t
+    })
+}
+
+/// Recalcul local après la modification d'une case (`before` : son altitude d'avant) : cases
+/// changées en plus (voisines) et ce qui a changé, en clair.
+fn settle(map: &mut WorldMap, hex: Hex, field: Field, before: f32) -> (Vec<Hex>, Vec<String>) {
+    let mut changed = Vec::new();
+    let mut notes = Vec::new();
+    let at = coords(map, hex);
+    let land = map.get(hex).is_some_and(|t| !t.is_water());
+    // Altitude imposée par le relief, puis température selon l'altitude
+    let mut ground = map.elevation(hex).unwrap_or(0.0);
+    if let Field::Relief(r) = field
+        && land
+    {
+        let floor = match map.relief(hex) {
+            Relief::Peak => PEAK_MIN_M,
+            Relief::Mountain => MOUNTAIN_MIN_M,
+            _ => 0.0,
+        };
+        if ground < floor {
+            map.set_elevation(hex, floor);
+            notes.push(format!("{at} : altitude {ground:.0} → {floor:.0} m ({} demande au moins {floor:.0} m)", token(r.name())));
+            ground = floor;
+        }
+        // Jamais deux pics côte à côte
+        if map.relief(hex) == Relief::Peak {
+            let around: Vec<Hex> = map.neighbors(hex).into_iter().map(|n| map.canonical(n)).filter(|&n| map.contains(n)).collect();
+            for n in around {
+                if map.relief(n) == Relief::Peak {
+                    map.set_relief(n, Relief::Mountain);
+                    changed.push(n);
+                    notes.push(format!("{} : pic voisin → montagne", coords(map, n)));
+                }
+            }
+        }
+    }
+    if let Field::Altitude(_) = field
+        && land
+    {
+        let demoted = match map.relief(hex) {
+            Relief::Peak if ground < PEAK_MIN_M => Some(if ground < MOUNTAIN_MIN_M { Relief::Rugged } else { Relief::Mountain }),
+            Relief::Mountain if ground < MOUNTAIN_MIN_M => Some(Relief::Rugged),
+            _ => None,
+        };
+        if let Some(r) = demoted {
+            notes.push(format!("{at} : relief {} → {} (trop bas)", token(map.relief(hex).name()), token(r.name())));
+            map.set_relief(hex, r);
+        }
+    }
+    if land
+        && (ground - before).abs() > 0.5
+        && let Some(t) = map.temperature(hex)
+    {
+        let t2 = t - LAPSE * (ground - before);
+        map.set_temperature(hex, t2);
+        notes.push(format!("{at} : température {t:.1} → {t2:.1} °C (altitude {before:.0} → {ground:.0} m)"));
+    }
+    // Biome selon le climat (un terrain imposé reste)
+    if land
+        && !matches!(field, Field::Terrain(_))
+        && let Some(t) = map.get(hex)
+        && !biome_fits(map, hex, t)
+        && let Some(c) = biome_climate(map, hex)
+    {
+        let new = biome(c);
+        map.set(hex, new);
+        notes.push(format!("{at} : biome {} → {}", token(t.name()), token(new.name())));
+    }
+    if let Field::Terrain(t) = field
+        && !t.is_water()
+        && !biome_fits(map, hex, t)
+    {
+        notes.push(format!("{at} : {} imposé, le climat donnerait {}", token(t.name()), biome_climate(map, hex).map_or("—".into(), |c| token(biome(c).name()))));
+    }
+    (changed, notes)
+}
+
+/// Une incohérence de la carte.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Issue {
+    pub hex: Hex,
+    pub kind: &'static str,
+    pub detail: String,
+}
+
+/// Incohérences de la carte, ou de la zone (case, rayon) : ce qu'une carte générée respecte.
+pub fn verify(map: &WorldMap, area: Option<(Hex, i32)>) -> Vec<Issue> {
+    let cells: Vec<Hex> = match area {
+        Some((h, r)) => render_area(map, &[h], r),
+        None => map.hexes().collect(),
+    };
+    let mut out = Vec::new();
+    let filled = filled_surface(map);
+    let mut issue = |hex: Hex, kind: &'static str, detail: String| out.push(Issue { hex, kind, detail });
+    let neighbors = |h: Hex| map.neighbors(h).into_iter().map(|n| map.canonical(n)).filter(|&n| map.contains(n)).collect::<Vec<_>>();
+    // Cuvettes (cases sous le niveau rempli) traversées par de l'eau, sans lac : l'eau y monterait
+    let in_area: bevy::platform::collections::HashSet<Hex> = cells.iter().copied().collect();
+    let pooled = |h: Hex| map.get(h).is_some_and(|t| !t.is_water()) && filled[map.cell(h)] > map.surface_elevation(h).unwrap_or(0.0) + WATER_TOLERANCE_M;
+    let mut seen = bevy::platform::collections::HashSet::new();
+    for &h in &cells {
+        if !pooled(h) || !seen.insert(h) {
+            continue;
+        }
+        let mut group = vec![h];
+        let mut k = 0;
+        while k < group.len() {
+            for n in neighbors(group[k]) {
+                if pooled(n) && seen.insert(n) {
+                    group.push(n);
+                }
+            }
+            k += 1;
+        }
+        let wet = group.iter().any(|&g| map.small_lake(g) || neighbors(g).iter().any(|&n| map.get(n) == Some(Terrain::Lake)));
+        let flow = group.iter().map(|&g| map.discharge(g)).fold(0.0, f32::max);
+        let deepest = *group.iter().max_by(|&&a, &&b| (filled[map.cell(a)] - map.surface_elevation(a).unwrap_or(0.0)).total_cmp(&(filled[map.cell(b)] - map.surface_elevation(b).unwrap_or(0.0)))).unwrap();
+        let level = filled[map.cell(deepest)];
+        let depth = level - map.surface_elevation(deepest).unwrap_or(0.0);
+        if !wet && flow > POOL_MIN_FLOW && depth > POOL_MIN_DEPTH_M && in_area.contains(&deepest) {
+            issue(deepest, "eau-retenue", format!("cuvette de {} case(s) traversée par {flow:.0} m³/s, sans lac (l'eau monterait à {level:.0} m)", group.len()));
+        }
+    }
+    for &h in &cells {
+        let Some(t) = map.get(h) else { continue };
+        let relief = map.relief(h);
+        let ground = map.elevation(h).unwrap_or(0.0);
+        if !t.is_water() {
+            if relief == Relief::Peak {
+                // (une paire n'est signalée qu'une fois)
+                for n in neighbors(h).into_iter().filter(|&n| map.relief(n) == Relief::Peak && n.to_offset() > h.to_offset()) {
+                    issue(h, "pics-voisins", format!("pic voisin en {}", coords(map, n)));
+                }
+                if ground < PEAK_MIN_M {
+                    issue(h, "relief-altitude", format!("pic à {ground:.0} m (au moins {PEAK_MIN_M:.0} m)"));
+                }
+            }
+            if relief == Relief::Mountain && ground < MOUNTAIN_MIN_M {
+                issue(h, "relief-altitude", format!("montagne à {ground:.0} m (au moins {MOUNTAIN_MIN_M:.0} m)"));
+            }
+            if map.is_fleuve(h) && relief != Relief::Flat {
+                issue(h, "relief-fleuve", format!("fleuve au relief {}", token(relief.name())));
+            }
+            if !biome_fits(map, h, t) {
+                let c = biome_climate(map, h);
+                let expected = c.map_or("—".into(), |c| token(biome(c).name()));
+                let (temp, arid) = c.map_or((0.0, 0.0), |c| (c.temperature, c.aridity));
+                issue(h, "biome", format!("{} ; le climat donne {expected} ({temp:.1} °C, aridité {arid:.2})", token(t.name())));
+            }
+            // (dans une cuvette, l'eau monte jusqu'au seuil : c'est le niveau rempli qui compte)
+            if let Some(d) = map.downstream(h) {
+                let n = map.canonical(map.wrap().neighbor(h, d));
+                let (here, there) = (filled[map.cell(h)], filled.get(map.cell(n)).copied().unwrap_or(f32::MAX));
+                if map.contains(n) && there > here + WATER_TOLERANCE_M {
+                    issue(h, "riviere-remonte", format!("l'eau va vers {} plus haut ({here:.0} → {there:.0} m)", coords(map, n)));
+                }
+            }
+        }
+        if t == Terrain::Lake {
+            let here = map.surface_elevation(h).unwrap_or(0.0);
+            for n in neighbors(h).into_iter().filter(|&n| map.get(n) == Some(Terrain::Lake) && n.to_offset() > h.to_offset()) {
+                let there = map.surface_elevation(n).unwrap_or(0.0);
+                if (there - here).abs() > WATER_TOLERANCE_M {
+                    issue(h, "lac-niveaux", format!("surface {here:.0} m, voisine {} à {there:.0} m", coords(map, n)));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Niveau de l'eau qui remplirait chaque cuvette jusqu'à son seuil (m) : surface de chaque case
+/// relevée au plus bas passage vers la mer (inondation depuis la mer, file de priorité).
+fn filled_surface(map: &WorldMap) -> Vec<f32> {
+    use std::cmp::Reverse;
+    let n = (map.width * map.height) as usize;
+    let mut filled = vec![f32::MAX; n];
+    let mut queue = std::collections::BinaryHeap::new();
+    // (clé entière : millimètres, pour l'ordre)
+    let key = |m: f32| Reverse((m * 1000.0) as i64);
+    for h in map.hexes() {
+        if map.get(h).is_some_and(|t| t.is_sea()) {
+            let i = map.cell(h);
+            filled[i] = 0.0;
+            queue.push((key(0.0), i));
+        }
+    }
+    while let Some((Reverse(k), i)) = queue.pop() {
+        if (k as f32 / 1000.0) > filled[i] + 0.001 {
+            continue;
+        }
+        let h = map.hex_at(i);
+        for nb in map.neighbors(h) {
+            let nb = map.canonical(nb);
+            if !map.contains(nb) {
+                continue;
+            }
+            let j = map.cell(nb);
+            let level = map.surface_elevation(nb).unwrap_or(0.0).max(filled[i]);
+            if level < filled[j] {
+                filled[j] = level;
+                queue.push((key(level), j));
+            }
+        }
+    }
+    // Terres sans passage vers la mer (carte sans mer) : leur propre surface
+    for h in map.hexes() {
+        let i = map.cell(h);
+        if filled[i] == f32::MAX {
+            filled[i] = map.surface_elevation(h).unwrap_or(0.0);
+        }
+    }
+    filled
+}
+
 // ---------------------------------------------------------------- Séance
 
 /// Ce que la console doit faire en plus de la réponse (commandes qui touchent au jeu).
@@ -611,7 +907,7 @@ impl Session {
             Err(e) => Reply::error(e),
         };
         // (le journal garde ce qui se rejoue : pas l'aide, ni la lecture du journal)
-        let replayable = !matches!(token(line.split_whitespace().next().unwrap_or("")).as_str(), "aide" | "journal" | "effacer" | "info" | "trouver");
+        let replayable = !matches!(token(split_local(line).0.split_whitespace().next().unwrap_or("")).as_str(), "aide" | "journal" | "effacer" | "info" | "trouver" | "verifier");
         if reply.ok && replayable {
             self.journal.push(line.to_string());
         }
@@ -631,17 +927,58 @@ impl Session {
                 lines.extend(found.iter().map(|&h| format!("{} — {} {:.0}m (à {} cases)", coords(map, h), map.describe(h), map.elevation(h).unwrap_or(0.0), map.distance(h, near))));
                 Reply::ok(lines)
             }
-            Command::Edit(at, field) => {
+            Command::Verify(area) => {
+                let issues = verify(map, area);
+                let near = area.map_or(focus, |(h, _)| h);
+                let mut counts: Vec<(&str, usize)> = Vec::new();
+                for i in &issues {
+                    match counts.iter_mut().find(|(k, _)| *k == i.kind) {
+                        Some((_, n)) => *n += 1,
+                        None => counts.push((i.kind, 1)),
+                    }
+                }
+                let zone = area.map_or("toute la carte".to_string(), |(h, r)| format!("rayon {r} autour de {}", coords(map, h)));
+                let summary = counts.iter().map(|(k, n)| format!("{k}={n}")).collect::<Vec<_>>().join(" ");
+                let mut lines = vec![format!("OK {} incohérence(s), {zone}{}{summary}", issues.len(), if summary.is_empty() { "" } else { " : " })];
+                let mut sorted = issues;
+                sorted.sort_by_key(|i| (map.distance(i.hex, near), i.hex.to_offset()));
+                lines.extend(sorted.iter().take(VERIFY_SHOWN).map(|i| format!("{} — {} — {}", coords(map, i.hex), i.kind, i.detail)));
+                if sorted.len() > VERIFY_SHOWN {
+                    lines.push(format!("… {} autre(s) (verifier <col> <lig> <rayon> pour une zone)", sorted.len() - VERIFY_SHOWN));
+                }
+                Reply::ok(lines)
+            }
+            Command::Edit(at, field, local) => {
                 let snapshot = map.clone();
                 let cells: Vec<Hex> = map.range(at, self.brush).map(|h| map.canonical(h)).filter(|&h| map.contains(h)).collect();
                 let mut changed = Vec::new();
+                let mut notes = Vec::new();
                 let mut skipped = 0;
+                // Pic local au pinceau : un seul sommet, au centre, entouré de montagnes (jamais deux
+                // pics côte à côte)
+                let center = map.canonical(at);
+                let spread = local && field == Field::Relief(Relief::Peak) && cells.len() > 1;
+                if spread {
+                    notes.push(format!("pinceau : pic en {}, montagnes autour", coords(map, center)));
+                }
                 for &h in &cells {
+                    let before = map.elevation(h).unwrap_or(0.0);
+                    let field = if spread && h != center { Field::Relief(Relief::Mountain) } else { field };
                     match set_field(map, h, field) {
-                        Ok(()) => changed.push(h),
+                        Ok(()) => {
+                            changed.push(h);
+                            if local {
+                                let (more, said) = settle(map, h, field, before);
+                                changed.extend(more);
+                                notes.extend(said);
+                            }
+                        }
                         Err(_) => skipped += 1,
                     }
                 }
+                let edited = cells.len() - skipped;
+                changed.sort_by_key(|h| h.to_offset());
+                changed.dedup();
                 if changed.is_empty() {
                     return Reply::error(format!("{} ne s'applique pas à la case {} (case d'eau)", field_text(field), coords(map, at)));
                 }
@@ -650,10 +987,15 @@ impl Session {
                     self.history.remove(0);
                 }
                 let skipped = if skipped > 0 { format!(", {skipped} case(s) d'eau laissée(s)") } else { String::new() };
-                let mut lines = vec![format!("OK {} sur {} case(s) autour de {} (pinceau {}){skipped} ; brut : rien d'autre n'est recalculé", field_text(field), changed.len(), coords(map, at), self.brush)];
+                let mode = if local { "local : température, biome et pics recalculés" } else { "brut : rien d'autre n'est recalculé" };
+                let mut lines = vec![format!("OK {} sur {edited} case(s) autour de {} (pinceau {}){skipped} ; {mode}", field_text(field), coords(map, at), self.brush)];
+                if local && notes.is_empty() {
+                    lines.push("rien d'autre à changer".into());
+                }
+                lines.extend(notes);
                 // (un fleuve garde un relief plat : on le dit plutôt que de laisser croire au changement)
                 if let Field::Relief(r) = field
-                    && let Some(&h) = changed.iter().find(|&&h| map.relief(h) != r)
+                    && let Some(&h) = cells.iter().find(|&&h| map.is_fleuve(h) && map.relief(h) != r)
                 {
                     lines.push(format!("note : {} reste {} (fleuve)", coords(map, h), token(map.relief(h).name())));
                 }
@@ -714,9 +1056,9 @@ mod tests {
         assert_eq!(token("Taïga"), "taiga");
         assert_eq!(token("vallonné"), "vallonne");
         let m = small();
-        assert_eq!(parse(&m, "terrain 3 4 foret"), Ok(Command::Edit(Hex::from_offset(3, 4), Field::Terrain(Terrain::Forest))));
+        assert_eq!(parse(&m, "terrain 3 4 foret"), Ok(Command::Edit(Hex::from_offset(3, 4), Field::Terrain(Terrain::Forest), false)));
         // « savane » est un nom entier : pas d'ambiguïté avec « savane-arboree »
-        assert_eq!(parse(&m, "terrain 3 4 Savane"), Ok(Command::Edit(Hex::from_offset(3, 4), Field::Terrain(Terrain::Savanna))));
+        assert_eq!(parse(&m, "terrain 3 4 Savane"), Ok(Command::Edit(Hex::from_offset(3, 4), Field::Terrain(Terrain::Savanna), false)));
         assert!(parse(&m, "terrain 3 4 sa").unwrap_err().contains("ambigu"));
         assert!(parse(&m, "terrain 3 4").unwrap_err().starts_with("usage"));
         assert!(parse(&m, "terrain 3 40 foret").unwrap_err().contains("hors de la carte"));
@@ -814,5 +1156,102 @@ mod tests {
         assert_eq!(lines.len(), 4 + 6);
         assert!(s.run(&mut m, "info", Some(c), c).ok);
         assert!(!s.run(&mut m, "info", None, c).ok);
+    }
+
+    #[test]
+    #[ignore]
+    fn bilan_verifier() {
+        for seed in [777, 2, 5, 4242] {
+            let m = WorldMap::generate_in(128, 74, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 74));
+            let issues = verify(&m, None);
+            let mut kinds: Vec<&str> = issues.iter().map(|i| i.kind).collect();
+            kinds.sort();
+            kinds.dedup();
+            println!("graine {seed} : {} incohérence(s)", issues.len());
+
+            for k in kinds {
+                let of: Vec<&Issue> = issues.iter().filter(|i| i.kind == k).collect();
+                println!("  {k} : {}", of.len());
+                for i in of.iter().take(4) {
+                    println!("    {} {}", coords(&m, i.hex), i.detail);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn carte_generee_sans_incoherence_puis_modifications_locales() {
+        let mut m = WorldMap::generate_in(96, 56, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
+        assert_eq!(verify(&m, None), Vec::new(), "une carte générée est cohérente");
+        let mut s = Session::default();
+        let focus = Hex::from_offset(48, 28);
+        let plain = |m: &WorldMap| {
+            m.hexes()
+                .find(|&h| {
+                    m.get(h).is_some_and(|t| !t.is_water()) && m.relief(h) == Relief::Flat && !m.is_fleuve(h) && m.elevation(h).unwrap() < 600.0 && m.temperature(h).unwrap() > 15.0
+                        && m.neighbors(h).iter().all(|&n| m.get(n).is_some_and(|t| !t.is_water()) && m.relief(n) != Relief::Peak)
+                })
+                .unwrap()
+        };
+        let h = plain(&m);
+        let at = coords(&m, h);
+        let (t0, e0) = (m.temperature(h).unwrap(), m.elevation(h).unwrap());
+        // Brut : la température ne suit pas l'altitude
+        assert!(s.run(&mut m, &format!("altitude {at} {}", e0 + 2000.0), None, focus).ok);
+        assert_eq!(m.temperature(h), Some(t0));
+        s.run(&mut m, "annuler", None, focus);
+        // Local : -6,5 °C par 1 000 m, biome selon le nouveau climat
+        let r = s.run(&mut m, &format!("~altitude {at} {}", e0 + 2000.0), None, focus);
+        assert!(r.ok, "{:?}", r.lines);
+        assert!((m.temperature(h).unwrap() - (t0 - 13.0)).abs() < 0.01);
+        assert!(biome_fits(&m, h, m.get(h).unwrap()), "{:?}", r.lines);
+        // Pic posé bas : il monte à 2 400 m ; un pic voisin redevient montagne
+        let n = m.canonical(m.neighbors(h)[0]);
+        let nat = coords(&m, n);
+        s.run(&mut m, &format!("relief {nat} montagne"), None, focus);
+        s.run(&mut m, &format!("altitude {nat} 3000"), None, focus);
+        s.run(&mut m, &format!("relief {nat} pic"), None, focus);
+        let r = s.run(&mut m, &format!("~relief {at} pic"), None, focus);
+        assert!(r.ok, "{:?}", r.lines);
+        assert_eq!(m.relief(h), Relief::Peak);
+        assert!(m.elevation(h).unwrap() >= PEAK_MIN_M);
+        assert_eq!(m.relief(n), Relief::Mountain);
+        assert!(r.changed.contains(&n));
+        assert!(verify(&m, Some((h, 1))).iter().all(|i| i.kind != "pics-voisins" && i.kind != "relief-altitude"));
+        // Brut : deux pics côte à côte et un pic trop bas sont signalés
+        s.run(&mut m, &format!("relief {nat} pic"), None, focus);
+        s.run(&mut m, &format!("altitude {at} 1000"), None, focus);
+        let kinds: Vec<&str> = verify(&m, Some((h, 1))).iter().map(|i| i.kind).collect();
+        assert!(kinds.contains(&"pics-voisins") && kinds.contains(&"relief-altitude"), "{kinds:?}");
+        // Pic local au pinceau : un pic au centre, des montagnes autour
+        s.run(&mut m, "pinceau 1", None, focus);
+        assert!(s.run(&mut m, &format!("~relief {at} pic"), None, focus).ok);
+        assert_eq!(m.relief(h), Relief::Peak);
+        assert!(m.neighbors(h).iter().map(|&n| m.canonical(n)).filter(|&n| !m.is_fleuve(n) && m.get(n).is_some_and(|t| !t.is_water())).all(|n| m.relief(n) == Relief::Mountain && m.elevation(n).unwrap() >= MOUNTAIN_MIN_M));
+        s.run(&mut m, "pinceau 0", None, focus);
+        // « ~ » réservé aux modifications d'une case
+        assert!(!s.run(&mut m, "~aller 3 3", None, focus).ok);
+        assert!(!s.run(&mut m, "~pinceau 2", None, focus).ok);
+        assert_eq!(complete("~ter").line, "~terrain ");
+    }
+
+    #[test]
+    fn barrage_sur_un_fleuve_signale() {
+        let mut m = WorldMap::generate_in(96, 56, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
+        // Case de fleuve dont l'aval est un fleuve de terre : on la surélève de 1 500 m
+        let h = m
+            .hexes()
+            .find(|&h| m.is_fleuve(h) && m.downstream(h).is_some_and(|d| { let n = m.canonical(m.wrap().neighbor(h, d)); m.is_fleuve(n) && m.discharge(h) > 50.0 }))
+            .unwrap();
+        let d = m.downstream(h).unwrap();
+        let n = m.canonical(m.wrap().neighbor(h, d));
+        let mut s = Session::default();
+        let (nat, hat, high) = (coords(&m, n), coords(&m, h), m.elevation(n).unwrap() + 1500.0);
+        let r = s.run(&mut m, &format!("altitude {nat} {high}"), None, h);
+        assert!(r.ok);
+        let kinds: Vec<&str> = verify(&m, Some((h, 2))).iter().map(|i| i.kind).collect();
+        assert!(kinds.iter().any(|k| *k == "eau-retenue" || *k == "riviere-remonte"), "{kinds:?}");
+        let r = s.run(&mut m, &format!("verifier {hat} 2"), None, h);
+        assert!(r.lines[0].starts_with("OK ") && !r.lines[0].starts_with("OK 0 "), "{:?}", r.lines);
     }
 }

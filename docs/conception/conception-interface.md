@@ -198,16 +198,50 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
 (falaise, eau, 2D et 3D), trois annulations qui rendent la carte d'origine, journal écrit.
 60 images par seconde console ouverte.
 
+## Étape 2 : modifications locales et vérification (01/11/2026)
+- **`~` devant une modification** : recalcul de ce qui en découle directement, sur la case et
+  ses voisines (`settle`) :
+  - altitude → température (gradient `LAPSE` du climat, -6,5 °C par 1 000 m), puis biome ; une
+    montagne sous 1 500 m devient accidentée, un pic sous 2 400 m montagne (règles de la
+    génération) ;
+  - température, pluie → biome (`map::biome`, avec les saisons : une température ou une pluie
+    modifiée décale ou met à l'échelle celles des quatre saisons, même en brut) ;
+  - relief montagne ou pic → altitude relevée au minimum (1 500 ou 2 400 m, température et biome
+    suivent) ; un pic ramène ses voisins pics à des montagnes ; au pinceau, un seul pic au centre
+    et des montagnes autour (sinon chaque case rétrograderait la précédente) ;
+  - terrain : gardé tel quel (c'est une demande explicite) ; la réponse dit quel biome le climat
+    donnerait.
+  - Le biome n'est changé que s'il n'est plus cohérent : la génération fait varier l'aridité de
+    ±25 % d'une case à l'autre (sols, exposition), un biome est donc cohérent s'il est celui d'une
+    aridité entre 0,7 et 1,3 fois la vraie (`biome_fits`). Un marais demande un sol humide qui ne
+    gèle pas, bas et plat.
+- **`verifier [col lig [rayon]]`** : pics côte à côte, montagne ou pic trop bas, relief sur un
+  fleuve, biome que le climat ne donne pas, rivière qui remonte, cuvette sans lac, lac à deux
+  niveaux. Résumé par type, puis les 20 plus proches du centre de la vue.
+  - **Rivière qui remonte** : comparée au **niveau rempli** (inondation depuis la mer, file de
+    priorité : chaque case relevée au plus bas passage vers la mer). Dans une cuvette, l'eau monte
+    jusqu'au seuil ; comparer les altitudes brutes signalait 3 à 4 faux cas par carte.
+  - **Cuvette sans lac** : cases sous le niveau rempli, d'un seul tenant, traversées par plus de
+    1 m³/s, plus profondes que 20 m, sans lac ni petit lac : l'eau y monterait (barrage posé sur un
+    fleuve). En dessous de 20 m, la génération laisse un grand fleuve traverser une cuvette de
+    désert (graine 777 : 8 m sous le seuil, 1 600 m³/s).
+  - **Bilan** (`bilan_verifier`, 128 × 74) : 0 incohérence sur les graines 777, 2, 5 et 4242 ;
+    test : 0 sur 96 × 56 (777), et un barrage de 1 500 m sur un fleuve est signalé.
+- Vérifié en script (graine 777) : plaine relevée à 2 800 m au pinceau (température 20 → 6 °C,
+  jungle et savane → forêt tempérée et prairie), pic au centre, montagnes autour ; à -8 °C,
+  toundra et neige en 3D ; `verifier` signale le fleuve coupé par le massif.
+
 ## Limites
 - Brut : une forêt reste une forêt à 30 °C, un lac posé n'a pas d'exutoire, les cours d'eau ne
   suivent pas l'altitude ; le coût des pas, lui, est recalculé.
+- Local : l'évaporation potentielle ne suit pas la température (l'aridité ne change qu'avec la
+  pluie) ; le climat des voisines ne change pas (pas de pluie orographique, pas d'ombre
+  pluviométrique) ; les cours d'eau ne suivent jamais (étape 3 : `regenerer`).
 - Les rochers éboulés au pied des falaises ne sont pas refaits (une falaise créée n'en a pas).
 - Les noms (fleuves, lacs, mers) et les bassins versants ne changent pas.
 
 ## Suite
-1. **Cohérence** : modifications locales (`~` devant la commande : biome, température
-   d'altitude, neige, pics jamais côte à côte) et `verifier` (incohérences : rivière qui
-   remonte, lac à deux niveaux, biome impossible).
+1. ~~Cohérence~~ : fait (étape 2, ci-dessus).
 2. **Simulation** : `regenerer eau|climat` (étapes 4 à 8 de la génération extraites en
    fonction, mêmes résultats qu'à la génération), `riviere tracer`, unités, villes, fin de tour,
    `chemin a b` (trajet et coût).

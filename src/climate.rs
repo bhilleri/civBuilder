@@ -78,7 +78,7 @@ const LOW_DEPTH: f32 = 2_000.0;
 const UPPER_Z: f32 = 4_000.0;
 const UPPER_DEPTH: f32 = 4_000.0;
 /// Décroissance de la température avec l'altitude (°C par m).
-const LAPSE: f32 = 0.0065;
+pub const LAPSE: f32 = 0.0065;
 /// L'humidité diminue avec la hauteur dans la couche basse : près du sol, l'air est environ
 /// 25 % plus humide que la moyenne de la couche.
 const NEAR_SURFACE_HUMIDITY: f32 = 1.25;

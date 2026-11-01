@@ -276,7 +276,7 @@ const MOUNTAIN_SHARE: f64 = 0.05;
 const RUGGED_SHARE: f64 = 0.08;
 const HILL_SHARE: f64 = 0.15;
 pub const MOUNTAIN_MIN_M: f32 = 1_500.0;
-const PEAK_MIN_M: f32 = 2_400.0;
+pub const PEAK_MIN_M: f32 = 2_400.0;
 /// Un pic peut avoir une voisine un peu plus haute que lui (crête), de cet écart au plus (m).
 const PEAK_TOLERANCE_M: f32 = 200.0;
 /// Montagne : `MOUNTAIN_MOVE_MIN` PM jusqu'à `MOUNTAIN_MIN_M` + `MOUNTAIN_STEP_M`, puis +1 PM par
@@ -327,8 +327,8 @@ pub const TAIGA_ABOVE: f32 = 0.6;
 /// Savane ou broussailles plutôt que plaine dans le semi-aride, au-dessus de cet indice d'aridité.
 pub const SEMI_ARID_WOODLAND: f32 = 0.35;
 /// Marais : niveau d'altitude maximal et indice d'aridité minimal.
-const MARSH_MAX_LEVEL: u8 = 2;
-const MARSH_ARIDITY: f32 = 1.0;
+pub const MARSH_MAX_LEVEL: u8 = 2;
+pub const MARSH_ARIDITY: f32 = 1.0;
 
 /// Climat d'une case vu par le choix du biome.
 #[derive(Clone, Copy, Debug)]
@@ -1343,21 +1343,36 @@ impl WorldMap {
         self.index(hex).and_then(|i| self.climate.temperature.get(i).copied())
     }
 
-    /// Change la température moyenne annuelle (°C) d'une case simulée (console de debug).
+    /// Change la température moyenne annuelle (°C) d'une case simulée, saisons, minimales et
+    /// maximales décalées d'autant (console de debug ; l'évaporation potentielle ne suit pas).
     pub fn set_temperature(&mut self, hex: Hex, celsius: f32) {
-        if let Some(i) = self.index(hex)
-            && let Some(t) = self.climate.temperature.get_mut(i)
+        let Some(i) = self.index(hex) else { return };
+        let c = &mut self.climate;
+        if let Some(t) = c.temperature.get_mut(i)
         {
+            let delta = celsius - *t;
             *t = celsius;
+            for v in [c.temp_min.get_mut(i), c.temp_max.get_mut(i)].into_iter().flatten() {
+                *v += delta;
+            }
+            for s in c.season_temp.get_mut(i).into_iter().flatten() {
+                *s += delta;
+            }
         }
     }
 
-    /// Change les précipitations annuelles (mm) d'une case simulée (console de debug).
+    /// Change les précipitations annuelles (mm) d'une case simulée, celles de chaque saison
+    /// dans la même proportion (console de debug).
     pub fn set_rain(&mut self, hex: Hex, mm: f32) {
-        if let Some(i) = self.index(hex)
-            && let Some(r) = self.climate.rain.get_mut(i)
-        {
+        let Some(i) = self.index(hex) else { return };
+        let c = &mut self.climate;
+        if let Some(r) = c.rain.get_mut(i) {
+            let old = *r;
             *r = mm;
+            // (sans pluie avant, la pluie nouvelle tombe également en toute saison)
+            for s in c.season_rain.get_mut(i).into_iter().flatten() {
+                *s = if old > 0.0 { *s * mm / old } else { mm };
+            }
         }
     }
 
