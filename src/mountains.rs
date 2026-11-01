@@ -5,11 +5,12 @@
 //!    vallée d'une case entre deux montagnes ne les séparant pas. Une longue chaîne est découpée
 //!    en **massifs** d'une vingtaine de cases (germes les plus éloignés les uns des autres le long
 //!    de la chaîne, puis chaque case au germe le plus proche, recentrés trois fois).
-//! 2. **Cols** : le passage le moins haut à travers la chaîne. Pour chaque case de la chaîne, la
-//!    traversée en ligne droite qui ressort des deux côtés sur une terre basse (sans qu'on puisse
-//!    contourner de près : pas le bout d'une chaîne) et dont le point le plus haut est le plus bas.
-//!    Un col est une traversée plus basse que toutes ses voisines et nettement plus basse que la
-//!    plupart : celle que prennent les routes.
+//! 2. **Cols** : le passage le moins cher à travers la chaîne, entre deux montagnes plus coûteuses
+//!    (une montagne coûte de 4 à 8 PM selon son altitude ; un pic ne se franchit pas). Pour chaque
+//!    case de la chaîne, la traversée en ligne droite qui ressort des deux côtés sur une terre basse
+//!    (sans qu'on puisse contourner de près : pas le bout d'une chaîne), la moins chère. Un col est
+//!    une traversée moins chère que toutes ses voisines et que des traversées de part et d'autre le
+//!    long de la chaîne : celle que prennent les routes.
 //! 3. **Plateaux** : terres hautes (au moins 1 500 m) plates ou vallonnées, d'un seul tenant.
 //! 4. **Collines** : amas de cases vallonnées.
 
@@ -91,10 +92,10 @@ const RANGE_MIN_CELLS: usize = 8;
 /// Une chaîne plus longue est découpée en massifs d'environ `MASSIF_CELLS` cases.
 const MASSIF_SPLIT_CELLS: usize = 45;
 const MASSIF_CELLS: usize = 22;
-/// Col : traversée plus basse que toutes celles à moins de `PASS_REACH` cases, et d'au moins tant
-/// de mètres que la plus haute de chaque côté (le long de la chaîne) ; traversée d'au plus `CROSSING_MAX` cases de chaîne,
+/// Col : traversée moins chère que toutes celles à moins de `PASS_REACH` cases, et d'au moins tant
+/// de PM que la plus chère de chaque côté (le long de la chaîne) ; traversée d'au plus `CROSSING_MAX` cases de chaîne,
 /// dont les deux côtés ne se rejoignent pas à moins de `SIDES_REACH` cases.
-const PASS_DROP_M: f32 = 100.0;
+const PASS_SAVING_PM: u32 = 1;
 const PASS_REACH: i32 = 5;
 const CROSSING_MAX: usize = 8;
 const SIDES_REACH: i32 = 6;
@@ -152,34 +153,32 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, land: &[bool], relief: &[Rel
         out.zones.push(centered_zone(&grid, ReliefKind::Massif, cells, Some(range), &member));
     }
 
-    // 2) Cols : le passage le moins haut à travers la chaîne. Pour chaque case de la chaîne, la
-    //    traversée en ligne droite (le long d'un des trois axes) qui ressort des deux côtés sur une
-    //    terre basse, celle dont le point le plus haut est le plus bas ; les deux côtés ne doivent pas
-    //    se rejoindre de près en contournant la chaîne (pas le bout d'une chaîne). Un col est une
-    //    traversée plus basse que toutes ses voisines et nettement plus basse que la plupart.
+    // 2) Cols : le passage le moins cher (en PM) à travers la chaîne, entre deux montagnes plus
+    //    coûteuses. Pour chaque case de la chaîne, la traversée en ligne droite (le long d'un des
+    //    trois axes) qui ressort des deux côtés sur une terre basse, la moins chère ; les deux côtés
+    //    ne doivent pas se rejoindre de près en contournant la chaîne (pas le bout d'une chaîne).
+    //    Un col est une traversée moins chère que toutes ses voisines, et d'au moins
+    //    `PASS_SAVING_PM` PM de moins que des traversées de part et d'autre le long de la chaîne.
     //    (une traversée près d'un bout compte parmi les voisines, sans pouvoir être un col)
-    let mut cross: Vec<Option<(f32, usize, bool)>> = vec![None; n];
+    let mut cross: Vec<Option<Crossing>> = vec![None; n];
     for c in (0..n).filter(|&c| out.range_of[c].is_some()) {
         for axis in 0..3 {
-            let Some((top, crest, ends)) = crossing(&grid, c, axis, land, &high, elevation) else { continue };
-            if cross[c].is_some_and(|(best, _, _)| best <= top) {
+            let Some(mut found) = crossing(&grid, c, axis, land, &high, relief, elevation) else { continue };
+            if cross[c].is_some_and(|best| !found.cheaper(&best)) {
                 continue;
             }
-            cross[c] = Some((top, crest, !joined(&grid, c, ends, &high, land)));
+            found.valid = !joined(&grid, c, found.ends, &high, land);
+            cross[c] = Some(found);
         }
     }
-    let mut saddles: Vec<(f32, usize, f32)> = Vec::new();
+    let mut saddles: Vec<(u32, f32, usize)> = Vec::new();
     for c in 0..n {
-        let Some((top, crest, true)) = cross[c] else { continue };
-        // (un pic, infranchissable, n'est pas un passage)
-        if relief[crest] == Relief::Peak {
-            continue;
-        }
-        // Les vraies traversées voisines : aucune plus basse ; de plus hautes des deux côtés le
-        // long de la chaîne (le col est un creux de la crête, pas le bout de la chaîne)
-        let near: Vec<(f32, usize)> =
-            wrap.range(grid.hex(c), PASS_REACH).filter_map(|h| grid.index(h)).filter(|&j| j != c).filter_map(|j| cross[j].filter(|x| x.2).map(|(t, _, _)| (t, j))).collect();
-        if near.iter().any(|&(t, j)| t < top || (t == top && j < c)) {
+        let Some(me) = cross[c].filter(|x| x.valid) else { continue };
+        // Les vraies traversées voisines : aucune moins chère ; de plus chères des deux côtés le
+        // long de la chaîne (le col est un passage entre deux montagnes, pas le bout de la chaîne)
+        let near: Vec<(Crossing, usize)> =
+            wrap.range(grid.hex(c), PASS_REACH).filter_map(|h| grid.index(h)).filter(|&j| j != c).filter_map(|j| cross[j].filter(|x| x.valid).map(|x| (x, j))).collect();
+        if near.iter().any(|(x, j)| x.cheaper(&me) || (x.cost == me.cost && x.top == me.top && *j < c)) {
             continue;
         }
         let offset = |j: usize| {
@@ -191,23 +190,28 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, land: &[bool], relief: &[Rel
             }
             (dx, y1 - y0)
         };
-        let Some(&(_, highest)) = near.iter().max_by(|a, b| a.0.total_cmp(&b.0).then(b.1.cmp(&a.1))) else { continue };
-        let axis = offset(highest);
+        let Some(&(_, dearest)) = near.iter().max_by(|a, b| a.0.cost.cmp(&b.0.cost).then(a.0.top.total_cmp(&b.0.top)).then(b.1.cmp(&a.1))) else { continue };
+        let axis = offset(dearest);
         let side = |positive: bool| {
-            near.iter().filter(|&&(_, j)| {
-                let (dx, dy) = offset(j);
-                (dx * axis.0 + dy * axis.1 > 0.0) == positive
-            }).map(|&(t, _)| t).fold(f32::NEG_INFINITY, f32::max)
+            near.iter()
+                .filter(|&&(_, j)| {
+                    let (dx, dy) = offset(j);
+                    (dx * axis.0 + dy * axis.1 > 0.0) == positive
+                })
+                .map(|(x, _)| x.cost)
+                .max()
         };
-        let drop = side(true).min(side(false)) - top;
-        if drop >= PASS_DROP_M {
-            saddles.push((drop, crest, top));
+        let (Some(a), Some(b)) = (side(true), side(false)) else { continue };
+        let saving = a.min(b).saturating_sub(me.cost);
+        if saving >= PASS_SAVING_PM {
+            saddles.push((saving, me.top, me.crest));
         }
     }
-    saddles.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    // Les plus marqués d'abord (PM gagnés), puis les moins hauts
+    saddles.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
     let mut kept: Vec<(usize, f32)> = Vec::new();
     let mut per_group: HashMap<u16, usize> = HashMap::new();
-    for (_, c, top) in saddles {
+    for (_, top, c) in saddles {
         if kept.len() >= MAX_PASSES {
             break;
         }
@@ -263,11 +267,23 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, land: &[bool], relief: &[Rel
     out
 }
 
-/// Traversée d'une chaîne par la case `c` le long d'un axe (`axis` et son opposé) : altitude du
-/// point le plus haut, cette case (la crête du passage) et les deux cases de terre basse où elle
-/// ressort. Aucune si elle aboutit à l'eau, au bord de la carte ou dépasse `CROSSING_MAX` cases.
-fn crossing(grid: &Grid, c: usize, axis: usize, land: &[bool], high: &impl Fn(usize) -> bool, elevation: &[f32]) -> Option<(f32, usize, [usize; 2])> {
+/// Coût (PM) pour entrer dans une case de relief : une montagne selon son altitude, le relief
+/// accidenté ou les collines leur surcoût (au-dessus d'1 PM) ; un pic est infranchissable.
+fn step_pm(relief: Relief, elevation_m: f32) -> Option<u32> {
+    match relief {
+        Relief::Peak => None,
+        Relief::Mountain => Some(crate::map::mountain_move_cost(elevation_m)),
+        other => Some(1 + other.move_extra()),
+    }
+}
+
+/// Traversée d'une chaîne par la case `c` le long d'un axe (`axis` et son opposé) : coût en PM des
+/// cases franchies, altitude du point le plus haut, cette case (la crête du passage) et les deux
+/// cases de terre basse où elle ressort. Aucune si elle passe par un pic, aboutit à l'eau, au bord
+/// de la carte ou dépasse `CROSSING_MAX` cases.
+fn crossing(grid: &Grid, c: usize, axis: usize, land: &[bool], high: &impl Fn(usize) -> bool, relief: &[Relief], elevation: &[f32]) -> Option<Crossing> {
     let (mut top, mut crest) = (elevation[c], c);
+    let mut cost = step_pm(relief[c], elevation[c])?;
     let mut ends = [c; 2];
     let mut length = 1;
     for (side, d) in [axis, axis + 3].into_iter().enumerate() {
@@ -286,12 +302,30 @@ fn crossing(grid: &Grid, c: usize, axis: usize, land: &[bool], high: &impl Fn(us
             if length > CROSSING_MAX {
                 return None;
             }
+            cost += step_pm(relief[j], elevation[j])?;
             if elevation[j] > top {
                 (top, crest) = (elevation[j], j);
             }
         }
     }
-    Some((top, crest, ends))
+    Some(Crossing { cost, top, crest, ends, valid: true })
+}
+
+/// Une traversée de chaîne (voir `crossing`). `valid` : ses deux côtés ne se rejoignent pas de près.
+#[derive(Clone, Copy)]
+struct Crossing {
+    cost: u32,
+    top: f32,
+    crest: usize,
+    ends: [usize; 2],
+    valid: bool,
+}
+
+impl Crossing {
+    /// Moins chère, ou aussi chère et moins haute.
+    fn cheaper(&self, other: &Crossing) -> bool {
+        self.cost < other.cost || (self.cost == other.cost && self.top < other.top)
+    }
 }
 
 /// Les deux bouts d'une traversée se rejoignent-ils par la terre basse sans passer par `c`, à
@@ -483,8 +517,9 @@ mod tests {
             let (x, y) = (c as i32 % w, c as i32 / w);
             if (14..17).contains(&y) && (5..55).contains(&x) {
                 relief[c] = Relief::Mountain;
-                // Deux sommets (x = 15 et x = 45), un col bas en x = 30
-                elevation[c] = 3_000.0 - 60.0 * ((x - 15).abs().min((x - 45).abs())) as f32;
+                // Deux sommets (x = 15 et x = 45), un col bas en x = 30 : 1 800 m (4 PM) contre
+                // 2 400 m (5 PM) à 5 cases de part et d'autre
+                elevation[c] = 3_600.0 - 120.0 * ((x - 15).abs().min((x - 45).abs())) as f32;
             }
             if (2..8).contains(&y) && (10..20).contains(&x) {
                 elevation[c] = 2_000.0;
@@ -551,3 +586,4 @@ mod tests {
         }
     }
 }
+

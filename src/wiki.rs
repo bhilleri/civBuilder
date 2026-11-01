@@ -498,10 +498,10 @@ fn terrain() -> Article {
                terres (« Prairie — Presqu'île de Lanza, Esinzie »)."),
             h("Montagnes et relief"),
             p("Le relief a ses noms : les chaînes de montagnes (montagnes et pics d'un seul tenant), découpées en \
-               massifs d'une vingtaine de cases quand elles sont longues ; les cols, passages les moins hauts à \
-               travers une chaîne, là où ses deux côtés ne se rejoignent pas de près (franchir une montagne coûte \
-               d'autant plus de PM qu'elle est haute : le col est le chemin le moins cher, à tenir ; la recherche \
-               donne son altitude) ; les plateaux (terres plates ou vallonnées au-dessus de 1 500 m) et les \
+               massifs d'une vingtaine de cases quand elles sont longues ; les cols, passages moins chers entre deux \
+               montagnes, là où les deux côtés de la chaîne ne se rejoignent pas de près (franchir une montagne \
+               coûte de 4 à 8 PM selon son altitude, un pic ne se franchit pas : le col fait gagner des PM, il est à \
+               tenir ; la recherche donne son altitude) ; les plateaux (terres plates ou vallonnées au-dessus de 1 500 m) et les \
                collines (amas de cases vallonnées, bonnes à défendre). Les noms s'écrivent en brun clair : \
                chaînes en capitales de loin, massifs, plateaux et collines en s'approchant, cols de près. \
                L'infobulle donne le relief d'une case avant ses terres (« Montagne — Col de Grausara, Massif de \
