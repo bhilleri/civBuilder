@@ -744,7 +744,7 @@ fn draw_pointed_area(
 
 /// Pendant la saisie dans un champ, les touches ne servent pas de raccourcis au jeu (Échap
 /// passe : il ferme la recherche, ou le menu). Échap ferme la recherche ouverte.
-fn capture_keyboard(
+pub(crate) fn capture_keyboard(
     focus: Res<InputFocus>,
     editables: Query<(), With<EditableText>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,

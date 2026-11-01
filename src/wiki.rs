@@ -70,6 +70,27 @@ pub fn articles() -> Vec<Article> {
     vec![terrain(), climate(), waters(), units(), mechanics(), cities(), villages(), barbarians()]
 }
 
+/// Rubrique de la console, montrée seulement en mode debug ; construite à partir de la liste des
+/// commandes (elle reste à jour quand on en ajoute une).
+pub fn debug_article() -> Article {
+    use crate::debug_cmd::{Group, SPECS};
+    let mut blocks = vec![
+        h("Ouvrir la console"),
+        p("En mode debug (menu Échap → Paramètres), la touche ² (à gauche du 1) ouvre une ligne de commande sous le bandeau du            mode debug ; ² ou Échap la referme. Tab complète le mot en cours (commande, terrain, relief, carte, critère) et            montre les propositions ; ↑ ↓ rappellent les commandes précédentes ; la ligne du bas rappelle la forme de la            commande tapée. « aide » liste les commandes, « aide <commande> » donne le détail et les valeurs possibles."),
+        p("Les cases sont données par leur colonne (0 à l'ouest, la colonne fait le tour de la planète) puis leur ligne            (0 au nord). En mode debug, l'infobulle commence par les coordonnées de la case survolée : [colonne ligne]."),
+        h("Modifications brutes"),
+        p("Une modification ne change que le champ demandé : le biome ne suit pas le climat, les cours d'eau et le climat des            voisines ne sont pas recalculés. C'est voulu : on prépare vite un cas à tester (une forêt en montagne près d'un pic,            un désert glacé…), même impossible dans un monde généré. Le rendu, lui, suit : la case et ses voisines sont            redessinées en 2D et en 3D (relief partagé, arêtes entre sommets, décor, eau). « pinceau » étend les modifications            aux cases proches, « annuler » revient en arrière."),
+    ];
+    for g in Group::ALL {
+        blocks.push(h(g.title()));
+        blocks.push(table(&["Commande", "Effet"], SPECS.iter().filter(|c| c.group == g).map(|c| vec![c.usage(), c.help.to_string()]).collect()));
+    }
+    blocks.push(h("Scripts (agents IA, cas à rejouer)"));
+    blocks.push(p("CIVBUILDER_SCRIPT=<fichier> cargo run exécute les commandes du fichier, une par image, en mode debug (lignes vides                    et lignes commençant par # ignorées). Chaque commande et sa réponse sont écrites dans CIVBUILDER_SCRIPT_OUT                    (sinon <script>.reponses.txt à côté du script) et dans la console du terminal. Une réponse commence par OK ou                    ERREUR, suivie de lignes clé=valeur. « capture » attend que le relief 3D soit construit puis enregistre l'écran,                    sans la console ; « quitter » ferme le jeu. « journal <fichier> » écrit les commandes de la séance en script,                    avec la graine et la taille de la carte en tête : un cas trouvé à la main se rejoue tel quel."));
+    blocks.push(p("Exemple : trouver relief=montagne terrain=foret voisin=pic max=1 · aller 52 37 · vue 3d · camera 300 ·                    capture montagne · terrain 52 37 neige · capture montagne_neige · quitter"));
+    Article { title: "Console de debug", icon: "icons/wiki_mechanics.png", blocks }
+}
+
 fn waters() -> Article {
     use crate::hydro::{FLEUVE_M3S, RIVER_M3S, SMALL_LAKE_KM2};
     use crate::map::{FLEUVE_MOVE_COST, FLEUVE_YIELDS, FRESH_WATER_FOOD, RIVER_CROSSING_COST};
@@ -722,8 +743,12 @@ struct WikiClose;
 #[derive(Component)]
 pub struct WikiButton;
 
+/// Rubriques ; celles au-delà de `public` ne sont montrées qu'en mode debug.
 #[derive(Resource)]
-struct WikiArticles(Vec<Article>);
+struct WikiArticles {
+    list: Vec<Article>,
+    public: usize,
+}
 
 const BG: Color = Color::srgb(0.05, 0.06, 0.09);
 const TAB_BG: Color = Color::srgba(0.16, 0.18, 0.24, 0.95);
@@ -742,7 +767,11 @@ pub struct WikiSet;
 impl Plugin for WikiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WikiState>()
-            .insert_resource(WikiArticles(articles()))
+            .insert_resource({
+                let list = articles();
+                let public = list.len();
+                WikiArticles { list: list.into_iter().chain([debug_article()]).collect(), public }
+            })
             .add_systems(Startup, setup_wiki)
             .add_systems(Update, (wiki_controls, show_article, scroll_wiki).chain().in_set(WikiSet));
     }
@@ -802,7 +831,7 @@ fn icon_row() -> Node {
 
 fn setup_wiki(mut commands: Commands, articles: Res<WikiArticles>, assets: Res<AssetServer>) {
     let tabs: Vec<(usize, &'static str, &'static str)> =
-        articles.0.iter().enumerate().map(|(i, a)| (i, a.title, a.icon)).collect();
+        articles.list.iter().enumerate().map(|(i, a)| (i, a.title, a.icon)).collect();
     commands
         .spawn((
             WikiWindow,
@@ -894,10 +923,15 @@ fn wiki_controls(
     mut window: Single<&mut Node, With<WikiWindow>>,
     open_button: Query<Ref<Interaction>, With<WikiButton>>,
     close_button: Query<Ref<Interaction>, With<WikiClose>>,
-    mut tabs: Query<(Ref<Interaction>, &WikiTab, &mut BackgroundColor), Without<WikiClose>>,
+    mut tabs: Query<(Ref<Interaction>, &WikiTab, &mut BackgroundColor, &mut Node), (Without<WikiClose>, Without<WikiWindow>)>,
     mut close_bg: Query<&mut BackgroundColor, (With<WikiClose>, Without<WikiTab>)>,
+    (debug, articles): (Res<crate::game::DebugMode>, Res<WikiArticles>),
 ) {
     let pressed = |i: &Ref<Interaction>| i.is_changed() && **i == Interaction::Pressed;
+    // Rubriques du mode debug : onglets cachés hors du mode debug
+    if !debug.0 && state.article >= articles.public {
+        state.article = 0;
+    }
     // Pas de wiki par-dessus le menu Échap
     if !menu.open && (keys.just_pressed(KeyCode::F1) || open_button.iter().any(|i| pressed(&i))) {
         state.open = !state.open;
@@ -905,7 +939,11 @@ fn wiki_controls(
     if state.open && (keys.just_pressed(KeyCode::Escape) || close_button.iter().any(|i| pressed(&i))) {
         state.open = false;
     }
-    for (interaction, tab, mut bg) in &mut tabs {
+    for (interaction, tab, mut bg, mut node) in &mut tabs {
+        let display = if tab.0 < articles.public || debug.0 { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
         if pressed(&interaction) {
             state.article = tab.0;
         }
@@ -949,7 +987,7 @@ fn show_article(
     *shown = Some(state.article);
     let (entity, mut scroll) = content.into_inner();
     scroll.0 = Vec2::ZERO;
-    let Some(article) = articles.0.get(state.article) else { return };
+    let Some(article) = articles.list.get(state.article) else { return };
     commands.entity(entity).despawn_related::<Children>();
     commands.entity(entity).with_children(|c| {
         c.spawn(icon_row()).with_children(|row| {
@@ -1041,9 +1079,9 @@ mod tests {
 
     #[test]
     fn toutes_les_rubriques_sont_remplies() {
-        let all = articles();
+        let all: Vec<Article> = articles().into_iter().chain([debug_article()]).collect();
         let titles: Vec<&str> = all.iter().map(|a| a.title).collect();
-        for t in ["Cases et terrain", "Climat", "Unités", "Mécaniques", "Villes", "Villages tribaux", "Barbares"] {
+        for t in ["Cases et terrain", "Climat", "Unités", "Mécaniques", "Villes", "Villages tribaux", "Barbares", "Console de debug"] {
             assert!(titles.contains(&t), "rubrique manquante : {t}");
         }
         assert!(all.iter().all(|a| a.blocks.len() >= 3));

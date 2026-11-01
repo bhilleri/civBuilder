@@ -1075,8 +1075,7 @@ impl WorldMap {
         self.index(hex).map_or(Relief::Flat, |i| self.relief[i])
     }
 
-    /// Change le relief (seulement sur la terre ; un fleuve reste plat) (tests, éditeur).
-    #[cfg(test)]
+    /// Change le relief (seulement sur la terre ; un fleuve reste plat) (tests, console de debug).
     pub fn set_relief(&mut self, hex: Hex, relief: Relief) {
         self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
@@ -1169,8 +1168,7 @@ impl WorldMap {
         })
     }
 
-    /// Change l'altitude (m) d'une case de terre, et sa classe d'altitude (tests, éditeur).
-    #[cfg(test)]
+    /// Change l'altitude (m) d'une case de terre, et sa classe d'altitude (tests, console de debug).
     pub fn set_elevation(&mut self, hex: Hex, meters: f32) {
         self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
@@ -1178,6 +1176,13 @@ impl WorldMap {
         {
             self.elevation[i] = meters;
             self.levels[i] = level_of_meters(meters);
+        }
+    }
+
+    /// Change l'altitude (m) de la surface d'un lac sur une case (console de debug).
+    pub fn set_lake_level(&mut self, hex: Hex, meters: f32) {
+        if let Some(i) = self.index(hex) {
+            self.lake_level_m[i] = meters;
         }
     }
 
@@ -1336,6 +1341,24 @@ impl WorldMap {
     /// Température moyenne annuelle (°C).
     pub fn temperature(&self, hex: Hex) -> Option<f32> {
         self.index(hex).and_then(|i| self.climate.temperature.get(i).copied())
+    }
+
+    /// Change la température moyenne annuelle (°C) d'une case simulée (console de debug).
+    pub fn set_temperature(&mut self, hex: Hex, celsius: f32) {
+        if let Some(i) = self.index(hex)
+            && let Some(t) = self.climate.temperature.get_mut(i)
+        {
+            *t = celsius;
+        }
+    }
+
+    /// Change les précipitations annuelles (mm) d'une case simulée (console de debug).
+    pub fn set_rain(&mut self, hex: Hex, mm: f32) {
+        if let Some(i) = self.index(hex)
+            && let Some(r) = self.climate.rain.get_mut(i)
+        {
+            *r = mm;
+        }
     }
 
     /// Indice d'aridité : précipitations / évaporation potentielle.

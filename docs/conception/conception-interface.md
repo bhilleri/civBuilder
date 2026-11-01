@@ -150,3 +150,64 @@ ajouter des options il va se charger (la regénération du monde y prend déjà 
 ## Suite
 - D'autres paramètres trouveront leur rubrique dans cette page (son, interface, caméra) ; les
   options de carte (touche O) restent à part, car on les change en regardant la carte.
+
+# Console de debug et scripts de commandes (01/11/2026)
+
+## Demande de Benjamin
+Améliorer le mode debug pour qu'il serve aux agents IA autant qu'aux humains : changer les
+caractéristiques d'une case pour obtenir vite des cas testables, sans surcharger l'interface
+(terminal affichable, menu replié par défaut). Attention au rendu des cases voisines, aux cours
+d'eau et au climat. Le terminal doit proposer une **auto-complétion** et une **aide intégrée** ;
+le tout est documenté dans le wiki, **seulement en mode debug**.
+
+## Décisions
+- **Un seul langage de commandes**, en texte, pour la console du jeu, les scripts
+  (`CIVBUILDER_SCRIPT`) et les tests. Un agent écrit un fichier de commandes, lance le jeu, lit
+  les réponses et les captures, sans retoucher `capture.rs` pour chaque cas.
+- **Console repliée** : touche ² (à gauche du 1 en AZERTY, `Backquote`), seulement en mode
+  debug ; ² ou Échap referme. Rappel discret dans le bandeau du mode debug.
+- **Modifications brutes par défaut** : seul le champ demandé change. Les niveaux « local »
+  (biome, température d'altitude et neige recalculés sur la case et ses voisines) et
+  « régénération » (climat et eau relancés) viendront ensuite (voir Suite).
+- Cases en **coordonnées de la carte** (colonne, ligne), affichées en tête de l'infobulle en
+  mode debug.
+
+## Fonctionnement
+- `debug_cmd.rs` (pur, testé) : `SPECS` décrit chaque commande (arguments, nature, effet,
+  rubrique) ; l'aide (`aide`, `aide <commande>`), la complétion (Tab), la ligne d'aide sous la
+  saisie et la rubrique du wiki en sont tirées, elles restent donc à jour. Les valeurs se tapent
+  en un mot sans accent (`foret-temperee`, `vallonne`, `courants-marins`) ; un début de nom
+  suffit s'il est le seul (`foret`), un nom entier l'emporte (`savane` et non `savane-arboree`).
+- Réponses : première ligne `OK …` ou `ERREUR …`, puis lignes `clé=valeur`. `info` donne aussi
+  le coût d'un pas vers chaque voisine (`x` : infranchissable) et les falaises.
+- `Session` garde le pinceau, 20 copies de la carte pour `annuler` et le journal des commandes
+  réussies (`journal <fichier>` l'écrit en script, graine et taille en tête).
+- `console.rs` : panneau, touches (la saisie coupe les raccourcis du jeu, comme la recherche),
+  lecteur de script (une commande par image, `attendre n`, capture qui attend la fin de la
+  construction du relief 3D, `ReliefPending`, console cachée sur l'image), réponses écrites
+  dans le terminal et dans `<script>.reponses.txt`.
+- **Rendu des voisines** : une modification émet `MapEdited` avec les cases à moins de deux cases
+  des cases modifiées. En 3D, leur relief est refait (bosses et arêtes entre sommets partagées),
+  leur décor recréé (`spawn_decor`, limite des arbres recalculée), leurs formes d'eau refaites ;
+  en 2D, les motifs de relief sont redessinés (`spawn_relief_marks`) ; couleurs, pentes et eau
+  suivent le brouillard affiché, marqué changé deux images de suite.
+
+## Vérification
+Scripts sur la graine 777 : forêt de montagne voisine d'un pic trouvée, passée en jungle au
+pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac posés dans une plaine
+(falaise, eau, 2D et 3D), trois annulations qui rendent la carte d'origine, journal écrit.
+60 images par seconde console ouverte.
+
+## Limites
+- Brut : une forêt reste une forêt à 30 °C, un lac posé n'a pas d'exutoire, les cours d'eau ne
+  suivent pas l'altitude ; le coût des pas, lui, est recalculé.
+- Les rochers éboulés au pied des falaises ne sont pas refaits (une falaise créée n'en a pas).
+- Les noms (fleuves, lacs, mers) et les bassins versants ne changent pas.
+
+## Suite
+1. **Cohérence** : modifications locales (`~` devant la commande : biome, température
+   d'altitude, neige, pics jamais côte à côte) et `verifier` (incohérences : rivière qui
+   remonte, lac à deux niveaux, biome impossible).
+2. **Simulation** : `regenerer eau|climat` (étapes 4 à 8 de la génération extraites en
+   fonction, mêmes résultats qu'à la génération), `riviere tracer`, unités, villes, fin de tour,
+   `chemin a b` (trajet et coût).

@@ -313,7 +313,7 @@ fn setup_menu(mut commands: Commands) {
         BackgroundColor(DEBUG_ON),
         GlobalZIndex(50),
         children![
-            label("MODE DEBUG — carte révélée", 14.0),
+            label("MODE DEBUG — carte révélée · console : touche ²", 14.0),
             (FpsText, label("", 14.0), Node { margin: UiRect::left(Val::Px(12.0)), ..default() }),
         ],
     ));

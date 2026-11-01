@@ -49,6 +49,8 @@ Pour rejouer une carte précise, fixer sa graine (affichée dans la console au l
 
 **Mode capture** (vérifier le rendu sans jouer) : `$env:CIVBUILDER_CAPTURE="captures"; cargo run` met en scène deux villes (dont une sur un relief accidenté), les douze types d'unités près d'une montagne (celle qui est sur la montagne est immobilisée), révèle la carte, passe en 3D et enregistre plusieurs vues en PNG dans le dossier `captures` (ville, unités de près et de loin, camp, village, puis les unités en montagne en 2D), puis se ferme (module `capture.rs`). Avec en plus `CIVBUILDER_CAPTURE_EXPLORE=1`, la carte n'est pas révélée : un éclaireur longe un fleuve case par case (exploration progressive), des vues sont prises le long de son trajet et la console indique combien de cases gardent des lits creusés périmés (doit être 0).
 
+**Console de debug** (mode debug, touche ²) : ligne de commande pour inspecter et modifier une case (terrain, relief, altitude, température, pluie ; pinceau, annulation), chercher des cases par critères, placer la caméra et enregistrer l'écran ; Tab complète, `aide` liste les commandes (rubrique « Console de debug » du wiki en mode debug). Les modifications sont brutes (rien n'est recalculé), le rendu 2D et 3D des cases voisines suit. **Scripts** (agents IA, cas à rejouer) : `$env:CIVBUILDER_SCRIPT="cas.txt"; cargo run` exécute les commandes du fichier (une par ligne, `#` pour un commentaire) et écrit les réponses dans `cas.reponses.txt` ; par exemple `trouver relief=montagne voisin=pic max=1`, `aller 16 48`, `vue 3d`, `capture avant`, `terrain 16 48 neige`, `capture apres`, `quitter`. Langage dans `debug_cmd.rs` (pur, testé), console et scripts dans `console.rs`.
+
 **Mesurer les performances** : `cargo build --release --features bevy/trace_chrome`, puis lancer l'exécutable (par exemple en mode capture) : Bevy écrit dans le dossier courant un fichier `trace-*.json` (plusieurs Go) avec la durée de chaque système à chaque image, lisible dans Perfetto (ui.perfetto.dev) ou par un script. Le mode debug affiche aussi les images par seconde et la pire durée d'image.
 
 > Les icônes sont chargées depuis le dossier `assets/`. Avec `cargo run`, Bevy le trouve automatiquement ;
@@ -165,6 +167,8 @@ src/
 ├── search.rs       Accès aux lieux : recherche (index, filtres), légendes et étiquettes cliquables, cadrage de la caméra
 ├── relief.rs       Relief continu de la vue 3D : profil des cases, raccords, maillage (pur, testé)
 ├── figures.rs      Figurines 3D des unités, faites de formes simples (une par type)
+├── debug_cmd.rs    Langage de la console de debug : commandes, complétion, aide, modifications brutes d'une case (pur, testé)
+├── console.rs      Console de debug (touche ²) et scripts de commandes (CIVBUILDER_SCRIPT) ; rendu des cases modifiées
 ├── capture.rs      Mode capture (CIVBUILDER_CAPTURE) : mise en scène, vues 3D enregistrées en PNG (CIVBUILDER_CAPTURE_FEEDBACK : animations des combats)
 └── view3d.rs       Vue 3D optionnelle (relief, forêts, figurines, villes et camps posés sur le sol), synchronisée avec la vue 2D
 ```

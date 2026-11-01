@@ -30,6 +30,14 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   `bilan_fond_marin`, `vue_des_mers` (`SEAS_SEED`, `SEAS_DUMP` : vue des étendues marines),
   `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `bilan_montagnes` (montagnes par coût, traversées de massif), `generation_planete`.
 - Mode debug (carte révélée) : menu Échap → Paramètres, bouton « Mode debug ». Wiki en jeu : F1.
+- **Scripts de commandes** (préparer un cas à tester sans toucher au code) :
+  `CIVBUILDER_SEED=777 CIVBUILDER_SCRIPT=<scratchpad>/cas.txt cargo run --release` exécute les commandes
+  du fichier (console de debug, `debug_cmd.rs`), écrit les réponses dans `<scratchpad>/cas.reponses.txt`
+  et les captures à côté du script. Commencer par `trouver …` (coordonnées colonne ligne), puis
+  `aller`, `vue 3d`, `camera 300`, `capture nom`, modifications brutes (`terrain`, `relief`,
+  `altitude`, `temperature`, `pluie`, `pinceau`, `annuler`), et finir par `quitter`. `aide` et
+  `aide <commande>` donnent la liste et les valeurs possibles. Ajouter une commande : `SPECS` et
+  `parse` dans `debug_cmd.rs` (l'aide, la complétion et le wiki suivent).
 
 ## Conventions du code
 - Modules de **logique pure** testés (génération : `plates.rs`, `erosion.rs`, `climate.rs`,
