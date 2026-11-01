@@ -125,9 +125,11 @@ impl UnitState {
         self.move_debt += debt;
     }
 
-    /// Tours sans pouvoir bouger qui restent à cause de la dette (celui-ci compris s'il l'est).
+    /// Tours avant de pouvoir repartir quand la dette immobilise l'unité au moins un tour entier
+    /// (0 sinon) : compte à rebours qui baisse de 1 à chaque tour, celui de l'entrée en montagne compris.
     pub fn stuck_turns(&self) -> u32 {
-        u32::from(self.immobilized) + self.move_debt / self.kind.max_moves().max(1)
+        let max = self.kind.max_moves().max(1);
+        if self.immobilized || self.move_debt >= max { 1 + self.move_debt / max } else { 0 }
     }
 
     pub fn needs_orders(&self) -> bool {
@@ -542,7 +544,7 @@ mod tests {
         let mut unit = UnitState::new(UnitKind::Militia);
         unit.pay(ForUnit::new(&map, unit.kind).step(a, b).unwrap());
         assert_eq!((unit.moves_left, unit.move_debt), (0, MOUNTAIN_MOVE_MIN - 2));
-        assert_eq!(unit.stuck_turns(), 1, "4 PM à 2 PM par tour : un tour immobilisé");
+        assert_eq!(unit.stuck_turns(), 2, "4 PM à 2 PM par tour : un tour immobilisé, repart dans 2 tours");
         unit.start_turn(false);
         assert!(unit.immobilized && unit.moves_left == 0 && unit.stuck_turns() == 1);
         unit.start_turn(false);
@@ -554,6 +556,24 @@ mod tests {
         let cav = ForUnit::new(&map, UnitKind::LightCavalry).step(a, b).unwrap();
         let scout = ForUnit::new(&map, UnitKind::Scout).step(a, b).unwrap();
         assert_eq!((cav.terrain, scout.terrain), (2 * MOUNTAIN_MOVE_MIN, 3));
+    }
+
+    /// La pastille d'unité immobilisée baisse de 1 à chaque tour jusqu'au départ, quelle que soit la dette.
+    #[test]
+    fn compte_a_rebours_immobilisation() {
+        for debt in 0..12 {
+            let mut unit = UnitState::new(UnitKind::Militia);
+            (unit.moves_left, unit.move_debt) = (0, debt);
+            let mut counts = vec![unit.stuck_turns()];
+            while unit.moves_left == 0 || counts.len() == 1 {
+                unit.start_turn(false);
+                counts.push(unit.stuck_turns());
+            }
+            // Tours de jeu jusqu'à celui où l'unité a de nouveau des PM
+            let wait = counts.len() as u32 - 1;
+            let expected: Vec<u32> = if wait >= 2 { (0..=wait).rev().collect() } else { vec![0; counts.len()] };
+            assert_eq!(counts, expected, "dette de {debt} PM");
+        }
     }
 
     /// Un massif large de 3 cases : la ligne droite (≈ 2 tours par montagne) perd face au

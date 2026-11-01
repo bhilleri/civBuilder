@@ -7,7 +7,7 @@
 - **Montagne selon l'altitude** : 4 PM jusqu'à 2 000 m, +1 PM par tranche de 500 m, jusqu'à 8 PM (au lieu de 3 PM partout). Les cols et les vallées, plus bas que les crêtes, deviennent les passages les plus rapides ; contourner un massif bat souvent la ligne droite.
 - **Selon l'unité** : la cavalerie paie la montagne double (chevaux menés à la bride), l'éclaireur les deux tiers.
 - Les trajets prévus (numéros de tour), la zone atteignable, l'exploration automatique et les barbares suivent la même règle.
-- **Unité immobilisée** : une pastille orange sur son jeton (2D et 3D) donne le nombre de tours sans bouger qui restent ; le panneau de l'unité le dit aussi.
+- **Unité immobilisée** : une pastille orange sur son jeton (2D et 3D) donne le nombre de tours avant qu'elle reparte, un compte à rebours qui baisse de 1 à chaque tour (dès le tour de l'entrée en montagne : le premier compte ne restait plus figé un tour) ; le panneau de l'unité le dit aussi.
 
 ### Déplacements et combats visibles, journal hiérarchisé
 - **Les unités ne se téléportent plus** : elles glissent case par case le long de leur trajet (0,2 s par case, un long trajet dure au plus 1,3 s, à la vitesse normale), en 2D comme en 3D (figurines posées sur le relief pendant la marche ; anneau de sélection et barre de PV suivent).

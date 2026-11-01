@@ -558,8 +558,8 @@ fn mechanics() -> Article {
                 "Une unité peut entrer sur une case tant qu'il lui reste au moins 1 PM, quel que soit le coût de la \
                  case. Mais le terrain se paie en entier : les PM qui manquaient sont une dette, retirée des PM des \
                  tours suivants. Une montagne ({MOUNTAIN_MOVE_MIN} à {MOUNTAIN_MOVE_MAX} PM) peut ainsi immobiliser \
-                 une unité plusieurs tours : une pastille orange sur l'unité donne le nombre de tours sans bouger qui \
-                 restent. Traverser une rivière ou entrer dans un fleuve arrête seulement l'unité, sans dette. Un ordre (clic droit) peut durer plusieurs tours : le numéro du tour d'arrivée s'affiche le long \
+                 une unité plusieurs tours : une pastille orange sur l'unité donne le nombre de tours avant qu'elle \
+                 reparte (il baisse de 1 à chaque tour). Traverser une rivière ou entrer dans un fleuve arrête seulement l'unité, sans dette. Un ordre (clic droit) peut durer plusieurs tours : le numéro du tour d'arrivée s'affiche le long \
                  du trajet. Les trajets ne s'appuient que sur le terrain connu ; une case inexplorée est supposée \
                  franchissable mais coûte {UNKNOWN_MOVE_COST} PM. L'unité recalcule son trajet en découvrant le terrain ; \
                  l'ordre est suspendu s'il devient plus de {DETOUR_TOLERANCE_PERCENT} % plus long que prévu."

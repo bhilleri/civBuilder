@@ -930,8 +930,8 @@ fn update_selection_panel(
             match u.stuck_turns() {
                 0 if u.move_debt > 0 => s += &format!("\nTerrain difficile : {} PM dus au prochain tour", u.move_debt),
                 0 => {}
-                n if u.immobilized => s += &format!("\nImmobilisé(e) par le terrain : encore {n} tour(s) sans bouger"),
-                n => s += &format!("\nTerrain difficile : {n} tour(s) sans bouger à venir"),
+                n if u.immobilized => s += &format!("\nImmobilisé(e) par le terrain : repart dans {n} tour(s)"),
+                n => s += &format!("\nTerrain difficile : immobilisé(e) {} tour(s), repart dans {n} tour(s)", n - 1),
             }
             s += "\n\nClic droit : se déplacer / attaquer un ennemi\nEspace : passer   ·   Tab : unité suivante";
             if u.auto_explore {
