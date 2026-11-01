@@ -107,13 +107,14 @@ pub struct LabelFilter {
     pub lakes: bool,
     pub seas: bool,
     pub lands: bool,
+    pub reliefs: bool,
     pub cities: bool,
     pub sites: bool,
 }
 
 impl Default for LabelFilter {
     fn default() -> Self {
-        Self { rivers: true, lakes: true, seas: true, lands: true, cities: true, sites: true }
+        Self { rivers: true, lakes: true, seas: true, lands: true, reliefs: true, cities: true, sites: true }
     }
 }
 
@@ -236,12 +237,20 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
     }
 }
 
-/// Nom d'une étendue marine (océan, mer, golfe, baie, détroit) ou d'une terre (continent, île,
-/// archipel, péninsule, isthme).
+/// Famille d'un nom de zone.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AreaFamily {
+    Sea,
+    Land,
+    Relief,
+}
+
+/// Nom d'une étendue marine (océan, mer, golfe, baie, détroit), d'une terre (continent, île,
+/// archipel, péninsule, isthme) ou d'un relief (chaîne, massif, col, plateau, collines).
 #[derive(Component)]
 struct SeaName {
     /// Zone : indice dans `Seas::zones`, puis, au-delà, dans `Lands::zones` (décalé du nombre
-    /// d'étendues marines).
+    /// d'étendues marines), puis dans `Reliefs::zones`.
     zone: usize,
     /// Un grand océan a son nom répété en plusieurs endroits (copie 0, 1…).
     copy: usize,
@@ -250,8 +259,8 @@ struct SeaName {
     max_px: f32,
     /// Priorité de placement (0 : océans et continents d'abord).
     rank: u8,
-    /// Nom d'une terre (filtre « Terres et îles », couleur).
-    land: bool,
+    /// Famille du nom (filtre, couleur, style).
+    family: AreaFamily,
     /// Part de la largeur du nom que la zone doit couvrir à l'écran pour le porter.
     fit: f32,
 }
@@ -289,6 +298,21 @@ fn land_style(kind: crate::lands::LandKind, cells: usize) -> ((f32, f32, bool, f
     }
 }
 const LAND_NAME_COLOR: (f32, f32, f32) = (0.97, 0.92, 0.80);
+
+/// Style d'un nom de relief (comme `land_style`) : capitales espacées pour les chaînes ; une chaîne
+/// découpée en massifs s'efface quand ses massifs apparaissent.
+fn relief_style(kind: crate::mountains::ReliefKind, split: bool) -> ((f32, f32, bool, f32, f32, u8), f32) {
+    use crate::mountains::ReliefKind;
+    match kind {
+        ReliefKind::Range => ((16.0, 0.3, true, 4.0, if split { 16.0 } else { 55.0 }, 1), 0.0),
+        ReliefKind::Massif => ((14.0, 0.06, false, 14.0, 70.0, 2), 0.0),
+        ReliefKind::Plateau => ((14.0, 0.12, false, 7.0, 55.0, 2), 0.6),
+        ReliefKind::Hills => ((12.5, 0.04, false, 15.0, 120.0, 3), 0.4),
+        ReliefKind::Pass => ((12.0, 0.02, false, 25.0, 160.0, 3), 0.0),
+    }
+}
+/// Relief : brun clair (sépia), comme les cartes en relief.
+const RELIEF_NAME_COLOR: (f32, f32, f32) = (0.93, 0.80, 0.62);
 /// Un océan a son nom répété une fois par tranche de tant de cases (4 fois au plus), à au moins
 /// `SEA_NAME_SPACING` cases d'écart.
 const SEA_NAME_REPEAT_CELLS: usize = 2_500;
@@ -311,17 +335,28 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
         let (style, fit) = land_style(zone.kind, zone.cells.len());
         (seas.zones.len() + z, &zone.name, style, fit, 1, MapTarget::Land(z))
     });
-    for (area, name, (size, spacing, caps, min_px, max_px, rank), fit, copies, target) in sea_names.chain(land_names) {
-        let land = matches!(target, MapTarget::Land(_));
+    let reliefs = map.0.reliefs();
+    let first_relief = seas.zones.len() + map.0.lands().zones.len();
+    let relief_names = reliefs.zones.iter().enumerate().map(|(z, zone)| {
+        let split = reliefs.zones.iter().any(|m| m.parent == Some(z) && m.kind == crate::mountains::ReliefKind::Massif);
+        let (style, fit) = relief_style(zone.kind, split);
+        (first_relief + z, &zone.name, style, fit, 1, MapTarget::Relief(z))
+    });
+    for (area, name, (size, spacing, caps, min_px, max_px, rank), fit, copies, target) in sea_names.chain(land_names).chain(relief_names) {
+        let family = match target {
+            MapTarget::Land(_) => AreaFamily::Land,
+            MapTarget::Relief(_) => AreaFamily::Relief,
+            _ => AreaFamily::Sea,
+        };
         let text = if caps { name.to_uppercase() } else { name.clone() };
         // Eau en italique, terre droite
-        let (font, shadow) = match land {
+        let (font, shadow) = match family != AreaFamily::Sea {
             false => (TextFont { font_size: size.into(), style: bevy::text::FontStyle::Italic, ..TextFont::from_font_size(size) }, Color::srgba(0.0, 0.03, 0.08, 0.8)),
             true => (TextFont::from_font_size(size), Color::srgba(0.06, 0.04, 0.01, 0.85)),
         };
         for copy in 0..copies {
             commands.spawn((
-                SeaName { zone: area, copy, min_px, max_px, rank, land, fit },
+                SeaName { zone: area, copy, min_px, max_px, rank, family, fit },
                 (TargetButton::new(target), Interaction::default()),
                 Node { position_type: PositionType::Absolute, ..default() },
                 UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
@@ -358,6 +393,7 @@ fn place_sea_names(
         .iter()
         .map(|z| (z.cells.as_slice(), z.inner.as_slice(), z.half_width, if z.kind == crate::seas::SeaKind::Ocean { (z.cells.len() / SEA_NAME_REPEAT_CELLS).clamp(1, 4) } else { 1 }))
         .chain(map.0.lands().zones.iter().map(|z| (z.cells.as_slice(), z.inner.as_slice(), z.half_width, 1)))
+        .chain(map.0.reliefs().zones.iter().map(|z| (z.cells.as_slice(), z.inner.as_slice(), z.half_width, 1)))
         .collect();
     // Cases du nom de chaque zone, parmi ses cases explorées (refaites quand le brouillard
     // change) : la plus éloignée de ses bords, puis, pour un grand océan, d'autres cases bien au
@@ -393,9 +429,17 @@ fn place_sea_names(
     order.sort_by_key(|(n, ..)| (n.rank, n.copy, n.zone));
     let mut placed: Vec<ScreenRect> = Vec::new();
     for (name, mut node, mut vis, mut color, computed) in order {
-        let tint = if name.land { LAND_NAME_COLOR } else { SEA_NAME_COLOR };
+        let tint = match name.family {
+            AreaFamily::Sea => SEA_NAME_COLOR,
+            AreaFamily::Land => LAND_NAME_COLOR,
+            AreaFamily::Relief => RELIEF_NAME_COLOR,
+        };
         let mut shown = None;
-        let wanted = if name.land { filter.lands } else { filter.seas };
+        let wanted = match name.family {
+            AreaFamily::Sea => filter.seas,
+            AreaFamily::Land => filter.lands,
+            AreaFamily::Relief => filter.reliefs,
+        };
         if let (Some((camera, transform, _)), true, Some(hex)) = (camera, wanted, spots.get(name.zone).and_then(|a| a.get(name.copy))) {
             let cam_global = GlobalTransform::from(*transform);
             let world = if mode.is_3d {

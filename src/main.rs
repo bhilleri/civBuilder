@@ -27,6 +27,7 @@ mod lands;
 mod map;
 mod options;
 mod menu;
+mod mountains;
 mod pathfinding;
 mod plates;
 mod render;
