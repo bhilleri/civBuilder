@@ -496,10 +496,20 @@ fn terrain() -> Article {
                capitales de très loin, archipels et grandes îles de loin, péninsules et îles moyennes en \
                s'approchant, isthmes, petites îles et îlots de près. L'infobulle d'une case de terre donne ses \
                terres (« Prairie — Presqu'île de Lanza, Esinzie »)."),
+            h("Montagnes et relief"),
+            p("Le relief a ses noms : les chaînes de montagnes (montagnes et pics d'un seul tenant), découpées en \
+               massifs d'une vingtaine de cases quand elles sont longues ; les cols, passages les moins hauts à \
+               travers une chaîne, là où ses deux côtés ne se rejoignent pas de près (franchir une montagne coûte \
+               d'autant plus de PM qu'elle est haute : le col est le chemin le moins cher, à tenir ; la recherche \
+               donne son altitude) ; les plateaux (terres plates ou vallonnées au-dessus de 1 500 m) et les \
+               collines (amas de cases vallonnées, bonnes à défendre). Les noms s'écrivent en brun clair : \
+               chaînes en capitales de loin, massifs, plateaux et collines en s'approchant, cols de près. \
+               L'infobulle donne le relief d'une case avant ses terres (« Montagne — Col de Grausara, Massif de \
+               Fiosona, Monts Grausara, Esinzie »)."),
             h("Trouver un lieu"),
             p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
-               ne comptent pas) ; les puces filtrent par catégorie (villes, mers, terres et îles, cours d'eau, \
-               lacs, bassins versants, plaques) et donnent le nombre de résultats de chacune. Flèches pour choisir, Entrée pour y \
+               ne comptent pas) ; les puces filtrent par catégorie (villes, mers, terres et îles, relief, cours \
+               d'eau, lacs, bassins versants, plaques) et donnent le nombre de résultats de chacune. Flèches pour choisir, Entrée pour y \
                aller, Tab pour changer de filtre, Échap pour fermer. Le lieu choisi ressort sur la carte (pourtour \
                doré d'une zone, surbrillance d'un cours d'eau ou d'un lac) et la caméra le cadre. Seuls les lieux \
                déjà explorés sont listés (tous en mode debug)."),
