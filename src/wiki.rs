@@ -520,6 +520,12 @@ fn terrain() -> Article {
                chaînes en capitales de loin, massifs, plateaux et collines en s'approchant, cols de près. \
                L'infobulle donne le relief d'une case avant ses terres (« Montagne — Col de Grausara, Massif de \
                Fiosona, Monts Grausara, Esinzie »)."),
+            h("Où suis-je ?"),
+            p("Sous la barre du haut, la barre de lieu donne les lieux nommés au centre de la vue, du plus vaste \
+               au plus précis : « Inetsie › Jungle de Shuchets › Bassin du Smurask » sur terre (continent ou île, \
+               péninsule, région naturelle, relief, bassin versant), « Océan Nizxexco › Mer de X › Golfe de Y » en \
+               mer. Elle se met à jour quand la caméra bouge, en 2D comme en 3D, et reste vide tant que le centre \
+               de la vue n'est pas exploré. L'infobulle donne la même chose pour la case survolée."),
             h("Trouver un lieu"),
             p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
                ne comptent pas) ; les puces filtrent par catégorie (villes, mers, terres et îles, relief, régions \

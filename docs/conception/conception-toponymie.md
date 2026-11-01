@@ -73,6 +73,8 @@ Objectif : nommer des zones reconnaissables pour que les joueurs puissent en par
   - Recherche « Régions naturelles », infobulle (relief, puis régions, puis terres), option d'étiquettes « Régions naturelles ».
   - Bilan `bilan_regions` (graines 777 / 4242 / 2 / 5 / 31) : régions 50 / 66 / 62 / 57 / 52 (forêts 9 à 19, taïgas 8 à 12, déserts 7 à 14, steppes et plaines 8 à 12, savanes 1 à 5, jungles 2 à 5, toundras 3 à 7, maquis 1 à 3, marais 0 à 2), sous-régions 44 / 26 / 28 / 36 / 32, toutes avec une position.
   - **Limites** : un peu plus de régions que prévu (30 à 60) ; peu de marais nommés (les marais générés sont petits et épars) ; la carte se charge en vue lointaine (océans, continents, mers, chaînes, grandes régions) : chaque famille a son option d'étiquettes ; à revoir avec Benjamin s'il faut des quotas par niveau (prévu au § 2).
+- **Étape 6 faite (01/11)** : **barre de lieu** sous la barre du haut (à gauche, 14 px, fond de panneau) : les lieux de la case au centre de la vue (caméra 2D, ou point visé par la caméra 3D), séparés par « › », du plus vaste au plus précis : étendues marines (océan, mer, golfe, baie, détroit), lac, terres (archipel, continent ou île, péninsule, isthme), région naturelle et sous-région, relief (chaîne, massif, col, plateau, collines), puis le grand bassin versant (celui d'un fleuve ou d'un lac nommé) ; sans doublon (`WorldMap::place_names`, testé). Cachée tant que la case n'est pas explorée. L'infobulle donnait déjà ces chaînes (étapes 2 à 5, de la plus précise à la plus vaste, après le terrain) et la recherche ses catégories (Mers et océans, Terres et îles, Relief, Régions naturelles).
+  - Suite possible : cliquer un lieu de la barre pour y aller ; quotas de noms par niveau de zoom (la vue lointaine se charge, voir étape 5) ; noms courbés le long des chaînes et des golfes ; police Inter Italic pour l'eau.
 
 ## 1. Zones à nommer (détection automatique, à la génération, module pur)
 
@@ -145,4 +147,4 @@ Règles :
 3. ~~Terre : continents, îles, archipels, péninsules, isthmes~~ (fait le 01/11).
 4. ~~Relief : chaînes et massifs, cols, plateaux, collines~~ (fait le 01/11).
 5. ~~Régions naturelles et sous-régions~~ (fait le 01/11).
-6. Barre de lieu, infobulle (chaîne complète des zones), nouvelles catégories de recherche.
+6. ~~Barre de lieu, infobulle (chaîne complète des zones), nouvelles catégories de recherche~~ (fait le 01/11).
