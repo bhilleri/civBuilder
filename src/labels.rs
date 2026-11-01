@@ -106,13 +106,14 @@ pub struct LabelFilter {
     pub rivers: bool,
     pub lakes: bool,
     pub seas: bool,
+    pub lands: bool,
     pub cities: bool,
     pub sites: bool,
 }
 
 impl Default for LabelFilter {
     fn default() -> Self {
-        Self { rivers: true, lakes: true, seas: true, cities: true, sites: true }
+        Self { rivers: true, lakes: true, seas: true, lands: true, cities: true, sites: true }
     }
 }
 
@@ -235,17 +236,24 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
     }
 }
 
-/// Nom d'une étendue marine (océan, mer, golfe, baie, détroit).
+/// Nom d'une étendue marine (océan, mer, golfe, baie, détroit) ou d'une terre (continent, île,
+/// archipel, péninsule, isthme).
 #[derive(Component)]
 struct SeaName {
+    /// Zone : indice dans `Seas::zones`, puis, au-delà, dans `Lands::zones` (décalé du nombre
+    /// d'étendues marines).
     zone: usize,
     /// Un grand océan a son nom répété en plusieurs endroits (copie 0, 1…).
     copy: usize,
     /// Rayon d'une case à l'écran (pixels) entre lesquels le nom se montre (fondu aux bords).
     min_px: f32,
     max_px: f32,
-    /// Priorité de placement (0 : océans d'abord).
+    /// Priorité de placement (0 : océans et continents d'abord).
     rank: u8,
+    /// Nom d'une terre (filtre « Terres et îles », couleur).
+    land: bool,
+    /// Part de la largeur du nom que la zone doit couvrir à l'écran pour le porter.
+    fit: f32,
 }
 
 /// Style d'un nom d'étendue marine : capitales espacées pour les océans et les mers, italique
@@ -262,6 +270,25 @@ fn sea_style(kind: crate::seas::SeaKind) -> (f32, f32, bool, f32, f32, u8) {
     }
 }
 const SEA_NAME_COLOR: (f32, f32, f32) = (0.66, 0.82, 0.97);
+
+/// Style d'un nom de terre : capitales espacées pour les continents, les archipels et les grandes
+/// îles, droit (l'italique est réservé à l'eau) ; taille et zoom selon l'importance. Rend aussi la
+/// part de la largeur du nom que la zone doit couvrir à l'écran (0 : une île porte son nom même
+/// s'il déborde sur la mer).
+fn land_style(kind: crate::lands::LandKind, cells: usize) -> ((f32, f32, bool, f32, f32, u8), f32) {
+    use crate::lands::LandKind;
+    match kind {
+        LandKind::Continent => ((24.0, 0.45, true, 0.0, 10.0, 0), 0.7),
+        LandKind::Archipelago => ((15.0, 0.2, true, 4.0, 22.0, 1), 0.0),
+        LandKind::Island if cells >= 60 => ((15.0, 0.15, true, 4.0, 30.0, 1), 0.0),
+        LandKind::Island if cells >= 20 => ((13.5, 0.04, false, 9.0, 80.0, 2), 0.0),
+        LandKind::Island => ((12.5, 0.03, false, 15.0, 120.0, 3), 0.0),
+        LandKind::Islet => ((11.5, 0.02, false, 30.0, 160.0, 4), 0.0),
+        LandKind::Peninsula => ((14.0, 0.06, false, 9.0, 55.0, 2), 0.5),
+        LandKind::Isthmus => ((12.5, 0.03, false, 15.0, 120.0, 3), 0.0),
+    }
+}
+const LAND_NAME_COLOR: (f32, f32, f32) = (0.97, 0.92, 0.80);
 /// Un océan a son nom répété une fois par tranche de tant de cases (4 fois au plus), à au moins
 /// `SEA_NAME_SPACING` cases d'écart.
 const SEA_NAME_REPEAT_CELLS: usize = 2_500;
@@ -275,21 +302,34 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
     for e in &old {
         commands.entity(e).despawn();
     }
-    for (z, zone) in map.0.seas().zones.iter().enumerate() {
-        let (size, spacing, caps, min_px, max_px, rank) = sea_style(zone.kind);
-        let text = if caps { zone.name.to_uppercase() } else { zone.name.clone() };
+    let seas = map.0.seas();
+    let sea_names = seas.zones.iter().enumerate().map(|(z, zone)| {
         let copies = if zone.kind == crate::seas::SeaKind::Ocean { (zone.cells.len() / SEA_NAME_REPEAT_CELLS).clamp(1, 4) } else { 1 };
+        (z, &zone.name, sea_style(zone.kind), 0.7, copies, MapTarget::Sea(z))
+    });
+    let land_names = map.0.lands().zones.iter().enumerate().map(|(z, zone)| {
+        let (style, fit) = land_style(zone.kind, zone.cells.len());
+        (seas.zones.len() + z, &zone.name, style, fit, 1, MapTarget::Land(z))
+    });
+    for (area, name, (size, spacing, caps, min_px, max_px, rank), fit, copies, target) in sea_names.chain(land_names) {
+        let land = matches!(target, MapTarget::Land(_));
+        let text = if caps { name.to_uppercase() } else { name.clone() };
+        // Eau en italique, terre droite
+        let (font, shadow) = match land {
+            false => (TextFont { font_size: size.into(), style: bevy::text::FontStyle::Italic, ..TextFont::from_font_size(size) }, Color::srgba(0.0, 0.03, 0.08, 0.8)),
+            true => (TextFont::from_font_size(size), Color::srgba(0.06, 0.04, 0.01, 0.85)),
+        };
         for copy in 0..copies {
             commands.spawn((
-                SeaName { zone: z, copy, min_px, max_px, rank },
-                (TargetButton::new(MapTarget::Sea(z)), Interaction::default()),
+                SeaName { zone: area, copy, min_px, max_px, rank, land, fit },
+                (TargetButton::new(target), Interaction::default()),
                 Node { position_type: PositionType::Absolute, ..default() },
                 UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
                 Text::new(text.clone()),
-                TextFont { font_size: size.into(), style: bevy::text::FontStyle::Italic, ..TextFont::from_font_size(size) },
+                font.clone(),
                 bevy::text::LetterSpacing::Rem(spacing),
-                TextColor(Color::srgba(SEA_NAME_COLOR.0, SEA_NAME_COLOR.1, SEA_NAME_COLOR.2, 0.0)),
-                TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::srgba(0.0, 0.03, 0.08, 0.8) },
+                TextColor(Color::NONE),
+                TextShadow { offset: Vec2::new(1.0, 1.0), color: shadow },
                 GlobalZIndex(-4),
                 Visibility::Hidden,
             ));
@@ -311,22 +351,28 @@ fn place_sea_names(
     mut spots: Local<Vec<Vec<Hex>>>,
 ) {
     let seas = map.0.seas();
-    // Cases du nom de chaque étendue, parmi ses cases explorées (refaites quand le brouillard
+    // Zones des noms : étendues marines puis terres (cases, distance au bord, demi-largeur, nombre
+    // de copies du nom)
+    let areas: Vec<(&[usize], &[u16], f32, usize)> = seas
+        .zones
+        .iter()
+        .map(|z| (z.cells.as_slice(), z.inner.as_slice(), z.half_width, if z.kind == crate::seas::SeaKind::Ocean { (z.cells.len() / SEA_NAME_REPEAT_CELLS).clamp(1, 4) } else { 1 }))
+        .chain(map.0.lands().zones.iter().map(|z| (z.cells.as_slice(), z.inner.as_slice(), z.half_width, 1)))
+        .collect();
+    // Cases du nom de chaque zone, parmi ses cases explorées (refaites quand le brouillard
     // change) : la plus éloignée de ses bords, puis, pour un grand océan, d'autres cases bien au
     // large, loin des précédentes
-    if fog.is_changed() || spots.len() != seas.zones.len() {
-        *spots = seas
-            .zones
+    if fog.is_changed() || spots.len() != areas.len() {
+        *spots = areas
             .iter()
-            .map(|z| {
-                let known: Vec<(usize, u16)> = z.cells.iter().zip(&z.inner).filter(|(c, _)| fog.explored.contains(&map.0.hex_at(**c))).map(|(c, d)| (*c, *d)).collect();
-                // (assez de l'étendue connue pour la nommer)
-                if known.len() < z.cells.len().min(4) {
+            .map(|&(cells, inner, _, wanted)| {
+                let known: Vec<(usize, u16)> = cells.iter().zip(inner).filter(|(c, _)| fog.explored.contains(&map.0.hex_at(**c))).map(|(c, d)| (*c, *d)).collect();
+                // (assez de la zone connue pour la nommer)
+                if known.len() < cells.len().min(4) {
                     return Vec::new();
                 }
                 let Some(&(first, best)) = known.iter().max_by_key(|(c, d)| (*d, std::cmp::Reverse(*c))) else { return Vec::new() };
                 let mut anchors = vec![map.0.hex_at(first)];
-                let wanted = if z.kind == crate::seas::SeaKind::Ocean { (z.cells.len() / SEA_NAME_REPEAT_CELLS).clamp(1, 4) } else { 1 };
                 let offshore: Vec<Hex> = known.iter().filter(|(_, d)| u32::from(*d) * 5 >= u32::from(best) * 3).map(|(c, _)| map.0.hex_at(*c)).collect();
                 while anchors.len() < wanted {
                     let far = offshore
@@ -347,8 +393,10 @@ fn place_sea_names(
     order.sort_by_key(|(n, ..)| (n.rank, n.copy, n.zone));
     let mut placed: Vec<ScreenRect> = Vec::new();
     for (name, mut node, mut vis, mut color, computed) in order {
+        let tint = if name.land { LAND_NAME_COLOR } else { SEA_NAME_COLOR };
         let mut shown = None;
-        if let (Some((camera, transform, _)), true, Some(hex)) = (camera, filter.seas, spots.get(name.zone).and_then(|a| a.get(name.copy))) {
+        let wanted = if name.land { filter.lands } else { filter.seas };
+        if let (Some((camera, transform, _)), true, Some(hex)) = (camera, wanted, spots.get(name.zone).and_then(|a| a.get(name.copy))) {
             let cam_global = GlobalTransform::from(*transform);
             let world = if mode.is_3d {
                 to_3d(*hex, shown_height(&map, &fog, *hex) + 2.0)
@@ -366,9 +414,9 @@ fn place_sea_names(
                 let fade_out = ((name.max_px * 1.2 - px) / (name.max_px * 0.4)).clamp(0.0, 1.0);
                 let alpha = fade_in.min(fade_out);
                 let size = logical_size(computed, Vec2::new(80.0, 20.0));
-                // L'étendue doit être assez large à l'écran pour son nom
-                let half_width = seas.zones[name.zone].half_width / crate::hex::HEX_SIZE * px;
-                let fits = half_width * 2.0 >= size.x * 0.7;
+                // La zone doit être assez large à l'écran pour son nom
+                let half_width = areas[name.zone].2 / crate::hex::HEX_SIZE * px;
+                let fits = half_width * 2.0 >= size.x * name.fit;
                 let rect = ScreenRect { min: center - size / 2.0, size };
                 if alpha > 0.02 && fits && !placed.iter().any(|r| r.overlaps(&rect)) {
                     placed.push(rect);
@@ -383,7 +431,7 @@ fn place_sea_names(
                     node.left = left;
                     node.top = top;
                 }
-                let c = Color::srgba(SEA_NAME_COLOR.0, SEA_NAME_COLOR.1, SEA_NAME_COLOR.2, alpha * 0.9);
+                let c = Color::srgba(tint.0, tint.1, tint.2, alpha * 0.9);
                 if color.0 != c {
                     color.0 = c;
                 }

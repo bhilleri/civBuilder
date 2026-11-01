@@ -791,6 +791,106 @@ pub fn sea_name(
     (name, fem, Some(e))
 }
 
+/// Nom d'une terre (continent, île, îlot, archipel, péninsule, isthme), d'après ses cases
+/// (`cells`), sa latitude moyenne et sa taille ; `language` impose la langue (les îles d'un
+/// archipel prennent celle de l'archipel). Rend le nom, son genre et l'origine du nom propre.
+pub fn land_name(kind: crate::lands::LandKind, cells: &[&CellInfo], latitude: f32, language: Option<Language>, namer: &mut Namer) -> (String, bool, Option<Etymology>) {
+    use crate::lands::LandKind;
+    let language = language.unwrap_or_else(|| if cells.is_empty() { Language::Polynesienne } else { main_language(cells) });
+    let k = if cells.is_empty() { Character::Plain } else { dominant(cells) };
+    let cold = k == Character::Cold || latitude.abs() > 62.0;
+    let size = cells.len();
+    // Continent : un nom propre à la française (« Taldorie », « Vaskie »), sauf les terres polaires
+    if kind == LandKind::Continent {
+        if latitude.abs() > 62.0 {
+            let pick = if latitude > 0.0 { "Terres Boréales" } else { "Terres Australes" };
+            if namer.claim(pick) {
+                return (pick.to_string(), true, None);
+            }
+        }
+        loop {
+            let (w, e) = namer.proper(language, None);
+            let stem = w.trim_end_matches(['a', 'e', 'i', 'o', 'u', 'y']);
+            let name = if stem.chars().count() >= 3 { format!("{stem}ie") } else { w.clone() };
+            // (un nom court : il s'écrit en grandes capitales espacées)
+            if name.chars().count() > 10 {
+                continue;
+            }
+            if name == w || namer.claim(&name) {
+                return (name, true, Some(e));
+            }
+        }
+    }
+    let (generic, fem) = match kind {
+        LandKind::Island => ("Île", true),
+        LandKind::Islet => ("Îlot", false),
+        LandKind::Archipelago => ("Îles", true),
+        LandKind::Peninsula if size < 25 => ("Presqu'île", true),
+        LandKind::Peninsula => ("Péninsule", true),
+        _ => ("Isthme", false),
+    };
+    let descriptive: Vec<&str> = match kind {
+        LandKind::Island | LandKind::Islet if size >= 120 => vec!["Grande Île", "Île Longue"],
+        LandKind::Island | LandKind::Islet if cold => vec!["Île Blanche", "Île des Glaces", "Île aux Ours", "Île des Phoques"],
+        LandKind::Island | LandKind::Islet => match k {
+            Character::Desert => vec!["Île Rouge", "Île Aride", "Île des Tortues"],
+            Character::Jungle => vec!["Île Verte", "Île aux Perroquets", "Île aux Épices"],
+            Character::Forest => vec!["Île aux Pins", "Île Verte", "Île aux Cerfs"],
+            Character::High => vec!["Île Haute", "Île des Falaises"],
+            Character::Marsh => vec!["Île des Brumes", "Île aux Hérons"],
+            _ if kind == LandKind::Islet => vec!["Rocher Noir", "Îlot des Mouettes", "Îlot des Phoques", "Roc des Naufrages"],
+            _ => vec!["Île aux Chèvres", "Île Plate", "Île des Mouettes", "Île Ronde"],
+        },
+        LandKind::Archipelago if cold => vec!["Îles des Glaces", "Îles Blanches", "Îles du Vent"],
+        LandKind::Archipelago => match k {
+            Character::Desert => vec!["Îles Brûlées", "Îles de Sel"],
+            Character::Jungle => vec!["Îles aux Épices", "Îles Émeraude", "Îles Fortunées"],
+            _ => vec!["Îles du Vent", "Îles Fortunées", "Îles des Brumes"],
+        },
+        LandKind::Peninsula if cold => vec!["Péninsule Gelée", "Péninsule des Glaces"],
+        LandKind::Peninsula => match k {
+            Character::Desert => vec!["Péninsule Ardente", "Péninsule des Sables"],
+            Character::Jungle => vec!["Péninsule Verte"],
+            Character::High => vec!["Péninsule des Monts"],
+            _ => vec!["Péninsule des Vents", "Longue Péninsule"],
+        },
+        LandKind::Isthmus if cold => vec!["Isthme Gelé"],
+        LandKind::Isthmus if k == Character::Desert => vec!["Isthme des Sables"],
+        _ => vec!["Isthme des Vents", "Isthme des Brumes"],
+    };
+    // Un îlot sur trois garde un nom descriptif, les autres 3 fois sur 10
+    let p = if kind == LandKind::Islet { 0.35 } else { 0.3 };
+    if !descriptive.is_empty() && namer.chance(p) {
+        let pick = namer.choose(&descriptive);
+        if namer.claim(pick) {
+            return (pick.to_string(), !pick.starts_with("Îlot") && !pick.starts_with("Roc"), None);
+        }
+    }
+    let hint = if namer.chance(0.35) {
+        Some(match k {
+            _ if cold => Froid,
+            Character::Desert => Sable,
+            Character::High => Montagne,
+            Character::Forest | Character::Jungle => Foret,
+            _ if matches!(kind, LandKind::Island | LandKind::Islet | LandKind::Archipelago) => Ile,
+            _ => Vent,
+        })
+    } else {
+        None
+    };
+    let (w, e) = namer.proper(language, hint);
+    let name = match kind {
+        // Une grande île porte souvent son seul nom (« Taldor »), un archipel le nom au pluriel
+        LandKind::Island if size >= 60 && namer.chance(0.5) => w.clone(),
+        LandKind::Archipelago if namer.chance(0.5) => format!("Archipel {}", de(&w, feminine(&w), false)),
+        LandKind::Archipelago => format!("Îles {w}"),
+        _ => format!("{generic} {}", de(&w, feminine(&w), false)),
+    };
+    let fem = if name == w { feminine(&w) } else { fem && !name.starts_with("Archipel") };
+    let _ = namer.claim(&name);
+    (name, fem, Some(e))
+}
+
 /// Nom d'un banc de poissons, d'après ce qui le rend riche (`origins`, voir `map::marine`) et
 /// l'eau du lieu : souvent les poissons qu'on y pêche (« Bancs des Sardines » dans une remontée
 /// d'eaux chaude, « Bancs des Morues » au froid ou à la rencontre de deux courants, « Bancs des

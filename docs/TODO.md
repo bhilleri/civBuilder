@@ -47,7 +47,8 @@ soudent par collision. Trois étapes, chacune vérifiée par bilan et captures :
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,
   `chemin` (voir `conception/conception-interface.md`).
 - [ ] Banquise jouable (eau gelée, selon la température de la mer).
-- [ ] Toponymie étapes 3 à 6 : continents, îles, archipels, péninsules, isthmes ; chaînes, massifs,
-  cols ; régions naturelles ; barre de lieu (voir `conception/conception-toponymie.md`).
+- [x] Toponymie étape 3 (01/11) : continents, îles, îlots, archipels, péninsules, isthmes (`lands.rs`).
+- [ ] Toponymie étapes 4 à 6, une à la fois : chaînes, massifs, cols, plateaux, collines ; régions
+  naturelles ; barre de lieu (voir `conception/conception-toponymie.md`).
 - [ ] Navigation et unités navales (barques, galères, caravelles), pêcheries.
 - [ ] Police Inter Italic (les noms marins devraient être en italique).

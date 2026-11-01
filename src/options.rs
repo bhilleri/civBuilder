@@ -20,6 +20,7 @@ enum LabelToggle {
     Rivers,
     Lakes,
     Seas,
+    Lands,
     Cities,
     Sites,
 }
@@ -114,6 +115,7 @@ fn setup_panel(mut commands: Commands) {
                 (LabelToggle::Rivers, "Cours d'eau"),
                 (LabelToggle::Lakes, "Lacs"),
                 (LabelToggle::Seas, "Mers et océans"),
+                (LabelToggle::Lands, "Terres et îles"),
                 (LabelToggle::Cities, "Villes"),
                 (LabelToggle::Sites, "Villages et camps"),
             ] {
@@ -221,8 +223,8 @@ fn label_toggles(
     mut buttons: Query<(Ref<Interaction>, &LabelToggle, &mut BackgroundColor)>,
 ) {
     if keys.just_pressed(KeyCode::KeyN) {
-        let any = filter.rivers || filter.lakes || filter.seas || filter.cities || filter.sites;
-        *filter = LabelFilter { rivers: !any, lakes: !any, seas: !any, cities: !any, sites: !any };
+        let any = filter.rivers || filter.lakes || filter.seas || filter.lands || filter.cities || filter.sites;
+        *filter = LabelFilter { rivers: !any, lakes: !any, seas: !any, lands: !any, cities: !any, sites: !any };
     }
     for (interaction, toggle, mut bg) in &mut buttons {
         if interaction.is_changed() && *interaction == Interaction::Pressed {
@@ -230,6 +232,7 @@ fn label_toggles(
                 LabelToggle::Rivers => filter.rivers = !filter.rivers,
                 LabelToggle::Lakes => filter.lakes = !filter.lakes,
                 LabelToggle::Seas => filter.seas = !filter.seas,
+                LabelToggle::Lands => filter.lands = !filter.lands,
                 LabelToggle::Cities => filter.cities = !filter.cities,
                 LabelToggle::Sites => filter.sites = !filter.sites,
             }
@@ -238,6 +241,7 @@ fn label_toggles(
             LabelToggle::Rivers => filter.rivers,
             LabelToggle::Lakes => filter.lakes,
             LabelToggle::Seas => filter.seas,
+            LabelToggle::Lands => filter.lands,
             LabelToggle::Cities => filter.cities,
             LabelToggle::Sites => filter.sites,
         };

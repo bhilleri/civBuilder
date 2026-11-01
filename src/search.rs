@@ -45,6 +45,8 @@ pub enum MapTarget {
     Basin(usize),
     /// Étendue marine (indice dans `Seas::zones`).
     Sea(usize),
+    /// Terre nommée : continent, île, archipel, péninsule, isthme (indice dans `Lands::zones`).
+    Land(usize),
     /// Banc de poissons (indice dans `WorldMap::banks`).
     Bank(usize),
     /// Indice de la plaque.
@@ -63,13 +65,14 @@ pub enum Category {
     River,
     Lake,
     Sea,
+    Land,
     Bank,
     Basin,
     Plate,
 }
 
 impl Category {
-    pub const ALL: [Category; 8] = [Category::City, Category::Sea, Category::River, Category::Lake, Category::Bank, Category::Basin, Category::Plate, Category::Site];
+    pub const ALL: [Category; 9] = [Category::City, Category::Sea, Category::Land, Category::River, Category::Lake, Category::Bank, Category::Basin, Category::Plate, Category::Site];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -78,6 +81,7 @@ impl Category {
             Category::River => "Cours d'eau",
             Category::Lake => "Lacs",
             Category::Sea => "Mers et océans",
+            Category::Land => "Terres et îles",
             Category::Bank => "Bancs de poissons",
             Category::Basin => "Bassins versants",
             Category::Plate => "Plaques",
@@ -91,6 +95,7 @@ impl Category {
             Category::River => Color::srgb(0.45, 0.78, 1.0),
             Category::Lake => Color::srgb(0.20, 0.70, 0.75),
             Category::Sea => Color::srgb(0.25, 0.45, 0.90),
+            Category::Land => Color::srgb(0.80, 0.66, 0.42),
             Category::Bank => Color::srgb(0.95, 0.78, 0.35),
             Category::Basin => Color::srgb(0.45, 0.80, 0.35),
             Category::Plate => Color::srgb(0.95, 0.60, 0.25),
@@ -416,6 +421,19 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
         };
         push(&zone.name, Category::Sea, detail, MapTarget::Sea(z), zone.cells.len() as f32);
     }
+    // Terres nommées dont une case est explorée
+    let lands = map.lands();
+    for (z, zone) in lands.zones.iter().enumerate() {
+        if !zone.cells.iter().any(|&c| known(c)) {
+            continue;
+        }
+        let kind = capitalized(zone.kind.label());
+        let detail = match zone.parent {
+            Some(p) => format!("{kind} · {}", lands.zones[p].name),
+            None => format!("{kind} · {} cases", thousands(zone.cells.len() as u64)),
+        };
+        push(&zone.name, Category::Land, detail, MapTarget::Land(z), zone.cells.len() as f32);
+    }
     // Bassins et plaques : ceux qui ont une case explorée
     let plates = map.plates();
     let mut seen_basins: HashSet<usize> = HashSet::new();
@@ -459,6 +477,12 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
     entries
 }
 
+/// Le texte avec une majuscule (accents compris : « Île »).
+fn capitalized(text: &str) -> String {
+    let mut c = text.chars();
+    c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
+}
+
 /// Résultats classés d'une requête dans un filtre, et nombre de résultats par catégorie.
 fn run_query(entries: &[Entry], query: &str, filter: Option<Category>) -> (Vec<Hit>, HashMap<Category, usize>) {
     let q = clean_query(query);
@@ -499,6 +523,7 @@ fn target_hexes(map: &WorldMap, fog: &ShownFog, territory: &Territory, entity_he
         MapTarget::Lake(l) => basins.lakes.get(l).map_or_else(Vec::new, |lake| lake.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Bank(b) => map.banks().get(b).map_or_else(Vec::new, |bank| bank.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Sea(z) => map.seas().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
+        MapTarget::Land(z) => map.lands().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Basin(b) => fog.explored.iter().copied().filter(|&h| map.contains(h) && basins.basin_of[map.cell(h)] == Some(b as u32)).collect(),
         MapTarget::Plate(p) => {
             let plate_of = &map.plates().plate_of;
@@ -886,6 +911,7 @@ fn setup_search(mut commands: Commands) {
                     chip(Some(Category::City)),
                     chip(Some(Category::Site)),
                     chip(Some(Category::Sea)),
+                    chip(Some(Category::Land)),
                     chip(Some(Category::Bank)),
                     chip(Some(Category::River)),
                     chip(Some(Category::Lake)),
@@ -1300,6 +1326,7 @@ mod tests {
         assert_eq!(count(Category::River), m.basins().rivers.len());
         assert_eq!(count(Category::Lake) + m.basins().lakes.iter().filter(|l| l.kind == crate::basins::WaterBody::InlandSea).count(), m.basins().lakes.len());
         assert_eq!(count(Category::Sea) - m.basins().lakes.iter().filter(|l| l.kind == crate::basins::WaterBody::InlandSea).count(), m.seas().zones.len());
+        assert_eq!(count(Category::Land), m.lands().zones.len());
         assert!(count(Category::Plate) > 3);
         assert!(count(Category::Basin) > 0);
         // Chaque nom se retrouve par son début

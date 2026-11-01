@@ -1054,6 +1054,13 @@ fn update_hover_text(
             } else {
                 format!(" — {}", seas_here.iter().map(|&z| m.seas().zones[z].name.as_str()).collect::<Vec<_>>().join(", "))
             };
+            // Terres de la case : « Prairie — Presqu'île de Vaskar, Taldorie »
+            let lands_here = if m.contains(h) { m.lands().chain(m.cell(h)) } else { Vec::new() };
+            let sea_note = if lands_here.is_empty() {
+                sea_note
+            } else {
+                format!(" — {}", lands_here.iter().map(|&z| m.lands().zones[z].name.as_str()).collect::<Vec<_>>().join(", "))
+            };
             let terrain = match m.contains(h).then(|| m.basins().lake(m.cell(h))).flatten() {
                 Some(body) => match body.etymology {
                     Some(e) => format!("{} ({} ; {})", body.name, body.kind.short(), e.describe()),

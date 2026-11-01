@@ -38,6 +38,19 @@ Objectif : nommer des zones reconnaissables pour que les joueurs puissent en par
   - Bug corrigé au passage : sur une planète aux pôles de terre, l'océan ne touchait aucun bord et devenait une « mer intérieure » géante (lac) ; mer intérieure ≤ 800 cases.
   - Pistes : mers de plateau autonomes (grands plateaux larges, type mer du Nord / mer Jaune) — écartées pour l'instant car les plateaux autour des îles forment des anneaux ; à revoir si Benjamin veut plus de mers.
 
+- **Étape 3 faite (01/11)** (module `lands.rs`) — décisions de Benjamin : une étape à la fois ; un très grand continent est **coupé en deux continents à ses isthmes** (comme les Amériques), seulement si chaque côté a la taille d'un continent ; péninsules et isthmes par **ouverture morphologique** (la méthode des golfes, côté terre).
+  - Masque de terre : tout ce qui n'est pas la mer ouverte (un lac ou une mer intérieure compte comme de la terre : seule la mer sépare deux terres). Distance à la mer de chaque case de terre (le bord polaire de la carte n'est pas une côte).
+  - **Continents, îles, îlots** : terres d'un seul tenant ; continent ≥ max(200 cases, 3 % des terres) ; îlot ≤ 3 cases ; île entre les deux.
+  - **Isthmes** : case étroite = de la mer des deux côtés d'un des trois axes du réseau à au plus 3 cases de terre en tout (la case comprise) ; les cases étroites d'un seul tenant (au plus 30 cases : au-delà, une bande de terre) qui touchent au moins deux parties d'au moins 25 cases une fois les cases étroites ôtées ; au plus 16, les plus importants d'abord (taille de la plus petite des deux grandes parties). Parent : la terre qui en a le plus de cases.
+  - **Découpage des continents** : sur une terre de la taille d'un continent, les cases étroites ôtées, s'il reste au moins deux parties de la taille d'un continent, chacune devient un continent et chaque autre case va au plus proche (parcours en largeur par la terre). Aucun cas sur les graines du bilan : le générateur ne produit pas de grands continents reliés par un passage étroit (même constat que pour les mers fermées).
+  - **Archipels** : îles et îlots dont des cases sont à au plus 3 cases les unes des autres (les continents ne comptent pas), groupés de proche en proche ; au moins 3 îles et 6 cases, et aucune île qui fasse plus de 75 % du groupe (sinon : une île avec ses îlots, comme une grande île et deux rochers). Les îles d'un archipel sont nommées dans la langue de l'archipel (nommé d'abord).
+  - **Péninsules** : à chaque échelle r ∈ {2, 3, 4, 5, 6, 8}, sur les terres d'au moins 60 cases : cœur = le plus grand groupe de cases à au moins r de la mer de chaque terre ; cases balayées = à au plus r − 1 du cœur (par la terre) ; poche = cases non balayées à au moins 2 cases de la terre balayée (épaisseur), d'un seul tenant, + 2 cases de frange. Tests : 15 cases au moins et au plus 35 % de sa terre ; aucune case sur les 2 rangées polaires ; mer sur au moins 60 % du pourtour (arêtes vers la mer / arêtes vers la mer ou la terre balayée) ; base = cases qui touchent la terre balayée, surface ≥ 0,35 × base², longueur (éloignement maximal à la base) ≥ 3 et ≥ la moitié de la base. Les plus grandes échelles d'abord, une poche déjà prise à plus de moitié est écartée, on garde le plus grand morceau du reste ; au plus 40. Pas de sous-péninsule pour l'instant.
+  - **Noms** (`toponymy::land_name`) : continent = nom propre sans sa voyelle finale + « ie » (« Taldorie », « Esinzie »), « Terres Boréales / Australes » au-delà de 62° ; île « Île de X » (une île de 60 cases et plus porte une fois sur deux son seul nom) ; îlot « Îlot de X » ; archipel « Îles X » ou « Archipel de X » ; « Presqu'île de X » sous 25 cases, sinon « Péninsule de X » ; « Isthme de X ». ~30 % descriptifs selon le caractère des cases (Île Blanche, Île aux Épices, Rocher Noir, Îles Fortunées, Péninsule Gelée, Isthme des Sables…), 35 % pour les îlots ; racine du sens du lieu (froid, sable, montagne, forêt, île) une fois sur trois.
+  - **Affichage** : mêmes étiquettes que les étendues marines (placement sur la case explorée la plus éloignée du bord, fondu, collisions communes), en lettres droites couleur sable avec ombre sombre. Continents 24 px capitales très espacées (zoom 0–10 px par case) ; archipels et îles ≥ 60 cases 15 px capitales (4–22 / 4–30) ; îles ≥ 20 cases 13,5 px (9–80) ; petites îles 12,5 px (15–120) ; îlots 11,5 px (30–160) ; péninsules 14 px (9–55) ; isthmes 12,5 px (15–120). Une île porte son nom même s'il déborde sur la mer ; un continent doit couvrir 70 % de la largeur de son nom, une péninsule 50 %.
+  - Recherche « Terres et îles », infobulle (« Prairie — Presqu'île de Lanza, Esinzie » : isthme, péninsule, terre, archipel), option d'étiquettes « Terres et îles ».
+  - Bilan `bilan_terres` (graines 777 / 4242 / 2 / 5 / 31) : continents 4 / 3 / 4 / 3 / 6 (de 246 à 5 384 cases ; noms de continent de 10 lettres au plus, pour les grandes capitales), îles 11 / 14 / 23 / 12 / 13, îlots 23 / 21 / 32 / 27 / 24, archipels 1 / 0 / 3 / 2 / 0, péninsules 17 / 17 / 10 / 12 / 19 (de 15 à ~760 cases : une péninsule peut être immense, comme l'Arabie), isthmes 1 / 0 / 1 / 0 / 0. Avant les réglages (péninsules dès 10 cases, archipels sans condition de taille) : 20 à 26 péninsules par carte, dont beaucoup de 10 à 13 cases, et des « archipels » faits d'une grande île et de deux îlots.
+  - Limites et suite : isthmes rares (le relief issu des plaques fait peu de passages étroits) ; pas de sous-continent sans isthme (un supercontinent de 5 000 cases reste d'un seul nom) ; pas de sous-péninsule ; noms pas encore courbés selon la forme.
+
 ## 1. Zones à nommer (détection automatique, à la génération, module pur)
 
 ### Eau (fait, voir État)
@@ -57,6 +70,8 @@ Océans, mers (fermées, bordières), golfes, baies, détroits ; lacs et mers in
 | Collines | Amas de cases vallonnées | 5–15 | défense |
 | Régions naturelles | Amas d'un même groupe de biome (lissé, petits trous tolérés) : forêt, jungle, taïga, désert, steppe/plaines, savane, marais, toundra ; seuils par type (désert ≥ 30, forêt ≥ 20, marais ≥ 6) ; > ~150 cases → sous-régions | 30–60 | « la forêt » |
 | Villages tribaux, camps barbares | fait | ~40 | repères, menaces |
+
+Continents, îles, îlots, archipels, péninsules, isthmes : faits (voir État, étape 3).
 
 Leçons de l'étape 2 à appliquer : préférer des zones « remarquables » (abritées, resserrées, caractéristiques) plutôt que tout découper ; zones emboîtées (sous-zone d'une zone plus vaste) ; pas de frontières arbitraires en ligne droite ; raisonner à plusieurs échelles (ouverture morphologique : la même idée doit servir pour péninsules et isthmes, côté terre) ; jamais de forme en anneau ou en ruban.
 
@@ -104,7 +119,7 @@ Règles :
 ## 4. Étapes
 1. ~~Socle : langues, générateur, grammaire ; cours d'eau, lacs, bassins, plaques, villages, camps~~ (fait).
 2. ~~Eau : océans, mers, golfes et baies, détroits ; niveaux de zoom, fondu, style des noms marins~~ (fait, revu deux fois ; refonte à l'échelle le 25/10).
-3. Terre : continents, îles, archipels, péninsules, isthmes.
+3. ~~Terre : continents, îles, archipels, péninsules, isthmes~~ (fait le 01/11).
 4. Relief : chaînes et massifs, cols, plateaux, collines.
 5. Régions naturelles et sous-régions.
 6. Barre de lieu, infobulle (chaîne complète des zones), nouvelles catégories de recherche.

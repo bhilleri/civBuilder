@@ -703,6 +703,8 @@ pub struct WorldMap {
     languages: Vec<crate::toponymy::Language>,
     /// Étendues marines nommées : océans, mers, golfes, baies, détroits.
     seas: crate::seas::Seas,
+    /// Terres nommées : continents, îles, îlots, archipels, péninsules, isthmes.
+    lands: crate::lands::Lands,
     /// Profondeur du fond de chaque case de mer (m, positive ; 0 sur terre).
     depth: Vec<f32>,
     /// Eaux poissonneuses de chaque case de mer (voir `marine`).
@@ -742,6 +744,7 @@ impl WorldMap {
             plates: Plates::default(),
             languages: Vec::new(),
             seas: crate::seas::Seas::default(),
+            lands: crate::lands::Lands::default(),
             depth: vec![0.0; n],
             marine: vec![0; n],
             banks: Vec::new(),
@@ -768,6 +771,7 @@ impl WorldMap {
             .chain(self.basins.lakes.iter().map(|l| l.name.clone()))
             .chain(self.plates.plates.iter().map(|p| p.name.clone()))
             .chain(self.seas.zones.iter().map(|z| z.name.clone()))
+            .chain(self.lands.zones.iter().map(|z| z.name.clone()))
             .chain(self.banks.iter().map(|b| b.name.clone()))
             .collect()
     }
@@ -858,6 +862,23 @@ impl WorldMap {
                 .map(|r| (r.name.as_str(), r.feminine));
             let (name, feminine, etymology) = toponymy::sea_name(zone.kind, &coast, latitude, z == 0, river, &mut namer);
             let zone = &mut self.seas.zones[z];
+            zone.name = name;
+            zone.feminine = feminine;
+            zone.etymology = etymology;
+        }
+        // Terres : continents, îles, archipels, péninsules, isthmes (un lac compte comme de la terre)
+        let land: Vec<bool> = water.iter().map(|w| !w).collect();
+        self.lands = crate::lands::compute(self.width, self.height, self.wrap, &land);
+        // Les archipels d'abord : leurs îles prennent leur langue
+        let mut order: Vec<usize> = (0..self.lands.zones.len()).collect();
+        order.sort_by_key(|&z| (self.lands.zones[z].kind != crate::lands::LandKind::Archipelago, z));
+        for z in order {
+            let zone = &self.lands.zones[z];
+            let info: Vec<&CellInfo> = zone.cells.iter().map(|&c| &cells[c]).collect();
+            let latitude = zone.cells.iter().map(|&c| self.latitude(self.hex_at(c))).sum::<f32>() / zone.cells.len() as f32;
+            let language = zone.parent.filter(|&p| self.lands.zones[p].kind == crate::lands::LandKind::Archipelago).and_then(|p| self.lands.zones[p].etymology).map(|e| e.language);
+            let (name, feminine, etymology) = toponymy::land_name(zone.kind, &info, latitude, language, &mut namer);
+            let zone = &mut self.lands.zones[z];
             zone.name = name;
             zone.feminine = feminine;
             zone.etymology = etymology;
@@ -1040,6 +1061,11 @@ impl WorldMap {
     /// Étendues marines nommées.
     pub fn seas(&self) -> &crate::seas::Seas {
         &self.seas
+    }
+
+    /// Terres nommées.
+    pub fn lands(&self) -> &crate::lands::Lands {
+        &self.lands
     }
 
     /// Plaques tectoniques.

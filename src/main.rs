@@ -23,6 +23,7 @@ mod hostile;
 mod hydro;
 mod input;
 mod labels;
+mod lands;
 mod map;
 mod options;
 mod menu;
