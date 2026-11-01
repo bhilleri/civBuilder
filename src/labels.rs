@@ -574,8 +574,9 @@ fn despawn_site_labels(mut commands: Commands, labels: Query<(Entity, &SiteLabel
 
 /// Une étiquette par grand lac et par cours d'eau nommé (refaites si la carte change de
 /// monde) ; les plus importants en plus gros.
-fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<RiverName>>) {
-    if !map.is_added() {
+fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<RiverName>>, mut renamed: MessageReader<crate::console::NamesChanged>) {
+    // (et quand la console de debug refait l'eau : noms et cours d'eau changent)
+    if !map.is_added() && renamed.read().count() == 0 {
         return;
     }
     for e in &old {

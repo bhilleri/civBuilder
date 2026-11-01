@@ -20,9 +20,11 @@
 
 use crate::climate::LAPSE;
 use crate::hex::Hex;
-use crate::map::{BiomeClimate, MARSH_ARIDITY, MARSH_MAX_LEVEL, MOUNTAIN_MIN_M, PEAK_MIN_M, Relief, Terrain, WorldMap, biome};
+use crate::map::{BiomeClimate, MoveCosts, MARSH_ARIDITY, MARSH_MAX_LEVEL, MOUNTAIN_MIN_M, PEAK_MIN_M, Relief, Terrain, WorldMap, biome};
 use crate::render::MapLayer;
+use crate::rules::{ForUnit, path_turns};
 use crate::search::fold;
+use crate::units::UnitKind;
 
 /// Nombre de modifications gardées pour `annuler`.
 pub const UNDO_DEPTH: usize = 20;
@@ -53,17 +55,21 @@ pub enum Group {
     Observe,
     Camera,
     Edit,
+    Simulate,
+    Game,
     Console,
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [Group::Observe, Group::Edit, Group::Camera, Group::Console];
+    pub const ALL: [Group; 6] = [Group::Observe, Group::Edit, Group::Simulate, Group::Game, Group::Camera, Group::Console];
 
     pub fn title(self) -> &'static str {
         match self {
             Group::Observe => "Observer",
             Group::Camera => "Caméra et captures",
             Group::Edit => "Modifier la carte (brut ; « ~ » devant : recalcul local)",
+            Group::Simulate => "Refaire la simulation",
+            Group::Game => "Partie",
             Group::Console => "Console",
         }
     }
@@ -81,6 +87,10 @@ pub enum Arg {
     View,
     Command,
     Criteria,
+    /// Suite de cases (colonne ligne…), puis `debit=` facultatif.
+    Cells,
+    Unit,
+    Regen,
     Text,
 }
 
@@ -97,7 +107,7 @@ impl Spec {
     pub fn usage(&self) -> String {
         let mut s = self.name.to_string();
         for &(name, arg, optional) in self.args {
-            let shown = if arg == Arg::Criteria { format!("{name}…") } else { name.to_string() };
+            let shown = if matches!(arg, Arg::Criteria | Arg::Cells) { format!("{name}…") } else { name.to_string() };
             s += &if optional { format!(" [{shown}]") } else { format!(" <{shown}>") };
         }
         s
@@ -117,8 +127,15 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "altitude", args: &[AT[0], AT[1], ("mètres", Arg::Number, false)], help: "Change l'altitude du sol d'une case de terre, et sa classe d'altitude (falaises). Avec ~ : la température suit (-6,5 °C par 1 000 m), puis le biome ; le relief de la case et de ses voisines est recalculé comme à la génération (dénivelée avec les voisines, altitude), pics compris.", group: Group::Edit },
     Spec { name: "temperature", args: &[AT[0], AT[1], ("°C", Arg::Number, false)], help: "Change la température moyenne annuelle et celle des saisons (limite des neiges en 3D). Avec ~, le biome suit.", group: Group::Edit },
     Spec { name: "pluie", args: &[AT[0], AT[1], ("mm", Arg::Number, false)], help: "Change les précipitations annuelles et celles des saisons (carte du climat). Avec ~, le biome suit ; les cours d'eau, jamais.", group: Group::Edit },
+    Spec { name: "fleuve", args: &[("col lig", Arg::Cells, false)], help: "Trace un fleuve de case en case (voisines, de l'amont vers l'aval), « debit=800 » en m³/s (500 par défaut) : cases plates, liées par leurs arêtes. Brut : bassins et noms ne suivent pas ; « regenerer eau » refait les vrais cours d'eau.", group: Group::Edit },
     Spec { name: "pinceau", args: &[("rayon", Arg::Number, false)], help: "Les modifications suivantes s'appliquent aussi aux cases à moins de « rayon » cases (0 : la case seule).", group: Group::Edit },
     Spec { name: "annuler", args: &[], help: "Annule la dernière modification de la carte.", group: Group::Edit },
+    Spec { name: "regenerer", args: &[("eau|climat", Arg::Regen, false)], help: "Refait la simulation comme à la génération, depuis les altitudes, terres et mers actuelles. eau : cours d'eau, lacs, marais, noms (climat gardé). climat : climat, courants marins, biomes, eau, noms, eaux poissonneuses (quelques secondes). Les modifications de terrain et de climat sont remplacées par celles de la simulation.", group: Group::Simulate },
+    Spec { name: "chemin", args: &[AT[0], AT[1], ("col", Arg::Col, false), ("lig", Arg::Row, false), ("unité", Arg::Unit, true)], help: "Trajet le plus rapide d'une case à une autre pour une unité (milice par défaut), sur la carte entière : cases, coût de chaque pas, tour d'arrivée.", group: Group::Game },
+    Spec { name: "unite", args: &[("unité", Arg::Unit, false), AT[0], AT[1], ("hostile", Arg::Text, true)], help: "Crée une unité du joueur sur la case, ou hostile avec « hostile » (elle erre autour de la case).", group: Group::Game },
+    Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
+    Spec { name: "supprimer", args: &AT, help: "Retire les unités de la case.", group: Group::Game },
+    Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
     Spec { name: "camera", args: &[("distance", Arg::Number, false), ("angle", Arg::Number, true)], help: "Vue 3D : distance de la caméra (250 à 2 800 ; 300 : une case de près) et orientation en degrés (0 : vers le nord).", group: Group::Camera },
@@ -150,6 +167,10 @@ fn terrain_tokens() -> Vec<(String, Terrain)> {
 
 fn relief_tokens() -> Vec<(String, Relief)> {
     Relief::ALL.iter().map(|&r| (token(r.name()), r)).collect()
+}
+
+fn unit_tokens() -> Vec<(String, UnitKind)> {
+    UnitKind::ALL.iter().map(|&k| (token(k.name()), k)).collect()
 }
 
 fn layer_tokens() -> Vec<(String, MapLayer)> {
@@ -224,6 +245,14 @@ pub enum Criterion {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    Fleuve(Vec<Hex>, f32),
+    /// `true` : climat (et eau) ; `false` : eau seule.
+    Regen(bool),
+    Path(Hex, Hex, UnitKind),
+    Unit(UnitKind, Hex, bool),
+    City(Hex),
+    Remove(Hex),
+    Turns(u32),
     Info(Option<Hex>),
     /// Zone vérifiée (case et rayon), sinon toute la carte.
     Verify(Option<(Hex, i32)>),
@@ -303,7 +332,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
         return Err(if close.is_empty() { format!("commande inconnue : « {first} » (aide : liste des commandes)") } else { format!("commande inconnue : « {first} » (voulez-vous dire : {} ?)", close.join(", ")) });
     };
     let required = spec.args.iter().filter(|a| !a.2).count();
-    let free = spec.args.iter().any(|a| a.1 == Arg::Criteria);
+    let free = spec.args.iter().any(|a| matches!(a.1, Arg::Criteria | Arg::Cells));
     if args.len() < required || (!free && args.len() > spec.args.len()) {
         return Err(format!("usage : {}", spec.usage()));
     }
@@ -338,6 +367,41 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
         "altitude" => Command::Edit(at()?, Field::Altitude(number(args[2], "altitude")?), local),
         "temperature" => Command::Edit(at()?, Field::Temperature(number(args[2], "température")?), local),
         "pluie" => Command::Edit(at()?, Field::Rain(number(args[2], "pluie")?.max(0.0)), local),
+        "fleuve" => {
+            let mut flow = 500.0;
+            let mut numbers = Vec::new();
+            for w in args {
+                match w.strip_prefix("debit=") {
+                    Some(v) => flow = number(v, "débit")?.max(1.0),
+                    None => numbers.push(*w),
+                }
+            }
+            if numbers.len() < 4 || numbers.len() % 2 == 1 {
+                return Err(format!("fleuve : au moins deux cases (colonne ligne), pas « {} »", numbers.join(" ")));
+            }
+            let cells = numbers.chunks(2).map(|c| cell(map, c[0], c[1])).collect::<Result<Vec<_>, _>>()?;
+            if let Some(w) = cells.windows(2).find(|w| map.distance(w[0], w[1]) != 1) {
+                return Err(format!("fleuve : {} et {} ne sont pas voisines", coords(map, w[0]), coords(map, w[1])));
+            }
+            Command::Fleuve(cells, flow)
+        }
+        "regenerer" => match token(args[0]).as_str() {
+            "eau" => Command::Regen(false),
+            "climat" => Command::Regen(true),
+            _ => return Err(format!("regenerer : eau ou climat, pas « {} »", args[0])),
+        },
+        "chemin" => Command::Path(at()?, cell(map, args[2], args[3])?, args.get(4).map(|u| pick(u, &unit_tokens(), "unité")).transpose()?.unwrap_or(UnitKind::Militia)),
+        "unite" => {
+            let hostile = match args.get(3).map(|a| token(a)) {
+                None => false,
+                Some(h) if h == "hostile" => true,
+                Some(other) => return Err(format!("unite : « hostile » ou rien, pas « {other} »")),
+            };
+            Command::Unit(pick(args[0], &unit_tokens(), "unité")?, cell(map, args[1], args[2])?, hostile)
+        }
+        "ville" => Command::City(at()?),
+        "supprimer" => Command::Remove(at()?),
+        "tour" => Command::Turns(args.first().map(|n| number(n, "nombre")).transpose()?.map_or(1, |n| n.round().clamp(1.0, 100.0) as u32)),
         "pinceau" => Command::Brush((number(args[0], "rayon")?.round() as i32).clamp(0, BRUSH_MAX)),
         "annuler" => Command::Undo,
         "aller" => Command::Goto(at()?),
@@ -372,6 +436,8 @@ fn values(arg: Arg) -> Vec<String> {
         Arg::View => vec!["2d".into(), "3d".into()],
         Arg::Command => SPECS.iter().map(|s| s.name.to_string()).collect(),
         Arg::Criteria => CRITERIA.iter().map(|s| s.to_string()).collect(),
+        Arg::Unit => unit_tokens().into_iter().map(|(n, _)| n).collect(),
+        Arg::Regen => vec!["eau".into(), "climat".into()],
         _ => Vec::new(),
     }
 }
@@ -424,6 +490,7 @@ pub fn complete(line: &str) -> Completion {
                 }
                 None => (values(Arg::Criteria), ""),
             },
+            Some(Arg::Text) if spec.name == "unite" => (vec!["hostile".into()], ""),
             Some(a) => (values(a), ""),
             None => (Vec::new(), ""),
         }
@@ -622,12 +689,23 @@ fn biome_climate(map: &WorldMap, hex: Hex) -> Option<BiomeClimate> {
     })
 }
 
-/// Le terrain d'une case de terre est celui que donne son climat (à la variation locale de
-/// l'aridité près) ; un marais demande un sol humide qui ne gèle pas, bas et plat.
+/// Biome que le climat donne à une case de terre, avec la variation locale de l'aridité de la
+/// génération (sols, exposition), comme à la génération.
+fn expected_biome(map: &WorldMap, hex: Hex) -> Option<Terrain> {
+    let c = biome_climate(map, hex)?;
+    Some(biome(BiomeClimate { aridity: c.aridity * map.aridity_jitter(hex).unwrap_or(1.0), ..c }))
+}
+
+/// Le terrain d'une case de terre est celui que donne son climat (variation locale de l'aridité
+/// de la génération comprise ; à défaut, à cette variation près) ; un marais demande un sol
+/// humide qui ne gèle pas, bas et plat.
 fn biome_fits(map: &WorldMap, hex: Hex, t: Terrain) -> bool {
     let Some(c) = biome_climate(map, hex) else { return true };
     if t == Terrain::Marsh {
         return c.aridity >= MARSH_ARIDITY * ARIDITY_JITTER[0] && c.temperature > 0.0 && map.relief(hex) == Relief::Flat && map.level(hex).is_some_and(|l| l <= MARSH_MAX_LEVEL);
+    }
+    if map.aridity_jitter(hex).is_some() {
+        return expected_biome(map, hex) == Some(t);
     }
     let steps = 12;
     (0..=steps).any(|k| {
@@ -698,9 +776,8 @@ fn settle(map: &mut WorldMap, hex: Hex, field: Field, before: f32) -> (Vec<Hex>,
         && !matches!(field, Field::Terrain(_))
         && let Some(t) = map.get(hex)
         && !biome_fits(map, hex, t)
-        && let Some(c) = biome_climate(map, hex)
+        && let Some(new) = expected_biome(map, hex)
     {
-        let new = biome(c);
         map.set(hex, new);
         notes.push(format!("{at} : biome {} → {}", token(t.name()), token(new.name())));
     }
@@ -708,7 +785,7 @@ fn settle(map: &mut WorldMap, hex: Hex, field: Field, before: f32) -> (Vec<Hex>,
         && !t.is_water()
         && !biome_fits(map, hex, t)
     {
-        notes.push(format!("{at} : {} imposé, le climat donnerait {}", token(t.name()), biome_climate(map, hex).map_or("—".into(), |c| token(biome(c).name()))));
+        notes.push(format!("{at} : {} imposé, le climat donnerait {}", token(t.name()), expected_biome(map, hex).map_or("—".into(), |b| token(b.name()))));
     }
     (changed, notes)
 }
@@ -819,7 +896,7 @@ pub fn verify(map: &WorldMap, area: Option<(Hex, i32)>) -> Vec<Issue> {
             }
             if !biome_fits(map, h, t) {
                 let c = biome_climate(map, h);
-                let expected = c.map_or("—".into(), |c| token(biome(c).name()));
+                let expected = expected_biome(map, h).map_or("—".into(), |b| token(b.name()));
                 let (temp, arid) = c.map_or((0.0, 0.0), |c| (c.temperature, c.aridity));
                 issue(h, "biome", format!("{} ; le climat donne {expected} ({temp:.1} °C, aridité {arid:.2})", token(t.name())));
             }
@@ -894,6 +971,10 @@ fn filled_surface(map: &WorldMap) -> Vec<f32> {
 /// Ce que la console doit faire en plus de la réponse (commandes qui touchent au jeu).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
+    Unit(UnitKind, Hex, bool),
+    City(Hex),
+    Remove(Hex),
+    Turns(u32),
     Goto(Hex),
     View(bool),
     Camera { distance: f32, yaw_deg: Option<f32> },
@@ -948,7 +1029,7 @@ impl Session {
             Err(e) => Reply::error(e),
         };
         // (le journal garde ce qui se rejoue : pas l'aide, ni la lecture du journal)
-        let replayable = !matches!(token(split_local(line).0.split_whitespace().next().unwrap_or("")).as_str(), "aide" | "journal" | "effacer" | "info" | "trouver" | "verifier");
+        let replayable = !matches!(token(split_local(line).0.split_whitespace().next().unwrap_or("")).as_str(), "aide" | "journal" | "effacer" | "info" | "trouver" | "verifier" | "chemin");
         if reply.ok && replayable {
             self.journal.push(line.to_string());
         }
@@ -1053,6 +1134,86 @@ impl Session {
                 }
                 Reply { ok: true, lines, changed, effect: None }
             }
+            Command::Fleuve(cells, flow) => {
+                let snapshot = map.clone();
+                for w in cells.windows(2) {
+                    let dir = (0..6).find(|&d| map.canonical(map.wrap().neighbor(w[0], d)) == w[1]).expect("cases voisines");
+                    map.link_fleuve(w[0], dir, flow);
+                }
+                self.history.push((snapshot, cells.clone()));
+                if self.history.len() > UNDO_DEPTH {
+                    self.history.remove(0);
+                }
+                let mut lines = vec![format!("OK fleuve de {} cases, de {} à {}, {flow:.0} m³/s ; brut : bassins et noms ne suivent pas", cells.len(), coords(map, cells[0]), coords(map, *cells.last().unwrap()))];
+                if let Some(&h) = cells.iter().find(|&&h| map.get(h).is_some_and(|t| t.is_water())) {
+                    lines.push(format!("note : {} est une case d'eau (le fleuve s'y jette)", coords(map, h)));
+                }
+                Reply { ok: true, lines, changed: cells, effect: None }
+            }
+            Command::Regen(climate) => {
+                let snapshot = map.clone();
+                let started = std::time::Instant::now();
+                let done = if climate { map.regenerate_climate() } else { map.regenerate_water() };
+                if !done {
+                    return Reply::error("carte sans génération (remplie à la main) : rien à refaire");
+                }
+                // Cases changées : terrain, relief, eau
+                let changed: Vec<Hex> = map
+                    .hexes()
+                    .filter(|&h| {
+                        snapshot.get(h) != map.get(h)
+                            || snapshot.relief(h) != map.relief(h)
+                            || snapshot.is_fleuve(h) != map.is_fleuve(h)
+                            || snapshot.fleuve_links(h) != map.fleuve_links(h)
+                            || snapshot.small_lake(h) != map.small_lake(h)
+                            || snapshot.surface_elevation(h) != map.surface_elevation(h)
+                            || (0..6).any(|d| (snapshot.river_flow(h, d) > 0.0) != (map.river_flow(h, d) > 0.0))
+                    })
+                    .collect();
+                let issues = verify(map, None).len();
+                self.history.push((snapshot, changed.clone()));
+                if self.history.len() > UNDO_DEPTH {
+                    self.history.remove(0);
+                }
+                let what = if climate { "climat, biomes, eau, noms et eaux poissonneuses refaits" } else { "cours d'eau, lacs, marais et noms refaits" };
+                let lines = vec![format!("OK {what} en {:.1} s : {} case(s) changée(s) ; verifier : {issues} incohérence(s)", started.elapsed().as_secs_f32(), changed.len())];
+                Reply { ok: true, lines, changed, effect: None }
+            }
+            Command::Path(from, to, kind) => {
+                let costs = ForUnit::new(&*map, kind);
+                let max = kind.max_moves();
+                match crate::pathfinding::find_path_turns(&costs, from, to, max, 0, max) {
+                    None => Reply::error(format!("aucun trajet de {} à {} pour {}", coords(map, from), coords(map, to), token(kind.name()))),
+                    Some(path) => {
+                        let turns = path_turns(&costs, from, &path, max, 0, max);
+                        let mut lines = vec![format!(
+                            "OK {} : {} pas de {} à {}, arrivée au tour {} ({} PM par tour)",
+                            token(kind.name()),
+                            path.len(),
+                            coords(map, from),
+                            coords(map, to),
+                            turns.last().copied().unwrap_or(1),
+                            max
+                        )];
+                        let mut prev = from;
+                        for (k, &h) in path.iter().enumerate() {
+                            let cost = costs.step_cost(prev, h).map_or("x".to_string(), |c| c.to_string());
+                            lines.push(format!("  {} {} — {} PM, tour {}", coords(map, h), map.describe(h), cost, turns[k]));
+                            prev = h;
+                        }
+                        Reply::ok(lines)
+                    }
+                }
+            }
+            Command::Unit(kind, at, hostile) => {
+                if map.get(at).is_none_or(|t| t.move_cost().is_none()) {
+                    return Reply::error(format!("{} : case infranchissable", coords(map, at)));
+                }
+                Reply::effect(format!("OK {} {}en {}", token(kind.name()), if hostile { "hostile " } else { "" }, coords(map, at)), Effect::Unit(kind, at, hostile))
+            }
+            Command::City(at) => Reply::effect(format!("OK ville demandée en {}", coords(map, at)), Effect::City(at)),
+            Command::Remove(at) => Reply::effect(format!("OK unités retirées de {}", coords(map, at)), Effect::Remove(at)),
+            Command::Turns(n) => Reply::effect(format!("OK {n} tour(s) à jouer"), Effect::Turns(n)),
             Command::Brush(r) => {
                 self.brush = r;
                 Reply::ok(vec![format!("OK pinceau={r} ({} case(s) par modification)", 3 * r * (r + 1) + 1)])
@@ -1154,6 +1315,9 @@ mod tests {
                 Arg::View => "3d",
                 Arg::Command => "aide",
                 Arg::Criteria => "eau=non",
+                Arg::Cells => "2 2 3 2",
+                Arg::Unit => "milice",
+                Arg::Regen => "eau",
                 Arg::Text => "x",
             }).collect();
             assert!(parse(&m, &format!("{} {}", s.name, args.join(" "))).is_ok(), "{}", s.name);
@@ -1318,6 +1482,46 @@ mod tests {
         assert!(kinds.iter().any(|k| *k == "eau-retenue" || *k == "riviere-remonte"), "{kinds:?}");
         let r = s.run(&mut m, &format!("verifier {hat} 2"), None, h);
         assert!(r.lines[0].starts_with("OK ") && !r.lines[0].starts_with("OK 0 "), "{:?}", r.lines);
+        // L'eau refaite contourne le barrage ou le remplit : plus d'incohérence
+        let r = s.run(&mut m, "regenerer eau", None, h);
+        assert!(r.ok, "{:?}", r.lines);
+        assert!(r.lines[0].contains("verifier : 0 incohérence"), "{:?}", r.lines);
+    }
+
+    #[test]
+    fn regenerer_une_carte_intacte_la_redonne() {
+        let fresh = WorldMap::generate_in(96, 56, 2, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
+        let mut s = Session::default();
+        for cmd in ["regenerer eau", "regenerer climat"] {
+            let mut m = fresh.clone();
+            let r = s.run(&mut m, cmd, None, Hex::default());
+            assert!(r.ok, "{:?}", r.lines);
+            assert!(r.changed.is_empty(), "{cmd} : {} case(s) changée(s)", r.changed.len());
+            assert!(m.hexes().all(|h| m.discharge(h) == fresh.discharge(h) && m.rain(h) == fresh.rain(h)), "{cmd}");
+        }
+        assert!(!s.run(&mut small(), "regenerer eau", None, Hex::default()).ok, "carte sans génération");
+    }
+
+    #[test]
+    fn fleuve_trace_et_chemin() {
+        let mut m = small();
+        let mut s = Session::default();
+        let r = s.run(&mut m, "fleuve 3 3 4 3 5 3 debit=900", None, Hex::default());
+        assert!(r.ok, "{:?}", r.lines);
+        let (a, b, c) = (Hex::from_offset(3, 3), Hex::from_offset(4, 3), Hex::from_offset(5, 3));
+        assert!(m.is_fleuve(a) && m.is_fleuve(b) && m.is_fleuve(c));
+        assert_eq!(m.discharge(a), 900.0);
+        let d = m.downstream(a).unwrap();
+        assert_eq!(m.canonical(m.wrap().neighbor(a, d)), b);
+        assert_eq!(m.fleuve_links(b).count_ones(), 2);
+        assert!(!s.run(&mut m, "fleuve 3 3 6 3", None, Hex::default()).ok, "cases non voisines");
+        // Chemin : traverser un fleuve coûte un arrêt
+        let r = s.run(&mut m, "chemin 4 1 4 6 cavalerie-legere", None, Hex::default());
+        assert!(r.ok && r.lines[0].starts_with("OK cavalerie-legere : "), "{:?}", r.lines);
+        assert!(!s.run(&mut m, "chemin 4 1 0 0", None, Hex::default()).ok, "pas de trajet vers la mer");
+        assert!(s.run(&mut m, "unite archer-monte 2 2 hostile", None, Hex::default()).effect == Some(Effect::Unit(UnitKind::HorseArcher, Hex::from_offset(2, 2), true)));
+        assert_eq!(complete("unite archer-m").line, "unite archer-monte ");
+        assert_eq!(complete("regenerer c").line, "regenerer climat ");
     }
 
     #[test]
@@ -1337,6 +1541,27 @@ mod tests {
             }
             println!("graine {seed} : {} / {} cases de relief différent : {:?}", wrong.len(), land.len(), &wrong[..wrong.len().min(8)]);
             assert!(wrong.is_empty(), "graine {seed} : {} cases", wrong.len());
+        }
+    }
+
+    /// Empreinte d'une carte générée (vérification d'un remaniement de la génération).
+    #[test]
+    #[ignore]
+    fn empreinte_generation() {
+        use std::hash::{Hash, Hasher};
+        for seed in [777, 2] {
+            let m = WorldMap::generate_in(96, 56, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
+            let mut hs = std::collections::hash_map::DefaultHasher::new();
+            for h in m.hexes() {
+                format!("{:?}{:?}{:?}", m.get(h), m.relief(h), m.level(h)).hash(&mut hs);
+                m.discharge(h).to_bits().hash(&mut hs);
+                m.rain(h).map(f32::to_bits).hash(&mut hs);
+                m.surface_elevation(h).map(f32::to_bits).hash(&mut hs);
+                m.is_fleuve(h).hash(&mut hs);
+                m.named_river(h).map(|r| r.name.clone()).hash(&mut hs);
+                m.marine(h).hash(&mut hs);
+            }
+            println!("EMPREINTE {seed} {:x}", hs.finish());
         }
     }
 }

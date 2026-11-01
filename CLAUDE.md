@@ -28,7 +28,8 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - Bilans chiffrés (tests ignorés, à lancer à la main avec `-- --ignored --nocapture`) :
   `bilan_tectonique` (terres, montagnes, pics, lacs sur les graines 777 / 2 / 5),
   `bilan_fond_marin`, `vue_des_mers` (`SEAS_SEED`, `SEAS_DUMP` : vue des étendues marines),
-  `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `bilan_montagnes` (montagnes par coût, traversées de massif), `bilan_verifier` (incohérences de cartes générées, doit être 0), `generation_planete`.
+  `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `bilan_montagnes` (montagnes par coût, traversées de massif), `bilan_verifier` (incohérences de cartes générées, doit être 0), `empreinte_generation` (empreinte
+  de deux cartes : à comparer avant et après un remaniement de la génération), `generation_planete`.
 - Mode debug (carte révélée) : menu Échap → Paramètres, bouton « Mode debug ». Wiki en jeu : F1.
 - **Scripts de commandes** (préparer un cas à tester sans toucher au code) :
   `CIVBUILDER_SEED=777 CIVBUILDER_SCRIPT=<scratchpad>/cas.txt cargo run --release` exécute les commandes
@@ -36,7 +37,9 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   et les captures à côté du script. Commencer par `trouver …` (coordonnées colonne ligne), puis
   `aller`, `vue 3d`, `camera 300`, `capture nom`, modifications brutes (`terrain`, `relief`,
   `altitude`, `temperature`, `pluie`, `pinceau`, `annuler` ; `~` devant pour un recalcul local :
-  température, biome, pics), `verifier` (incohérences ; 0 sur une carte générée), et finir par `quitter`. `aide` et
+  température, biome, pics), `verifier` (incohérences ; 0 sur une carte générée), `regenerer eau|climat`
+  (l'eau ou toute la simulation refaite comme à la génération), `fleuve`, `unite`, `ville`, `tour n`,
+  `chemin`, et finir par `quitter`. `aide` et
   `aide <commande>` donnent la liste et les valeurs possibles. Ajouter une commande : `SPECS` et
   `parse` dans `debug_cmd.rs` (l'aide, la complétion et le wiki suivent).
 

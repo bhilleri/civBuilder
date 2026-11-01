@@ -651,6 +651,17 @@ struct ReliefRule {
     peak_floor_m: f32,
 }
 
+/// État de la carte d'avant le climat (étape 3 de la génération), d'où repartent le climat, les
+/// biomes et l'eau : classes d'altitude et relief des terres (avant les lacs et les fleuves),
+/// variation locale de l'aridité de chaque case (sols, exposition). Les modifications de la
+/// console de debug y sont reportées.
+#[derive(Clone, Debug)]
+struct ClimateBase {
+    levels: Vec<u8>,
+    relief: Vec<Relief>,
+    jitter: Vec<f32>,
+}
+
 /// Rang (0 à 1) d'une valeur parmi des valeurs triées.
 fn rank_in(sorted: &[f32], v: f32) -> f32 {
     sorted.partition_point(|&x| x < v) as f32 / sorted.len().max(1) as f32
@@ -702,6 +713,9 @@ pub struct WorldMap {
     /// Règle du relief de la génération, pour recalculer le relief d'une case modifiée (vide pour
     /// une carte remplie à la main).
     relief_rule: Option<ReliefRule>,
+    /// Graine de la génération, et état d'avant le climat (pour refaire climat et eau).
+    seed: u32,
+    climate_base: Option<ClimateBase>,
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -733,6 +747,8 @@ impl WorldMap {
             banks: Vec::new(),
             bank_of: vec![None; n],
             relief_rule: None,
+            seed: 0,
+            climate_base: None,
             step_cache: std::sync::OnceLock::new(),
         }
     }
@@ -1096,6 +1112,13 @@ impl WorldMap {
             if terrain.is_water() {
                 self.relief[i] = Relief::Flat;
             }
+            // (une terre devenue mer, ou l'inverse, le reste si l'on refait le climat)
+            if let Some(b) = self.climate_base.as_mut() {
+                b.levels[i] = if terrain.is_sea() { 0 } else { b.levels[i].max(1) };
+                if terrain.is_sea() {
+                    b.relief[i] = Relief::Flat;
+                }
+            }
             if terrain.is_water() {
                 self.hydro.fleuve[i] = false;
                 self.hydro.small_lake[i] = false;
@@ -1113,6 +1136,12 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.relief[i] = if self.tiles[i].is_water() || self.hydro.fleuve[i] { Relief::Flat } else { relief };
+            // (relief voulu gardé pour la terre, même sous un fleuve qui l'aplanit aujourd'hui)
+            if let Some(b) = self.climate_base.as_mut()
+                && !self.tiles[i].is_sea()
+            {
+                b.relief[i] = relief;
+            }
         }
     }
 
@@ -1263,6 +1292,9 @@ impl WorldMap {
         {
             self.elevation[i] = meters;
             self.levels[i] = level_of_meters(meters);
+            if let Some(b) = self.climate_base.as_mut() {
+                b.levels[i] = self.levels[i];
+            }
         }
     }
 
@@ -1388,6 +1420,27 @@ impl WorldMap {
         self.small_lake(hex)
             || (0..6).any(|d| self.river_flow(hex, d) > 0.0)
             || self.neighbors(hex).iter().any(|&n| self.is_fleuve(n) || self.get(n) == Some(Terrain::Lake))
+    }
+
+    /// Fait couler un fleuve de `hex` vers sa voisine `dir` (débit en m³/s) : les cases de terre
+    /// deviennent fleuve (plates), liées par leur arête, l'aval de `hex` est la voisine (console
+    /// de debug ; bassins et noms ne suivent pas).
+    pub fn link_fleuve(&mut self, hex: Hex, dir: usize, flow: f32) {
+        self.step_cache = std::sync::OnceLock::new();
+        let to = self.wrap.neighbor(hex, dir);
+        let (Some(i), Some(j)) = (self.index(hex), self.index(to)) else { return };
+        for (k, d) in [(i, dir), (j, (dir + 3) % 6)] {
+            if self.tiles[k].is_water() {
+                continue;
+            }
+            self.hydro.fleuve[k] = true;
+            self.hydro.fleuve_links[k] |= 1 << d;
+            self.hydro.discharge[k] = self.hydro.discharge[k].max(flow);
+            self.relief[k] = Relief::Flat;
+        }
+        if !self.tiles[i].is_water() {
+            self.hydro.downstream[i] = Some(dir as u8);
+        }
     }
 
     /// Fait d'une case un fleuve (tests, éditeur).
@@ -1725,14 +1778,12 @@ impl WorldMap {
         let land_levels: bevy::platform::collections::HashMap<Hex, u8> =
             elevations.iter().filter(|&&(h, e)| !is_sea(h, e)).map(|&(h, e)| (h, if ponds.contains(&h) { 1 } else { level_of(e) })).collect();
         // 3) Altitude (m) et classe d'altitude de chaque case de terre
-        let mut surface = vec![climate::Surface::Water; (width * height) as usize];
         for &(h, e) in &elevations {
             if is_sea(h, e) {
                 continue; // reste océan
             }
             let i = map.index(h).unwrap();
             map.elevation[i] = if ponds.contains(&h) { POND_DEPTH_M } else { meters(e) };
-            surface[i] = climate::Surface::Land(map.elevation[i].max(0.0));
             map.tiles[i] = Terrain::Plains;
             map.levels[i] = land_levels[&h];
         }
@@ -1880,76 +1931,134 @@ impl WorldMap {
             peaks += 1;
         }
         map.relief_rule = Some(rule);
-        let relief_base = map.relief.clone();
         map.region = region;
-        // 4) à 6) Climat, terrain, cours d'eau et lacs, en `CLIMATE_PASSES` passes : à partir de la
-        //    deuxième, le climat voit les lacs de la passe précédente (ils évaporent et humidifient
-        //    l'air), ce qui change la pluie, le ruissellement, donc les lacs eux-mêmes
+        map.seed = seed;
+        map.climate_base = Some(ClimateBase {
+            levels: map.levels.clone(),
+            relief: map.relief.clone(),
+            // Petite variation locale (sols, exposition) pour casser les contours des biomes
+            jitter: (0..map.tiles.len()).map(|i| 1.0 + sample(&moisture_noise, map.hex_at(i), 3.0) as f32 * 0.25).collect(),
+        });
+        map.simulate_climate_and_water();
+        map
+    }
+
+    /// Étapes 4 à 8 de la génération, depuis les altitudes, les terres et la mer actuelles :
+    /// climat (avec les courants marins), biomes, eaux peu profondes, cours d'eau et lacs, marais,
+    /// noms, eaux poissonneuses, en `CLIMATE_PASSES` passes (à partir de la deuxième, le climat
+    /// voit les lacs de la passe précédente : ils évaporent et humidifient l'air, ce qui change la
+    /// pluie, le ruissellement, donc les lacs eux-mêmes).
+    fn simulate_climate_and_water(&mut self) {
+        let Some(base) = self.climate_base.clone() else { return };
+        let (width, height, seed, region) = (self.width, self.height, self.seed, self.region);
+        let n = self.tiles.len();
+        // Terres (lacs et marais compris) et mer
+        let land: Vec<bool> = self.tiles.iter().map(|t| !t.is_sea()).collect();
+        let surface: Vec<climate::Surface> =
+            (0..n).map(|i| if land[i] { climate::Surface::Land(self.elevation[i].max(0.0)) } else { climate::Surface::Water }).collect();
         for pass in 0..CLIMATE_PASSES {
             let mut surface = surface.clone();
             if pass > 0 {
                 for (i, s) in surface.iter_mut().enumerate() {
-                    if map.tiles[i] == Terrain::Lake {
-                        *s = climate::Surface::Lake(climate::altitude(map.levels[i], false));
+                    if self.tiles[i] == Terrain::Lake {
+                        *s = climate::Surface::Lake(climate::altitude(self.levels[i], false));
                     }
                 }
-                // Terrain d'avant les lacs (classes d'altitude, relief) : la passe le recalcule
-                for &(h, e) in &elevations {
-                    if is_sea(h, e) {
-                        continue;
-                    }
-                    let i = map.index(h).unwrap();
-                    map.tiles[i] = Terrain::Plains;
-                    map.levels[i] = land_levels[&h];
-                }
-                map.relief.clone_from(&relief_base);
-                map.step_cache = std::sync::OnceLock::new();
             }
+            // Terrain d'avant les lacs (classes d'altitude, relief) : la passe le recalcule
+            for i in (0..n).filter(|&i| land[i]) {
+                self.tiles[i] = Terrain::Plains;
+                self.levels[i] = base.levels[i];
+                self.relief[i] = base.relief[i];
+            }
+            self.step_cache = std::sync::OnceLock::new();
             // Courants marins poussés par le vent (vents théoriques à la première passe, puis ceux
             // du climat de la passe précédente) : température de la mer donnée au climat
-            let wind = if pass == 0 { currents::theoretical_wind(width, height, &region) } else { map.climate.wind.clone() };
-            map.currents = currents::simulate(width, height, &surface, &wind, &region);
-            map.climate = climate::simulate(width, height, &surface, seed, &region, &map.currents.anomaly);
+            let wind = if pass == 0 { currents::theoretical_wind(width, height, &region) } else { self.climate.wind.clone() };
+            self.currents = currents::simulate(width, height, &surface, &wind, &region);
+            self.climate = climate::simulate(width, height, &surface, seed, &region, &self.currents.anomaly);
             // 4) Climat : pression, vents, humidité et pluie (voir climate.rs), puis terrain selon
             //    la température et les précipitations, avec un peu de bruit pour casser les contours.
-            for &(h, e) in &elevations {
-                if is_sea(h, e) {
-                    continue;
-                }
-                let i = map.index(h).unwrap();
-                let temperature = map.climate.temperature[i];
-                // Petite variation locale (sols, exposition) pour casser les contours
-                let jitter = 1.0 + sample(&moisture_noise, h, 3.0) as f32 * 0.25;
-                let aridity = map.climate.aridity(i).unwrap_or(1.0) * jitter;
-                let (coldest, _) = map.climate.coldest_warmest(i).unwrap_or((temperature, temperature));
-                let dry = map.climate.dry_seasons(i).unwrap_or([false; 4]);
-                let t = biome(BiomeClimate {
-                    temperature,
-                    aridity,
-                    coldest,
-                    dry_seasons: dry.iter().filter(|&&d| d).count() as u8,
-                    dry_summer: map.climate.dry_summer(i).unwrap_or(false),
-                });
-                map.set(h, t);
+            for i in (0..n).filter(|&i| land[i]) {
+                let t = self.climate_biome(i, base.jitter[i]);
+                self.set(self.hex_at(i), t);
             }
             // 5) Les eaux du plateau continental (moins de 200 m) sont des eaux peu profondes
-            let coasts: Vec<Hex> = map
+            let coasts: Vec<Hex> = self
                 .hexes()
-                .filter(|&h| map.get(h) == Some(Terrain::Ocean))
-                .filter(|&h| map.index(h).is_some_and(|i| map.depth[i] < SHELF_DEPTH_M))
+                .filter(|&h| self.get(h) == Some(Terrain::Ocean))
+                .filter(|&h| self.index(h).is_some_and(|i| self.depth[i] < SHELF_DEPTH_M))
                 .collect();
             for h in coasts {
-                map.set(h, Terrain::Coast);
+                self.set(h, Terrain::Coast);
             }
             // 6) Cours d'eau et lacs (voir hydro.rs)
-            map.add_hydrology();
-            map.add_marshes();
+            self.add_hydrology();
+            self.add_marshes();
             // 7) Langues des régions et noms des lieux (voir toponymy.rs)
-            map.add_names(seed);
+            self.add_names(seed);
             // 8) Eaux poissonneuses (remontées d'eaux, monts sous-marins, îles volcaniques)
-            map.add_marine_life(seed);
+            self.add_marine_life(seed);
         }
-        map
+    }
+
+    /// Biome d'une case de terre selon son climat, l'aridité variée de `jitter` (sols, exposition).
+    fn climate_biome(&self, i: usize, jitter: f32) -> Terrain {
+        let temperature = self.climate.temperature[i];
+        let aridity = self.climate.aridity(i).unwrap_or(1.0) * jitter;
+        let (coldest, _) = self.climate.coldest_warmest(i).unwrap_or((temperature, temperature));
+        let dry = self.climate.dry_seasons(i).unwrap_or([false; 4]);
+        biome(BiomeClimate {
+            temperature,
+            aridity,
+            coldest,
+            dry_seasons: dry.iter().filter(|&&d| d).count() as u8,
+            dry_summer: self.climate.dry_summer(i).unwrap_or(false),
+        })
+    }
+
+    /// Variation locale de l'aridité de la case à la génération (1 : aucune ; `None` : carte
+    /// remplie à la main).
+    pub fn aridity_jitter(&self, hex: Hex) -> Option<f32> {
+        let i = self.index(hex)?;
+        self.climate_base.as_ref().map(|b| b.jitter[i])
+    }
+
+    /// Refait le climat, les biomes, l'eau, les noms et les eaux poissonneuses comme à la
+    /// génération, depuis les altitudes, les terres et la mer actuelles (console de debug).
+    /// `false` : carte sans génération (remplie à la main).
+    pub fn regenerate_climate(&mut self) -> bool {
+        if self.climate_base.is_none() {
+            return false;
+        }
+        self.simulate_climate_and_water();
+        true
+    }
+
+    /// Refait les cours d'eau, les lacs, les marais et les noms avec le climat actuel (console de
+    /// debug) : lacs et marais redeviennent la terre que donne leur climat, les reliefs aplanis
+    /// par un fleuve reviennent, puis l'eau coule de nouveau. `false` : carte sans génération.
+    pub fn regenerate_water(&mut self) -> bool {
+        let Some(base) = self.climate_base.clone() else { return false };
+        if self.climate.runoff.len() != self.tiles.len() {
+            return false;
+        }
+        for i in 0..self.tiles.len() {
+            let t = self.tiles[i];
+            if t.is_sea() {
+                continue;
+            }
+            if matches!(t, Terrain::Lake | Terrain::Marsh) {
+                self.tiles[i] = self.climate_biome(i, base.jitter[i]);
+            }
+            self.levels[i] = base.levels[i];
+            self.relief[i] = base.relief[i];
+        }
+        self.add_hydrology();
+        self.add_marshes();
+        self.add_names(self.seed);
+        self.step_cache = std::sync::OnceLock::new();
+        true
     }
 
     /// Écoulement de l'eau sur la carte générée : lacs (cases d'eau), petits lacs, fleuves,

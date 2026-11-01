@@ -247,7 +247,41 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
   jungle et savane → forêt tempérée et prairie), pic au centre, montagnes autour ; à -8 °C,
   toundra et neige en 3D ; `verifier` signale le fleuve coupé par le massif.
 
+## Étape 3 : refaire la simulation, préparer une partie (01/11/2026)
+- **Climat et eau extraits de la génération** : les étapes 4 à 8 (passes du climat avec les
+  courants marins, biomes, eaux peu profondes, cours d'eau et lacs, marais, noms, eaux
+  poissonneuses) sont une méthode, `simulate_climate_and_water`, appelée par la génération et par
+  `regenerer climat`. Elle repart de l'état d'avant le climat, gardé dans la carte
+  (`ClimateBase` : classes d'altitude et relief des terres, variation locale de l'aridité de
+  chaque case) ; les modifications de la console y sont reportées (altitude, relief imposé,
+  terre devenue mer). Vérification : empreinte de deux cartes générées (terrain, relief, niveau,
+  débit, pluie, surface, fleuves, noms, eaux poissonneuses) identique avant et après
+  (`empreinte_generation`).
+- `regenerer eau` : lacs et marais redeviennent la terre que donne leur climat, les reliefs
+  aplanis par un fleuve reviennent, puis hydrologie, marais, noms (0,1 s). `regenerer climat` :
+  tout (11 s sur 192 × 111 en release). Sur une carte intacte, les deux redonnent la carte à
+  l'identique (test) ; un barrage de 1 500 m sur un fleuve, puis `regenerer eau` : 0 incohérence
+  (lac ou détour). Après, étiquettes des cours d'eau et index de la recherche refaits
+  (`NamesChanged`).
+- Biome attendu : avec la variation locale de l'aridité gardée (`aridity_jitter`), la
+  vérification est exacte (0 sur une carte générée) ; l'intervalle 0,7 à 1,3 ne sert plus qu'aux
+  cartes sans génération.
+- `fleuve c l c l … [debit=]` : cases voisines liées par leurs arêtes, aval, débit (500 m³/s par
+  défaut), cases plates. Brut : ni bassin ni nom.
+- Partie : `unite <type> c l [hostile]` (refusée sur une case infranchissable ou occupée),
+  `ville c l` (règles de fondation), `supprimer c l`, `tour [n]` (fin de tour demandée, puis
+  attente du tour suivant et de la fin de ses animations, n fois ; le script attend aussi),
+  `chemin c l c l [unité]` (trajet le plus rapide avec les coûts de l'unité, sur la carte
+  entière : `find_path_turns`, `path_turns`).
+- Vérifié en script (graine 777) : fleuve tracé de 5 cases vers la mer, barrage puis
+  `regenerer eau` (lac derrière, cours d'eau détournés, carte du réseau refaite), `regenerer
+  climat` (0 case changée sur une carte intacte), cavalerie lourde, milice hostile, ville fondée,
+  chemin de 13 pas (arrivée au tour 6), deux tours joués (le guerrier hostile a bougé).
+
 ## Limites
+- `regenerer climat` gèle le jeu une dizaine de secondes (calcul sur l'image).
+- `regenerer` remplace les biomes et le climat modifiés à la main (ils viennent de la
+  simulation) ; un lac posé à la main disparaît si l'eau n'en fait pas un.
 - Brut : une forêt reste une forêt à 30 °C, un lac posé n'a pas d'exutoire, les cours d'eau ne
   suivent pas l'altitude ; le coût des pas, lui, est recalculé.
 - Local : le nombre de pics n'est pas plafonné (1 % des terres à la génération) : le rebord d'un
@@ -261,6 +295,4 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
 
 ## Suite
 1. ~~Cohérence~~ : fait (étape 2, ci-dessus).
-2. **Simulation** : `regenerer eau|climat` (étapes 4 à 8 de la génération extraites en
-   fonction, mêmes résultats qu'à la génération), `riviere tracer`, unités, villes, fin de tour,
-   `chemin a b` (trajet et coût).
+2. ~~Simulation~~ : fait (étape 3, ci-dessus ; `riviere tracer` est devenu `fleuve`).

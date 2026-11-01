@@ -979,7 +979,11 @@ fn build_index(
     sites: Query<(Entity, &crate::hostile::SiteName, &HexPos, Has<crate::hostile::Camp>)>,
     mut site_count: Local<usize>,
     mut was_open: Local<bool>,
+    mut renamed: MessageReader<crate::console::NamesChanged>,
 ) {
+    if renamed.read().count() > 0 {
+        search.stale = true;
+    }
     let opened = search.open && !*was_open;
     *was_open = search.open;
     if !search.open {

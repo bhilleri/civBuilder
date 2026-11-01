@@ -14,7 +14,9 @@
 //! (cases modifiées et voisines) : le rendu 2D (`render.rs`) et 3D (`view3d.rs`) les reconstruit.
 
 use crate::debug_cmd::{self, Effect, Reply, Session};
-use crate::game::{DebugMode, GameMap, ShownFog};
+use crate::feedback::TurnReplay;
+use crate::game::{City, DebugMode, EndTurnRequested, GameMap, GameState, HexPos, Selection, ShownFog, Territory, Unit, found_city, spawn_unit};
+use crate::hostile::{Hostile, HostileHome};
 use crate::hex::Hex;
 use crate::hostile::WorldSeed;
 use crate::input::HoveredHex;
@@ -33,6 +35,11 @@ use std::path::PathBuf;
 /// Cases dont les données ont changé (modifiées et voisines) : rendu 2D et 3D à refaire.
 #[derive(Message, Clone, Debug)]
 pub struct MapEdited(pub Vec<Hex>);
+
+/// Noms des lieux refaits (`regenerer`) : étiquettes des cours d'eau et index de la recherche à
+/// refaire.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct NamesChanged;
 
 /// Lignes de réponse affichées (les plus récentes) et gardées.
 const SHOWN_LINES: usize = 16;
@@ -84,6 +91,8 @@ pub struct Console {
     dirty: bool,
     script: Option<Script>,
     capture: Option<PendingCapture>,
+    /// Tours à jouer (`tour n`) et tour attendu pour celui en cours.
+    turns: Option<(u32, Option<u32>)>,
     /// Modification à l'image précédente : le brouillard affiché est marqué changé une seconde
     /// fois (décor et motifs recréés visibles à leur tour).
     touch_fog: bool,
@@ -135,9 +144,10 @@ impl Plugin for ConsolePlugin {
         }
         app.insert_resource(console)
             .add_message::<MapEdited>()
+            .add_message::<NamesChanged>()
             .add_systems(Startup, setup_console)
             .add_systems(PreUpdate, console_keys.after(InputSystems).after(crate::search::capture_keyboard))
-            .add_systems(Update, (run_script, run_capture, touch_fog, refresh_console).chain());
+            .add_systems(Update, (run_script, run_capture, run_turns, touch_fog, refresh_console).chain());
     }
 }
 
@@ -303,8 +313,15 @@ struct ConsoleContext<'w, 's> {
     layer: ResMut<'w, MapLayer>,
     seed: Option<Res<'w, WorldSeed>>,
     edited: MessageWriter<'w, MapEdited>,
+    renamed: MessageWriter<'w, NamesChanged>,
     exit: MessageWriter<'w, AppExit>,
     camera_2d: Query<'w, 's, &'static mut Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
+    commands: Commands<'w, 's>,
+    game: (ResMut<'w, GameState>, ResMut<'w, Territory>, ResMut<'w, Selection>),
+    cities: Query<'w, 's, &'static HexPos, With<City>>,
+    units: Query<'w, 's, (Entity, &'static HexPos), With<Unit>>,
+    /// Cours d'eau ou lac survolés : leurs numéros changent quand l'eau est refaite.
+    pointed: (ResMut<'w, crate::highlight::HoveredLabel>, ResMut<'w, crate::highlight::PointedFeature>),
 }
 
 /// Exécute une ligne (console ou script) et applique ses effets ; la réponse s'affiche.
@@ -319,13 +336,59 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
     if !line.trim().is_empty() && !line.trim_start().starts_with('#') {
         console.push(format!("> {line}"));
     }
+    if reply.ok && debug_cmd::token(line.split_whitespace().next().unwrap_or("")) == "regenerer" {
+        ctx.renamed.write(NamesChanged);
+        ctx.pointed.0.0 = None;
+        ctx.pointed.1.0 = None;
+    }
     if !reply.changed.is_empty() {
         ctx.edited.write(MapEdited(debug_cmd::render_area(&ctx.map.0, &reply.changed, RENDER_REACH)));
         ctx.shown.set_changed();
         console.touch_fog = true;
     }
     let mut lines = reply.lines.clone();
+    let mut ok = reply.ok;
+    let mut refuse = |lines: &mut Vec<String>, message: String| {
+        *lines = vec![format!("ERREUR {message}")];
+        ok = false;
+    };
     match &reply.effect {
+        Some(Effect::Unit(kind, at, hostile)) => {
+            if ctx.units.iter().any(|(_, p)| p.0 == *at) {
+                refuse(&mut lines, format!("{} : une unité occupe déjà la case", debug_cmd::coords(&ctx.map.0, *at)));
+            } else {
+                let e = spawn_unit(&mut ctx.commands, *kind, *at);
+                if *hostile {
+                    ctx.commands.entity(e).insert((Hostile, HostileHome(*at)));
+                }
+            }
+        }
+        Some(Effect::City(at)) => {
+            let existing: Vec<Hex> = ctx.cities.iter().map(|p| p.0).collect();
+            let settler = ctx.commands.spawn_empty().id();
+            let (state, territory, _) = &mut ctx.game;
+            match found_city(&mut ctx.commands, settler, *at, &ctx.map.0, &existing, state, territory) {
+                Ok((_, name)) => lines = vec![format!("OK ville {name} fondée en {}", debug_cmd::coords(&ctx.map.0, *at))],
+                Err(e) => {
+                    ctx.commands.entity(settler).despawn();
+                    refuse(&mut lines, format!("ville impossible en {} : {e}", debug_cmd::coords(&ctx.map.0, *at)));
+                }
+            }
+        }
+        Some(Effect::Remove(at)) => {
+            let gone: Vec<Entity> = ctx.units.iter().filter(|(_, p)| p.0 == *at).map(|(e, _)| e).collect();
+            let selection = &mut ctx.game.2;
+            for &e in &gone {
+                if selection.0 == Some(e) {
+                    selection.0 = None;
+                }
+                ctx.commands.entity(e).despawn();
+            }
+            lines = vec![format!("OK {} unité(s) retirée(s) de {}", gone.len(), debug_cmd::coords(&ctx.map.0, *at))];
+        }
+        Some(Effect::Turns(n)) => {
+            console.turns = Some((*n, None));
+        }
         Some(Effect::Goto(h)) => {
             ctx.cam.target = to_3d(*h, tile_height(&ctx.map.0, *h));
             if let Ok(mut t) = ctx.camera_2d.single_mut() {
@@ -402,12 +465,13 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
             let _ = f.write_all(text.as_bytes());
         }
     }
-    Reply { lines, ..reply }
+    Reply { lines, ok, ..reply }
 }
 
 /// Script : une commande par image, sauf pendant une attente ou une capture.
 fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ctx: ConsoleContext) {
     let capturing = console.capture.is_some();
+    let playing = console.turns.is_some();
     let Some(script) = console.script.as_mut() else { return };
     if !debug.0 {
         debug.0 = true;
@@ -416,7 +480,7 @@ fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ct
         script.wait -= 1;
         return;
     }
-    if capturing {
+    if capturing || playing {
         return;
     }
     // (lignes vides et commentaires passés d'un coup)
@@ -439,6 +503,34 @@ fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ct
             }
             console.script = None;
         }
+    }
+}
+
+/// `tour n` : fin de tour demandée, puis attente du tour suivant et de la fin de ses animations,
+/// autant de fois que demandé.
+fn run_turns(mut console: ResMut<Console>, state: Res<GameState>, replay: Res<TurnReplay>, mut end_turn: ResMut<EndTurnRequested>) {
+    let Some((left, waiting)) = console.turns else { return };
+    match waiting {
+        Some(target) if state.turn >= target && !replay.playing && !end_turn.0 => {
+            let left = left - 1;
+            console.turns = (left > 0).then_some((left, None));
+            if left == 0 {
+                let line = format!("OK tour {} : à vous de jouer", state.turn);
+                info!("console> {line}");
+                if let Some(s) = &console.script
+                    && let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&s.out)
+                {
+                    let _ = writeln!(f, "{line}");
+                }
+                console.push(line);
+            }
+        }
+        Some(_) => {}
+        None if !replay.playing && !end_turn.0 => {
+            end_turn.0 = true;
+            console.turns = Some((left, Some(state.turn + 1)));
+        }
+        None => {}
     }
 }
 
