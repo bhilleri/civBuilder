@@ -127,12 +127,12 @@ fn explored_bumps(map: &crate::map::WorldMap, fog: &ShownFog, sites: &HashSet<He
 fn bumps_for(map: &crate::map::WorldMap, hex: Hex) -> Option<Bumps> {
     let (amp, summit) = match map.relief(hex) {
         CellRelief::Flat => return None,
-        // (pas de sommet propre à chaque montagne : un damier de cônes ; les crêtes viennent du
-        // bruit continu, seuls les pics ont leur sommet)
+        // (montagnes et pics ont un sommet au centre de la case, reliés en chaîne à leurs voisins
+        // par une arête plus basse : pas de damier de cônes ; le pic est nettement plus haut)
         CellRelief::Hills => (5.0, 0.0),
         CellRelief::Rugged => (9.0, 0.0),
-        CellRelief::Mountain => (17.0, 0.0),
-        CellRelief::Peak => (16.0, 24.0),
+        CellRelief::Mountain => (19.0, 8.0),
+        CellRelief::Peak => (16.0, 34.0),
     };
     let snowline = if map.get(hex) == Some(Terrain::Snow) {
         0.0
@@ -140,7 +140,7 @@ fn bumps_for(map: &crate::map::WorldMap, hex: Hex) -> Option<Bumps> {
         // (collines et reliefs bas ne sont enneigés que sur un terrain de neige)
         ((map.temperature(hex).unwrap_or(5.0) + 12.0) * 2.0).clamp(10.0, 40.0)
     };
-    Some(Bumps { amp, summit, snowline })
+    Some(Bumps { amp, summit, needle: map.relief(hex) == CellRelief::Peak, snowline })
 }
 
 impl Relief {
@@ -442,9 +442,15 @@ struct Assets3d {
 
 pub struct View3dPlugin;
 
+/// Cases du relief 3D encore à construire ou à recolorer (0 : relief à jour ; les captures de la
+/// console l'attendent).
+#[derive(Resource, Default)]
+pub struct ReliefPending(pub usize);
+
 impl Plugin for View3dPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewMode>()
+            .init_resource::<ReliefPending>()
             .init_gizmo_group::<Gizmos3d>()
             .insert_resource(GlobalAmbientLight { brightness: 420.0, ..default() })
             .add_systems(Startup, setup_3d)
@@ -641,15 +647,25 @@ fn setup_3d(
     let shrub = mat(Color::srgb(0.30, 0.37, 0.20), 0.95);
     let reed = mat(Color::srgb(0.48, 0.50, 0.26), 0.95);
     let puddle = mat(Color::srgb(0.26, 0.42, 0.48), 0.3);
-    let plant_meshes = [
-        trunk_mesh.clone(),
-        crown_mesh.clone(),
-        conifer_mesh.clone(),
-        canopy_mesh.clone(),
-        shrub_mesh.clone(),
-        reed_mesh.clone(),
-        puddle_mesh.clone(),
-    ];
+    let kit = DecorKit {
+        trunk_mesh,
+        crown_mesh,
+        conifer_mesh,
+        canopy_mesh,
+        shrub_mesh,
+        reed_mesh,
+        puddle_mesh,
+        rock_mesh,
+        trunk,
+        broadleaf,
+        jungle_leaf,
+        conifer,
+        acacia,
+        shrub,
+        reed,
+        puddle,
+        rock: rock.clone(),
+    };
 
     let mut icons = HashMap::new();
     let icon_paths: Vec<&'static str> =
@@ -697,109 +713,8 @@ fn setup_3d(
         let tile = commands.spawn((Tile3d, Mesh3d(meshes.add(to_mesh(mesh))), MeshMaterial3d(unexplored.clone()), layer())).id();
         relief.tiles.insert(hex, tile);
 
-        // Décor : arbres en forêt, bosses en colline, pic en montagne (hauteurs fixées avec le relief)
-        let t = map.0.get(hex).unwrap();
-        let polar = |deg: f32, r: f32| Vec2::from_angle(deg.to_radians()) * r;
-        let mut pieces: Vec<(Handle<Mesh>, Handle<StandardMaterial>, Vec2, f32, Vec3)> = Vec::new();
-        // Relief interne (collines, montagnes) : modelé dans le sol de la case (voir `Bumps`) ;
-        // quelques rochers sur un relief accidenté
-        let relief_kind = map.0.relief(hex);
-        if relief_kind == CellRelief::Rugged {
-            for (a, r) in [(30.0_f32, 6.0), (150.0, 20.0), (270.0, 18.0)] {
-                pieces.push((rock_mesh.clone(), rock.clone(), polar(a, r), 1.5, Vec3::new(1.4, 1.0, 1.1)));
-            }
-        }
-        // Végétation selon le biome (pas dans le lit d'un fleuve, ni sur un pic). Les plantes
-        // restent près du bord : le centre est libre pour le jeton d'une unité. En montagne, les
-        // arbres s'arrêtent à la limite des arbres (sous la limite des neiges).
-        if !map.0.is_fleuve(hex) && relief_kind < CellRelief::Peak {
-            let ring6 = [30.0_f32, 90.0, 150.0, 210.0, 270.0, 330.0];
-            let (cx, cy) = hex.to_world();
-            let below_treeline = |at: Vec2| {
-                let (up, snow) = lift_at(Vec2::new(cx, cy) + at, &all_bumps);
-                up < (snow * 0.6).min(14.0)
-            };
-            // Emplacements (position, hausse) sous la limite des arbres ; seconde couronne (entre
-            // les premiers) pour les forêts denses
-            let spots: Vec<(Vec2, f32)> = ring6.iter().map(|&a| (polar(a, 21.0), 0.0)).filter(|&(at, _)| below_treeline(at)).collect();
-            let inner: Vec<Vec2> = ring6.iter().map(|&a| polar(a + 30.0, 24.5)).filter(|&at| below_treeline(at)).collect();
-            // Feuillu : tronc et houppier rond
-            let broad = |at: Vec2, up: f32, leaf: &Handle<StandardMaterial>, size: f32, pieces: &mut Vec<_>| {
-                pieces.push((trunk_mesh.clone(), trunk.clone(), at, up + 4.0 * size, Vec3::new(size, size, size)));
-                pieces.push((crown_mesh.clone(), leaf.clone(), at, up + 10.5 * size, Vec3::new(size, 0.85 * size, size)));
-            };
-            match t {
-                Terrain::Forest => {
-                    for &(at, up) in &spots {
-                        broad(at, up, &broadleaf, 1.0, &mut pieces);
-                    }
-                }
-                Terrain::Jungle => {
-                    // Dense : grands arbres sur le pourtour et plus petits entre eux
-                    for &(at, up) in &spots {
-                        broad(at, up, &jungle_leaf, 1.2, &mut pieces);
-                    }
-                    for &at in &inner {
-                        broad(at, 0.0, &jungle_leaf, 0.8, &mut pieces);
-                    }
-                }
-                Terrain::Taiga => {
-                    for &(at, up) in &spots {
-                        pieces.push((conifer_mesh.clone(), conifer.clone(), at, up + 9.0, Vec3::ONE));
-                    }
-                    for &at in &inner {
-                        pieces.push((conifer_mesh.clone(), conifer.clone(), at, 7.0, Vec3::splat(0.8)));
-                    }
-                }
-                Terrain::WoodedSavanna | Terrain::Savanna => {
-                    // Acacias : tronc fin et cime plate, épars (un seul en savane herbeuse)
-                    let picks: &[usize] = if t == Terrain::Savanna { &[1] } else { &[0, 2, 4] };
-                    for &k in picks.iter().filter(|_| !spots.is_empty()) {
-                        let (at, up) = spots[k % spots.len()];
-                        pieces.push((trunk_mesh.clone(), trunk.clone(), at, up + 4.0, Vec3::new(0.7, 1.2, 0.7)));
-                        pieces.push((canopy_mesh.clone(), acacia.clone(), at, up + 9.5, Vec3::ONE));
-                    }
-                }
-                Terrain::Mediterranean => {
-                    // Broussailles : buissons bas, un arbre (olivier) de temps en temps
-                    for (k, &(at, up)) in spots.iter().enumerate() {
-                        if k % 3 == 0 {
-                            broad(at, up, &shrub, 0.75, &mut pieces);
-                        } else {
-                            pieces.push((shrub_mesh.clone(), shrub.clone(), at, up + 2.0, Vec3::new(1.5, 0.9, 1.5)));
-                        }
-                    }
-                }
-                Terrain::Marsh => {
-                    // Flaques et touffes de roseaux
-                    for a in [60.0_f32, 240.0] {
-                        pieces.push((puddle_mesh.clone(), puddle.clone(), polar(a, 18.0), 0.2, Vec3::ONE));
-                    }
-                    for a in [0.0_f32, 120.0, 180.0, 300.0] {
-                        for (dx, dy) in [(0.0, 0.0), (1.6, 0.8), (-1.2, 1.4)] {
-                            pieces.push((reed_mesh.clone(), reed.clone(), polar(a, 20.0) + Vec2::new(dx, dy), 3.0, Vec3::ONE));
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        let mut ids = Vec::new();
-        for (mesh, material, offset, lift, scale) in pieces {
-            let vegetation = mesh == rock_mesh || plant_meshes.contains(&mesh);
-            ids.push(
-                commands
-                    .spawn((
-                        Decor3d { hex, offset, lift, requires: None, vegetation },
-                        Mesh3d(mesh),
-                        MeshMaterial3d(material),
-                        Transform::from_scale(scale),
-                        Visibility::Hidden,
-                        layer(),
-                    ))
-                    .id(),
-            );
-        }
+        // Décor : arbres en forêt, rochers en relief accidenté
+        let ids = spawn_decor(&mut commands, &kit, &map.0, &all_bumps, hex);
         relief.decor.entry(hex).or_default().extend(ids);
     }
     // Rochers éboulés au pied des falaises (sur la case basse, le long de l'arête)
@@ -843,6 +758,7 @@ fn setup_3d(
         relief.decor.entry(low_in_map).or_default().extend(ids);
     }
     commands.insert_resource(relief);
+    commands.insert_resource(kit);
 
     commands.insert_resource(Assets3d {
         ground,
@@ -892,6 +808,144 @@ fn setup_3d(
         },
         icons,
     });
+}
+
+/// Maillages et matériaux du décor des cases (végétation, rochers), gardés pour refaire le décor
+/// d'une case modifiée (console de debug).
+#[derive(Resource)]
+struct DecorKit {
+    trunk_mesh: Handle<Mesh>,
+    crown_mesh: Handle<Mesh>,
+    conifer_mesh: Handle<Mesh>,
+    canopy_mesh: Handle<Mesh>,
+    shrub_mesh: Handle<Mesh>,
+    reed_mesh: Handle<Mesh>,
+    puddle_mesh: Handle<Mesh>,
+    rock_mesh: Handle<Mesh>,
+    trunk: Handle<StandardMaterial>,
+    broadleaf: Handle<StandardMaterial>,
+    jungle_leaf: Handle<StandardMaterial>,
+    conifer: Handle<StandardMaterial>,
+    acacia: Handle<StandardMaterial>,
+    shrub: Handle<StandardMaterial>,
+    reed: Handle<StandardMaterial>,
+    puddle: Handle<StandardMaterial>,
+    rock: Handle<StandardMaterial>,
+}
+
+/// Décor d'une case : arbres selon le biome, rochers en relief accidenté (`bumps` : relief interne
+/// des cases, pour la limite des arbres). Créé caché, posé sur le sol quand la case est construite.
+fn spawn_decor(commands: &mut Commands, kit: &DecorKit, map: &crate::map::WorldMap, bumps: &BumpMap, hex: Hex) -> Vec<Entity> {
+    // Décor : arbres en forêt, bosses en colline, pic en montagne (hauteurs fixées avec le relief)
+    let t = map.get(hex).unwrap();
+    let polar = |deg: f32, r: f32| Vec2::from_angle(deg.to_radians()) * r;
+    let mut pieces: Vec<(Handle<Mesh>, Handle<StandardMaterial>, Vec2, f32, Vec3)> = Vec::new();
+    // Relief interne (collines, montagnes) : modelé dans le sol de la case (voir `Bumps`) ;
+    // quelques rochers sur un relief accidenté
+    let relief_kind = map.relief(hex);
+    if relief_kind == CellRelief::Rugged {
+        for (a, r) in [(30.0_f32, 6.0), (150.0, 20.0), (270.0, 18.0)] {
+            pieces.push((kit.rock_mesh.clone(), kit.rock.clone(), polar(a, r), 1.5, Vec3::new(1.4, 1.0, 1.1)));
+        }
+    }
+    // Végétation selon le biome (pas dans le lit d'un fleuve, ni sur un pic). Les plantes
+    // restent près du bord : le centre est libre pour le jeton d'une unité. En montagne, les
+    // arbres s'arrêtent à la limite des arbres (sous la limite des neiges).
+    if !map.is_fleuve(hex) && relief_kind < CellRelief::Peak {
+        let ring6 = [30.0_f32, 90.0, 150.0, 210.0, 270.0, 330.0];
+        let (cx, cy) = hex.to_world();
+        let below_treeline = |at: Vec2| {
+            let (up, snow) = lift_at(Vec2::new(cx, cy) + at, bumps);
+            up < (snow * 0.6).min(14.0)
+        };
+        // Emplacements (position, hausse) sous la limite des arbres ; seconde couronne (entre
+        // les premiers) pour les forêts denses
+        // En montagne : étage montagnard, arbres clairsemés (un emplacement sur deux, pas de
+        // seconde couronne), conifères à la place des feuillus
+        let montane = relief_kind == CellRelief::Mountain;
+        let spots: Vec<(Vec2, f32)> = ring6.iter().step_by(if montane { 2 } else { 1 }).map(|&a| (polar(a, 21.0), 0.0)).filter(|&(at, _)| below_treeline(at)).collect();
+        let inner: Vec<Vec2> = if montane { Vec::new() } else { ring6.iter().map(|&a| polar(a + 30.0, 24.5)).filter(|&at| below_treeline(at)).collect() };
+        // Feuillu : tronc et houppier rond
+        let broad = |at: Vec2, up: f32, leaf: &Handle<StandardMaterial>, size: f32, pieces: &mut Vec<_>| {
+            pieces.push((kit.trunk_mesh.clone(), kit.trunk.clone(), at, up + 4.0 * size, Vec3::new(size, size, size)));
+            pieces.push((kit.crown_mesh.clone(), leaf.clone(), at, up + 10.5 * size, Vec3::new(size, 0.85 * size, size)));
+        };
+        match t {
+            Terrain::Forest if montane => {
+                for &(at, up) in &spots {
+                    pieces.push((kit.conifer_mesh.clone(), kit.conifer.clone(), at, up + 7.0, Vec3::splat(0.8)));
+                }
+            }
+            Terrain::Forest => {
+                for &(at, up) in &spots {
+                    broad(at, up, &kit.broadleaf, 1.0, &mut pieces);
+                }
+            }
+            Terrain::Jungle => {
+                // Dense : grands arbres sur le pourtour et plus petits entre eux
+                for &(at, up) in &spots {
+                    broad(at, up, &kit.jungle_leaf, 1.2, &mut pieces);
+                }
+                for &at in &inner {
+                    broad(at, 0.0, &kit.jungle_leaf, 0.8, &mut pieces);
+                }
+            }
+            Terrain::Taiga => {
+                for &(at, up) in &spots {
+                    pieces.push((kit.conifer_mesh.clone(), kit.conifer.clone(), at, up + 9.0, Vec3::ONE));
+                }
+                for &at in &inner {
+                    pieces.push((kit.conifer_mesh.clone(), kit.conifer.clone(), at, 7.0, Vec3::splat(0.8)));
+                }
+            }
+            Terrain::WoodedSavanna | Terrain::Savanna => {
+                // Acacias : tronc fin et cime plate, épars (un seul en savane herbeuse)
+                let picks: &[usize] = if t == Terrain::Savanna { &[1] } else { &[0, 2, 4] };
+                for &k in picks.iter().filter(|_| !spots.is_empty()) {
+                    let (at, up) = spots[k % spots.len()];
+                    pieces.push((kit.trunk_mesh.clone(), kit.trunk.clone(), at, up + 4.0, Vec3::new(0.7, 1.2, 0.7)));
+                    pieces.push((kit.canopy_mesh.clone(), kit.acacia.clone(), at, up + 9.5, Vec3::ONE));
+                }
+            }
+            Terrain::Mediterranean => {
+                // Broussailles : buissons bas, un arbre (olivier) de temps en temps
+                for (k, &(at, up)) in spots.iter().enumerate() {
+                    if k % 3 == 0 {
+                        broad(at, up, &kit.shrub, 0.75, &mut pieces);
+                    } else {
+                        pieces.push((kit.shrub_mesh.clone(), kit.shrub.clone(), at, up + 2.0, Vec3::new(1.5, 0.9, 1.5)));
+                    }
+                }
+            }
+            Terrain::Marsh => {
+                // Flaques et touffes de roseaux
+                for a in [60.0_f32, 240.0] {
+                    pieces.push((kit.puddle_mesh.clone(), kit.puddle.clone(), polar(a, 18.0), 0.2, Vec3::ONE));
+                }
+                for a in [0.0_f32, 120.0, 180.0, 300.0] {
+                    for (dx, dy) in [(0.0, 0.0), (1.6, 0.8), (-1.2, 1.4)] {
+                        pieces.push((kit.reed_mesh.clone(), kit.reed.clone(), polar(a, 20.0) + Vec2::new(dx, dy), 3.0, Vec3::ONE));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    pieces
+        .into_iter()
+        .map(|(mesh, material, offset, lift, scale)| {
+            commands
+                .spawn((
+                    Decor3d { hex, offset, lift, requires: None, vegetation: true },
+                    Mesh3d(mesh),
+                    MeshMaterial3d(material),
+                    Transform::from_scale(scale),
+                    Visibility::Hidden,
+                    layer(),
+                ))
+                .id()
+        })
+        .collect()
 }
 
 fn toggle_view_key(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<ViewMode>) {
@@ -1056,8 +1110,7 @@ fn link(map: &GameMap, fog: &ShownFog, a: Hex, b: Hex) -> Link {
 fn update_relief_3d(
     fog: Res<ShownFog>,
     map: Res<GameMap>,
-    (mode, time): (Res<ViewMode>, Res<Time<Real>>),
-    cam: Res<Cam3d>,
+    (mode, time, cam): (Res<ViewMode>, Res<Time<Real>>, Res<Cam3d>),
     assets: Option<Res<Assets3d>>,
     relief: Option<ResMut<Relief>>,
     structures: Query<&HexPos, Or<(With<City>, With<Camp>, With<Village>)>>,
@@ -1070,6 +1123,7 @@ fn update_relief_3d(
     layer: Res<MapLayer>,
     cam2d: Query<&Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>, Without<Decor3d>)>,
     mut commands: Commands,
+    (mut edited, kit, mut pending): (MessageReader<crate::console::MapEdited>, Option<Res<DecorKit>>, ResMut<ReliefPending>),
 ) {
     let (Some(assets), Some(mut relief)) = (assets, relief) else { return };
     let queue = &mut *known;
@@ -1102,6 +1156,57 @@ fn update_relief_3d(
     if fog.is_changed() || sites_changed {
         relief.bumps = explored_bumps(&map.0, &fog, &sites);
         relief.shape += 1;
+    }
+    // Cases modifiées (console de debug) et leurs voisines : eau, décor et relief refaits
+    let edited: HashSet<Hex> = edited.read().flat_map(|e| e.0.iter().copied()).collect();
+    if !edited.is_empty() {
+        let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect::<BumpMap>().with_wrap(map.0.wrap());
+        for &h in &edited {
+            match map.0.get(h).filter(|t| t.is_water()) {
+                Some(t) => {
+                    relief.water_hexes.insert(h);
+                    relief.water_colors.insert(h, terrain_color(t));
+                }
+                None => {
+                    relief.water_hexes.remove(&h);
+                    relief.water_colors.remove(&h);
+                }
+            }
+            let shape = hex_water(&map.0, h);
+            match (shape.is_empty(), relief.water.remove(&h)) {
+                (true, Some((_, e))) => commands.entity(e).despawn(),
+                (true, None) => {}
+                (false, Some((_, e))) => {
+                    relief.water.insert(h, (shape, e));
+                }
+                (false, None) => {
+                    let e = commands.spawn((Mesh3d(meshes.add(to_mesh(MeshData::default()))), MeshMaterial3d(assets.fresh_water[0].clone()), self::layer())).id();
+                    relief.water.insert(h, (shape, e));
+                }
+            }
+            // Décor de la case refait (les rochers au pied d'une falaise restent)
+            if let Some(kit) = &kit {
+                let mut kept = Vec::new();
+                for e in relief.decor.remove(&h).unwrap_or_default() {
+                    match decor.get(e) {
+                        Ok((d, _)) if d.requires.is_some() => kept.push(e),
+                        _ => commands.entity(e).despawn(),
+                    }
+                }
+                kept.extend(spawn_decor(&mut commands, kit, &map.0, &all_bumps, h));
+                relief.decor.insert(h, kept);
+            }
+            relief.axis_cache.remove(&h);
+            queue.geometry.insert(h);
+            queue.levels.insert(h);
+        }
+        relief.water_seen = relief.water_hexes.intersection(&fog.explored).copied().collect();
+        relief.bumps = explored_bumps(&map.0, &fog, &sites);
+        relief.shape += 1;
+        queue.order_focus = None;
+        pending.0 = queue.geometry.len() + queue.color.len();
+        // (entités créées ci-dessus : la construction reprend à l'image suivante)
+        return;
     }
     // Changement de carte (normale / relief / climat) : seules les couleurs changent, le relief déjà
     // calculé est réutilisé. La vision peut déborder du bord de la carte : on ne garde que la carte.
@@ -1155,6 +1260,7 @@ fn update_relief_3d(
     }
     if queue.geometry.is_empty() && queue.color.is_empty() {
         queue.order.clear();
+        pending.0 = 0;
         return;
     }
     // Images trop longues (moins de 60 par seconde, par exemple quand une carte dessine beaucoup
@@ -1390,6 +1496,7 @@ fn update_relief_3d(
     if !processed.is_empty() {
         queue.water_ms = smooth(queue.water_ms, water_started.elapsed().as_secs_f32() * 1000.0 / processed.len() as f32);
     }
+    pending.0 = queue.geometry.len() + queue.color.len();
 }
 
 /// Moyenne glissante d'une durée mesurée à chaque image.

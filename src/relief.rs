@@ -18,18 +18,20 @@ use bevy::platform::collections::HashMap;
 
 /// Relief interne d'une case (collines, relief accidenté, montagne, pic) : déformation du sol
 /// ajoutée au profil de la case. `amp` : ampleur des crêtes et ravines (bruit continu sur toute
-/// la carte) ; `summit` : sommet au centre de la case ; `snowline` : hauteur de déformation
-/// au-dessus de laquelle le sol est enneigé (selon le froid).
+/// la carte) ; `summit` : sommet au centre de la case ; `needle` : sommet en aiguille (pic) plutôt
+/// qu'en dôme (montagne) ; `snowline` : hauteur de déformation au-dessus de laquelle le sol est
+/// enneigé (selon le froid).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bumps {
     pub amp: f32,
     pub summit: f32,
+    pub needle: bool,
     pub snowline: f32,
 }
 
 impl Default for Bumps {
     fn default() -> Self {
-        Self { amp: 0.0, summit: 0.0, snowline: f32::MAX }
+        Self { amp: 0.0, summit: 0.0, needle: false, snowline: f32::MAX }
     }
 }
 
@@ -77,6 +79,11 @@ impl FromIterator<(Hex, Bumps)> for BumpMap {
 const BUMP_REACH: f32 = HEX_SIZE * 1.6;
 /// Près d'un cours d'eau, la déformation s'efface (vallée) sur cette distance au bord de l'eau.
 const VALLEY_FADE: f32 = 10.0;
+/// Hauteur de l'arête entre deux sommets voisins, en part du moins haut des deux.
+const SADDLE: f32 = 0.45;
+/// Contraste des ravines (plus sombres) et des crêtes (plus claires) sur un relief marqué : il
+/// fait ressortir le modelé sous l'éclairage de la vue de dessus.
+const RAVINE_SHADE: f32 = 1.2;
 /// Neige (linéaire) et roche des hauteurs.
 const SNOW: Vec3 = Vec3::new(0.88, 0.90, 0.94);
 
@@ -115,10 +122,19 @@ pub fn lift_at(p: Vec2, bumps: &BumpMap) -> (f32, f32) {
     let here = Hex::from_world(p.x, p.y);
     let (mut sw, mut sa, mut summit) = (0.0f32, 0.0f32, 0.0f32);
     let (mut snow_w, mut snow) = (0.0f32, 0.0f32);
-    for h in std::iter::once(here).chain(here.neighbors()) {
-        let b = bumps.get(&h).copied().unwrap_or_default();
+    // La case et ses voisines (dans l'ordre des directions : deux voisines consécutives se touchent)
+    let cells: [(Vec2, Bumps); 7] = std::array::from_fn(|k| {
+        let h = if k == 0 { here } else { here + DIRECTIONS[k - 1] };
         let (cx, cy) = h.to_world();
-        let d = p.distance(Vec2::new(cx, cy));
+        (Vec2::new(cx, cy), bumps.get(&h).copied().unwrap_or_default())
+    });
+    // Sommet : cloche nulle à l'apothème d'un centre (ou d'une arête de sommets)
+    let bell = |d: f32| {
+        let t = (d / APOTHEM).min(1.0);
+        (1.0 - t * t).powi(2)
+    };
+    for &(c, b) in &cells {
+        let d = p.distance(c);
         let w = (1.0 - d / BUMP_REACH).max(0.0).powi(2);
         sw += w;
         sa += w * b.amp;
@@ -126,10 +142,19 @@ pub fn lift_at(p: Vec2, bumps: &BumpMap) -> (f32, f32) {
             snow_w += w;
             snow += w * b.snowline;
         }
-        // Sommet : cloche nulle au bord de la case (rayon = apothème)
         if b.summit > 0.0 {
-            let t = (d / APOTHEM).min(1.0);
-            summit += b.summit * (1.0 - t * t).powi(2);
+            // (aiguille : pente qui se raidit jusqu'à la pointe)
+            let shape = if b.needle { (1.0 - (d / APOTHEM).min(1.0)).powf(1.8) } else { bell(d) };
+            summit = summit.max(b.summit * shape);
+        }
+    }
+    // Deux cases à sommet voisines sont reliées par une arête un peu plus basse que le moins haut
+    // des deux (col) : un massif forme une chaîne, chaque case gardant son sommet
+    let pairs = (1..7).map(|k| (0, k)).chain((1..7).map(|k| (k, k % 6 + 1)));
+    for (i, j) in pairs {
+        let ((a, ba), (b, bb)) = (cells[i], cells[j]);
+        if ba.summit > 0.0 && bb.summit > 0.0 {
+            summit = summit.max(ba.summit.min(bb.summit) * SADDLE * bell(distance_to_segment(p, a, b)));
         }
     }
     if sa <= 0.0 && summit <= 0.0 {
@@ -742,8 +767,11 @@ pub fn build_hex(
         // Relief : la roche gagne avec la hauteur, la neige couvre les sommets au-dessus de la
         // limite des neiges (plus basse dans le froid)
         if up > 0.0 {
-            c = c.lerp(rock_color(y), 0.65 * smoothstep((up - 5.0) / 14.0));
+            c = c.lerp(rock_color(y), 0.85 * smoothstep((up - 6.0) / 11.0));
             c = c.lerp(SNOW, smoothstep((up - snowline) / 4.0));
+            // Ravines plus sombres, crêtes plus claires (relief marqué seulement)
+            let ridge = ridge_noise(origin + q, bumps.wrap);
+            c *= 1.0 + RAVINE_SHADE * smoothstep((up - 4.0) / 12.0) * (ridge - 0.45);
         }
         if bank > 0.0 {
             c = c.lerp(BANK_MUD, BANK_TINT * bank);
@@ -985,7 +1013,7 @@ mod tests {
         // déformation est la même vue des deux cases (fonction de la position seule)
         let (a, b) = (Hex::new(0, 0), Hex::new(0, 0) + DIRECTIONS[0]);
         let mut bumps = BumpMap::new();
-        bumps.insert(a, Bumps { amp: 16.0, summit: 24.0, snowline: 6.0 });
+        bumps.insert(a, Bumps { amp: 16.0, summit: 24.0, needle: true, snowline: 6.0 });
         let center = |h: Hex| {
             let (x, y) = h.to_world();
             Vec2::new(x, y)
@@ -1003,6 +1031,31 @@ mod tests {
         assert!(highest > 32.0, "relief modelé : {highest}");
         assert!(mesh.colors.iter().any(|c| c[0] > 0.7), "neige");
         assert!(mesh.positions.len() > build_hex(a, &top, Vec3::ONE, None, &[], false, &BumpMap::new()).positions.len());
+    }
+
+    #[test]
+    fn montagnes_voisines_reliees_par_une_arete() {
+        // Deux montagnes voisines : chacune garde son sommet, une arête plus basse les relie (pas
+        // de damier de cônes) ; seule, une montagne retombe au bord de sa case
+        let (a, b) = (Hex::new(0, 0), Hex::new(0, 0) + DIRECTIONS[0]);
+        let mountain = Bumps { amp: 0.0, summit: 10.0, needle: false, snowline: f32::MAX };
+        let center = |h: Hex| {
+            let (x, y) = h.to_world();
+            Vec2::new(x, y)
+        };
+        let mid = (center(a) + center(b)) / 2.0;
+        let mut alone = BumpMap::new();
+        alone.insert(a, mountain);
+        assert_eq!(lift_at(mid, &alone).0, 0.0, "seule : rien au bord de la case");
+        let mut pair = alone.clone();
+        pair.insert(b, mountain);
+        let (saddle, top) = (lift_at(mid, &pair).0, lift_at(center(a), &pair).0);
+        assert!(saddle > 0.3 * top && saddle < top, "col entre les sommets : {saddle} / {top}");
+        // Pic en aiguille : plus pointu qu'un dôme de même hauteur (plus bas à mi-rayon)
+        let mut needle = BumpMap::new();
+        needle.insert(a, Bumps { needle: true, ..mountain });
+        let half = center(a) + Vec2::X * APOTHEM * 0.5;
+        assert!(lift_at(half, &needle).0 < lift_at(half, &alone).0);
     }
 
     #[test]

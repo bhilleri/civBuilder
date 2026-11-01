@@ -744,7 +744,7 @@ fn draw_pointed_area(
 
 /// Pendant la saisie dans un champ, les touches ne servent pas de raccourcis au jeu (Échap
 /// passe : il ferme la recherche, ou le menu). Échap ferme la recherche ouverte.
-fn capture_keyboard(
+pub(crate) fn capture_keyboard(
     focus: Res<InputFocus>,
     editables: Query<(), With<EditableText>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -979,7 +979,11 @@ fn build_index(
     sites: Query<(Entity, &crate::hostile::SiteName, &HexPos, Has<crate::hostile::Camp>)>,
     mut site_count: Local<usize>,
     mut was_open: Local<bool>,
+    mut renamed: MessageReader<crate::console::NamesChanged>,
 ) {
+    if renamed.read().count() > 0 {
+        search.stale = true;
+    }
     let opened = search.open && !*was_open;
     *was_open = search.open;
     if !search.open {

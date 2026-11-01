@@ -15,7 +15,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - **Captures d'écran** (vérification visuelle sans jouer) : `CIVBUILDER_SEED=777 CIVBUILDER_CAPTURE=<dossier> cargo run`
   → met en scène (deux villes dont une sur un relief accidenté, les douze types d'unités près d'une
   montagne, trois unités en barque sur un fleuve, carte révélée), passe en 3D, enregistre ~8 vues en PNG dans le dossier (ville, unités,
-  vue lointaine, camp, village, carte des courants marins) puis se ferme (≈ 30 s après la génération). Lire les images pour
+  vue lointaine, pic voisin d'une montagne, camp, village, carte des courants marins) puis se ferme (≈ 30 s après la génération). Lire les images pour
   vérifier un rendu ; ajouter des vues dans `src/capture.rs` si besoin. Le dossier de captures
   va dans le scratchpad, pas dans le dépôt. Avec `CIVBUILDER_CAPTURE_FEEDBACK=1` en plus : animations
   des combats et d'une visite de village (`feedback.rs`), vues à huit instants (la dernière, bouton de fin de tour rendu), en 2D puis en 3D.
@@ -28,8 +28,21 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - Bilans chiffrés (tests ignorés, à lancer à la main avec `-- --ignored --nocapture`) :
   `bilan_tectonique` (terres, montagnes, pics, lacs sur les graines 777 / 2 / 5),
   `bilan_fond_marin`, `vue_des_mers` (`SEAS_SEED`, `SEAS_DUMP` : vue des étendues marines),
-  `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `bilan_montagnes` (montagnes par coût, traversées de massif), `generation_planete`.
+  `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `bilan_montagnes` (montagnes par coût, traversées de massif), `bilan_verifier` (incohérences de cartes générées, doit être 0), `empreinte_generation` (empreinte
+  de deux cartes : à comparer avant et après un remaniement de la génération), `generation_planete`.
 - Mode debug (carte révélée) : menu Échap → Paramètres, bouton « Mode debug ». Wiki en jeu : F1.
+- **Scripts de commandes** (préparer un cas à tester sans toucher au code) :
+  `CIVBUILDER_SEED=777 CIVBUILDER_SCRIPT=<scratchpad>/cas.txt cargo run --release` exécute les commandes
+  du fichier (console de debug, `debug_cmd.rs`), écrit les réponses dans `<scratchpad>/cas.reponses.txt`
+  et les captures à côté du script. Commencer par `trouver …` (coordonnées colonne ligne), puis
+  `aller`, `vue 3d`, `camera 300`, `capture nom`, modifications brutes (`terrain`, `relief`,
+  `altitude`, `temperature`, `pluie`, `pinceau`, `annuler` ; `~` devant pour un recalcul local :
+  température, biome, pics), `verifier` (incohérences ; 0 sur une carte générée), `regenerer eau|climat`
+  (l'eau ou toute la simulation refaite comme à la génération), `fleuve`, `unite creer|pv|pm|dette|soigner|supprimer`, `ville`, `tour n`,
+  `chemin`, et finir par `quitter`. `aide` et
+  `aide <commande>` donnent la liste et les valeurs possibles. Ajouter une commande : `SPECS` et
+  `parse` dans `debug_cmd.rs` (l'aide, la complétion et le wiki suivent) ; une commande qui agit
+  sur un objet du jeu commence par son nom (`unite pv`, famille complétée par Tab).
 
 ## Conventions du code
 - Modules de **logique pure** testés (génération : `plates.rs`, `erosion.rs`, `climate.rs`,

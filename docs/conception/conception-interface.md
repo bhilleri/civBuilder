@@ -150,3 +150,163 @@ ajouter des options il va se charger (la regénération du monde y prend déjà 
 ## Suite
 - D'autres paramètres trouveront leur rubrique dans cette page (son, interface, caméra) ; les
   options de carte (touche O) restent à part, car on les change en regardant la carte.
+
+# Console de debug et scripts de commandes (01/11/2026)
+
+## Demande de Benjamin
+Améliorer le mode debug pour qu'il serve aux agents IA autant qu'aux humains : changer les
+caractéristiques d'une case pour obtenir vite des cas testables, sans surcharger l'interface
+(terminal affichable, menu replié par défaut). Attention au rendu des cases voisines, aux cours
+d'eau et au climat. Le terminal doit proposer une **auto-complétion** et une **aide intégrée** ;
+le tout est documenté dans le wiki, **seulement en mode debug**.
+
+## Décisions
+- **Un seul langage de commandes**, en texte, pour la console du jeu, les scripts
+  (`CIVBUILDER_SCRIPT`) et les tests. Un agent écrit un fichier de commandes, lance le jeu, lit
+  les réponses et les captures, sans retoucher `capture.rs` pour chaque cas.
+- **Console repliée** : touche ² (à gauche du 1 en AZERTY, `Backquote`), seulement en mode
+  debug ; ² ou Échap referme. Rappel discret dans le bandeau du mode debug.
+- **Modifications brutes par défaut** : seul le champ demandé change. Les niveaux « local »
+  (biome, température d'altitude et neige recalculés sur la case et ses voisines) et
+  « régénération » (climat et eau relancés) viendront ensuite (voir Suite).
+- Cases en **coordonnées de la carte** (colonne, ligne), affichées en tête de l'infobulle en
+  mode debug.
+
+## Fonctionnement
+- `debug_cmd.rs` (pur, testé) : `SPECS` décrit chaque commande (arguments, nature, effet,
+  rubrique) ; l'aide (`aide`, `aide <commande>`), la complétion (Tab), la ligne d'aide sous la
+  saisie et la rubrique du wiki en sont tirées, elles restent donc à jour. Les valeurs se tapent
+  en un mot sans accent (`foret-temperee`, `vallonne`, `courants-marins`) ; un début de nom
+  suffit s'il est le seul (`foret`), un nom entier l'emporte (`savane` et non `savane-arboree`).
+- Réponses : première ligne `OK …` ou `ERREUR …`, puis lignes `clé=valeur`. `info` donne aussi
+  le coût d'un pas vers chaque voisine (`x` : infranchissable) et les falaises.
+- `Session` garde le pinceau, 20 copies de la carte pour `annuler` et le journal des commandes
+  réussies (`journal <fichier>` l'écrit en script, graine et taille en tête).
+- `console.rs` : panneau, touches (la saisie coupe les raccourcis du jeu, comme la recherche),
+  lecteur de script (une commande par image, `attendre n`, capture qui attend la fin de la
+  construction du relief 3D, `ReliefPending`, console cachée sur l'image), réponses écrites
+  dans le terminal et dans `<script>.reponses.txt`.
+- **Rendu des voisines** : une modification émet `MapEdited` avec les cases à moins de deux cases
+  des cases modifiées. En 3D, leur relief est refait (bosses et arêtes entre sommets partagées),
+  leur décor recréé (`spawn_decor`, limite des arbres recalculée), leurs formes d'eau refaites ;
+  en 2D, les motifs de relief sont redessinés (`spawn_relief_marks`) ; couleurs, pentes et eau
+  suivent le brouillard affiché, marqué changé deux images de suite.
+
+## Vérification
+Scripts sur la graine 777 : forêt de montagne voisine d'un pic trouvée, passée en jungle au
+pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac posés dans une plaine
+(falaise, eau, 2D et 3D), trois annulations qui rendent la carte d'origine, journal écrit.
+60 images par seconde console ouverte.
+
+## Étape 2 : modifications locales et vérification (01/11/2026)
+- **`~` devant une modification** : recalcul de ce qui en découle directement, sur la case et
+  ses voisines (`settle`) :
+  - altitude → température (gradient `LAPSE` du climat, -6,5 °C par 1 000 m), puis biome ; et
+    **relief recalculé comme à la génération** (décision de Benjamin, 01/11 : une montagne est
+    d'abord une dénivelée entre cases, pas une altitude). La génération note chaque case de terre :
+    45 % rang de la plus grande dénivelée avec une voisine, 30 % rang d'un bruit propre, 35 %
+    altitude (rapportée à 4 800 m) ; les 5 % mieux notées sont montagnes (au moins 1 500 m, sinon
+    accidentées), puis 8 % accidentées, 15 % collines ; un pic est un sommet local de montagne
+    (aucune voisine plus haute de 200 m) d'au moins 2 400 m, les plus hauts d'abord jusqu'à 1 % des
+    terres, jamais côte à côte. Comme le classement est relatif à toute la carte, la carte garde
+    la règle (`ReliefRule` : dénivelées et bruits triés, rangs de chaque case à la génération,
+    notes des dernières cases de chaque relief, altitude du plus bas pic) ; `natural_relief` note
+    une case avec les altitudes actuelles (rangs de la génération repris tant que la dénivelée
+    n'a pas changé : ex aequo départagés comme alors ; les lacs, venus après, comptent comme la
+    terre qu'ils couvrent). Test : sur les graines 777 et 2, 0 case de relief différent de la
+    génération. Après une modification locale, le relief des cases modifiées et de leurs voisines
+    est recalculé (`reshape`), puis les pics (un pic qui n'est plus un sommet assez haut redevient
+    montagne ; une montagne qui l'est devient pic, les plus hautes d'abord, jamais côte à côte) ;
+  - température, pluie → biome (`map::biome`, avec les saisons : une température ou une pluie
+    modifiée décale ou met à l'échelle celles des quatre saisons, même en brut) ;
+  - relief montagne ou pic → altitude relevée au minimum (1 500 ou 2 400 m, température et biome
+    suivent) ; un pic ramène ses voisins pics à des montagnes ; au pinceau, un seul pic au centre
+    et des montagnes autour (sinon chaque case rétrograderait la précédente) ;
+  - terrain : gardé tel quel (c'est une demande explicite) ; la réponse dit quel biome le climat
+    donnerait.
+  - Le biome n'est changé que s'il n'est plus cohérent : la génération fait varier l'aridité de
+    ±25 % d'une case à l'autre (sols, exposition), un biome est donc cohérent s'il est celui d'une
+    aridité entre 0,7 et 1,3 fois la vraie (`biome_fits`). Un marais demande un sol humide qui ne
+    gèle pas, bas et plat.
+- **`verifier [col lig [rayon]]`** : pics côte à côte, montagne ou pic trop bas, relief sur un
+  fleuve, biome que le climat ne donne pas, rivière qui remonte, cuvette sans lac, lac à deux
+  niveaux. Résumé par type, puis les 20 plus proches du centre de la vue.
+  - **Rivière qui remonte** : comparée au **niveau rempli** (inondation depuis la mer, file de
+    priorité : chaque case relevée au plus bas passage vers la mer). Dans une cuvette, l'eau monte
+    jusqu'au seuil ; comparer les altitudes brutes signalait 3 à 4 faux cas par carte.
+  - **Cuvette sans lac** : cases sous le niveau rempli, d'un seul tenant, traversées par plus de
+    1 m³/s, plus profondes que 20 m, sans lac ni petit lac : l'eau y monterait (barrage posé sur un
+    fleuve). En dessous de 20 m, la génération laisse un grand fleuve traverser une cuvette de
+    désert (graine 777 : 8 m sous le seuil, 1 600 m³/s).
+  - **Bilan** (`bilan_verifier`, 128 × 74) : 0 incohérence sur les graines 777, 2, 5 et 4242 ;
+    test : 0 sur 96 × 56 (777), et un barrage de 1 500 m sur un fleuve est signalé.
+- Vérifié en script (graine 777) : plaine relevée d'un bloc à 2 600 m au pinceau 2 → dessus
+  plat (forêt), bords accidentés ou montagnes, quatre pics sur le rebord ; une case seule à
+  3 500 m → pic, voisines vallonnées ou accidentées ; `verifier` : 0.
+- Vérifié en script (graine 777, avant le recalcul du relief) : plaine relevée à 2 800 m au pinceau (température 20 → 6 °C,
+  jungle et savane → forêt tempérée et prairie), pic au centre, montagnes autour ; à -8 °C,
+  toundra et neige en 3D ; `verifier` signale le fleuve coupé par le massif.
+
+## Étape 3 : refaire la simulation, préparer une partie (01/11/2026)
+- **Climat et eau extraits de la génération** : les étapes 4 à 8 (passes du climat avec les
+  courants marins, biomes, eaux peu profondes, cours d'eau et lacs, marais, noms, eaux
+  poissonneuses) sont une méthode, `simulate_climate_and_water`, appelée par la génération et par
+  `regenerer climat`. Elle repart de l'état d'avant le climat, gardé dans la carte
+  (`ClimateBase` : classes d'altitude et relief des terres, variation locale de l'aridité de
+  chaque case) ; les modifications de la console y sont reportées (altitude, relief imposé,
+  terre devenue mer). Vérification : empreinte de deux cartes générées (terrain, relief, niveau,
+  débit, pluie, surface, fleuves, noms, eaux poissonneuses) identique avant et après
+  (`empreinte_generation`).
+- `regenerer eau` : lacs et marais redeviennent la terre que donne leur climat, les reliefs
+  aplanis par un fleuve reviennent, puis hydrologie, marais, noms (0,1 s). `regenerer climat` :
+  tout (11 s sur 192 × 111 en release). Sur une carte intacte, les deux redonnent la carte à
+  l'identique (test) ; un barrage de 1 500 m sur un fleuve, puis `regenerer eau` : 0 incohérence
+  (lac ou détour). Après, étiquettes des cours d'eau et index de la recherche refaits
+  (`NamesChanged`).
+- Biome attendu : avec la variation locale de l'aridité gardée (`aridity_jitter`), la
+  vérification est exacte (0 sur une carte générée) ; l'intervalle 0,7 à 1,3 ne sert plus qu'aux
+  cartes sans génération.
+- `fleuve c l c l … [debit=]` : cases voisines liées par leurs arêtes, aval, débit (500 m³/s par
+  défaut), cases plates. Brut : ni bassin ni nom.
+- Partie : `unite <type> c l [hostile]` (refusée sur une case infranchissable ou occupée),
+  `ville c l` (règles de fondation), `supprimer c l`, `tour [n]` (fin de tour demandée, puis
+  attente du tour suivant et de la fin de ses animations, n fois ; le script attend aussi),
+  `chemin c l c l [unité]` (trajet le plus rapide avec les coûts de l'unité, sur la carte
+  entière : `find_path_turns`, `path_turns`).
+- Vérifié en script (graine 777) : fleuve tracé de 5 cases vers la mer, barrage puis
+  `regenerer eau` (lac derrière, cours d'eau détournés, carte du réseau refaite), `regenerer
+  climat` (0 case changée sur une carte intacte), cavalerie lourde, milice hostile, ville fondée,
+  chemin de 13 pas (arrivée au tour 6), deux tours joués (le guerrier hostile a bougé).
+
+## Commandes d'unité en famille (01/11/2026)
+- Demande de Benjamin : pouvoir retirer des PV à une unité ; et faire commencer ces commandes
+  par l'objet dont on parle (« unite soin »), l'auto-complétion les rend simples.
+- Famille `unite` : `creer <type> c l [hostile]`, `supprimer c l`, `pv c l n` (0 à 100 ; 0 :
+  dispersée, retirée de la carte, sans l'animation d'un combat), `pm c l n` (borné au maximum de
+  l'unité), `dette c l n` (PM dus ; l'immobilisation suit au tour suivant), `soigner c l` (PV, PM,
+  dette). Réponse : l'état obtenu (`lancier joueur en 89 45 pv=35/100 pm=0/2 dette=3`) ; `info`
+  ajoute l'unité de la case.
+- Langage : une commande peut avoir un nom en deux mots (`SPECS` : « unite pv ») ; `lookup` prend
+  le nom le plus long, `family` donne les sous-commandes : Tab sur `unite ` les propose, « aide
+  unite » les détaille, « unite 3 4 » répond quelles sous-commandes existent.
+- Vérifié en script (graine 777) : lancier blessé (barre de PV) et endetté (pastille « 1 »),
+  milice hostile dispersée à 0 PV, soin, suppression, tour joué.
+
+## Limites
+- `regenerer climat` gèle le jeu une dizaine de secondes (calcul sur l'image).
+- `regenerer` remplace les biomes et le climat modifiés à la main (ils viennent de la
+  simulation) ; un lac posé à la main disparaît si l'eau n'en fait pas un.
+- Brut : une forêt reste une forêt à 30 °C, un lac posé n'a pas d'exutoire, les cours d'eau ne
+  suivent pas l'altitude ; le coût des pas, lui, est recalculé.
+- Local : le nombre de pics n'est pas plafonné (1 % des terres à la génération) : le rebord d'un
+  plateau relevé au-dessus du plus bas pic de la carte peut en porter plusieurs. Décision de
+  Benjamin (01/11) : on garde ainsi, pas de plafond en mode local.
+- Local : l'évaporation potentielle ne suit pas la température (l'aridité ne change qu'avec la
+  pluie) ; le climat des voisines ne change pas (pas de pluie orographique, pas d'ombre
+  pluviométrique) ; les cours d'eau ne suivent jamais (étape 3 : `regenerer`).
+- Les rochers éboulés au pied des falaises ne sont pas refaits (une falaise créée n'en a pas).
+- Les noms (fleuves, lacs, mers) et les bassins versants ne changent pas.
+
+## Suite
+1. ~~Cohérence~~ : fait (étape 2, ci-dessus).
+2. ~~Simulation~~ : fait (étape 3, ci-dessus ; `riviere tracer` est devenu `fleuve`).

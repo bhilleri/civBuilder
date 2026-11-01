@@ -957,6 +957,7 @@ impl Plugin for RenderPlugin {
                 update_entity_visibility,
                 update_hp_bars,
                 sync_transforms,
+                refresh_edited_2d.before(update_tile_fog),
                 update_tile_fog,
                 update_turn_labels,
                 update_reach_overlay,
@@ -1088,15 +1089,17 @@ fn setup_map_visuals(
     };
 
     // Collines : petit motif de trois bosses (côté éclairé et ombre) sur la couleur du terrain
-    let bump = meshes.add(CircularSector::new(7.5, std::f32::consts::FRAC_PI_2));
-    let bump_light = materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.24)));
-    let bump_dark = materials.add(ColorMaterial::from_color(Color::srgba(0.0, 0.0, 0.0, 0.32)));
-    let rugged_dark = materials.add(ColorMaterial::from_color(Color::srgba(0.0, 0.0, 0.0, 0.48)));
-    let snow_cap = materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.9)));
-    // Sommet : triangle entier (ombre), moitié éclairée, calotte de neige
-    let peak_shade = meshes.add(Triangle2d::new(Vec2::new(-10.0, -8.0), Vec2::new(10.0, -8.0), Vec2::new(0.0, 9.0)));
-    let peak_lit = meshes.add(Triangle2d::new(Vec2::new(-10.0, -8.0), Vec2::new(0.0, -8.0), Vec2::new(0.0, 9.0)));
-    let peak_cap = meshes.add(Triangle2d::new(Vec2::new(-3.5, 3.0), Vec2::new(3.5, 3.0), Vec2::new(0.0, 9.0)));
+    let glyphs = ReliefGlyphs {
+        bump: meshes.add(CircularSector::new(7.5, std::f32::consts::FRAC_PI_2)),
+        bump_light: materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.24))),
+        bump_dark: materials.add(ColorMaterial::from_color(Color::srgba(0.0, 0.0, 0.0, 0.32))),
+        rugged_dark: materials.add(ColorMaterial::from_color(Color::srgba(0.0, 0.0, 0.0, 0.48))),
+        snow_cap: materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.9))),
+        // Sommet : triangle entier (ombre), moitié éclairée, calotte de neige
+        peak_shade: meshes.add(Triangle2d::new(Vec2::new(-10.0, -8.0), Vec2::new(10.0, -8.0), Vec2::new(0.0, 9.0))),
+        peak_lit: meshes.add(Triangle2d::new(Vec2::new(-10.0, -8.0), Vec2::new(0.0, -8.0), Vec2::new(0.0, 9.0))),
+        peak_cap: meshes.add(Triangle2d::new(Vec2::new(-3.5, 3.0), Vec2::new(3.5, 3.0), Vec2::new(0.0, 9.0))),
+    };
     for hex in map.0.hexes() {
         commands.spawn((
             Tile(hex),
@@ -1104,43 +1107,9 @@ fn setup_map_visuals(
             MeshMaterial2d(palette.unexplored.clone()),
             Transform::from_translation(hex_translation(hex, Z_TILE)),
         ));
-        // Relief : bosses (collines), bosses serrées et plus marquées (accidenté), sommets
-        // triangulaires (montagne), grand sommet enneigé (pic)
-        let mut glyph = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, at: Vec3, k: f32| {
-            commands.spawn((
-                HillMark(hex),
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_translation(at).with_scale(Vec3::splat(k)),
-                Visibility::Hidden,
-            ));
-        };
-        let base = hex_translation(hex, Z_HILLS);
-        let bumps: &[(f32, f32, f32)] = match map.0.relief(hex) {
-            Relief::Hills => &[(-9.0, -4.0, 1.0), (8.0, -6.0, 0.85), (0.0, 8.0, 0.8)],
-            Relief::Rugged => &[(-10.0, -5.0, 0.8), (-1.0, -8.0, 0.75), (9.0, -3.0, 0.8), (-5.0, 6.0, 0.75), (6.0, 8.0, 0.7)],
-            _ => &[],
-        };
-        let dark = if map.0.relief(hex) == Relief::Rugged { &rugged_dark } else { &bump_dark };
-        for &(dx, dy, k) in bumps {
-            let at = base + Vec3::new(dx, dy, 0.0);
-            glyph(&bump, dark, at + Vec3::new(1.5, -1.0, 0.0), k);
-            glyph(&bump, &bump_light, at + Vec3::Z * 0.01, k);
-        }
-        let peaks: &[(f32, f32, f32)] = match map.0.relief(hex) {
-            Relief::Mountain => &[(-7.0, -3.0, 0.8), (7.0, 1.0, 0.95)],
-            Relief::Peak => &[(0.0, -2.0, 1.45)],
-            _ => &[],
-        };
-        for &(dx, dy, k) in peaks {
-            let at = base + Vec3::new(dx, dy, 0.0);
-            glyph(&peak_shade, &bump_dark, at, k);
-            glyph(&peak_lit, &bump_light, at + Vec3::Z * 0.01, k);
-            if map.0.relief(hex) == Relief::Peak {
-                glyph(&peak_cap, &snow_cap, at + Vec3::Z * 0.02, k);
-            }
-        }
+        spawn_relief_marks(&mut commands, &glyphs, map.0.relief(hex), hex, Visibility::Hidden);
     }
+    commands.insert_resource(glyphs);
     commands.insert_resource(palette);
     commands.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.03)));
 }
@@ -1148,6 +1117,84 @@ fn setup_map_visuals(
 /// Motif de collines d'une case (visible une fois la case explorée).
 #[derive(Component)]
 struct HillMark(Hex);
+
+/// Maillages et matériaux des motifs de relief (gardés pour redessiner une case modifiée).
+#[derive(Resource)]
+struct ReliefGlyphs {
+    bump: Handle<Mesh>,
+    bump_light: Handle<ColorMaterial>,
+    bump_dark: Handle<ColorMaterial>,
+    rugged_dark: Handle<ColorMaterial>,
+    snow_cap: Handle<ColorMaterial>,
+    peak_shade: Handle<Mesh>,
+    peak_lit: Handle<Mesh>,
+    peak_cap: Handle<Mesh>,
+}
+
+/// Motif du relief d'une case : bosses (collines), bosses serrées et plus marquées (accidenté),
+/// sommets triangulaires (montagne), grand sommet enneigé (pic).
+fn spawn_relief_marks(commands: &mut Commands, g: &ReliefGlyphs, relief: Relief, hex: Hex, visibility: Visibility) {
+    let mut glyph = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, at: Vec3, k: f32| {
+        commands.spawn((
+            HillMark(hex),
+            Mesh2d(mesh.clone()),
+            MeshMaterial2d(material.clone()),
+            Transform::from_translation(at).with_scale(Vec3::splat(k)),
+            visibility,
+        ));
+    };
+    let base = hex_translation(hex, Z_HILLS);
+    let bumps: &[(f32, f32, f32)] = match relief {
+        Relief::Hills => &[(-9.0, -4.0, 1.0), (8.0, -6.0, 0.85), (0.0, 8.0, 0.8)],
+        Relief::Rugged => &[(-10.0, -5.0, 0.8), (-1.0, -8.0, 0.75), (9.0, -3.0, 0.8), (-5.0, 6.0, 0.75), (6.0, 8.0, 0.7)],
+        _ => &[],
+    };
+    let dark = if relief == Relief::Rugged { &g.rugged_dark } else { &g.bump_dark };
+    for &(dx, dy, k) in bumps {
+        let at = base + Vec3::new(dx, dy, 0.0);
+        glyph(&g.bump, dark, at + Vec3::new(1.5, -1.0, 0.0), k);
+        glyph(&g.bump, &g.bump_light, at + Vec3::Z * 0.01, k);
+    }
+    let peaks: &[(f32, f32, f32)] = match relief {
+        Relief::Mountain => &[(-7.0, -3.0, 0.8), (7.0, 1.0, 0.95)],
+        Relief::Peak => &[(0.0, -2.0, 1.45)],
+        _ => &[],
+    };
+    for &(dx, dy, k) in peaks {
+        let at = base + Vec3::new(dx, dy, 0.0);
+        glyph(&g.peak_shade, &g.bump_dark, at, k);
+        glyph(&g.peak_lit, &g.bump_light, at + Vec3::Z * 0.01, k);
+        if relief == Relief::Peak {
+            glyph(&g.peak_cap, &g.snow_cap, at + Vec3::Z * 0.02, k);
+        }
+    }
+}
+
+/// Cases modifiées (console de debug) : motifs de relief redessinés (couleurs et pentes suivent
+/// le brouillard affiché, marqué changé par la console).
+fn refresh_edited_2d(
+    mut commands: Commands,
+    mut edited: MessageReader<crate::console::MapEdited>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    glyphs: Option<Res<ReliefGlyphs>>,
+    marks: Query<(Entity, &HillMark)>,
+) {
+    let cells: HashSet<Hex> = edited.read().flat_map(|e| e.0.iter().copied()).collect();
+    let Some(glyphs) = glyphs else { return };
+    if cells.is_empty() {
+        return;
+    }
+    for (e, mark) in &marks {
+        if cells.contains(&mark.0) {
+            commands.entity(e).despawn();
+        }
+    }
+    for &h in &cells {
+        let visibility = if fog.explored.contains(&h) { Visibility::Inherited } else { Visibility::Hidden };
+        spawn_relief_marks(&mut commands, &glyphs, map.0.relief(h), h, visibility);
+    }
+}
 
 fn update_tile_fog(
     fog: Res<ShownFog>,

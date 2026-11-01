@@ -1026,6 +1026,7 @@ fn update_hover_text(
     feature: Res<crate::highlight::HoveredFeature>,
     config: Res<crate::tooltip::TooltipConfig>,
     mut text: Single<&mut Text, With<HoverText>>,
+    debug: Res<crate::game::DebugMode>,
 ) {
     use crate::tooltip::Info;
     let shows = |info: Info| config.shows(*layer, info);
@@ -1158,6 +1159,12 @@ fn update_hover_text(
         None if feature.0.is_some() => network_note(&map.0, &fog, feature.0).trim_start_matches('\n').to_string(),
         None => "—".into(),
     };
+    // Mode debug : coordonnées de la case, telles que les attend la console (colonne, ligne)
+    if debug.0
+        && let Some(h) = hovered.0.filter(|&h| map.0.contains(map.0.canonical(h)))
+    {
+        content = format!("[{}] {content}", crate::debug_cmd::coords(&map.0, h));
+    }
     if let Some(h) = hovered.0 {
         if fog.explored.contains(&h) && villages.iter().any(|p| p.0 == h) {
             content += "\nVillage : une visite peut rapporter des habitants, de l'or… ou des ennuis";
