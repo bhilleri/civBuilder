@@ -4,6 +4,7 @@
 
 ### Un monde moins sec
 - **Plus de pluie sous les tropiques, déserts mieux placés** : les orages tropicaux montent plus haut (sommet des nuages selon la chaleur, jusqu'à 14 km) et font pleuvoir l'essentiel de la vapeur au lieu de l'exporter en altitude vers les latitudes moyennes. Désert 13 → 12 % / 20 → 18 % / 27 → 22 % des terres (graines 777 / 2 / 4242), jungle 3 → 5 % / 4 → 6 % / 1 → 3 % ; presque plus de désert à l'équateur ; les latitudes 20-40°, auparavant trop arrosées, s'assèchent (comme les déserts subtropicaux terrestres). Fleuves un peu moins abondants (graine 777 : ruissellement −10 %).
+- **Vent plus calme près de l'équateur** : là où la rotation ne dévie plus l'air, le vent ne descend plus la pente de pression à pleine vitesse (convergence de l'air divisée par 2 à 3). L'air marin équatorial reste plus humide, l'équateur a moins de saisons sèches. Au total : désert 13 → 11 % / 20 → 17 % / 27 → 20 %, jungle 3 → 6 % / 4 → 6,5 % / 1 → 5 % (graines 777 / 2 / 4242).
 - Bilan `bilan_aridite` : pluie, ETP, aridité, humidité de l'air sur mer et sur terre, biomes et altitude par bande de latitude, désert selon la distance à la mer.
 - Les mondes changent, à graine égale.
 

@@ -275,8 +275,9 @@ fn climate() -> Article {
             p("Le vent naît des différences de pression : ceintures alternées de hautes et basses pressions, effet des \
                continents (une terre chaude attire l'air, une terre froide le repousse), dépressions et anticyclones \
                mobiles qui changent tous les dix jours simulés. L'air va des hautes vers les basses pressions en \
-               étant fortement dévié par la rotation de la planète (vers la droite au nord, vers la gauche au sud). En \
-               altitude, les vents soufflent surtout de l'ouest. Les grandes cellules de circulation font descendre \
+               étant fortement dévié par la rotation de la planète (vers la droite au nord, vers la gauche au sud). Près \
+               de l'équateur, la rotation ne dévie presque plus l'air, mais les écarts de pression y restent faibles : \
+               le vent y descend la pente de pression sans s'emballer. En altitude, les vents soufflent surtout de l'ouest. Les grandes cellules de circulation font descendre \
                l'air vers 30° de latitude (anticyclones) et monter à l'équateur et vers 60°. L'air qui converge \
                quelque part doit monter, celui qui diverge est remplacé par de l'air qui descend."),
             table_icons(&["Latitude", "Effet", "Circulation"], belts),

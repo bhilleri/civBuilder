@@ -57,6 +57,13 @@ const MARITIME_RADIUS_KM: f32 = 250.0;
 /// Déviation du vent de surface par rapport à la pente de pression (degrés) : il franchit les
 /// isobares sous un angle de 10 à 20° sur mer, 25 à 45° sur terre (frottement).
 const CROSS_ISOBAR_DEFLECTION: f32 = 84.0;
+/// Près de l'équateur, la déviation s'annule : sans plafond, tout le vent descendrait la pente
+/// de pression et l'air convergerait 15 à 20 fois plus qu'ailleurs (l'équateur thermique, décalé
+/// de 10° avec les saisons, laisse une forte pente sur l'équateur). Dans les vrais tropiques, les
+/// écarts de pression restent faibles faute de force de Coriolis pour les tenir. La part du vent
+/// qui descend la pente est donc plafonnée à cette fraction de la pente (comme une déviation
+/// d'au moins ~72°) ; la part qui longe les isobares ne change pas.
+const EQUATORIAL_CROSS_FLOW_MAX: f32 = 0.3;
 /// Déplacement des ceintures de pression avec le soleil (part de sa latitude) : la ceinture de
 /// pluies équatoriale va de ~5° (océans) à ~15° (continents) au fil de l'année.
 const SEASONAL_SHIFT: f32 = 0.45;
@@ -620,7 +627,11 @@ fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], gro
     let mut surface: Vec<(f32, f32)> = (0..n)
         .map(|i| {
             let (gx, gy) = grid.gradient(&pressure, i);
-            rotate((-gx, -gy), deflect(grid.lat[i], CROSS_ISOBAR_DEFLECTION))
+            let a = deflect(grid.lat[i], CROSS_ISOBAR_DEFLECTION);
+            let (x, y) = rotate((-gx, -gy), a);
+            // Part qui descend la pente plafonnée (`EQUATORIAL_CROSS_FLOW_MAX`)
+            let cut = a.cos() - a.cos().min(EQUATORIAL_CROSS_FLOW_MAX);
+            (x + cut * gx, y + cut * gy)
         })
         .collect();
     let mut speeds: Vec<f32> = surface.iter().map(|w| w.0.hypot(w.1)).collect();
