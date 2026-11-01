@@ -267,7 +267,38 @@ struct SeaName {
     tint: (f32, f32, f32),
     /// Part de la largeur du nom que la zone doit couvrir à l'écran pour le porter.
     fit: f32,
+    /// Importance dans son rang (nombre de cases) : les plus grandes zones d'abord.
+    weight: usize,
+    /// Nom courbé le long de l'axe de la zone (chaîne, massif, golfe allongés).
+    curve: Option<Curve>,
 }
+
+/// Nom courbé : une lettre par nœud, posées et tournées le long de l'axe de la zone.
+struct Curve {
+    letters: Vec<Entity>,
+    /// Cases de l'axe (d'un seul tenant, raccord compris) et points lissés (monde 2D).
+    hexes: Vec<Hex>,
+    points: Vec<Vec2>,
+    /// Espace ajouté entre deux lettres (pixels).
+    gap: f32,
+}
+
+/// Lettre d'un nom courbé.
+#[derive(Component)]
+struct CurvedLetter;
+
+/// Quotas de noms de zones à l'écran par rang (0 : océans et continents… 4 : îlots), pour un
+/// écran de `QUOTA_SCREEN` pixels logiques : une densité régulière, les plus grandes zones d'abord.
+const AREA_QUOTA: [f32; 5] = [8.0, 10.0, 12.0, 16.0, 20.0];
+const QUOTA_SCREEN: f32 = 1600.0 * 900.0;
+/// Écart minimal entre deux noms de zones (pixels, en plus de `LABEL_MARGIN`).
+const AREA_GAP: f32 = 6.0;
+/// Un nom courbé : l'axe doit être plus long que le nom d'au moins cette part ; d'une lettre à la
+/// suivante, l'axe ne tourne pas de plus de tant (radians), sinon le nom reste droit.
+const CURVE_SLACK: f32 = 1.1;
+const CURVE_MAX_TURN: f32 = 0.5;
+/// Un nom courbé ne penche pas de plus de tant (radians, 60°) : plus raide, il se lit mal.
+const CURVE_MAX_TILT: f32 = 1.05;
 
 /// Style d'un nom d'étendue marine : capitales espacées pour les océans et les mers, italique
 /// bleu pour toutes ; taille et zoom selon l'importance.
@@ -346,7 +377,7 @@ const SEA_NAME_REPEAT_CELLS: usize = 2_500;
 const SEA_NAME_SPACING: i32 = 35;
 
 /// Une étiquette par étendue marine (refaites si la carte change de monde).
-fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<SeaName>>) {
+fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, Or<(With<SeaName>, With<CurvedLetter>)>>) {
     if !map.is_added() {
         return;
     }
@@ -376,6 +407,22 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
         let (style, fit) = region_style(zone.cells.len(), zone.parent.is_some(), split);
         (first_region + z, &zone.name, style, fit, 1, MapTarget::Region(z))
     });
+    // Zone de chaque nom (cases), pour son importance et son axe
+    let cells_of = |target: MapTarget| -> &[usize] {
+        match target {
+            MapTarget::Sea(z) => &seas.zones[z].cells,
+            MapTarget::Land(z) => &map.0.lands().zones[z].cells,
+            MapTarget::Relief(z) => &reliefs.zones[z].cells,
+            MapTarget::Region(z) => &regions.zones[z].cells,
+            _ => &[],
+        }
+    };
+    // Noms courbés le long de leur zone : chaînes, massifs, golfes
+    let curved = |target: MapTarget| match target {
+        MapTarget::Sea(z) => seas.zones[z].kind == crate::seas::SeaKind::Gulf,
+        MapTarget::Relief(z) => matches!(reliefs.zones[z].kind, crate::mountains::ReliefKind::Range | crate::mountains::ReliefKind::Massif),
+        _ => false,
+    };
     for (area, name, (size, spacing, caps, min_px, max_px, rank), fit, copies, target) in sea_names.chain(land_names).chain(relief_names).chain(region_names) {
         let (family, tint) = match target {
             MapTarget::Land(_) => (AreaFamily::Land, LAND_NAME_COLOR),
@@ -389,9 +436,33 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
             false => (TextFont { font_size: size.into(), style: bevy::text::FontStyle::Italic, ..TextFont::from_font_size(size) }, Color::srgba(0.0, 0.03, 0.08, 0.8)),
             true => (TextFont::from_font_size(size), Color::srgba(0.06, 0.04, 0.01, 0.85)),
         };
+        let cells = cells_of(target);
+        let hexes = if curved(target) { map.0.zone_spine(cells) } else { Vec::new() };
         for copy in 0..copies {
+            let curve = (!hexes.is_empty()).then(|| {
+                let letters = text
+                    .chars()
+                    .map(|ch| {
+                        commands
+                            .spawn((
+                                CurvedLetter,
+                                (TargetButton::new(target), Interaction::default()),
+                                Node { position_type: PositionType::Absolute, ..default() },
+                                UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
+                                Text::new(ch.to_string()),
+                                font.clone(),
+                                TextColor(Color::NONE),
+                                TextShadow { offset: Vec2::new(1.0, 1.0), color: shadow },
+                                GlobalZIndex(-4),
+                                Visibility::Hidden,
+                            ))
+                            .id()
+                    })
+                    .collect();
+                Curve { letters, hexes: hexes.clone(), points: smooth_line(&hexes), gap: spacing * size }
+            });
             commands.spawn((
-                SeaName { zone: area, copy, min_px, max_px, rank, family, tint, fit },
+                SeaName { zone: area, copy, min_px, max_px, rank, family, tint, fit, weight: cells.len(), curve },
                 (TargetButton::new(target), Interaction::default()),
                 Node { position_type: PositionType::Absolute, ..default() },
                 UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
@@ -407,22 +478,102 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
     }
 }
 
-/// Noms des étendues marines : sur la partie explorée la plus éloignée de leurs bords, à leur
-/// niveau de zoom (fondu aux bords de la plage), si l'étendue est assez large à l'écran pour son
-/// nom, sans chevaucher un nom plus important.
+/// Axe lissé d'une zone (points du monde 2D) : chaque case de l'axe, moyennée avec ses voisines
+/// le long de l'axe (deux passes sur cinq cases), les bouts gardés.
+fn smooth_line(hexes: &[Hex]) -> Vec<Vec2> {
+    let mut points: Vec<Vec2> = hexes.iter().map(|h| Vec2::from(h.to_world())).collect();
+    for _ in 0..2 {
+        let before = points.clone();
+        for i in 1..points.len().saturating_sub(1) {
+            let (a, b) = (i.saturating_sub(2), (i + 2).min(points.len() - 1));
+            points[i] = before[a..=b].iter().copied().sum::<Vec2>() / (b - a + 1) as f32;
+        }
+    }
+    points
+}
+
+/// Point et direction d'une ligne brisée à la distance `s` de son début (pixels).
+fn along(line: &[Vec2], s: f32) -> (Vec2, Vec2) {
+    let mut left = s.max(0.0);
+    for w in line.windows(2) {
+        let step = w[1] - w[0];
+        let len = step.length();
+        if left <= len && len > 0.0 {
+            return (w[0] + step * (left / len), step / len);
+        }
+        left -= len;
+    }
+    let n = line.len();
+    (line[n - 1], (line[n - 1] - line[n.saturating_sub(2)]).normalize_or_zero())
+}
+
+/// Lettres d'un nom courbé le long d'une ligne à l'écran (lue de gauche à droite), centrées sur la
+/// ligne : position et angle de chaque lettre (largeurs `widths`, espace `gap`). Aucune si la ligne
+/// est trop courte pour le nom, tourne trop d'une lettre à l'autre ou penche trop.
+fn curve_letters(line: &[Vec2], widths: &[f32], gap: f32) -> Option<Vec<(Vec2, f32)>> {
+    let mut line = line.to_vec();
+    if line.len() < 2 {
+        return None;
+    }
+    // (jamais à l'envers)
+    if line[line.len() - 1].x < line[0].x {
+        line.reverse();
+    }
+    let length: f32 = line.windows(2).map(|w| w[0].distance(w[1])).sum();
+    let text = widths.iter().sum::<f32>() + gap * widths.len().saturating_sub(1) as f32;
+    if length < text * CURVE_SLACK {
+        return None;
+    }
+    let mut s = (length - text) / 2.0;
+    let mut out: Vec<(Vec2, f32)> = Vec::with_capacity(widths.len());
+    for &w in widths {
+        let (at, _) = along(&line, s + w / 2.0);
+        // Direction sur la largeur de la lettre (plus stable qu'au point même)
+        let (before, _) = along(&line, s);
+        let (after, _) = along(&line, s + w.max(4.0));
+        let dir = after - before;
+        let angle = dir.y.atan2(dir.x);
+        if angle.abs() > CURVE_MAX_TILT {
+            return None;
+        }
+        if let Some(&(_, prev)) = out.last() {
+            let mut turn = (angle - prev).abs();
+            if turn > std::f32::consts::PI {
+                turn = std::f32::consts::TAU - turn;
+            }
+            if turn > CURVE_MAX_TURN {
+                return None;
+            }
+        }
+        out.push((at, angle));
+        s += w + gap;
+    }
+    Some(out)
+}
+
+/// Noms des zones (étendues marines, terres, relief, régions) : sur la partie explorée la plus
+/// éloignée de leurs bords, à leur niveau de zoom (fondu aux bords de la plage), si la zone est
+/// assez large à l'écran pour son nom, sans chevaucher un nom plus important, dans le quota de son
+/// rang (les plus grandes zones d'abord). Une chaîne, un massif ou un golfe allongés ont leur nom
+/// courbé le long de leur axe quand il est entièrement exploré et assez long à l'écran.
+/// Le niveau de zoom est celui du centre de la vue, le même pour tous les noms : en 3D, les cases
+/// proches de la caméra paraissent plus grandes que les lointaines, et les grands noms (océans,
+/// continents) s'effaçaient au premier plan au profit des noms de petites zones.
 #[allow(clippy::too_many_arguments)]
 fn place_sea_names(
     mode: Res<ViewMode>,
+    cam3d: Res<crate::view3d::Cam3d>,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     filter: Res<LabelFilter>,
     cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     mut names: Query<(&SeaName, &mut Node, &mut Visibility, &mut TextColor, &ComputedNode), Without<RiverName>>,
+    mut letters: Query<(&mut Node, &mut UiTransform, &mut Visibility, &mut TextColor, &ComputedNode), (With<CurvedLetter>, Without<SeaName>, Without<RiverName>)>,
     mut spots: Local<Vec<Vec<Hex>>>,
 ) {
     let seas = map.0.seas();
-    // Zones des noms : étendues marines puis terres (cases, distance au bord, demi-largeur, nombre
-    // de copies du nom)
+    // Zones des noms : étendues marines puis terres, relief, régions (cases, distance au bord,
+    // demi-largeur, nombre de copies du nom)
     let areas: Vec<(&[usize], &[u16], f32, usize)> = seas
         .zones
         .iter()
@@ -461,56 +612,96 @@ fn place_sea_names(
             .collect();
     }
     let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
+    // Quotas à la taille de l'écran
+    let viewport = camera.and_then(|(c, ..)| c.logical_viewport_size()).unwrap_or(Vec2::new(1600.0, 900.0));
+    let screen = viewport.x * viewport.y;
+    // (seuls les noms à l'écran comptent dans les quotas)
+    let on_screen = |r: &ScreenRect| r.min.x < viewport.x && r.min.y < viewport.y && r.min.x + r.size.x > 0.0 && r.min.y + r.size.y > 0.0;
+    let quota = |rank: u8| (AREA_QUOTA[usize::from(rank).min(AREA_QUOTA.len() - 1)] * screen / QUOTA_SCREEN).round().max(1.0) as usize;
+    let mut per_rank = [0usize; AREA_QUOTA.len()];
+    // Niveau de zoom de la vue : taille à l'écran d'une case au point visé par la caméra
+    let view_px = camera.and_then(|(cam, transform, _)| {
+        let global = GlobalTransform::from(*transform);
+        let focus = if mode.is_3d { cam3d.target } else { Vec3::new(transform.translation.x, transform.translation.y, 0.0) };
+        let a = cam.world_to_viewport(&global, focus).ok()?;
+        let b = cam.world_to_viewport(&global, focus + transform.right() * crate::hex::HEX_SIZE).ok()?;
+        Some(a.distance(b).max(0.01))
+    });
     let mut order: Vec<_> = names.iter_mut().collect();
-    order.sort_by_key(|(n, ..)| (n.rank, n.copy, n.zone));
+    order.sort_by_key(|(n, ..)| (n.rank, n.copy, std::cmp::Reverse(n.weight), n.zone));
     let mut placed: Vec<ScreenRect> = Vec::new();
     for (name, mut node, mut vis, mut color, computed) in order {
         let tint = name.tint;
-        let mut shown = None;
+        // (centre du nom droit, alpha) ou (lettres du nom courbé, alpha)
+        let mut straight = None;
+        let mut bent: Option<(Vec<(Vec2, f32)>, f32)> = None;
         let wanted = match name.family {
             AreaFamily::Sea => filter.seas,
             AreaFamily::Land => filter.lands,
             AreaFamily::Relief => filter.reliefs,
             AreaFamily::Region => filter.regions,
         };
-        if let (Some((camera, transform, _)), true, Some(hex)) = (camera, wanted, spots.get(name.zone).and_then(|a| a.get(name.copy))) {
+        let rank = usize::from(name.rank).min(AREA_QUOTA.len() - 1);
+        if let (Some((camera, transform, _)), true, Some(hex)) = (camera, wanted && per_rank[rank] < quota(name.rank), spots.get(name.zone).and_then(|a| a.get(name.copy))) {
             let cam_global = GlobalTransform::from(*transform);
-            let world = if mode.is_3d {
-                to_3d(*hex, shown_height(&map, &fog, *hex) + 2.0)
-            } else {
-                let (x, y) = hex.to_world();
-                Vec3::new(x, y, 0.0)
-            };
-            let world = near_camera(&map, world, transform.translation.x);
+            let lift = |h: Hex, p: Vec2| if mode.is_3d { Vec3::new(p.x, shown_height(&map, &fog, h) + 2.0, -p.y) } else { Vec3::new(p.x, p.y, 0.0) };
+            let world = near_camera(&map, lift(*hex, Vec2::from(hex.to_world())), transform.translation.x);
             if let Ok(center) = camera.world_to_viewport(&cam_global, world)
                 && let Ok(edge) = camera.world_to_viewport(&cam_global, world + transform.right() * crate::hex::HEX_SIZE)
             {
+                // Taille d'une case au nom (le nom tient-il dans sa zone ?) et niveau de zoom de la vue
                 let px = edge.distance(center).max(0.01);
+                let level = view_px.unwrap_or(px);
                 // Fondu aux bords de la plage de zoom
-                let fade_in = if name.min_px <= 0.0 { 1.0 } else { ((px - name.min_px * 0.8) / (name.min_px * 0.4)).clamp(0.0, 1.0) };
-                let fade_out = ((name.max_px * 1.2 - px) / (name.max_px * 0.4)).clamp(0.0, 1.0);
+                let fade_in = if name.min_px <= 0.0 { 1.0 } else { ((level - name.min_px * 0.8) / (name.min_px * 0.4)).clamp(0.0, 1.0) };
+                let fade_out = ((name.max_px * 1.2 - level) / (name.max_px * 0.4)).clamp(0.0, 1.0);
                 let alpha = fade_in.min(fade_out);
-                let size = logical_size(computed, Vec2::new(80.0, 20.0));
-                // La zone doit être assez large à l'écran pour son nom
-                let half_width = areas[name.zone].2 / crate::hex::HEX_SIZE * px;
-                let fits = half_width * 2.0 >= size.x * name.fit;
-                let rect = ScreenRect { min: center - size / 2.0, size };
-                if alpha > 0.02 && fits && !placed.iter().any(|r| r.overlaps(&rect)) {
-                    placed.push(rect);
-                    shown = Some((center, alpha));
+                // Nom courbé : axe exploré, projeté à l'écran (d'un seul tenant près de la caméra)
+                let curve = name.curve.as_ref().filter(|c| alpha > 0.02 && c.hexes.iter().all(|h| fog.explored.contains(&map.0.canonical(*h))));
+                if let Some(curve) = curve {
+                    let mid = curve.points[curve.points.len() / 2];
+                    let shift = near_camera(&map, Vec3::new(mid.x, 0.0, 0.0), transform.translation.x).x - mid.x;
+                    let line: Option<Vec<Vec2>> = curve.hexes.iter().zip(&curve.points).map(|(&h, &p)| camera.world_to_viewport(&cam_global, lift(h, p + Vec2::new(shift, 0.0))).ok()).collect();
+                    let sizes: Vec<Vec2> = curve.letters.iter().map(|&e| letters.get(e).map_or(Vec2::ZERO, |l| logical_size(l.4, Vec2::ZERO))).collect();
+                    if let Some(line) = line
+                        && sizes.iter().all(|s| s.x > 0.0)
+                        && let Some(spots) = curve_letters(&line, &sizes.iter().map(|s| s.x).collect::<Vec<_>>(), curve.gap)
+                    {
+                        let height = sizes.iter().map(|s| s.y).fold(0.0, f32::max);
+                        let (lo, hi) = spots.iter().fold((Vec2::MAX, Vec2::MIN), |(lo, hi), (p, _)| (lo.min(*p), hi.max(*p)));
+                        let rect = ScreenRect { min: lo - Vec2::splat(height / 2.0 + AREA_GAP), size: hi - lo + Vec2::splat(height + 2.0 * AREA_GAP) };
+                        if on_screen(&rect) && !placed.iter().any(|r| r.overlaps(&rect)) {
+                            placed.push(rect);
+                            bent = Some((spots, alpha));
+                        }
+                    }
+                }
+                if bent.is_none() {
+                    let size = logical_size(computed, Vec2::new(80.0, 20.0));
+                    // La zone doit être assez large à l'écran pour son nom
+                    let half_width = areas[name.zone].2 / crate::hex::HEX_SIZE * px;
+                    let fits = half_width * 2.0 >= size.x * name.fit;
+                    let rect = ScreenRect { min: center - size / 2.0 - Vec2::splat(AREA_GAP), size: size + Vec2::splat(2.0 * AREA_GAP) };
+                    if alpha > 0.02 && fits && on_screen(&rect) && !placed.iter().any(|r| r.overlaps(&rect)) {
+                        placed.push(rect);
+                        straight = Some((center, alpha));
+                    }
                 }
             }
         }
-        match shown {
+        if straight.is_some() || bent.is_some() {
+            per_rank[rank] += 1;
+        }
+        let shade = |alpha: f32| Color::srgba(tint.0, tint.1, tint.2, alpha * 0.9);
+        match straight {
             Some((p, alpha)) => {
                 let (left, top) = (Val::Px(p.x.round()), Val::Px(p.y.round()));
                 if node.left != left || node.top != top {
                     node.left = left;
                     node.top = top;
                 }
-                let c = Color::srgba(tint.0, tint.1, tint.2, alpha * 0.9);
-                if color.0 != c {
-                    color.0 = c;
+                if color.0 != shade(alpha) {
+                    color.0 = shade(alpha);
                 }
                 if *vis != Visibility::Inherited {
                     *vis = Visibility::Inherited;
@@ -519,6 +710,36 @@ fn place_sea_names(
             None => {
                 if *vis != Visibility::Hidden {
                     *vis = Visibility::Hidden;
+                }
+            }
+        }
+        // Lettres du nom courbé : posées et tournées le long de l'axe, ou cachées
+        if let Some(curve) = &name.curve {
+            for (i, &e) in curve.letters.iter().enumerate() {
+                let Ok((mut node, mut transform, mut vis, mut color, _)) = letters.get_mut(e) else { continue };
+                match bent.as_ref().and_then(|(spots, alpha)| spots.get(i).map(|s| (*s, *alpha))) {
+                    Some(((p, angle), alpha)) => {
+                        let (left, top) = (Val::Px(p.x.round()), Val::Px(p.y.round()));
+                        if node.left != left || node.top != top {
+                            node.left = left;
+                            node.top = top;
+                        }
+                        let rotation = Rot2::radians(angle);
+                        if transform.rotation != rotation {
+                            transform.rotation = rotation;
+                        }
+                        if color.0 != shade(alpha) {
+                            color.0 = shade(alpha);
+                        }
+                        if *vis != Visibility::Inherited {
+                            *vis = Visibility::Inherited;
+                        }
+                    }
+                    None => {
+                        if *vis != Visibility::Hidden {
+                            *vis = Visibility::Hidden;
+                        }
+                    }
                 }
             }
         }
@@ -1204,4 +1425,34 @@ pub(crate) fn near_camera(map: &GameMap, p: Vec3, camera_x: f32) -> Vec3 {
         return p;
     }
     Vec3::new(p.x + ((camera_x - p.x) / world).round() * world, p.y, p.z)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lettres_le_long_d_une_ligne() {
+        let widths = [10.0; 5];
+        // Ligne droite de 200 px : lettres centrées, alignées, à plat
+        let flat = curve_letters(&[Vec2::new(0.0, 50.0), Vec2::new(200.0, 50.0)], &widths, 2.0).expect("assez de place");
+        assert_eq!(flat.len(), 5);
+        assert!(flat.windows(2).all(|w| w[1].0.x > w[0].0.x), "de gauche à droite");
+        assert!(flat.iter().all(|(p, a)| (p.y - 50.0).abs() < 0.01 && a.abs() < 0.01));
+        let middle = (flat[0].0.x + flat[4].0.x) / 2.0;
+        assert!((middle - 100.0).abs() < 0.5, "centré : {middle}");
+        // Trop courte pour le nom
+        assert!(curve_letters(&[Vec2::new(0.0, 0.0), Vec2::new(50.0, 0.0)], &widths, 2.0).is_none());
+        // Tracée de droite à gauche : lue quand même de gauche à droite, jamais à l'envers
+        let back = curve_letters(&[Vec2::new(200.0, 0.0), Vec2::new(0.0, 0.0)], &widths, 2.0).unwrap();
+        assert!(back[0].0.x < back[4].0.x && back.iter().all(|(_, a)| a.abs() < 0.01));
+        // En pente douce : les lettres suivent la pente
+        let slope = curve_letters(&[Vec2::new(0.0, 0.0), Vec2::new(200.0, 100.0)], &widths, 2.0).unwrap();
+        assert!(slope.iter().all(|(_, a)| (a - 0.5f32.atan()).abs() < 0.01));
+        // Un coude à angle droit sous le nom : il reste droit
+        let elbow = [Vec2::new(0.0, 0.0), Vec2::new(60.0, 0.0), Vec2::new(60.0, 60.0)];
+        assert!(curve_letters(&elbow, &widths, 2.0).is_none());
+        // Presque verticale : il reste droit
+        assert!(curve_letters(&[Vec2::new(0.0, 0.0), Vec2::new(20.0, 200.0)], &widths, 2.0).is_none());
+    }
 }

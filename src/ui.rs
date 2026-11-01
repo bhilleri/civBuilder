@@ -153,6 +153,8 @@ fn setup_ui(mut commands: Commands) {
             top: Val::Px(50.0),
             left: Val::Px(8.0),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+            // (une longue chaîne passe à la ligne plutôt que sous le bandeau du mode debug)
+            max_width: Val::Px(400.0),
             display: Display::None,
             ..default()
         }),
