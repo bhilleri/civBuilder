@@ -399,6 +399,9 @@ pub const RIVER_CROSSING_COST: u32 = 2;
 pub const FLEUVE_MOVE_COST: u32 = 3;
 /// Rendements d'une case de fleuve (pêche, transport et commerce).
 pub const FLEUVE_YIELDS: Yields = Yields::new(2, 0, 1);
+/// Zone allongée (nom courbé le long de son axe) : longueur de l'axe au carré rapportée au nombre
+/// de cases.
+pub const SPINE_ELONGATION: f32 = 2.5;
 /// Nourriture en plus près de l'eau douce (rivière, fleuve, lac).
 pub const FRESH_WATER_FOOD: i32 = 1;
 
@@ -1134,6 +1137,54 @@ impl WorldMap {
     /// Régions naturelles.
     pub fn regions(&self) -> &crate::regions::Regions {
         &self.regions
+    }
+
+    /// Axe d'une zone allongée (chaîne, golfe…), pour y courber son nom : le plus court chemin dans
+    /// la zone entre ses deux cases les plus éloignées l'une de l'autre (par la zone). Cases
+    /// d'un seul tenant d'un bout à l'autre, raccord est-ouest compris (non ramenées dans la
+    /// carte). Aucun si la zone est ramassée : son axe doit être long par rapport à sa surface
+    /// (longueur² ≥ `SPINE_ELONGATION` × cases ; un disque donne ~1,3), d'au moins 5 cases.
+    pub fn zone_spine(&self, cells: &[usize]) -> Vec<Hex> {
+        let Some(&first) = cells.first() else { return Vec::new() };
+        let members: std::collections::HashSet<usize> = cells.iter().copied().collect();
+        // Parcours en largeur dans la zone : case la plus éloignée et chemin pour y aller
+        let walk = |from: usize| -> (usize, std::collections::HashMap<usize, usize>) {
+            let mut parent: std::collections::HashMap<usize, usize> = std::collections::HashMap::from([(from, from)]);
+            let mut queue = std::collections::VecDeque::from([from]);
+            let mut last = from;
+            while let Some(c) = queue.pop_front() {
+                last = c;
+                for nb in self.neighbors(self.hex_at(c)) {
+                    if let Some(j) = self.index(nb)
+                        && members.contains(&j)
+                        && !parent.contains_key(&j)
+                    {
+                        parent.insert(j, c);
+                        queue.push_back(j);
+                    }
+                }
+            }
+            (last, parent)
+        };
+        let (a, _) = walk(first);
+        let (b, parent) = walk(a);
+        let mut path = vec![b];
+        while let Some(&p) = parent.get(path.last().unwrap()) {
+            if p == *path.last().unwrap() {
+                break;
+            }
+            path.push(p);
+        }
+        if path.len() < 5 || ((path.len() * path.len()) as f32) < SPINE_ELONGATION * cells.len() as f32 {
+            return Vec::new();
+        }
+        // D'un seul tenant : chaque case au plus près de la précédente (raccord est-ouest)
+        let mut hexes: Vec<Hex> = vec![self.hex_at(path[0])];
+        for &c in &path[1..] {
+            let prev = *hexes.last().unwrap();
+            hexes.push(self.wrap.nearest(prev, self.hex_at(c)));
+        }
+        hexes
     }
 
     /// Lieux nommés d'une case, du plus vaste au plus précis (barre de lieu) : en mer, océan, mer,
@@ -3173,5 +3224,19 @@ mod lieux {
             assert_eq!(unique.len(), names.len(), "{names:?}");
         }
         assert!(m.place_names(Hex::from_offset(3, -5)).is_empty());
+    }
+
+    #[test]
+    fn axe_d_une_zone_allongee() {
+        let m = WorldMap::filled(40, 20, Terrain::Grassland);
+        // Une bande de 20 × 2 cases : son axe va d'un bout à l'autre ; un carré de 6 × 6 n'en a pas
+        let band: Vec<usize> = (0..20).flat_map(|x| [(5 * 40 + 10 + x) as usize, (6 * 40 + 10 + x) as usize]).collect();
+        let spine = m.zone_spine(&band);
+        assert!(spine.len() >= 19, "{}", spine.len());
+        for w in spine.windows(2) {
+            assert_eq!(w[0].distance(w[1]), 1, "d'un seul tenant");
+        }
+        let square: Vec<usize> = (0..6).flat_map(|y| (0..6).map(move |x| ((y + 2) * 40 + x + 2) as usize)).collect();
+        assert!(m.zone_spine(&square).is_empty());
     }
 }

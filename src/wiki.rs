@@ -516,6 +516,11 @@ fn terrain() -> Article {
                chaînes en capitales de loin, massifs, plateaux et collines en s'approchant, cols de près. \
                L'infobulle donne le relief d'une case avant ses terres (« Montagne — Col de Grausara, Massif de \
                Fiosona, Monts Grausara, Esinzie »)."),
+            p("Pour que la carte reste lisible, chaque niveau de noms a un nombre maximal de noms à l'écran \
+               (les plus grandes zones d'abord), et le niveau de zoom est le même pour toute la vue (celui du \
+               centre) : de loin, océans et continents partout, même au premier plan en 3D. Les noms des chaînes \
+               de montagnes, des massifs et des golfes allongés se courbent le long de leur forme quand ils y \
+               tiennent."),
             h("Où suis-je ?"),
             p("Sous la barre du haut, la barre de lieu donne les lieux nommés au centre de la vue, du plus vaste \
                au plus précis : « Inetsie › Jungle de Shuchets › Bassin du Smurask » sur terre (continent ou île, \
