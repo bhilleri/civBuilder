@@ -82,13 +82,18 @@ impl<M: MoveCosts + ?Sized> MoveCosts for &M {
     }
 }
 
-/// Altitude : 0 = eau, 1 (littoral) à 6 (massif, où se trouvent les sommets).
-pub const MAX_LEVEL: u8 = 6;
+/// Niveau d'altitude : 0 = eau, 1 (littoral) à 9 (massif, où se trouvent les sommets), déduit de
+/// l'altitude en mètres (`level_of_meters`).
+pub const MAX_LEVEL: u8 = 9;
 
-/// Falaise entre deux cases de terre voisines : écart d'au moins 3 classes d'altitude
-/// (≈ 1 000 m et plus), infranchissable dans les deux sens (et dessinée comme telle en 3D).
-pub fn is_cliff(from_level: u8, to_level: u8) -> bool {
-    (i32::from(to_level) - i32::from(from_level)).abs() >= 3
+/// Falaise : dénivelée minimale (m) entre deux cases voisines, la case basse étant sous
+/// `MOUNTAIN_MIN_M` (entre deux cases de montagne, c'est le coût de la montagne qui freine).
+pub const CLIFF_M: f32 = 1_000.0;
+
+/// Falaise entre deux cases voisines d'altitudes `from_m` et `to_m` (m ; mer à 0) :
+/// infranchissable dans les deux sens (et dessinée comme telle en 3D).
+pub fn is_cliff(from_m: f32, to_m: f32) -> bool {
+    (to_m - from_m).abs() >= CLIFF_M && from_m.min(to_m) < MOUNTAIN_MIN_M
 }
 
 /// Surcoût d'un pas selon la dénivelée réelle (m) : montée de moins de `CLIMB_GENTLE_M`
@@ -173,12 +178,14 @@ impl Relief {
 }
 
 /// Changement de niveau entre deux cases de terre voisines (hors montagnes) :
-/// `high` est la case haute, `dir` la direction de la case basse, `diff` l'écart (1 ou plus).
+/// `high` est la case haute, `dir` la direction de la case basse, `diff` l'écart de niveaux (1 ou
+/// plus), `cliff` : falaise (`is_cliff`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LevelEdge {
     pub high: Hex,
     pub dir: usize,
     pub diff: u8,
+    pub cliff: bool,
 }
 
 impl LevelEdge {
@@ -187,7 +194,7 @@ impl LevelEdge {
     }
     /// Falaise : infranchissable.
     pub fn is_cliff(&self) -> bool {
-        self.diff >= 3
+        self.cliff
     }
 }
 
@@ -263,11 +270,17 @@ impl MoveCosts for KnownMap<'_> {
     }
 }
 
-/// Répartition des terres émergées par classe d'altitude (bornes cumulées des classes 1 à 5 ; le
-/// reste est en classe 6).
-const LEVEL_BANDS: [f64; 5] = [0.16, 0.36, 0.56, 0.74, 0.87];
-/// Percentile des terres au-delà duquel commence le pied des sommets (`SUMMIT_FOOT_M`).
-const MOUNTAIN_PERCENTILE: f64 = 0.96;
+/// Altitude (m) des terres d'une planète selon l'altitude relative issue des plaques et de
+/// l'érosion (0 au rivage, ~1,5 aux plus hauts sommets) : échelle fixe, interpolée entre ces
+/// points (prolongée au-delà du dernier). Calée pour qu'en moyenne la répartition des altitudes
+/// ressemble à celle de la Terre (~30 % des terres sous 300 m, ~70 % sous 1 000 m) ; chaque monde
+/// garde la sienne (un continent de plaines, un autre de hauts plateaux).
+const TECTONIC_METERS: [(f64, f32); 8] =
+    [(0.0, 0.0), (0.04, 150.0), (0.14, 350.0), (0.25, 650.0), (0.38, 1_200.0), (0.55, 2_100.0), (0.95, 3_000.0), (1.5, 4_800.0)];
+/// Carte régionale (sans plaques, tests) : altitude (m) selon le rang parmi les terres émergées
+/// (part des terres plus basses), même répartition moyenne que sur une planète.
+const REGION_METERS: [(f64, f32); 7] =
+    [(0.0, 0.0), (0.16, 150.0), (0.36, 350.0), (0.56, 650.0), (0.74, 1_200.0), (0.87, 2_100.0), (0.96, 3_000.0)];
 /// Parts des terres par relief (les plus escarpées d'abord) : pics, montagnes, relief accidenté,
 /// collines ; le reste est plat. Une montagne demande au moins `MOUNTAIN_MIN_M`, un pic
 /// `PEAK_MIN_M` et d'être un sommet local (jamais deux pics côte à côte).
@@ -326,8 +339,8 @@ pub const JUNGLE_WET: f32 = 2.0;
 pub const TAIGA_ABOVE: f32 = 0.6;
 /// Savane ou broussailles plutôt que plaine dans le semi-aride, au-dessus de cet indice d'aridité.
 pub const SEMI_ARID_WOODLAND: f32 = 0.35;
-/// Marais : niveau d'altitude maximal et indice d'aridité minimal.
-pub const MARSH_MAX_LEVEL: u8 = 2;
+/// Marais : niveau d'altitude maximal (3 : sous 500 m) et indice d'aridité minimal.
+pub const MARSH_MAX_LEVEL: u8 = 3;
 pub const MARSH_ARIDITY: f32 = 1.0;
 
 /// Climat d'une case vu par le choix du biome.
@@ -384,10 +397,22 @@ pub fn biome(c: BiomeClimate) -> Terrain {
     }
 }
 pub const HILL_MOVE_COST: u32 = 1;
-/// Altitudes (m) des limites entre niveaux voisins, du pied des sommets et des plus hauts pics.
-const LEVEL_BOUNDS_M: [f32; 5] = [300.0, 650.0, 1_075.0, 1_550.0, 2_100.0];
-const SUMMIT_FOOT_M: f32 = 3_000.0;
+/// Altitudes (m) des limites entre niveaux voisins : 9 niveaux, serrés en basse altitude
+/// (choix de Benjamin, 01/11/2026), et altitude des plus hauts pics (repère du relief).
+pub const LEVEL_BOUNDS_M: [f32; 8] = [100.0, 250.0, 500.0, 750.0, 1_000.0, 1_300.0, 1_700.0, 2_300.0];
 const PEAK_M: f32 = 4_800.0;
+
+/// Altitude (m) au milieu de chaque niveau (cartes faites à la main : tests).
+#[cfg(test)]
+const LEVEL_ALTITUDE_M: [f32; MAX_LEVEL as usize] = [50.0, 175.0, 375.0, 625.0, 875.0, 1_150.0, 1_500.0, 2_000.0, 2_700.0];
+
+/// Interpolation linéaire par morceaux entre des points (x croissants), prolongée au-delà des
+/// extrémités par la pente du premier ou du dernier segment.
+fn piecewise(knots: &[(f64, f32)], x: f64) -> f32 {
+    let k = knots.windows(2).find(|w| x <= w[1].0).unwrap_or(&knots[knots.len() - 2..]);
+    let ((x0, y0), (x1, y1)) = (k[0], k[1]);
+    if x1 > x0 { y0 + (y1 - y0) * ((x - x0) / (x1 - x0)) as f32 } else { y1 }
+}
 
 /// Niveau d'altitude (1 à `MAX_LEVEL`) d'une altitude en mètres.
 pub fn level_of_meters(m: f32) -> u8 {
@@ -729,7 +754,8 @@ pub struct WorldMap {
 
 impl WorldMap {
     pub fn filled(width: i32, height: i32, terrain: Terrain) -> Self {
-        let level = if terrain.is_water() { 0 } else { 1 };
+        // (une terre à 150 m, comme les plaines côtières)
+        let level = if terrain.is_water() { 0 } else { level_of_meters(150.0) };
         let n = (width * height) as usize;
         Self {
             width,
@@ -737,8 +763,8 @@ impl WorldMap {
             tiles: vec![terrain; n],
             levels: vec![level; n],
             relief: vec![Relief::Flat; n],
-            elevation: vec![if terrain.is_water() { 0.0 } else { climate::LEVEL_ALTITUDE[0] }; n],
-            lake_level_m: vec![climate::LEVEL_ALTITUDE[0]; n],
+            elevation: vec![if terrain.is_water() { 0.0 } else { 150.0 }; n],
+            lake_level_m: vec![150.0; n],
             climate: Climate::default(),
             currents: crate::currents::Currents::default(),
             hydro: Hydrology::empty(n),
@@ -1399,12 +1425,15 @@ impl WorldMap {
         }
     }
 
-    /// Falaise entre deux cases voisines (écart de classes d'altitude).
+    /// Falaise entre deux cases voisines de terre ou de lac (dénivelée, voir `is_cliff`).
     pub fn cliff_between(&self, a: Hex, b: Hex) -> bool {
-        match (self.level(a), self.level(b)) {
-            (Some(la), Some(lb)) if la > 0 && lb > 0 => is_cliff(la, lb),
-            _ => false,
-        }
+        let land = |h: Hex| self.get(h).filter(|t| !t.is_sea()).and(self.surface_elevation(h));
+        matches!((land(a), land(b)), (Some(ha), Some(hb)) if is_cliff(ha, hb))
+    }
+
+    /// Falaise entre deux cases voisines, la mer comptant à 0 m (côte escarpée, pour le dessin).
+    pub fn cliff_with_sea(&self, a: Hex, b: Hex) -> bool {
+        matches!((self.surface_elevation(a), self.surface_elevation(b)), (Some(ha), Some(hb)) if is_cliff(ha, hb))
     }
 
     /// Coût pour entrer dans la case, sans la pente ni la rivière de l'arête franchie
@@ -1704,7 +1733,8 @@ impl WorldMap {
                 if let Some(ll) = land(high + *d)
                     && hl > ll
                 {
-                    edges.push(LevelEdge { high, dir, diff: hl - ll });
+                    let cliff = self.cliff_between(high, high + *d);
+                    edges.push(LevelEdge { high, dir, diff: hl - ll, cliff });
                 }
             }
         }
@@ -1720,7 +1750,7 @@ impl WorldMap {
             && !self.tiles[i].is_water()
         {
             self.levels[i] = level.clamp(1, MAX_LEVEL);
-            self.elevation[i] = climate::LEVEL_ALTITUDE[(self.levels[i] - 1) as usize];
+            self.elevation[i] = LEVEL_ALTITUDE_M[(self.levels[i] - 1) as usize];
         }
     }
 
@@ -1800,8 +1830,7 @@ impl WorldMap {
                 (h, e)
             })
             .collect();
-        // 2) Niveau de la mer par percentile (~58 % d'eau), puis niveaux de la terre par
-        //    percentile des terres émergées ; les sommets sont le haut du niveau 6.
+        // 2) Niveau de la mer : 0 sur une planète, percentile (~58 % d'eau) sur une carte régionale
         let mut sorted: Vec<f64> = elevations.iter().map(|(_, e)| *e).collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let sea = if tectonic { 0.0 } else { sorted[((sorted.len() - 1) as f64 * 0.58) as usize] };
@@ -1851,27 +1880,16 @@ impl WorldMap {
             ponds
         };
         let is_sea = |h: Hex, e: f64| e < sea && !ponds.contains(&h);
-        let land_pct = |p: f64| land_sorted[((land_sorted.len() - 1) as f64 * p) as usize];
-        // Bornes hautes des niveaux 1 à 5 ; au-delà : niveau 6
-        let bands: Vec<f64> = LEVEL_BANDS.iter().map(|&p| land_pct(p)).collect();
-        let summits = land_pct(MOUNTAIN_PERCENTILE);
-        let level_of = |e: f64| 1 + bands.iter().filter(|&&b| e > b).count() as u8;
-        // Altitude continue (m) : interpolation entre les bornes des niveaux (limites entre les
-        // altitudes moyennes de deux niveaux voisins), jusqu'aux sommets
+        // Altitude en mètres : échelle fixe sur une planète (`TECTONIC_METERS`) ; sur une carte
+        // régionale, selon le rang parmi les terres émergées (`REGION_METERS`, jusqu'aux sommets)
         let top = land_sorted.last().copied().unwrap_or(sea + 1.0);
-        let mut knots: Vec<(f64, f32)> = vec![(sea, 0.0)];
-        knots.extend(bands.iter().zip(LEVEL_BOUNDS_M).map(|(&b, m)| (b, m)));
-        knots.push((summits, SUMMIT_FOOT_M));
-        knots.push((top.max(summits + 1e-6), PEAK_M));
-        let meters = |e: f64| {
-            let k = knots.windows(2).find(|w| e <= w[1].0).unwrap_or(&knots[knots.len() - 2..]);
-            let ((e0, m0), (e1, m1)) = (k[0], k[1]);
-            let t = if e1 > e0 { ((e - e0) / (e1 - e0)).clamp(0.0, 1.0) as f32 } else { 1.0 };
-            m0 + (m1 - m0) * t
-        };
-        let land_levels: bevy::platform::collections::HashMap<Hex, u8> =
-            elevations.iter().filter(|&&(h, e)| !is_sea(h, e)).map(|&(h, e)| (h, if ponds.contains(&h) { 1 } else { level_of(e) })).collect();
-        // 3) Altitude (m) et classe d'altitude de chaque case de terre
+        let region_knots: Vec<(f64, f32)> = REGION_METERS
+            .iter()
+            .map(|&(p, m)| (land_sorted[((land_sorted.len().max(1) - 1) as f64 * p) as usize], m))
+            .chain([(top + 1e-6, PEAK_M)])
+            .collect();
+        let meters = |e: f64| if tectonic { piecewise(&TECTONIC_METERS, e) } else { piecewise(&region_knots, e).min(PEAK_M) }.max(0.0);
+        // 3) Altitude (m) de chaque case de terre, puis son niveau (`level_of_meters`)
         for &(h, e) in &elevations {
             if is_sea(h, e) {
                 continue; // reste océan
@@ -1879,7 +1897,7 @@ impl WorldMap {
             let i = map.index(h).unwrap();
             map.elevation[i] = if ponds.contains(&h) { POND_DEPTH_M } else { meters(e) };
             map.tiles[i] = Terrain::Plains;
-            map.levels[i] = land_levels[&h];
+            map.levels[i] = level_of_meters(map.elevation[i]);
         }
         // Fond marin : les cases de mer, rangées de la plus haute à la plus basse, prennent la
         // profondeur de leur rang (plateau continental là où le socle est haut : continents
@@ -2055,7 +2073,7 @@ impl WorldMap {
             if pass > 0 {
                 for (i, s) in surface.iter_mut().enumerate() {
                     if self.tiles[i] == Terrain::Lake {
-                        *s = climate::Surface::Lake(climate::altitude(self.levels[i], false));
+                        *s = climate::Surface::Lake(self.lake_level_m[i]);
                     }
                 }
             }
@@ -2501,14 +2519,15 @@ mod tests {
                 assert_eq!(t.is_sea(), l == 0, "mer au niveau 0, terre et lacs au-dessus");
                 used[l as usize] = true;
                 for n in h.neighbors() {
-                    if let Some(m) = map.level(n).filter(|&m| m > 0 && l > 0) {
+                    if map.level(n).is_some_and(|m| m > 0 && l > 0) {
                         edges += 1;
-                        cliffs += usize::from(is_cliff(l, m));
+                        cliffs += usize::from(map.cliff_between(h, n));
                     }
                 }
             }
             assert!(used.iter().all(|&u| u), "graine {seed} : tous les niveaux sont présents");
-            assert!(cliffs * 100 < edges * 5, "graine {seed} : falaises rares ({cliffs}/{edges})");
+            // (cartes régionales de bruit, plus heurtées que les planètes, où les falaises font ~1 %)
+            assert!(cliffs * 100 < edges * 8, "graine {seed} : falaises rares ({cliffs}/{edges})");
             // Presque tout le continent de départ reste accessible malgré les falaises
             let start = map.find_start().unwrap();
             let mut land = HashSet::from([start]);
@@ -2532,17 +2551,19 @@ mod tests {
         assert_eq!(climb_cost(450.0, 1_100.0), 1, "montée raide");
         assert_eq!(climb_cost(450.0, 1_500.0), 2, "très raide");
         assert_eq!(climb_cost(1_500.0, 450.0), 0, "descente gratuite");
-        assert!(is_cliff(1, 4), "falaise");
-        assert!(is_cliff(5, 2), "falaise dans les deux sens");
-        assert!(!is_cliff(2, 4));
+        assert!(is_cliff(150.0, 1_300.0), "falaise");
+        assert!(is_cliff(1_300.0, 150.0), "falaise dans les deux sens");
+        assert!(!is_cliff(450.0, 1_300.0));
+        assert!(is_cliff(0.0, 1_000.0), "côte escarpée");
+        assert!(!is_cliff(1_600.0, 3_200.0), "entre deux montagnes : pas de falaise");
         let mut map = WorldMap::filled(5, 5, Terrain::Plains);
         let (a, b) = (Hex::from_offset(1, 1), Hex::from_offset(2, 1));
-        map.set_level(b, 3);
+        map.set_elevation(b, 850.0);
         assert_eq!(map.step_cost(a, b), Some(2), "1 PM + 1 de montée");
         assert_eq!(map.step_cost(b, a), Some(1));
-        map.set_level(b, 4);
+        map.set_elevation(b, 1_300.0);
         assert_eq!(map.step_cost(a, b), None);
-        // En mètres : 150 → 500 m gratuit, 150 → 1 000 m +1 (même classe d'écart < 3)
+        // 150 → 500 m gratuit, 150 → 1 000 m +1 (dénivelée sous la falaise)
         map.set_elevation(b, 500.0);
         assert_eq!(map.step_cost(a, b), Some(1));
         map.set_elevation(b, 1_000.0);

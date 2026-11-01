@@ -24,11 +24,21 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 - Plutôt que plus de niveaux de sol (7 auparavant : mer + 6 tranches), passer à l'altitude continue (étape B).
 
 ## Modèle
-- `WorldMap::elevation` (m) : référence ; `levels` (classes 1 à 6) ne servent plus qu'à la détection des falaises (écart ≥ 3 classes, ≈ 1 000 m) et aux bords dessinés (falaises, descentes), pour que règles et dessin concordent.
+- `WorldMap::elevation` (m) : référence ; `levels` (niveaux 1 à 9) en sont **déduits** (`level_of_meters`, voir « Altitude en mètres d'abord ») et ne servent plus qu'aux bords dessinés (descentes), aux teintes de la carte 2D, à la limite des marais et aux cartes faites à la main. Les falaises se décident en mètres (`is_cliff`).
 - `WorldMap::lake_level_m` : cote de la surface de chaque lac (min sur le lac de la surface hydrologique et de la plus basse rive, ≥ 0), identique pour toutes les cases d'un même lac.
 - `WorldMap::surface_elevation(hex)` : 0 en mer, cote du lac pour un lac, sinon altitude du sol (≥ 0).
 - `Relief` (enum, remplace l'ancien booléen « collines ») ; le terrain `Montagnes` disparaît : une montagne porte le biome de son climat (souvent toundra ou neige).
 - Le climat reçoit l'altitude en mètres (`Surface::Land(m)`) au lieu de l'altitude moyenne du niveau.
+
+## Altitude en mètres d'abord (01/11/2026, demande de Benjamin)
+- Constat (tâche « monde trop sec ») : les terres étaient deux fois trop hautes (16 % sous 300 m et 53 % sous 1 000 m, Terre ≈ 33 % et 70 %) et **identiques pour toutes les graines** : la génération rangeait les terres par altitude relative, les découpait en 6 classes de parts fixes (16 / 36 / 56 / 74 / 87 %), puis donnait des mètres à chaque classe (300 / 650 / 1 075 / 1 550 / 2 100 m, 3 000 m au 96ᵉ centile, 4 800 m au sommet). Les mètres venaient des classes. Conséquence : les hauts plateaux équatoriaux (au-dessus de ~1 500 m) n'étaient pas tropicaux et portaient de la forêt tempérée au lieu de jungle.
+- Décision de Benjamin : **l'altitude est en mètres, les niveaux s'en déduisent**, et non l'inverse ; **9 niveaux** au lieu de 6, plus serrés en basse altitude (bornes 100 / 250 / 500 / 750 / 1 000 / 1 300 / 1 700 / 2 300 m, `LEVEL_BOUNDS_M` ; le niveau à 1 000 m a été ajouté par Benjamin).
+- **Mètres** (`TECTONIC_METERS`) : échelle fixe de l'altitude relative issue des plaques et de l'érosion (0 au rivage, ~1,5 aux plus hauts sommets) : 0,04 → 150 m, 0,14 → 350 m, 0,25 → 650 m, 0,38 → 1 200 m, 0,55 → 2 100 m, 0,95 → 3 000 m, 1,5 → 4 800 m (interpolée, prolongée au-delà). Calée sur la moyenne des centiles de l'altitude relative de 5 graines (777, 2, 4242, 5, 31 : 16 % des terres sous 0,038-0,050, la moitié sous 0,18-0,23, 87 % sous 0,44-0,62, sommets 1,46-1,62) pour une répartition terrestre en moyenne. **Chaque monde a la sienne** : graine 4242, plus plate, 35 % sous 300 m et 77 % sous 1 000 m ; graine 2, 31 % et 64 %. Les cartes régionales (sans plaques, tests) gardent un placement par rang (`REGION_METERS`, même répartition moyenne).
+- **Falaise en mètres** (`is_cliff`, `CLIFF_M` = 1 000 m) : dénivelée d'au moins 1 000 m, la case basse sous 1 500 m (`MOUNTAIN_MIN_M`). Avec des niveaux serrés en bas, « 3 niveaux d'écart » aurait fait une falaise de 100 à 500 m ; et une règle de dénivelée seule aurait couvert les massifs de falaises (deux montagnes à 2 200 et 4 000 m), là où c'est le coût de la montagne qui doit freiner (les anciennes classes du haut, très larges, l'évitaient). Côte : la mer compte à 0 m (dessin 3D, `cliff_with_sea`).
+- **Marais** : jusqu'au niveau 3 (sous 500 m ; auparavant niveau 2, sous ~650 m).
+- Bilans (graines 777 / 2 / 4242, avant → après) : terres sous 300 m 16 → 31 / 31 / 35 % ; sous 1 000 m 53 → 68 / 64 / 77 % ; sous 2 000 m 85 → 84 / 85 / 91 %. Niveaux 1 à 9 (777) : 1 007 / 1 151 / 1 715 / 1 030 / 769 / 673 / 479 / 580 / 994 cases. Falaises : 0,3 / 0,3 / 0,8 % → 0,9 / 0,9 / 1,0 % des arêtes entre terres ; côtes à plus de 1 000 m 135 / 116 / 158 → 50 / 46 / 35. Montagnes 301 / 272 / 295 → 338 / 319 / 321, pics 15 / 11 / 18 → 17 / 13 / 22. Marais 49 / 18 / 39 → 60 / 16 / 28. Biomes : jungle 469 / 507 / 346 → 525 / 624 / 653 cases ; désert 943 / 1 364 / 1 483 → 1 076 / 1 577 / 1 746 (basses terres plus chaudes, plus d'évaporation) ; forêt tempérée 1 853 / 1 517 / 1 884 → 1 724 / 1 333 / 1 387. `bilan_montagnes` (777 / 2 / 5) : 375 / 327 / 361 montagnes, à 4 / 5 / 6 / 7 / 8 PM : 33 / 50 / 95 / 108 / 89 ; 87 / 104 / 35 / 27 / 74 ; 73 / 75 / 71 / 57 / 85 ; traversées par au moins 2 montagnes 13/41, 5/84, 7/60. `bilan_verifier` : 0 incohérence.
+- Test des falaises sur les cartes régionales de 64 × 40 (bruit sans plaques, plus heurté) : jusqu'à 6 % des arêtes ; seuil du test porté de 5 à 8 % (95 % du continent de départ reste accessible).
+- Suite possible : recaler l'échelle sur d'autres graines si un monde paraît trop haut ou trop plat ; plaques et érosion pourraient produire directement des mètres.
 
 ## Génération du relief
 - Note d'escarpement par case de terre = 0,45 × rang de la dénivelée maximale avec les voisines + 0,3 × rang d'un bruit propre + 0,35 × altitude / 4 800 m.
@@ -61,7 +71,7 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 - **Affichage** : pastille orange en haut à droite du jeton (2D et 3D, `labels::StuckBadge`), avec le nombre de tours avant de repartir (`UnitState::stuck_turns`), affiché dès que la dette prend au moins un tour entier ; panneau de l'unité : « Immobilisé(e) par le terrain : repart dans N tour(s) », « Terrain difficile : immobilisé(e) N-1 tour(s), repart dans N tour(s) » (tour de l'entrée en montagne) ou « N PM dus au prochain tour ». C'est un compte à rebours : un premier calcul comptait les tours immobilisés (le tour en cours seulement s'il l'était), si bien que le nombre restait figé entre le tour de l'entrée en montagne et le suivant (dette de 4 PM à 2 PM/tour : 2, 2, 1 au lieu de 3, 2, 1).
 - **Limites** : la recherche de cible de l'exploration automatique garde des coûts communs à toutes les unités (la cavalerie n'y voit pas le double de la montagne, seulement en marchant) ; une case inconnue coûte toujours 2 PM, une montagne cachée par le brouillard n'est donc découverte qu'en approchant.
 - Pentes en mètres (`climb_cost`) : montée < 400 m gratuite, < 900 m +1 PM, au-delà +2 PM ; descente gratuite.
-- Falaise : écart de 3 classes d'altitude (≈ 1 000 m) : infranchissable, pas de mêlée ni de flanquement à travers.
+- Falaise : dénivelée d'au moins 1 000 m, la case basse sous 1 500 m (`is_cliff`) : infranchissable, pas de mêlée ni de flanquement à travers.
 - Combat : `Fighter { altitude (m), relief }` ; en hauteur si ≥ 250 m (`HIGHER_GROUND_M`) : +2 défense de mêlée, +20 % de tir ; tireur plus bas d'autant : portée −1.
 
 ## Affichage 2D et cartes
@@ -87,7 +97,7 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 - `tile_height` : mer au niveau de la mer ; lac = cote de sa surface − `LAKE_DEPTH` ; terre = son altitude en mètres. Les cases inexplorées sont dessinées à 150 m (rien n'est révélé).
 - Les profils de case (pentes douces entre voisines, rives, falaises) s'appuient désormais sur ces hauteurs continues : plateaux, bassins et vallées larges se lisent sans marches.
 - La flèche de vent de la carte climat se place au-dessus de 4 800 m.
-- Les falaises et descentes dessinées gardent la détection par classes, comme les règles.
+- Les falaises dessinées suivent la règle en mètres (`LevelEdge::cliff`) ; les descentes, les niveaux.
 
 ## Unités, villes, camps et villages sur le relief (30/10/2026)
 - **Constat** (TODO n° 4) : ils étaient parfois « ensevelis ». Cause confirmée : leur hauteur venait de `tile_height` (altitude moyenne de la case), alors que le sol dessiné est `Relief::ground` = profil de la case + bosses (jusqu'à 5, 9, 17, et 16 + 24 pour un pic) − lits des cours d'eau ; jeton haut de 6 posé à +3. Villes et camps : terrasse (parois) mais bosses toujours appliquées sur leur case ; villages posés sur le terrain bosselé.

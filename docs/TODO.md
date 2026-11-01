@@ -47,7 +47,7 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [x] a. Cycle de l'eau tropical (01/11) : sommet des nuages selon la chaleur, rendement des pluies.
 - [x] b. Vent près de l'équateur (01/11) : part du vent qui descend la pente de pression plafonnée (convergence divisée par 2 à 3).
 - [ ] d. Bande 10-20° des grands continents encore sèche (graine 4242 : 40 % de désert) : mousson d'été, air marin encore sec sous les alizés.
-- [ ] c. Relief deux fois trop haut (16 % des terres sous 300 m, Terre ~33 %) : hauts plateaux équatoriaux en forêt tempérée au lieu de jungle. Baisser les altitudes des niveaux (par ex. 150 / 350 / 600 / 1 100 / 1 800 m) changerait aussi le nombre de montagnes (`MOUNTAIN_MIN_M`).
+- [x] c. Relief trop haut (01/11) : altitude en mètres d'abord (échelle fixe depuis les plaques), 9 niveaux déduits des mètres, falaise en mètres (voir `conception/conception-altitude.md`).
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

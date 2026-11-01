@@ -151,12 +151,16 @@ const SOIL_FREE: f32 = 0.75;
 /// Rosée maximale (mm par jour).
 const DEW_MAX_PER_DAY: f32 = 0.3;
 
-/// Altitude moyenne (m) des niveaux de terre 1 à 6, et des sommets.
-pub const LEVEL_ALTITUDE: [f32; 6] = [150.0, 450.0, 850.0, 1_300.0, 1_800.0, 2_400.0];
-pub const SUMMIT_ALTITUDE: f32 = 3_800.0;
+/// Altitudes (m) des continents d'essai des tests, de la plus basse (1) à la plus haute (6), et
+/// des sommets.
+#[cfg(test)]
+const LEVEL_ALTITUDE: [f32; 6] = [150.0, 450.0, 850.0, 1_300.0, 1_800.0, 2_400.0];
+#[cfg(test)]
+const SUMMIT_ALTITUDE: f32 = 3_800.0;
 
-/// Altitude (m) d'une case de terre selon son niveau.
-pub fn altitude(level: u8, mountain: bool) -> f32 {
+/// Altitude (m) d'une case des continents d'essai selon sa tranche (1 à 6).
+#[cfg(test)]
+fn altitude(level: u8, mountain: bool) -> f32 {
     if mountain {
         SUMMIT_ALTITUDE
     } else {

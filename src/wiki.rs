@@ -401,12 +401,16 @@ fn terrain() -> Article {
             p(format!(
                 "Chaque case de terre a une altitude en mètres (carte de l'altitude). Pente : monter de moins de \
                  {CLIMB_GENTLE_M:.0} m vers une case voisine ne coûte rien de plus, jusqu'à {CLIMB_STEEP_M:.0} m +1 PM, \
-                 au-delà +2 PM ; descendre est gratuit. Entre deux cases dont l'altitude diffère d'environ 1 000 m ou \
-                 plus, une falaise est infranchissable dans les deux sens : on ne peut ni y combattre au corps à corps \
+                 au-delà +2 PM ; descendre est gratuit. Entre deux cases dont l'altitude diffère de 1 000 m ou plus (la \
+                 plus basse sous 1 500 m), une falaise est infranchissable dans les deux sens : on ne peut ni y combattre au corps à corps \
                  ni flanquer à travers. Être plus haut d'au moins {} m donne +{HIGHER_GROUND_DEFENSE} en défense de \
                  mêlée et +{HIGH_GROUND_PERCENT} % de force de tir ; un tireur plus bas d'autant perd 1 de portée.",
                 combat::HIGHER_GROUND_M
             )),
+            p("Les terres se répartissent en 9 niveaux d'altitude, plus serrés en bas (limites à 100, 250, 500, 750, \
+               1 000, 1 300, 1 700 et 2 300 m) : ils teintent la carte 2D (plus sombre en bas, plus clair en haut) et \
+               marquent les descentes. Chaque monde a son relief : l'un a de grandes plaines basses, l'autre de hauts \
+               plateaux."),
             p("Sur la carte : en 2D, une ombre en dégradé marque une descente et une arête sombre à dents de hachure \
                marque une falaise ; en 3D, le sol est à sa hauteur réelle en mètres, les falaises sont des parois rocheuses, \
                et le relief des cases (collines, montagnes, pics) est modelé dans le sol : crêtes et ravines continues \

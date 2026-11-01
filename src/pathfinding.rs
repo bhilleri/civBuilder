@@ -287,23 +287,24 @@ mod tests {
 
     #[test]
     fn falaise_contournee_par_une_rampe() {
-        // Plateau de niveau 4 à droite de la colonne 5, falaise sauf une rampe (niveaux 2 → 3 → 4)
+        // Plateau à 1 300 m à droite de la colonne 5 (plaine à 150 m), falaise sauf une rampe
+        // (450 → 850 → 1 300 m)
         let mut map = WorldMap::filled(12, 9, Terrain::Plains);
         for h in map.hexes().collect::<Vec<_>>() {
             let (col, _) = h.to_offset();
             if col >= 5 {
-                map.set_level(h, 4);
+                map.set_elevation(h, 1_300.0);
             }
         }
         let ramp = [Hex::from_offset(3, 7), Hex::from_offset(4, 7)];
-        map.set_level(ramp[0], 2);
-        map.set_level(ramp[1], 3);
+        map.set_elevation(ramp[0], 450.0);
+        map.set_elevation(ramp[1], 850.0);
         let (start, goal) = (Hex::from_offset(2, 1), Hex::from_offset(7, 1));
         let path = find_path(&map, start, goal).expect("la rampe permet de monter");
         assert!(path.contains(&ramp[1]), "le trajet passe par la rampe : {path:?}");
         // Sans rampe : inaccessible
-        map.set_level(ramp[1], 1);
-        map.set_level(ramp[0], 1);
+        map.set_elevation(ramp[1], 150.0);
+        map.set_elevation(ramp[0], 150.0);
         assert!(find_path(&map, start, goal).is_none());
     }
 }

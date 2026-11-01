@@ -622,7 +622,8 @@ pub fn level_tint((r, g, b): (f32, f32, f32), level: u8) -> (f32, f32, f32) {
     if level == 0 {
         return (r, g, b);
     }
-    let f = (f32::from(level) - 3.5) / 2.5; // −1 (niveau 1) à +1 (niveau 6)
+    let mid = (1.0 + f32::from(MAX_LEVEL)) / 2.0;
+    let f = (f32::from(level) - mid) / (mid - 1.0); // −1 (niveau 1) à +1 (dernier niveau)
     let shade = |c: f32| if f < 0.0 { c * (1.0 + 0.22 * f) } else { c + (1.0 - c) * 0.24 * f };
     (shade(r), shade(g), shade(b))
 }

@@ -1087,8 +1087,7 @@ fn link(map: &GameMap, fog: &ShownFog, a: Hex, b: Hex) -> Link {
             // Terre–terre comme terre–mer (la mer au niveau 0) : plage ou pente si l'écart le
             // permet, falaise sinon (la mer reste plate, voir `compute_top`)
             (wa, wb) => {
-                let (la, lb) = (map.0.level(a).unwrap_or(0), map.0.level(b).unwrap_or(0));
-                match (!crate::map::is_cliff(la, lb), wa || wb) {
+                match (!map.0.cliff_with_sea(a, b), wa || wb) {
                     (true, true) => Link::Shore,
                     (true, false) => Link::Gentle,
                     (false, _) => Link::Cliff,
