@@ -42,6 +42,12 @@ soudent par collision. Trois étapes, chacune vérifiée par bilan et captures :
 - [x] c. **Rifts selon la vitesse d'écartement** (fait, 30/10) : vallée et lacs (lent), bras de mer étroit
   (moyen), jeune océan entre deux côtes qui se répondent (rapide).
 
+## [ ] 7. Monde trop sec (décidé le 01/11)
+Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
+- [x] a. Cycle de l'eau tropical (01/11) : sommet des nuages selon la chaleur, rendement des pluies.
+- [ ] b. Vent près de l'équateur (convergence 15 à 20 fois trop forte, air marin encore sec) ; bande 10-20° des grands continents.
+- [ ] c. Relief deux fois trop haut (16 % des terres sous 300 m, Terre ~33 %) : hauts plateaux équatoriaux en forêt tempérée au lieu de jungle. Baisser les altitudes des niveaux (par ex. 150 / 350 / 600 / 1 100 / 1 800 m) changerait aussi le nombre de montagnes (`MOUNTAIN_MIN_M`).
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,

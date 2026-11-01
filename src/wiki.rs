@@ -285,7 +285,7 @@ fn climate() -> Article {
                couche haute est bien plus froide et peut en contenir beaucoup moins (la capacité de l'air augmente \
                d'environ 7 % par degré). Il pleut quand l'air humide monte vers le froid et sature : là où les vents \
                convergent, sous les fronts des perturbations, dans les orages des tropiques, ou quand le relief force \
-               l'air à s'élever. Une partie des gouttes s'évapore en tombant si l'air est sec. Là où l'air descend \
+               l'air à s'élever. Les nuages montent d'autant plus haut que l'air est chaud (vers 6 km dans le froid,                jusqu'à 14 km dans les orages des tropiques) : l'air tropical soulevé y perd presque toute sa vapeur,                et l'essentiel tombe en pluie. Une partie des gouttes s'évapore en tombant si l'air est sec. Là où l'air descend \
                (anticyclones, derrière les massifs), l'air sec d'altitude assèche la couche basse. Sous un \
                anticyclone, l'air chaud qui descend forme un couvercle : les orages sont étouffés et l'air qui monte \
                ne forme que des nuages bas. Un air bas saturé sans être soulevé (air marin poussé sur une côte froide) \

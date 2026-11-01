@@ -2602,6 +2602,99 @@ mod apercu {
 
 #[cfg(test)]
 mod bilan {
+    /// Bilan de l'aridité par bande de latitude (à lancer à la main) : pluie, ETP, aridité et
+    /// biomes des terres, sur les graines 777 / 2 / 4242 (`SEEDS=a,b` pour d'autres).
+    #[test]
+    #[ignore]
+    fn bilan_aridite() {
+        use super::*;
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![777, 2, 4242]);
+        for seed in seeds {
+            let m = WorldMap::generate_in(192, 111, seed, Region::planet(crate::climate::CELL_KM, 111));
+            let c = m.climate();
+            let land: Vec<(usize, Hex)> = m.hexes().enumerate().filter(|&(_, h)| { let t = m.get(h).unwrap(); !t.is_water() }).collect();
+            let n = land.len() as f32;
+            let count = |t: Terrain| land.iter().filter(|&&(_, h)| m.get(h) == Some(t)).count();
+            println!("\n=== graine {seed} : {} cases de terre ; pluie {:.0} mm, ETP {:.0} mm, P/ETP médian {:.2}", land.len(),
+                land.iter().map(|&(i, _)| c.rain[i]).sum::<f32>() / n, land.iter().map(|&(i, _)| c.pet[i]).sum::<f32>() / n,
+                { let mut a: Vec<f32> = land.iter().map(|&(i, _)| c.aridity(i).unwrap()).collect(); a.sort_by(f32::total_cmp); a[a.len() / 2] });
+            println!("désert {:.1} %, jungle {:.1} %, savane arborée {:.1} %, savane {:.1} %, forêt {:.1} %, plaine {:.1} %",
+                100.0 * count(Terrain::Desert) as f32 / n, 100.0 * count(Terrain::Jungle) as f32 / n, 100.0 * count(Terrain::WoodedSavanna) as f32 / n,
+                100.0 * count(Terrain::Savanna) as f32 / n, 100.0 * count(Terrain::Forest) as f32 / n, 100.0 * count(Terrain::Plains) as f32 / n);
+            println!(" lat  terre   pluie   ETP  P/ETP  T  froide  sèches | désert jungle s.arb savane plaine forêt  | tropic. <0,75 sais.");
+            for band in 0..9 {
+                let (lo, hi) = (band as f32 * 10.0, band as f32 * 10.0 + 10.0);
+                let set: Vec<(usize, Hex)> = land.iter().copied().filter(|&(_, h)| (lo..hi).contains(&m.latitude(h).abs())).collect();
+                if set.is_empty() { continue; }
+                let k = set.len() as f32;
+                let avg = |f: &dyn Fn(usize) -> f32| set.iter().map(|&(i, _)| f(i)).sum::<f32>() / k;
+                let cnt = |t: Terrain| set.iter().filter(|&&(_, h)| m.get(h) == Some(t)).count();
+                let tropical: Vec<usize> = set.iter().map(|&(i, _)| i).filter(|&i| c.coldest_warmest(i).unwrap().0 >= TROPICAL_WINTER).collect();
+                let dry_ar = tropical.iter().filter(|&&i| c.aridity(i).unwrap() < FOREST_ABOVE).count();
+                let dry_s = tropical.iter().filter(|&&i| c.aridity(i).unwrap() >= FOREST_ABOVE && c.dry_seasons(i).unwrap().iter().filter(|&&d| d).count() > 1).count();
+                println!("{:>2}-{:<2} {:>5} {:>7.0} {:>5.0} {:>5.2} {:>5.1} {:>5.1} {:>5.2}  | {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}  | {:>5} {:>5} {:>5}",
+                    lo, hi, set.len(), avg(&|i| c.rain[i]), avg(&|i| c.pet[i]), avg(&|i| c.aridity(i).unwrap()), avg(&|i| c.temperature[i]),
+                    avg(&|i| c.coldest_warmest(i).unwrap().0), avg(&|i| c.dry_seasons(i).unwrap().iter().filter(|&&d| d).count() as f32),
+                    cnt(Terrain::Desert), cnt(Terrain::Jungle), cnt(Terrain::WoodedSavanna), cnt(Terrain::Savanna), cnt(Terrain::Plains), cnt(Terrain::Forest),
+                    tropical.len(), dry_ar, dry_s);
+            }
+            // Terres équatoriales (0-10°) selon l'altitude : part tropicale (saison froide ≥ 18 °C) et jungle
+            let eq: Vec<usize> = land.iter().filter(|&&(_, h)| m.latitude(h).abs() < 10.0).map(|&(i, _)| i).collect();
+            let alt: Vec<String> = [(0.0, 300.0), (300.0, 800.0), (800.0, 1_500.0), (1_500.0, 1e9)].iter().map(|&(a, b)| {
+                let s: Vec<usize> = eq.iter().copied().filter(|&i| (a..b).contains(&m.elevation[i].max(0.0))).collect();
+                let tr = s.iter().filter(|&&i| c.coldest_warmest(i).unwrap().0 >= TROPICAL_WINTER).count();
+                let j = s.iter().filter(|&&i| m.tiles[i] == Terrain::Jungle).count();
+                let f = s.iter().filter(|&&i| m.tiles[i] == Terrain::Forest).count();
+                format!("{a:.0}-{b:.0} m : {} cases, {tr} tropicales, {j} jungle, {f} forêt tempérée", s.len())
+            }).collect();
+            println!("0-10° : {}", alt.join(" | "));
+            for band in [-3i32, -2, -1, 0, 1, 2] {
+                let (lo, hi) = (band as f32 * 10.0, band as f32 * 10.0 + 10.0);
+                let (mut l, mut sea) = (Vec::new(), Vec::new());
+                for (i, h) in m.hexes().enumerate() {
+                    if !(lo..hi).contains(&m.latitude(h)) { continue; }
+                    if m.get(h).unwrap().is_sea() { sea.push(i) } else if !m.get(h).unwrap().is_water() { l.push(i) }
+                }
+                let avg = |f: &Vec<f32>, set: &Vec<usize>, k: f32| k * set.iter().map(|&i| f[i]).sum::<f32>() / set.len().max(1) as f32;
+                let wind = |set: &Vec<usize>| { let (x, y) = set.iter().fold((0.0, 0.0), |a, &i| (a.0 + c.wind[i].0, a.1 + c.wind[i].1)); (x / set.len().max(1) as f32, y / set.len().max(1) as f32) };
+                println!("{lo:>3}..{hi:<3} mer : HR {:>3.0} % col {:>4.1} évap {:>5.0} pluie {:>5.0} vent ({:>5.2}, {:>5.2}) | terre : HR {:>3.0} % col {:>4.1} évap {:>5.0} pluie {:>5.0} ruiss. {:>4.0} vent ({:>5.2}, {:>5.2})",
+                    avg(&c.humidity, &sea, 100.0), avg(&c.column, &sea, 1.0), avg(&c.evaporation, &sea, 1.0), avg(&c.rain, &sea, 1.0), wind(&sea).0, wind(&sea).1,
+                    avg(&c.humidity, &l, 100.0), avg(&c.column, &l, 1.0), avg(&c.evaporation, &l, 1.0), avg(&c.rain, &l, 1.0), avg(&c.runoff, &l, 1.0), wind(&l).0, wind(&l).1);
+            }
+            let share = |a: f32| 100.0 * land.iter().filter(|&&(i, _)| m.elevation[i].max(0.0) < a).count() as f32 / n;
+            println!("terres sous 300 m : {:.0} %, sous 500 m : {:.0} %, sous 1 000 m : {:.0} %, sous 2 000 m : {:.0} %", share(300.0), share(500.0), share(1_000.0), share(2_000.0));
+            // Distance à la mer (cases), par parcours en largeur depuis les côtes
+            let mut dist = vec![u32::MAX; m.tiles.len()];
+            let mut queue = std::collections::VecDeque::new();
+            for (i, h) in m.hexes().enumerate() {
+                if m.get(h).unwrap().is_sea() { dist[i] = 0; queue.push_back(h); }
+            }
+            while let Some(h) = queue.pop_front() {
+                let d = dist[m.index(h).unwrap()];
+                for nb in m.neighbors(h) {
+                    let Some(j) = m.index(nb) else { continue };
+                    if dist[j] == u32::MAX { dist[j] = d + 1; queue.push_back(nb); }
+                }
+            }
+            let med = |mut v: Vec<f32>| { if v.is_empty() { return f32::NAN; } v.sort_by(f32::total_cmp); v[v.len() / 2] };
+            println!(" lat   alt.méd  pluie méd  ETP méd  P/ETP méd | pluie méd par saison (éq., été N, éq., hiver N) | désert selon la distance à la mer 1-2 / 3-5 / 6-10 / >10");
+            for band in [-3i32, -2, -1, 0, 1, 2] {
+                let (lo, hi) = (band as f32 * 10.0, band as f32 * 10.0 + 10.0);
+                let set: Vec<usize> = land.iter().filter(|&&(_, h)| (lo..hi).contains(&m.latitude(h))).map(|&(i, _)| i).collect();
+                if set.is_empty() { continue; }
+                let season: Vec<String> = (0..4).map(|s| format!("{:>5.0}", med(set.iter().map(|&i| c.season_rain[i][s]).collect()))).collect();
+                let by_dist: Vec<String> = [(1, 2), (3, 5), (6, 10), (11, u32::MAX)].iter().map(|&(a, b)| {
+                    let s: Vec<usize> = set.iter().copied().filter(|&i| (a..=b).contains(&dist[i])).collect();
+                    let d = s.iter().filter(|&&i| m.tiles[i] == Terrain::Desert).count();
+                    format!("{d}/{}", s.len())
+                }).collect();
+                println!("{:>3}..{:<3} {:>6.0} {:>9.0} {:>8.0} {:>9.2}  | {} | {}", lo, hi,
+                    med(set.iter().map(|&i| m.elevation[i].max(0.0)).collect()), med(set.iter().map(|&i| c.rain[i]).collect()),
+                    med(set.iter().map(|&i| c.pet[i]).collect()), med(set.iter().map(|&i| c.aridity(i).unwrap()).collect()), season.join(""), by_dist.join("  "));
+            }
+        }
+    }
+
     #[test]
     #[ignore]
     fn bilan_eau() {

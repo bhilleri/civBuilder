@@ -2,6 +2,11 @@
 
 ## 0.3.0 (en cours)
 
+### Un monde moins sec
+- **Plus de pluie sous les tropiques, déserts mieux placés** : les orages tropicaux montent plus haut (sommet des nuages selon la chaleur, jusqu'à 14 km) et font pleuvoir l'essentiel de la vapeur au lieu de l'exporter en altitude vers les latitudes moyennes. Désert 13 → 12 % / 20 → 18 % / 27 → 22 % des terres (graines 777 / 2 / 4242), jungle 3 → 5 % / 4 → 6 % / 1 → 3 % ; presque plus de désert à l'équateur ; les latitudes 20-40°, auparavant trop arrosées, s'assèchent (comme les déserts subtropicaux terrestres). Fleuves un peu moins abondants (graine 777 : ruissellement −10 %).
+- Bilan `bilan_aridite` : pluie, ETP, aridité, humidité de l'air sur mer et sur terre, biomes et altitude par bande de latitude, désert selon la distance à la mer.
+- Les mondes changent, à graine égale.
+
 ### Les montagnes coûtent du temps
 - **Dette de PM** : on entre toujours sur une case avec au moins 1 PM, mais le terrain se paie en entier ; les PM qui manquaient sont retirés des tours suivants. Une unité à 2 PM ne traverse plus une montagne aussi vite qu'une forêt : une montagne peut l'immobiliser un à trois tours. Forêt, marais et relief accidenté se distinguent eux aussi (un PM manquant est dû au tour suivant). Traverser une rivière ou entrer dans un fleuve arrête l'unité, sans dette (règle inchangée).
 - **Montagne selon l'altitude** : 4 PM jusqu'à 2 000 m, +1 PM par tranche de 500 m, jusqu'à 8 PM (au lieu de 3 PM partout). Les cols et les vallées, plus bas que les crêtes, deviennent les passages les plus rapides ; contourner un massif bat souvent la ligne droite.

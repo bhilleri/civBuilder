@@ -106,8 +106,15 @@ pub const DRY_SEASON_RATIO: f32 = 0.3;
 pub const SUMMER_DRY_SHARE: f32 = 0.4;
 /// Part de l'eau condensée dans l'air soulevé qui précipite, dans un air sec puis dans un air
 /// saturé : le reste s'évapore en altitude (enclumes des orages). Un air humide perd moins de
-/// gouttes en route, d'où un meilleur rendement.
-const PRECIPITATION_EFFICIENCY: (f32, f32) = (0.3, 0.7);
+/// gouttes en route, d'où un meilleur rendement. (0,3 auparavant : la vapeur non précipitée
+/// partait vers les latitudes moyennes et asséchait les tropiques, voir `DEEP_CLOUD_EXTRA_M`.)
+const PRECIPITATION_EFFICIENCY: (f32, f32) = (0.6, 0.7);
+/// Les nuages soulevés en profondeur montent plus haut dans un air chaud : sommet à 6 km au
+/// froid, jusqu'à `DEEP_CLOUD_EXTRA_M` de plus pour une latitude à 27 °C (orages tropicaux vers
+/// 14 km, sous une tropopause plus haute). L'air qui y monte perd presque toute sa vapeur ; avec
+/// un sommet fixe à 6 km, 80 % de la vapeur soulevée à l'équateur restait en altitude et partait
+/// vers les latitudes moyennes.
+const DEEP_CLOUD_EXTRA_M: f32 = 8_000.0;
 /// Temps de chute des gouttes une fois formées (s) : le vent les pousse pendant ce temps, d'où
 /// une partie de la pluie qui passe la crête d'un relief.
 const FALLOUT_TIME_S: f32 = 2_000.0;
@@ -835,8 +842,12 @@ pub fn simulate_periods(
                     qs_low: saturation(t_surface, ground[i]),
                     // Sommet de la couche basse (montée limitée par un couvercle d'inversion)
                     qs_low_top: saturation(t_surface - LAPSE * LOW_DEPTH, ground[i] + LOW_DEPTH),
-                    // Sommet de la couche haute : l'air soulevé par les perturbations y monte et y sature
-                    qs_top: saturation(t_upper - LAPSE * UPPER_DEPTH / 2.0, z_upper + UPPER_DEPTH / 2.0),
+                    // Sommet des nuages : l'air soulevé par les perturbations et les orages y monte et
+                    // y sature, d'autant plus haut que l'air est chaud
+                    qs_top: {
+                        let rise = UPPER_DEPTH / 2.0 + DEEP_CLOUD_EXTRA_M * (t0 / 27.0).clamp(0.0, 1.0);
+                        saturation(t_upper - LAPSE * rise, z_upper + rise)
+                    },
                     // Neige sur les reliefs froids
                     snow: t_upper + LAPSE * (z_upper - ground[i] - LOW_DEPTH) < 0.0 && t_surface < 2.0,
                     // Évaporation potentielle de Hargreaves, sans le facteur de l'écart jour-nuit
