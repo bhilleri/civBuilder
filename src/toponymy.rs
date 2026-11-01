@@ -988,6 +988,48 @@ pub fn relief_name(
     (name, fem, Some(e), Some(w))
 }
 
+/// Nom d'une région naturelle, d'après son groupe de biomes, ses cases (`cells` : le terrain le
+/// plus fréquent distingue steppe, plaines et prairies) et sa latitude moyenne. Rend le nom, son
+/// genre et l'origine du nom propre.
+pub fn region_name(biome: crate::regions::Biome, cells: &[&CellInfo], latitude: f32, namer: &mut Namer) -> (String, bool, Option<Etymology>) {
+    use crate::regions::Biome;
+    let language = if cells.is_empty() { Language::Latine } else { main_language(cells) };
+    let size = cells.len();
+    let big = size >= 200;
+    let cold = latitude.abs() > 60.0;
+    let most = |list: &[Terrain]| list.iter().copied().max_by_key(|&t| (cells.iter().filter(|c| c.terrain == t).count(), std::cmp::Reverse(t as u8)));
+    // (générique, féminin, noms descriptifs, sens de la racine)
+    let (generic, fem, descriptive, meaning): (&str, bool, Vec<&str>, Meaning) = match biome {
+        Biome::Forest if size < 40 => ("Bois", false, vec!["Bois Sombre", "Bois des Loups", "Bois Dormant"], Foret),
+        Biome::Forest => ("Forêt", true, if big { vec!["Grande Forêt", "Forêt Profonde"] } else { vec!["Forêt Noire", "Forêt des Brumes", "Forêt Dormante", "Forêt des Loups"] }, Foret),
+        Biome::Jungle => ("Jungle", true, if big { vec!["Grande Selve", "Jungle Profonde"] } else { vec!["Jungle Verte", "Jungle des Brumes", "Jungle des Singes"] }, Foret),
+        Biome::Taiga => ("Taïga", true, if big { vec!["Grande Taïga", "Forêt Boréale"] } else { vec!["Taïga Sombre", "Taïga des Ours", "Bois Gelés"] }, Froid),
+        Biome::Desert => ("Désert", false, if big { vec!["Grand Désert", "Mer de Sable"] } else { vec!["Désert Rouge", "Désert Blanc", "Désert des Pierres", "Désert des Ossements"] }, Sable),
+        Biome::Steppe => match most(&[Terrain::Steppe, Terrain::Plains, Terrain::Grassland]) {
+            Some(Terrain::Steppe) => ("Steppe", true, if big { vec!["Grande Steppe"] } else { vec!["Steppe Venteuse", "Steppe des Chevaux", "Steppe Grise"] }, Vent),
+            Some(Terrain::Grassland) => ("Prairies", true, vec!["Prairies Vertes", "Prairies Fleuries"], Grand),
+            _ => ("Plaines", true, if big { vec!["Grandes Plaines"] } else { vec!["Plaines Dorées", "Plaines Venteuses", "Plaines du Vent"] }, Grand),
+        },
+        Biome::Savanna => ("Savane", true, if big { vec!["Grande Savane"] } else { vec!["Savane Dorée", "Savane des Lions", "Savane Rouge"] }, Sable),
+        Biome::Scrub => ("Maquis", false, vec!["Maquis Odorant", "Garrigue Brûlée", "Garrigues Grises"], Vent),
+        Biome::Marsh => ("Marais", false, vec!["Marais Fiévreux", "Marais Noirs", "Marais des Brumes", "Marécages"], Eau),
+        Biome::Tundra => ("Toundra", true, if cold { vec!["Toundra Blanche", "Terres Gelées", "Toundra des Rennes"] } else { vec!["Toundra des Rennes", "Landes Gelées"] }, Glace),
+    };
+    if namer.chance(0.4) {
+        let pick = namer.choose(&descriptive);
+        if namer.claim(pick) {
+            let first = pick.split(' ').next().unwrap_or(pick);
+            let fem = !matches!(first, "Bois" | "Désert" | "Grand" | "Maquis" | "Marais" | "Marécages");
+            return (pick.to_string(), fem, None);
+        }
+    }
+    let hint = namer.chance(0.4).then_some(meaning);
+    let (w, e) = namer.proper(language, hint);
+    let name = format!("{generic} {}", de(&w, feminine(&w), false));
+    let _ = namer.claim(&name);
+    (name, fem, Some(e))
+}
+
 /// Nom d'un banc de poissons, d'après ce qui le rend riche (`origins`, voir `map::marine`) et
 /// l'eau du lieu : souvent les poissons qu'on y pêche (« Bancs des Sardines » dans une remontée
 /// d'eaux chaude, « Bancs des Morues » au froid ou à la rencontre de deux courants, « Bancs des

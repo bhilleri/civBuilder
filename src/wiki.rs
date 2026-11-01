@@ -496,6 +496,15 @@ fn terrain() -> Article {
                capitales de très loin, archipels et grandes îles de loin, péninsules et îles moyennes en \
                s'approchant, isthmes, petites îles et îlots de près. L'infobulle d'une case de terre donne ses \
                terres (« Prairie — Presqu'île de Lanza, Esinzie »)."),
+            h("Régions naturelles"),
+            p("Les grands paysages ont aussi leur nom : forêts, jungles, taïgas, déserts, steppes et plaines, \
+               savanes, maquis, marais et toundras (une clairière ou une oasis ne coupe pas une région). Une région \
+               de plus de 150 cases est partagée en sous-régions nommées d'après leur position (« Forêt de Liji du \
+               Nord », « Grand Désert du Centre »). Les noms prennent la couleur du paysage (vert pour la \
+               végétation, sable pour les terres sèches, vert d'eau pour les marais, blanc bleuté pour la \
+               toundra) : les grandes régions en capitales de loin, leurs sous-régions en s'approchant, les \
+               petites (un marais, un bois) de près. L'infobulle les donne après le relief (« Forêt — Forêt de \
+               Liji de l'Ouest, Forêt de Liji, Esinzie »)."),
             h("Montagnes et relief"),
             p("Le relief a ses noms : les chaînes de montagnes (montagnes et pics d'un seul tenant), découpées en \
                massifs d'une vingtaine de cases quand elles sont longues ; les cols, passages moins chers entre deux \
@@ -508,8 +517,8 @@ fn terrain() -> Article {
                Fiosona, Monts Grausara, Esinzie »)."),
             h("Trouver un lieu"),
             p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
-               ne comptent pas) ; les puces filtrent par catégorie (villes, mers, terres et îles, relief, cours \
-               d'eau, lacs, bassins versants, plaques) et donnent le nombre de résultats de chacune. Flèches pour choisir, Entrée pour y \
+               ne comptent pas) ; les puces filtrent par catégorie (villes, mers, terres et îles, relief, régions \
+               naturelles, cours d'eau, lacs, bassins versants, plaques) et donnent le nombre de résultats de chacune. Flèches pour choisir, Entrée pour y \
                aller, Tab pour changer de filtre, Échap pour fermer. Le lieu choisi ressort sur la carte (pourtour \
                doré d'une zone, surbrillance d'un cours d'eau ou d'un lac) et la caméra le cadre. Seuls les lieux \
                déjà explorés sont listés (tous en mode debug)."),

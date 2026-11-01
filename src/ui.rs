@@ -1054,12 +1054,13 @@ fn update_hover_text(
             } else {
                 format!(" — {}", seas_here.iter().map(|&z| m.seas().zones[z].name.as_str()).collect::<Vec<_>>().join(", "))
             };
-            // Relief et terres de la case : « Montagne — Col de Taldor, Monts Taldor, Presqu'île de
-            // Vaskar, Taldorie »
+            // Relief, région naturelle et terres de la case : « Montagne — Col de Taldor, Monts
+            // Taldor, Forêt Noire du Nord, Forêt Noire, Presqu'île de Vaskar, Taldorie »
             let here: Vec<&str> = if m.contains(h) {
                 let c = m.cell(h);
                 let reliefs = m.reliefs().chain(c).into_iter().map(|z| m.reliefs().zones[z].name.as_str());
-                reliefs.chain(m.lands().chain(c).into_iter().map(|z| m.lands().zones[z].name.as_str())).collect()
+                let regions = m.regions().chain(c).into_iter().map(|z| m.regions().zones[z].name.as_str());
+                reliefs.chain(regions).chain(m.lands().chain(c).into_iter().map(|z| m.lands().zones[z].name.as_str())).collect()
             } else {
                 Vec::new()
             };

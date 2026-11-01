@@ -49,7 +49,7 @@ soudent par collision. Trois étapes, chacune vérifiée par bilan et captures :
 - [ ] Banquise jouable (eau gelée, selon la température de la mer).
 - [x] Toponymie étape 3 (01/11) : continents, îles, îlots, archipels, péninsules, isthmes (`lands.rs`).
 - [x] Toponymie étape 4 (01/11) : chaînes, massifs, cols, plateaux, collines (`mountains.rs`).
-- [ ] Toponymie étapes 5 et 6, une à la fois : régions naturelles ; barre de lieu (voir
-  `conception/conception-toponymie.md`).
+- [x] Toponymie étape 5 (01/11) : régions naturelles et sous-régions (`regions.rs`).
+- [ ] Toponymie étape 6 : barre de lieu (voir `conception/conception-toponymie.md`).
 - [ ] Navigation et unités navales (barques, galères, caravelles), pêcheries.
 - [ ] Police Inter Italic (les noms marins devraient être en italique).
