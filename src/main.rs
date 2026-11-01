@@ -31,6 +31,7 @@ mod mountains;
 mod pathfinding;
 mod plates;
 mod render;
+mod regions;
 mod relief;
 mod rules;
 mod seam;

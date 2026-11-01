@@ -707,6 +707,8 @@ pub struct WorldMap {
     lands: crate::lands::Lands,
     /// Relief nommé : chaînes de montagnes, massifs, cols, plateaux, collines.
     reliefs: crate::mountains::Reliefs,
+    /// Régions naturelles : forêts, déserts, steppes, marais… et leurs sous-régions.
+    regions: crate::regions::Regions,
     /// Profondeur du fond de chaque case de mer (m, positive ; 0 sur terre).
     depth: Vec<f32>,
     /// Eaux poissonneuses de chaque case de mer (voir `marine`).
@@ -748,6 +750,7 @@ impl WorldMap {
             seas: crate::seas::Seas::default(),
             lands: crate::lands::Lands::default(),
             reliefs: crate::mountains::Reliefs::default(),
+            regions: crate::regions::Regions::default(),
             depth: vec![0.0; n],
             marine: vec![0; n],
             banks: Vec::new(),
@@ -776,6 +779,7 @@ impl WorldMap {
             .chain(self.seas.zones.iter().map(|z| z.name.clone()))
             .chain(self.lands.zones.iter().map(|z| z.name.clone()))
             .chain(self.reliefs.zones.iter().map(|z| z.name.clone()))
+            .chain(self.regions.zones.iter().map(|z| z.name.clone()))
             .chain(self.banks.iter().map(|b| b.name.clone()))
             .collect()
     }
@@ -911,6 +915,28 @@ impl WorldMap {
             let (name, feminine, etymology, word) = toponymy::relief_name(zone.kind, &info, latitude, root, &mut namer);
             words[z] = word.zip(etymology);
             let zone = &mut self.reliefs.zones[z];
+            zone.name = name;
+            zone.feminine = feminine;
+            zone.etymology = etymology;
+        }
+        // Régions naturelles, puis leurs sous-régions (« Forêt Noire du Nord »)
+        self.regions = crate::regions::compute(self.width, self.height, self.wrap, &self.tiles);
+        for z in 0..self.regions.zones.len() {
+            let zone = &self.regions.zones[z];
+            let named = match (zone.parent, zone.side) {
+                (Some(p), Some(side)) => {
+                    let parent = &self.regions.zones[p];
+                    let full = format!("{} {side}", parent.name);
+                    namer.claim(&full).then_some((full, parent.feminine, parent.etymology))
+                }
+                _ => None,
+            };
+            let (name, feminine, etymology) = named.unwrap_or_else(|| {
+                let info: Vec<&CellInfo> = zone.cells.iter().map(|&c| &cells[c]).collect();
+                let latitude = zone.cells.iter().map(|&c| self.latitude(self.hex_at(c))).sum::<f32>() / zone.cells.len() as f32;
+                toponymy::region_name(zone.biome, &info, latitude, &mut namer)
+            });
+            let zone = &mut self.regions.zones[z];
             zone.name = name;
             zone.feminine = feminine;
             zone.etymology = etymology;
@@ -1103,6 +1129,11 @@ impl WorldMap {
     /// Relief nommé.
     pub fn reliefs(&self) -> &crate::mountains::Reliefs {
         &self.reliefs
+    }
+
+    /// Régions naturelles.
+    pub fn regions(&self) -> &crate::regions::Regions {
+        &self.regions
     }
 
     /// Plaques tectoniques.

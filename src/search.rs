@@ -49,6 +49,8 @@ pub enum MapTarget {
     Land(usize),
     /// Relief nommé : chaîne, massif, col, plateau, collines (indice dans `Reliefs::zones`).
     Relief(usize),
+    /// Région naturelle ou sous-région (indice dans `Regions::zones`).
+    Region(usize),
     /// Banc de poissons (indice dans `WorldMap::banks`).
     Bank(usize),
     /// Indice de la plaque.
@@ -69,13 +71,14 @@ pub enum Category {
     Sea,
     Land,
     Relief,
+    Region,
     Bank,
     Basin,
     Plate,
 }
 
 impl Category {
-    pub const ALL: [Category; 10] = [Category::City, Category::Sea, Category::Land, Category::Relief, Category::River, Category::Lake, Category::Bank, Category::Basin, Category::Plate, Category::Site];
+    pub const ALL: [Category; 11] = [Category::City, Category::Sea, Category::Land, Category::Relief, Category::Region, Category::River, Category::Lake, Category::Bank, Category::Basin, Category::Plate, Category::Site];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -86,6 +89,7 @@ impl Category {
             Category::Sea => "Mers et océans",
             Category::Land => "Terres et îles",
             Category::Relief => "Relief",
+            Category::Region => "Régions naturelles",
             Category::Bank => "Bancs de poissons",
             Category::Basin => "Bassins versants",
             Category::Plate => "Plaques",
@@ -101,6 +105,7 @@ impl Category {
             Category::Sea => Color::srgb(0.25, 0.45, 0.90),
             Category::Land => Color::srgb(0.80, 0.66, 0.42),
             Category::Relief => Color::srgb(0.62, 0.48, 0.36),
+            Category::Region => Color::srgb(0.40, 0.68, 0.38),
             Category::Bank => Color::srgb(0.95, 0.78, 0.35),
             Category::Basin => Color::srgb(0.45, 0.80, 0.35),
             Category::Plate => Color::srgb(0.95, 0.60, 0.25),
@@ -453,6 +458,19 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
         };
         push(&zone.name, Category::Relief, detail, MapTarget::Relief(z), zone.cells.len() as f32);
     }
+    // Régions naturelles dont une case est explorée
+    let regions = map.regions();
+    for (z, zone) in regions.zones.iter().enumerate() {
+        if !zone.cells.iter().any(|&c| known(c)) {
+            continue;
+        }
+        let kind = capitalized(zone.biome.label());
+        let detail = match zone.parent {
+            Some(p) => format!("{kind} · {}", regions.zones[p].name),
+            None => format!("{kind} · {} cases", thousands(zone.cells.len() as u64)),
+        };
+        push(&zone.name, Category::Region, detail, MapTarget::Region(z), zone.cells.len() as f32);
+    }
     // Bassins et plaques : ceux qui ont une case explorée
     let plates = map.plates();
     let mut seen_basins: HashSet<usize> = HashSet::new();
@@ -544,6 +562,7 @@ fn target_hexes(map: &WorldMap, fog: &ShownFog, territory: &Territory, entity_he
         MapTarget::Sea(z) => map.seas().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Land(z) => map.lands().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Relief(z) => map.reliefs().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
+        MapTarget::Region(z) => map.regions().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Basin(b) => fog.explored.iter().copied().filter(|&h| map.contains(h) && basins.basin_of[map.cell(h)] == Some(b as u32)).collect(),
         MapTarget::Plate(p) => {
             let plate_of = &map.plates().plate_of;
@@ -933,6 +952,7 @@ fn setup_search(mut commands: Commands) {
                     chip(Some(Category::Sea)),
                     chip(Some(Category::Land)),
                     chip(Some(Category::Relief)),
+                    chip(Some(Category::Region)),
                     chip(Some(Category::Bank)),
                     chip(Some(Category::River)),
                     chip(Some(Category::Lake)),
@@ -1349,6 +1369,7 @@ mod tests {
         assert_eq!(count(Category::Sea) - m.basins().lakes.iter().filter(|l| l.kind == crate::basins::WaterBody::InlandSea).count(), m.seas().zones.len());
         assert_eq!(count(Category::Land), m.lands().zones.len());
         assert_eq!(count(Category::Relief), m.reliefs().zones.len());
+        assert_eq!(count(Category::Region), m.regions().zones.len());
         assert!(count(Category::Plate) > 3);
         assert!(count(Category::Basin) > 0);
         // Chaque nom se retrouve par son début

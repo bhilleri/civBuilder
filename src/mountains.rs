@@ -136,7 +136,7 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, land: &[bool], relief: &[Rel
         out.zones.push(zone);
         if cells.len() > MASSIF_SPLIT_CELLS {
             let parts = (cells.len() as f32 / MASSIF_CELLS as f32).round().max(2.0) as usize;
-            for part in split(&grid, cells, parts, &in_range) {
+            for part in split(&grid, cells, parts, &in_range, MASSIF_CELLS / 2) {
                 massifs.push((id, part));
             }
         }
@@ -358,7 +358,7 @@ fn runs(grid: &Grid, c: usize, keep: &impl Fn(usize) -> bool) -> usize {
 }
 
 /// Morceaux d'un seul tenant des cases retenues (cases rangées dans l'ordre).
-fn components(grid: &Grid, keep: impl Fn(usize) -> bool) -> Vec<Vec<usize>> {
+pub(crate) fn components(grid: &Grid, keep: impl Fn(usize) -> bool) -> Vec<Vec<usize>> {
     let n = (grid.width * grid.height) as usize;
     let mut seen = vec![false; n];
     let mut all = Vec::new();
@@ -404,10 +404,11 @@ fn walk(grid: &Grid, from: &[usize], member: &[bool]) -> Vec<u16> {
     d
 }
 
-/// Découpe une chaîne en `parts` massifs : germes les plus éloignés les uns des autres le long
-/// de la chaîne, chaque case au germe le plus proche (par la chaîne), chaque germe recentré
-/// (la case la plus proche de toutes les autres de son massif), trois fois.
-fn split(grid: &Grid, cells: &[usize], parts: usize, member: &[bool]) -> Vec<Vec<usize>> {
+/// Découpe une zone d'un seul tenant (chaîne en massifs, région naturelle en sous-régions) en
+/// `parts` morceaux : germes les plus éloignés les uns des autres par la zone (`member`), chaque
+/// case au germe le plus proche, chaque germe recentré (la case la plus proche de toutes les autres
+/// de son morceau), quatre fois ; un morceau de moins de `min_cells` cases rejoint son voisin.
+pub(crate) fn split(grid: &Grid, cells: &[usize], parts: usize, member: &[bool], min_cells: usize) -> Vec<Vec<usize>> {
     // Premier germe : un bout de la chaîne (la case la plus éloignée de la première)
     let d = walk(grid, &cells[..1], member);
     let far = |d: &[u16]| cells.iter().copied().max_by_key(|&c| (d[c], std::cmp::Reverse(c))).unwrap();
@@ -457,7 +458,7 @@ fn split(grid: &Grid, cells: &[usize], parts: usize, member: &[bool]) -> Vec<Vec
     // Un massif trop petit (un reste entre deux germes) rejoint son voisin le plus touché
     loop {
         regions.retain(|r| !r.is_empty());
-        let Some(small) = (0..regions.len()).filter(|&k| regions[k].len() < MASSIF_CELLS / 2).min_by_key(|&k| (regions[k].len(), regions[k][0])) else { break };
+        let Some(small) = (0..regions.len()).filter(|&k| regions[k].len() < min_cells).min_by_key(|&k| (regions[k].len(), regions[k][0])) else { break };
         if regions.len() < 2 {
             break;
         }
