@@ -278,6 +278,20 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
   climat` (0 case changée sur une carte intacte), cavalerie lourde, milice hostile, ville fondée,
   chemin de 13 pas (arrivée au tour 6), deux tours joués (le guerrier hostile a bougé).
 
+## Commandes d'unité en famille (01/11/2026)
+- Demande de Benjamin : pouvoir retirer des PV à une unité ; et faire commencer ces commandes
+  par l'objet dont on parle (« unite soin »), l'auto-complétion les rend simples.
+- Famille `unite` : `creer <type> c l [hostile]`, `supprimer c l`, `pv c l n` (0 à 100 ; 0 :
+  dispersée, retirée de la carte, sans l'animation d'un combat), `pm c l n` (borné au maximum de
+  l'unité), `dette c l n` (PM dus ; l'immobilisation suit au tour suivant), `soigner c l` (PV, PM,
+  dette). Réponse : l'état obtenu (`lancier joueur en 89 45 pv=35/100 pm=0/2 dette=3`) ; `info`
+  ajoute l'unité de la case.
+- Langage : une commande peut avoir un nom en deux mots (`SPECS` : « unite pv ») ; `lookup` prend
+  le nom le plus long, `family` donne les sous-commandes : Tab sur `unite ` les propose, « aide
+  unite » les détaille, « unite 3 4 » répond quelles sous-commandes existent.
+- Vérifié en script (graine 777) : lancier blessé (barre de PV) et endetté (pastille « 1 »),
+  milice hostile dispersée à 0 PV, soin, suppression, tour joué.
+
 ## Limites
 - `regenerer climat` gèle le jeu une dizaine de secondes (calcul sur l'image).
 - `regenerer` remplace les biomes et le climat modifiés à la main (ils viennent de la

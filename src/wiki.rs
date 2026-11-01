@@ -84,7 +84,7 @@ pub fn debug_article() -> Article {
         h("Refaire la simulation"),
         p("« regenerer eau » refait les cours d'eau, les lacs, les marais et les noms avec le climat actuel : un barrage posé sur un fleuve devient un lac, ou le fleuve le contourne. « regenerer climat » refait tout depuis les altitudes, les terres et les mers actuelles : courants marins, climat, biomes, eau, noms, eaux poissonneuses (une dizaine de secondes sur une planète). C'est le même calcul qu'à la génération : sur une carte intacte, il la redonne à l'identique. Les biomes et le climat modifiés à la main sont remplacés ; les altitudes, les reliefs imposés et les terres ou mers posées restent. « fleuve » trace à la main un fleuve de case en case, sans bassin ni nom."),
         h("Partie"),
-        p("« unite », « ville », « supprimer » et « tour » préparent une situation de jeu (unités du joueur ou hostiles, ville, tours joués avec leurs animations) ; « chemin » donne le trajet le plus rapide d'une unité, le coût de chaque pas et le tour d'arrivée, sur la carte entière."),
+        p("Les commandes d'unité commencent toutes par « unite » (Tab propose la suite) : « unite creer » (du joueur, ou hostile), « unite supprimer », « unite pv » (0 : dispersée), « unite pm », « unite dette » (PM dus, comme après une montagne) et « unite soigner » préparent un combat ou un passage difficile ; « info » donne aussi l'unité de la case et son état. « ville » et « tour » complètent la situation (tours joués avec leurs animations) ; « chemin » donne le trajet le plus rapide d'une unité, le coût de chaque pas et le tour d'arrivée, sur la carte entière."),
     ];
     for g in Group::ALL {
         blocks.push(h(g.title()));

@@ -38,10 +38,11 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   `aller`, `vue 3d`, `camera 300`, `capture nom`, modifications brutes (`terrain`, `relief`,
   `altitude`, `temperature`, `pluie`, `pinceau`, `annuler` ; `~` devant pour un recalcul local :
   température, biome, pics), `verifier` (incohérences ; 0 sur une carte générée), `regenerer eau|climat`
-  (l'eau ou toute la simulation refaite comme à la génération), `fleuve`, `unite`, `ville`, `tour n`,
+  (l'eau ou toute la simulation refaite comme à la génération), `fleuve`, `unite creer|pv|pm|dette|soigner|supprimer`, `ville`, `tour n`,
   `chemin`, et finir par `quitter`. `aide` et
   `aide <commande>` donnent la liste et les valeurs possibles. Ajouter une commande : `SPECS` et
-  `parse` dans `debug_cmd.rs` (l'aide, la complétion et le wiki suivent).
+  `parse` dans `debug_cmd.rs` (l'aide, la complétion et le wiki suivent) ; une commande qui agit
+  sur un objet du jeu commence par son nom (`unite pv`, famille complétée par Tab).
 
 ## Conventions du code
 - Modules de **logique pure** testés (génération : `plates.rs`, `erosion.rs`, `climate.rs`,

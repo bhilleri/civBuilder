@@ -132,9 +132,13 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "annuler", args: &[], help: "Annule la dernière modification de la carte.", group: Group::Edit },
     Spec { name: "regenerer", args: &[("eau|climat", Arg::Regen, false)], help: "Refait la simulation comme à la génération, depuis les altitudes, terres et mers actuelles. eau : cours d'eau, lacs, marais, noms (climat gardé). climat : climat, courants marins, biomes, eau, noms, eaux poissonneuses (quelques secondes). Les modifications de terrain et de climat sont remplacées par celles de la simulation.", group: Group::Simulate },
     Spec { name: "chemin", args: &[AT[0], AT[1], ("col", Arg::Col, false), ("lig", Arg::Row, false), ("unité", Arg::Unit, true)], help: "Trajet le plus rapide d'une case à une autre pour une unité (milice par défaut), sur la carte entière : cases, coût de chaque pas, tour d'arrivée.", group: Group::Game },
-    Spec { name: "unite", args: &[("unité", Arg::Unit, false), AT[0], AT[1], ("hostile", Arg::Text, true)], help: "Crée une unité du joueur sur la case, ou hostile avec « hostile » (elle erre autour de la case).", group: Group::Game },
+    Spec { name: "unite creer", args: &[("unité", Arg::Unit, false), AT[0], AT[1], ("hostile", Arg::Text, true)], help: "Crée une unité du joueur sur la case, ou hostile avec « hostile » (elle erre autour de la case).", group: Group::Game },
+    Spec { name: "unite supprimer", args: &AT, help: "Retire les unités de la case.", group: Group::Game },
+    Spec { name: "unite pv", args: &[AT[0], AT[1], ("pv", Arg::Number, false)], help: "Points de vie de l'unité de la case (0 à 100 ; 0 : dispersée, retirée de la carte).", group: Group::Game },
+    Spec { name: "unite pm", args: &[AT[0], AT[1], ("pm", Arg::Number, false)], help: "PM restants ce tour-ci de l'unité de la case (0 au maximum de l'unité).", group: Group::Game },
+    Spec { name: "unite dette", args: &[AT[0], AT[1], ("pm dus", Arg::Number, false)], help: "Dette de PM de l'unité de la case : retirée des tours suivants, comme après une montagne (immobilisée tant qu'elle prend tous ses PM).", group: Group::Game },
+    Spec { name: "unite soigner", args: &AT, help: "Rend à l'unité de la case tous ses PV et ses PM, et efface sa dette.", group: Group::Game },
     Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
-    Spec { name: "supprimer", args: &AT, help: "Retire les unités de la case.", group: Group::Game },
     Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
@@ -148,9 +152,38 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "quitter", args: &[], help: "Ferme le jeu (fin d'un script).", group: Group::Console },
 ];
 
-/// Commande décrite par son nom.
+/// Commande décrite par son nom (« unite pv » pour une commande d'une famille).
 pub fn spec(name: &str) -> Option<&'static Spec> {
     SPECS.iter().find(|s| s.name == name)
+}
+
+/// Commande désignée par les premiers mots d'une ligne (« unite pv … »), et nombre de mots de
+/// son nom.
+pub fn lookup(words: &[&str]) -> Option<(&'static Spec, usize)> {
+    if let [a, b, ..] = words
+        && let Some(s) = spec(&format!("{} {}", token(a), token(b)))
+    {
+        return Some((s, 2));
+    }
+    words.first().and_then(|w| spec(&token(w))).map(|s| (s, 1))
+}
+
+/// Sous-commandes d'une famille (« unite » : creer, supprimer, pv…), vide si ce n'en est pas une.
+pub fn family(word: &str) -> Vec<&'static str> {
+    let head = format!("{} ", token(word));
+    SPECS.iter().filter_map(|s| s.name.strip_prefix(head.as_str())).collect()
+}
+
+/// Premiers mots des commandes, dans l'ordre de l'aide (une famille une seule fois).
+fn heads() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for s in SPECS {
+        let head = s.name.split(' ').next().unwrap_or(s.name).to_string();
+        if !out.contains(&head) {
+            out.push(head);
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------- Noms des valeurs
@@ -250,6 +283,7 @@ pub enum Command {
     Regen(bool),
     Path(Hex, Hex, UnitKind),
     Unit(UnitKind, Hex, bool),
+    UnitSet(Hex, UnitChange),
     City(Hex),
     Remove(Hex),
     Turns(u32),
@@ -271,6 +305,15 @@ pub enum Command {
     Journal(Option<String>),
     Clear,
     Quit,
+}
+
+/// Changement de l'état d'une unité (`unite pv`, `unite pm`, `unite dette`, `unite soigner`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum UnitChange {
+    Hp(i32),
+    Moves(u32),
+    Debt(u32),
+    Heal,
 }
 
 fn yes_no(word: &str) -> Result<bool, String> {
@@ -325,12 +368,18 @@ fn split_local(line: &str) -> (&str, bool) {
 pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
     let (line, local) = split_local(line);
     let words: Vec<&str> = line.split_whitespace().collect();
-    let Some((&first, args)) = words.split_first() else { return Err("commande vide".into()) };
+    let Some(&first) = words.first() else { return Err("commande vide".into()) };
     let name = token(first);
-    let Some(spec) = spec(&name) else {
-        let close: Vec<&str> = SPECS.iter().map(|s| s.name).filter(|n| n.starts_with(&name)).collect();
+    let Some((spec, used)) = lookup(&words) else {
+        let subs = family(first);
+        if !subs.is_empty() {
+            let typed = words.get(1).map_or("…".to_string(), |w| format!("« {w} »"));
+            return Err(format!("{name} {typed} : préciser {} (aide {name})", subs.join(", ")));
+        }
+        let close: Vec<String> = heads().into_iter().filter(|n| n.starts_with(&name)).collect();
         return Err(if close.is_empty() { format!("commande inconnue : « {first} » (aide : liste des commandes)") } else { format!("commande inconnue : « {first} » (voulez-vous dire : {} ?)", close.join(", ")) });
     };
+    let args = &words[used..];
     let required = spec.args.iter().filter(|a| !a.2).count();
     let free = spec.args.iter().any(|a| matches!(a.1, Arg::Criteria | Arg::Cells));
     if args.len() < required || (!free && args.len() > spec.args.len()) {
@@ -391,16 +440,20 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             _ => return Err(format!("regenerer : eau ou climat, pas « {} »", args[0])),
         },
         "chemin" => Command::Path(at()?, cell(map, args[2], args[3])?, args.get(4).map(|u| pick(u, &unit_tokens(), "unité")).transpose()?.unwrap_or(UnitKind::Militia)),
-        "unite" => {
+        "unite creer" => {
             let hostile = match args.get(3).map(|a| token(a)) {
                 None => false,
                 Some(h) if h == "hostile" => true,
-                Some(other) => return Err(format!("unite : « hostile » ou rien, pas « {other} »")),
+                Some(other) => return Err(format!("unite creer : « hostile » ou rien, pas « {other} »")),
             };
             Command::Unit(pick(args[0], &unit_tokens(), "unité")?, cell(map, args[1], args[2])?, hostile)
         }
+        "unite supprimer" => Command::Remove(at()?),
+        "unite pv" => Command::UnitSet(at()?, UnitChange::Hp(number(args[2], "pv")?.round().clamp(0.0, crate::rules::MAX_HP as f32) as i32)),
+        "unite pm" => Command::UnitSet(at()?, UnitChange::Moves(number(args[2], "pm")?.round().max(0.0) as u32)),
+        "unite dette" => Command::UnitSet(at()?, UnitChange::Debt(number(args[2], "pm dus")?.round().clamp(0.0, 99.0) as u32)),
+        "unite soigner" => Command::UnitSet(at()?, UnitChange::Heal),
         "ville" => Command::City(at()?),
-        "supprimer" => Command::Remove(at()?),
         "tour" => Command::Turns(args.first().map(|n| number(n, "nombre")).transpose()?.map_or(1, |n| n.round().clamp(1.0, 100.0) as u32)),
         "pinceau" => Command::Brush((number(args[0], "rayon")?.round() as i32).clamp(0, BRUSH_MAX)),
         "annuler" => Command::Undo,
@@ -417,7 +470,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
         "carte" => Command::Layer(pick(&args.join(" "), &layer_tokens(), "carte")?),
         "capture" => Command::Capture(args[0].to_string()),
         "attendre" => Command::Wait(number(args[0], "images")?.clamp(0.0, 10_000.0) as u32),
-        "aide" => Command::Help(args.first().map(|a| token(a))),
+        "aide" => Command::Help((!args.is_empty()).then(|| args.iter().map(|a| token(a)).collect::<Vec<_>>().join(" "))),
         "journal" => Command::Journal(args.first().map(|a| a.to_string())),
         "effacer" => Command::Clear,
         "quitter" => Command::Quit,
@@ -434,7 +487,7 @@ fn values(arg: Arg) -> Vec<String> {
         Arg::Relief => relief_tokens().into_iter().map(|(n, _)| n).collect(),
         Arg::Layer => layer_tokens().into_iter().map(|(n, _)| n).collect(),
         Arg::View => vec!["2d".into(), "3d".into()],
-        Arg::Command => SPECS.iter().map(|s| s.name.to_string()).collect(),
+        Arg::Command => heads(),
         Arg::Criteria => CRITERIA.iter().map(|s| s.to_string()).collect(),
         Arg::Unit => unit_tokens().into_iter().map(|(n, _)| n).collect(),
         Arg::Regen => vec!["eau".into(), "climat".into()],
@@ -469,10 +522,15 @@ pub fn complete(line: &str) -> Completion {
     let mut words: Vec<&str> = line.split_whitespace().collect();
     let current = if ends_with_space { "" } else { words.pop().unwrap_or("") };
     let (choices, prefix_kept): (Vec<String>, &str) = if words.is_empty() {
-        (SPECS.iter().map(|s| s.name.to_string()).collect(), "")
+        (heads(), "")
+    } else if words.len() == 1 && !family(words[0]).is_empty() {
+        // Famille (« unite ») : la sous-commande
+        (family(words[0]).into_iter().map(String::from).collect(), "")
+    } else if token(words[0]) == "aide" && words.len() == 2 && !family(words[1]).is_empty() {
+        (family(words[1]).into_iter().map(String::from).collect(), "")
     } else {
-        let Some(spec) = spec(&token(words[0])) else { return Completion { line: line.to_string(), candidates: Vec::new() } };
-        let index = words.len() - 1;
+        let Some((spec, used)) = lookup(&words) else { return Completion { line: line.to_string(), candidates: Vec::new() } };
+        let index = words.len() - used;
         let arg = spec.args.get(index).or(spec.args.last().filter(|a| a.1 == Arg::Criteria)).map(|a| a.1);
         match arg {
             // Critère : la clé, puis la valeur après l'opérateur
@@ -490,7 +548,7 @@ pub fn complete(line: &str) -> Completion {
                 }
                 None => (values(Arg::Criteria), ""),
             },
-            Some(Arg::Text) if spec.name == "unite" => (vec!["hostile".into()], ""),
+            Some(Arg::Text) if spec.name == "unite creer" => (vec!["hostile".into()], ""),
             Some(a) => (values(a), ""),
             None => (Vec::new(), ""),
         }
@@ -517,11 +575,13 @@ pub fn complete(line: &str) -> Completion {
 /// Aide en une ligne pour la saisie en cours : forme d'appel et effet de la commande tapée.
 pub fn hint(line: &str) -> String {
     let (line, _) = split_local(line);
-    let Some(first) = line.split_whitespace().next() else { return "Tab : compléter · ↑ ↓ : historique · aide : liste des commandes".into() };
-    match spec(&token(first)) {
-        Some(s) => format!("{} — {}", s.usage(), s.help),
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let Some(&first) = words.first() else { return "Tab : compléter · ↑ ↓ : historique · aide : liste des commandes".into() };
+    match lookup(&words) {
+        Some((s, _)) => format!("{} — {}", s.usage(), s.help),
+        None if !family(first).is_empty() => format!("{} : {}", token(first), family(first).join(" · ")),
         None => {
-            let close: Vec<&str> = SPECS.iter().map(|s| s.name).filter(|n| n.starts_with(&token(first))).collect();
+            let close: Vec<String> = heads().into_iter().filter(|n| n.starts_with(&token(first))).collect();
             if close.is_empty() { "commande inconnue (aide : liste des commandes)".into() } else { close.join(" · ") }
         }
     }
@@ -539,6 +599,11 @@ pub fn help(about: Option<&str>) -> Result<Vec<String>, String> {
         }
         return Ok(lines);
     };
+    if spec(name).is_none() && !family(name).is_empty() {
+        let mut lines = vec![format!("OK {name} : {}", family(name).join(", "))];
+        lines.extend(SPECS.iter().filter(|s| s.name.starts_with(&format!("{name} "))).map(|s| format!("{} — {}", s.usage(), s.help)));
+        return Ok(lines);
+    }
     let s = spec(name).ok_or_else(|| format!("commande inconnue : « {name} »"))?;
     let mut lines = vec![format!("OK {}", s.usage()), s.help.to_string()];
     for &(label, arg, _) in s.args {
@@ -972,6 +1037,9 @@ fn filled_surface(map: &WorldMap) -> Vec<f32> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
     Unit(UnitKind, Hex, bool),
+    UnitSet(Hex, UnitChange),
+    /// Unités de la case à décrire (fin de la réponse de `info`).
+    UnitsAt(Hex),
     City(Hex),
     Remove(Hex),
     Turns(u32),
@@ -1039,7 +1107,8 @@ impl Session {
     fn execute(&mut self, map: &mut WorldMap, cmd: Command, cursor: Option<Hex>, focus: Hex) -> Reply {
         match cmd {
             Command::Info(at) => match at.or(cursor) {
-                Some(h) if map.contains(map.canonical(h)) => Reply::ok(info(map, h)),
+                // (les unités de la case : ajoutées par la console)
+                Some(h) if map.contains(map.canonical(h)) => Reply { effect: Some(Effect::UnitsAt(map.canonical(h))), ..Reply::ok(info(map, h)) },
                 _ => Reply::error("aucune case sous le curseur : info <col> <lig>"),
             },
             Command::Find { criteria, near, max } => {
@@ -1212,6 +1281,7 @@ impl Session {
                 Reply::effect(format!("OK {} {}en {}", token(kind.name()), if hostile { "hostile " } else { "" }, coords(map, at)), Effect::Unit(kind, at, hostile))
             }
             Command::City(at) => Reply::effect(format!("OK ville demandée en {}", coords(map, at)), Effect::City(at)),
+            Command::UnitSet(at, change) => Reply::effect(format!("OK unité de {} à modifier", coords(map, at)), Effect::UnitSet(at, change)),
             Command::Remove(at) => Reply::effect(format!("OK unités retirées de {}", coords(map, at)), Effect::Remove(at)),
             Command::Turns(n) => Reply::effect(format!("OK {n} tour(s) à jouer"), Effect::Turns(n)),
             Command::Brush(r) => {
@@ -1519,8 +1589,21 @@ mod tests {
         let r = s.run(&mut m, "chemin 4 1 4 6 cavalerie-legere", None, Hex::default());
         assert!(r.ok && r.lines[0].starts_with("OK cavalerie-legere : "), "{:?}", r.lines);
         assert!(!s.run(&mut m, "chemin 4 1 0 0", None, Hex::default()).ok, "pas de trajet vers la mer");
-        assert!(s.run(&mut m, "unite archer-monte 2 2 hostile", None, Hex::default()).effect == Some(Effect::Unit(UnitKind::HorseArcher, Hex::from_offset(2, 2), true)));
-        assert_eq!(complete("unite archer-m").line, "unite archer-monte ");
+        assert!(s.run(&mut m, "unite creer archer-monte 2 2 hostile", None, Hex::default()).effect == Some(Effect::Unit(UnitKind::HorseArcher, Hex::from_offset(2, 2), true)));
+        assert_eq!(complete("unite creer archer-m").line, "unite creer archer-monte ");
+        // Famille « unite » : sous-commande complétée, puis ses arguments
+        assert_eq!(complete("un").line, "unite ");
+        assert_eq!(complete("unite p").candidates, ["pv", "pm"]);
+        assert_eq!(complete("unite so").line, "unite soigner ");
+        assert_eq!(complete("unite creer 3 4 ").line, "unite creer 3 4 ");
+        assert_eq!(complete("aide unite d").line, "aide unite dette ");
+        assert!(hint("unite").starts_with("unite : creer · supprimer"));
+        assert!(hint("unite pv 3").starts_with("unite pv <col> <lig> <pv>"));
+        assert!(help(Some("unite")).unwrap().len() == 7);
+        assert_eq!(parse(&m, "unite pv 2 2 140"), Ok(Command::UnitSet(Hex::from_offset(2, 2), UnitChange::Hp(100))));
+        assert_eq!(parse(&m, "unite soigner 2 2"), Ok(Command::UnitSet(Hex::from_offset(2, 2), UnitChange::Heal)));
+        assert!(parse(&m, "unite 2 2").unwrap_err().contains("préciser creer"));
+        assert!(parse(&m, "unite pv 2 2").unwrap_err().starts_with("usage : unite pv"));
         assert_eq!(complete("regenerer c").line, "regenerer climat ");
     }
 

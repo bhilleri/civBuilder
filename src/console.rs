@@ -13,7 +13,8 @@
 //! Après une modification de la carte, `MapEdited` porte les cases dont le rendu est à refaire
 //! (cases modifiées et voisines) : le rendu 2D (`render.rs`) et 3D (`view3d.rs`) les reconstruit.
 
-use crate::debug_cmd::{self, Effect, Reply, Session};
+use crate::debug_cmd::{self, Effect, Reply, Session, UnitChange};
+use crate::rules::MAX_HP;
 use crate::feedback::TurnReplay;
 use crate::game::{City, DebugMode, EndTurnRequested, GameMap, GameState, HexPos, Selection, ShownFog, Territory, Unit, found_city, spawn_unit};
 use crate::hostile::{Hostile, HostileHome};
@@ -319,7 +320,7 @@ struct ConsoleContext<'w, 's> {
     commands: Commands<'w, 's>,
     game: (ResMut<'w, GameState>, ResMut<'w, Territory>, ResMut<'w, Selection>),
     cities: Query<'w, 's, &'static HexPos, With<City>>,
-    units: Query<'w, 's, (Entity, &'static HexPos), With<Unit>>,
+    units: Query<'w, 's, (Entity, &'static mut Unit, &'static HexPos, Has<Hostile>)>,
     /// Cours d'eau ou lac survolés : leurs numéros changent quand l'eau est refaite.
     pointed: (ResMut<'w, crate::highlight::HoveredLabel>, ResMut<'w, crate::highlight::PointedFeature>),
 }
@@ -354,7 +355,7 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
     };
     match &reply.effect {
         Some(Effect::Unit(kind, at, hostile)) => {
-            if ctx.units.iter().any(|(_, p)| p.0 == *at) {
+            if ctx.units.iter().any(|(_, _, p, _)| p.0 == *at) {
                 refuse(&mut lines, format!("{} : une unité occupe déjà la case", debug_cmd::coords(&ctx.map.0, *at)));
             } else {
                 let e = spawn_unit(&mut ctx.commands, *kind, *at);
@@ -376,7 +377,7 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
             }
         }
         Some(Effect::Remove(at)) => {
-            let gone: Vec<Entity> = ctx.units.iter().filter(|(_, p)| p.0 == *at).map(|(e, _)| e).collect();
+            let gone: Vec<Entity> = ctx.units.iter().filter(|(_, _, p, _)| p.0 == *at).map(|(e, ..)| e).collect();
             let selection = &mut ctx.game.2;
             for &e in &gone {
                 if selection.0 == Some(e) {
@@ -385,6 +386,45 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
                 ctx.commands.entity(e).despawn();
             }
             lines = vec![format!("OK {} unité(s) retirée(s) de {}", gone.len(), debug_cmd::coords(&ctx.map.0, *at))];
+        }
+        Some(Effect::UnitSet(at, change)) => {
+            let place = debug_cmd::coords(&ctx.map.0, *at);
+            match ctx.units.iter_mut().find(|(_, _, p, _)| p.0 == *at) {
+                None => refuse(&mut lines, format!("aucune unité en {place}")),
+                Some((e, mut unit, _, hostile)) => {
+                    let u = &mut unit.0;
+                    let max = u.kind.max_moves();
+                    match *change {
+                        UnitChange::Hp(hp) => u.hp = hp,
+                        UnitChange::Moves(m) => {
+                            u.moves_left = m.min(max);
+                            u.immobilized &= u.moves_left == 0;
+                        }
+                        UnitChange::Debt(d) => u.move_debt = d,
+                        UnitChange::Heal => {
+                            u.hp = MAX_HP;
+                            u.moves_left = max;
+                            u.move_debt = 0;
+                            u.immobilized = false;
+                        }
+                    }
+                    if u.hp <= 0 {
+                        // (dispersée : retirée de la carte, comme après un combat perdu)
+                        lines = vec![format!("OK {} en {place} : dispersée (pv=0), retirée de la carte", debug_cmd::token(u.kind.name()))];
+                        if ctx.game.2.0 == Some(e) {
+                            ctx.game.2.0 = None;
+                        }
+                        ctx.commands.entity(e).despawn();
+                    } else {
+                        lines = vec![format!("OK {}", describe_unit(u, hostile, &place))];
+                    }
+                }
+            }
+        }
+        Some(Effect::UnitsAt(at)) => {
+            let place = debug_cmd::coords(&ctx.map.0, *at);
+            let here: Vec<String> = ctx.units.iter().filter(|(_, _, p, _)| p.0 == *at).map(|(_, u, _, hostile)| format!("unite={}", describe_unit(&u.0, hostile, &place))).collect();
+            lines.push(if here.is_empty() { "unite=aucune".into() } else { here.join(" ; ") });
         }
         Some(Effect::Turns(n)) => {
             console.turns = Some((*n, None));
@@ -466,6 +506,20 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
         }
     }
     Reply { lines, ok, ..reply }
+}
+
+/// État d'une unité en une ligne : « milice joueur en 90 45 pv=40/100 pm=1/2 dette=0 ».
+fn describe_unit(u: &crate::rules::UnitState, hostile: bool, place: &str) -> String {
+    format!(
+        "{} {} en {place} pv={}/{MAX_HP} pm={}/{} dette={}{}",
+        debug_cmd::token(u.kind.name()),
+        if hostile { "hostile" } else { "joueur" },
+        u.hp,
+        u.moves_left,
+        u.kind.max_moves(),
+        u.move_debt,
+        if u.immobilized { " immobilisee" } else { "" }
+    )
 }
 
 /// Script : une commande par image, sauf pendant une attente ou une capture.
