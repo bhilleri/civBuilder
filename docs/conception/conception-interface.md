@@ -251,7 +251,8 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
 - Brut : une forêt reste une forêt à 30 °C, un lac posé n'a pas d'exutoire, les cours d'eau ne
   suivent pas l'altitude ; le coût des pas, lui, est recalculé.
 - Local : le nombre de pics n'est pas plafonné (1 % des terres à la génération) : le rebord d'un
-  plateau relevé au-dessus du plus bas pic de la carte peut en porter plusieurs.
+  plateau relevé au-dessus du plus bas pic de la carte peut en porter plusieurs. Décision de
+  Benjamin (01/11) : on garde ainsi, pas de plafond en mode local.
 - Local : l'évaporation potentielle ne suit pas la température (l'aridité ne change qu'avec la
   pluie) ; le climat des voisines ne change pas (pas de pluie orographique, pas d'ombre
   pluviométrique) ; les cours d'eau ne suivent jamais (étape 3 : `regenerer`).
