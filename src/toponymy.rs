@@ -791,6 +791,203 @@ pub fn sea_name(
     (name, fem, Some(e))
 }
 
+/// Nom d'une terre (continent, île, îlot, archipel, péninsule, isthme), d'après ses cases
+/// (`cells`), sa latitude moyenne et sa taille ; `language` impose la langue (les îles d'un
+/// archipel prennent celle de l'archipel). Rend le nom, son genre et l'origine du nom propre.
+pub fn land_name(kind: crate::lands::LandKind, cells: &[&CellInfo], latitude: f32, language: Option<Language>, namer: &mut Namer) -> (String, bool, Option<Etymology>) {
+    use crate::lands::LandKind;
+    let language = language.unwrap_or_else(|| if cells.is_empty() { Language::Polynesienne } else { main_language(cells) });
+    let k = if cells.is_empty() { Character::Plain } else { dominant(cells) };
+    let cold = k == Character::Cold || latitude.abs() > 62.0;
+    let size = cells.len();
+    // Continent : un nom propre à la française (« Taldorie », « Vaskie »), sauf les terres polaires
+    if kind == LandKind::Continent {
+        if latitude.abs() > 62.0 {
+            let pick = if latitude > 0.0 { "Terres Boréales" } else { "Terres Australes" };
+            if namer.claim(pick) {
+                return (pick.to_string(), true, None);
+            }
+        }
+        loop {
+            let (w, e) = namer.proper(language, None);
+            let stem = w.trim_end_matches(['a', 'e', 'i', 'o', 'u', 'y']);
+            let name = if stem.chars().count() >= 3 { format!("{stem}ie") } else { w.clone() };
+            // (un nom court : il s'écrit en grandes capitales espacées)
+            if name.chars().count() > 10 {
+                continue;
+            }
+            if name == w || namer.claim(&name) {
+                return (name, true, Some(e));
+            }
+        }
+    }
+    let (generic, fem) = match kind {
+        LandKind::Island => ("Île", true),
+        LandKind::Islet => ("Îlot", false),
+        LandKind::Archipelago => ("Îles", true),
+        LandKind::Peninsula if size < 25 => ("Presqu'île", true),
+        LandKind::Peninsula => ("Péninsule", true),
+        _ => ("Isthme", false),
+    };
+    let descriptive: Vec<&str> = match kind {
+        LandKind::Island | LandKind::Islet if size >= 120 => vec!["Grande Île", "Île Longue"],
+        LandKind::Island | LandKind::Islet if cold => vec!["Île Blanche", "Île des Glaces", "Île aux Ours", "Île des Phoques"],
+        LandKind::Island | LandKind::Islet => match k {
+            Character::Desert => vec!["Île Rouge", "Île Aride", "Île des Tortues"],
+            Character::Jungle => vec!["Île Verte", "Île aux Perroquets", "Île aux Épices"],
+            Character::Forest => vec!["Île aux Pins", "Île Verte", "Île aux Cerfs"],
+            Character::High => vec!["Île Haute", "Île des Falaises"],
+            Character::Marsh => vec!["Île des Brumes", "Île aux Hérons"],
+            _ if kind == LandKind::Islet => vec!["Rocher Noir", "Îlot des Mouettes", "Îlot des Phoques", "Roc des Naufrages"],
+            _ => vec!["Île aux Chèvres", "Île Plate", "Île des Mouettes", "Île Ronde"],
+        },
+        LandKind::Archipelago if cold => vec!["Îles des Glaces", "Îles Blanches", "Îles du Vent"],
+        LandKind::Archipelago => match k {
+            Character::Desert => vec!["Îles Brûlées", "Îles de Sel"],
+            Character::Jungle => vec!["Îles aux Épices", "Îles Émeraude", "Îles Fortunées"],
+            _ => vec!["Îles du Vent", "Îles Fortunées", "Îles des Brumes"],
+        },
+        LandKind::Peninsula if cold => vec!["Péninsule Gelée", "Péninsule des Glaces"],
+        LandKind::Peninsula => match k {
+            Character::Desert => vec!["Péninsule Ardente", "Péninsule des Sables"],
+            Character::Jungle => vec!["Péninsule Verte"],
+            Character::High => vec!["Péninsule des Monts"],
+            _ => vec!["Péninsule des Vents", "Longue Péninsule"],
+        },
+        LandKind::Isthmus if cold => vec!["Isthme Gelé"],
+        LandKind::Isthmus if k == Character::Desert => vec!["Isthme des Sables"],
+        _ => vec!["Isthme des Vents", "Isthme des Brumes"],
+    };
+    // Un îlot sur trois garde un nom descriptif, les autres 3 fois sur 10
+    let p = if kind == LandKind::Islet { 0.35 } else { 0.3 };
+    if !descriptive.is_empty() && namer.chance(p) {
+        let pick = namer.choose(&descriptive);
+        if namer.claim(pick) {
+            return (pick.to_string(), !pick.starts_with("Îlot") && !pick.starts_with("Roc"), None);
+        }
+    }
+    let hint = if namer.chance(0.35) {
+        Some(match k {
+            _ if cold => Froid,
+            Character::Desert => Sable,
+            Character::High => Montagne,
+            Character::Forest | Character::Jungle => Foret,
+            _ if matches!(kind, LandKind::Island | LandKind::Islet | LandKind::Archipelago) => Ile,
+            _ => Vent,
+        })
+    } else {
+        None
+    };
+    let (w, e) = namer.proper(language, hint);
+    let name = match kind {
+        // Une grande île porte souvent son seul nom (« Taldor »), un archipel le nom au pluriel
+        LandKind::Island if size >= 60 && namer.chance(0.5) => w.clone(),
+        LandKind::Archipelago if namer.chance(0.5) => format!("Archipel {}", de(&w, feminine(&w), false)),
+        LandKind::Archipelago => format!("Îles {w}"),
+        _ => format!("{generic} {}", de(&w, feminine(&w), false)),
+    };
+    let fem = if name == w { feminine(&w) } else { fem && !name.starts_with("Archipel") };
+    let _ = namer.claim(&name);
+    (name, fem, Some(e))
+}
+
+/// Nom d'un relief (chaîne, massif, col, plateau, collines), d'après ses cases (`cells`) et sa
+/// latitude moyenne ; `root` : nom propre de la chaîne qui le contient (un col peut le reprendre :
+/// chaîne de Taldor, col de Taldor). Rend le nom, son genre, l'origine du nom propre et le nom
+/// propre lui-même (pour les cols de la chaîne).
+pub fn relief_name(
+    kind: crate::mountains::ReliefKind,
+    cells: &[&CellInfo],
+    latitude: f32,
+    root: Option<(&str, Etymology)>,
+    namer: &mut Namer,
+) -> (String, bool, Option<Etymology>, Option<String>) {
+    use crate::mountains::ReliefKind;
+    let language = if cells.is_empty() { Language::Latine } else { main_language(cells) };
+    // (le caractère d'une montagne : ce qui pousse ou gèle à ses pieds et sur ses flancs)
+    let k = if cells.is_empty() { Character::Plain } else { dominant(cells) };
+    let cold = k == Character::Cold || latitude.abs() > 60.0 || cells.iter().filter(|c| c.temperature < -2.0).count() * 2 > cells.len();
+    let size = cells.len();
+    // Le col principal d'une chaîne porte souvent son nom (« Col de Taldor »)
+    if kind == ReliefKind::Pass
+        && let Some((word, e)) = root
+        && namer.chance(0.5)
+    {
+        let full = format!("Col {}", de(word, feminine(word), false));
+        if namer.claim(&full) {
+            return (full, false, Some(e), None);
+        }
+    }
+    let descriptive: Vec<&str> = match kind {
+        ReliefKind::Range if cold => vec!["Monts Blancs", "Monts de Glace", "Monts Gelés"],
+        ReliefKind::Range => match k {
+            Character::Desert => vec!["Monts Rouges", "Monts Arides", "Monts de Feu"],
+            Character::Jungle => vec!["Monts des Brumes", "Monts Verts", "Monts des Nuées"],
+            Character::Forest => vec!["Monts Noirs", "Monts Boisés"],
+            _ => vec!["Monts Gris", "Monts du Tonnerre", "Monts des Aigles", "Monts Dentelés"],
+        },
+        ReliefKind::Massif if cold => vec!["Massif Blanc", "Massif des Neiges", "Mont Gelé"],
+        ReliefKind::Massif => match k {
+            Character::Desert => vec!["Massif Rouge", "Mont Brûlé"],
+            Character::Forest | Character::Jungle => vec!["Massif Noir", "Massif Vert"],
+            _ => vec!["Massif des Aigles", "Mont Chauve", "Massif Gris"],
+        },
+        ReliefKind::Pass if cold => vec!["Col des Neiges", "Col Blanc", "Col des Glaces", "Pas de l'Ours"],
+        ReliefKind::Pass => match k {
+            Character::Desert => vec!["Col des Sables", "Col Brûlé", "Pas du Chacal"],
+            _ => vec!["Col des Vents", "Col du Loup", "Pas de l'Aigle", "Col des Brumes", "Col de la Croix"],
+        },
+        ReliefKind::Plateau if size >= 100 => vec!["Hauts Plateaux", "Grand Plateau", "Toit du Monde"],
+        ReliefKind::Plateau if cold => vec!["Plateau Gelé", "Plateau des Glaces"],
+        ReliefKind::Plateau => match k {
+            Character::Desert => vec!["Plateau Rouge", "Plateau Aride", "Plateau des Pierres"],
+            Character::Forest | Character::Jungle => vec!["Plateau Boisé", "Plateau des Brumes"],
+            _ => vec!["Haut Plateau", "Plateau des Vents"],
+        },
+        ReliefKind::Hills if cold => vec!["Collines Gelées", "Collines Blanches"],
+        ReliefKind::Hills => match k {
+            Character::Desert => vec!["Collines Rouges", "Collines Pelées", "Collines de Sable"],
+            Character::Forest | Character::Jungle => vec!["Collines Vertes", "Collines Boisées", "Collines Noires"],
+            Character::Marsh => vec!["Collines des Brumes"],
+            _ => vec!["Collines Vertes", "Collines des Vents", "Collines Dorées"],
+        },
+    };
+    if namer.chance(0.35) {
+        let pick = namer.choose(&descriptive);
+        if namer.claim(pick) {
+            let fem = pick.starts_with("Collines");
+            return (pick.to_string(), fem, None, None);
+        }
+    }
+    let hint = if namer.chance(0.4) {
+        Some(match k {
+            _ if cold => Glace,
+            Character::Desert => Rouge,
+            Character::Forest | Character::Jungle => Noir,
+            _ if kind == ReliefKind::Pass => Vent,
+            _ if kind == ReliefKind::Plateau => Grand,
+            _ => Montagne,
+        })
+    } else {
+        None
+    };
+    let (w, e) = namer.proper(language, hint);
+    let (name, fem) = match kind {
+        // Une longue chaîne : cordillère ; sinon « Monts Taldor » ou « Chaîne de Taldor »
+        ReliefKind::Range if size >= 150 && namer.chance(0.4) => (format!("Cordillère {}", de(&w, feminine(&w), false)), true),
+        ReliefKind::Range if namer.chance(0.6) => (format!("Monts {w}"), false),
+        ReliefKind::Range => (format!("Chaîne {}", de(&w, feminine(&w), false)), true),
+        ReliefKind::Massif if namer.chance(0.3) => (format!("Mont {w}"), false),
+        ReliefKind::Massif => (format!("Massif {}", de(&w, feminine(&w), false)), false),
+        ReliefKind::Pass if namer.chance(0.2) => (format!("Pas {}", de(&w, feminine(&w), false)), false),
+        ReliefKind::Pass => (format!("Col {}", de(&w, feminine(&w), false)), false),
+        ReliefKind::Plateau => (format!("Plateau {}", de(&w, feminine(&w), false)), false),
+        ReliefKind::Hills => (format!("Collines {}", de(&w, feminine(&w), false)), true),
+    };
+    let _ = namer.claim(&name);
+    (name, fem, Some(e), Some(w))
+}
+
 /// Nom d'un banc de poissons, d'après ce qui le rend riche (`origins`, voir `map::marine`) et
 /// l'eau du lieu : souvent les poissons qu'on y pêche (« Bancs des Sardines » dans une remontée
 /// d'eaux chaude, « Bancs des Morues » au froid ou à la rencontre de deux courants, « Bancs des

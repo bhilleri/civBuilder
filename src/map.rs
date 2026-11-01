@@ -703,6 +703,10 @@ pub struct WorldMap {
     languages: Vec<crate::toponymy::Language>,
     /// Étendues marines nommées : océans, mers, golfes, baies, détroits.
     seas: crate::seas::Seas,
+    /// Terres nommées : continents, îles, îlots, archipels, péninsules, isthmes.
+    lands: crate::lands::Lands,
+    /// Relief nommé : chaînes de montagnes, massifs, cols, plateaux, collines.
+    reliefs: crate::mountains::Reliefs,
     /// Profondeur du fond de chaque case de mer (m, positive ; 0 sur terre).
     depth: Vec<f32>,
     /// Eaux poissonneuses de chaque case de mer (voir `marine`).
@@ -742,6 +746,8 @@ impl WorldMap {
             plates: Plates::default(),
             languages: Vec::new(),
             seas: crate::seas::Seas::default(),
+            lands: crate::lands::Lands::default(),
+            reliefs: crate::mountains::Reliefs::default(),
             depth: vec![0.0; n],
             marine: vec![0; n],
             banks: Vec::new(),
@@ -768,6 +774,8 @@ impl WorldMap {
             .chain(self.basins.lakes.iter().map(|l| l.name.clone()))
             .chain(self.plates.plates.iter().map(|p| p.name.clone()))
             .chain(self.seas.zones.iter().map(|z| z.name.clone()))
+            .chain(self.lands.zones.iter().map(|z| z.name.clone()))
+            .chain(self.reliefs.zones.iter().map(|z| z.name.clone()))
             .chain(self.banks.iter().map(|b| b.name.clone()))
             .collect()
     }
@@ -858,6 +866,51 @@ impl WorldMap {
                 .map(|r| (r.name.as_str(), r.feminine));
             let (name, feminine, etymology) = toponymy::sea_name(zone.kind, &coast, latitude, z == 0, river, &mut namer);
             let zone = &mut self.seas.zones[z];
+            zone.name = name;
+            zone.feminine = feminine;
+            zone.etymology = etymology;
+        }
+        // Terres : continents, îles, archipels, péninsules, isthmes (un lac compte comme de la terre)
+        let land: Vec<bool> = water.iter().map(|w| !w).collect();
+        self.lands = crate::lands::compute(self.width, self.height, self.wrap, &land);
+        // Les archipels d'abord : leurs îles prennent leur langue
+        let mut order: Vec<usize> = (0..self.lands.zones.len()).collect();
+        order.sort_by_key(|&z| (self.lands.zones[z].kind != crate::lands::LandKind::Archipelago, z));
+        for z in order {
+            let zone = &self.lands.zones[z];
+            let info: Vec<&CellInfo> = zone.cells.iter().map(|&c| &cells[c]).collect();
+            let latitude = zone.cells.iter().map(|&c| self.latitude(self.hex_at(c))).sum::<f32>() / zone.cells.len() as f32;
+            let language = zone.parent.filter(|&p| self.lands.zones[p].kind == crate::lands::LandKind::Archipelago).and_then(|p| self.lands.zones[p].etymology).map(|e| e.language);
+            let (name, feminine, etymology) = toponymy::land_name(zone.kind, &info, latitude, language, &mut namer);
+            let zone = &mut self.lands.zones[z];
+            zone.name = name;
+            zone.feminine = feminine;
+            zone.etymology = etymology;
+        }
+        // Relief : chaînes, massifs, cols (dans cet ordre : un col peut reprendre le nom de sa
+        // chaîne), plateaux, collines
+        let solid: Vec<bool> = self.tiles.iter().map(|t| !t.is_water()).collect();
+        self.reliefs = crate::mountains::compute(self.width, self.height, self.wrap, &solid, &self.relief, &self.elevation);
+        let mut words: Vec<Option<(String, toponymy::Etymology)>> = vec![None; self.reliefs.zones.len()];
+        for z in 0..self.reliefs.zones.len() {
+            let zone = &self.reliefs.zones[z];
+            // (un col : les pentes autour de lui disent le pays ; sinon les cases de la zone)
+            let around: Vec<usize> = if zone.kind == crate::mountains::ReliefKind::Pass {
+                self.range(self.hex_at(zone.cells[0]), 2).filter_map(|h| self.index(h)).collect()
+            } else {
+                zone.cells.clone()
+            };
+            let info: Vec<&CellInfo> = around.iter().map(|&c| &cells[c]).collect();
+            let latitude = zone.cells.iter().map(|&c| self.latitude(self.hex_at(c))).sum::<f32>() / zone.cells.len() as f32;
+            // Chaîne d'un col (par son massif)
+            let mut top = zone.parent;
+            while let Some(p) = top.and_then(|p| self.reliefs.zones[p].parent) {
+                top = Some(p);
+            }
+            let root = top.and_then(|p| words[p].as_ref()).map(|(w, e)| (w.as_str(), *e));
+            let (name, feminine, etymology, word) = toponymy::relief_name(zone.kind, &info, latitude, root, &mut namer);
+            words[z] = word.zip(etymology);
+            let zone = &mut self.reliefs.zones[z];
             zone.name = name;
             zone.feminine = feminine;
             zone.etymology = etymology;
@@ -1040,6 +1093,16 @@ impl WorldMap {
     /// Étendues marines nommées.
     pub fn seas(&self) -> &crate::seas::Seas {
         &self.seas
+    }
+
+    /// Terres nommées.
+    pub fn lands(&self) -> &crate::lands::Lands {
+        &self.lands
+    }
+
+    /// Relief nommé.
+    pub fn reliefs(&self) -> &crate::mountains::Reliefs {
+        &self.reliefs
     }
 
     /// Plaques tectoniques.

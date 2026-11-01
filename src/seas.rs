@@ -151,24 +151,24 @@ const STRAIT_MAX_WIDTH: usize = 4;
 const STRAIT_MIN_LAND: usize = 4;
 const MAX_STRAITS: usize = 30;
 
-/// Grille de la carte : voisines et position des cases.
-struct Grid {
-    width: i32,
-    height: i32,
-    wrap: Wrap,
+/// Grille de la carte : voisines et position des cases (partagée avec `lands`).
+pub(crate) struct Grid {
+    pub width: i32,
+    pub height: i32,
+    pub wrap: Wrap,
 }
 
 impl Grid {
-    fn hex(&self, c: usize) -> Hex {
+    pub fn hex(&self, c: usize) -> Hex {
         Hex::from_offset(c as i32 % self.width, c as i32 / self.width)
     }
 
-    fn index(&self, h: Hex) -> Option<usize> {
+    pub fn index(&self, h: Hex) -> Option<usize> {
         let (col, row) = self.wrap.hex(h).to_offset();
         (col >= 0 && col < self.width && row >= 0 && row < self.height).then(|| (row * self.width + col) as usize)
     }
 
-    fn neighbors(&self, c: usize) -> impl Iterator<Item = usize> + '_ {
+    pub fn neighbors(&self, c: usize) -> impl Iterator<Item = usize> + '_ {
         let h = self.hex(c);
         DIRECTIONS.iter().filter_map(move |&d| self.index(h + d))
     }
@@ -1105,12 +1105,20 @@ fn narrow_sides(grid: &Grid, water: &[bool], land_id: &[usize], c: usize) -> Opt
 
 /// Étendue avec sa case de nom (la plus éloignée de son bord) et sa demi-largeur.
 fn zone(grid: &Grid, kind: SeaKind, cells: Vec<usize>, parent: Option<usize>, owner: &[Option<u16>]) -> SeaZone {
+    let (inner, half_width) = shape(grid, &cells, owner);
+    SeaZone { kind, cells, inner, parent, half_width, name: String::new(), feminine: false, etymology: None }
+}
+
+/// Distance de chaque case d'une zone à son bord (en cases) et demi-largeur d'ouest en est de la
+/// zone autour de sa case la plus éloignée du bord (unités du monde 2D). `owner` : zone de chaque
+/// case de la même famille (une case voisine d'une autre zone est au bord).
+pub(crate) fn shape(grid: &Grid, cells: &[usize], owner: &[Option<u16>]) -> (Vec<u16>, f32) {
     let me = owner[cells[0]];
     let members: HashSet<usize> = cells.iter().copied().collect();
     // Distance au bord de l'étendue
     let mut inner: HashMap<usize, u16> = HashMap::new();
     let mut queue = VecDeque::new();
-    for &c in &cells {
+    for &c in cells {
         let edge = DIRECTIONS.iter().any(|&d| grid.index(grid.hex(c) + d).is_none_or(|j| owner[j] != me));
         if edge {
             inner.insert(c, 0);
@@ -1132,7 +1140,7 @@ fn zone(grid: &Grid, kind: SeaKind, cells: Vec<usize>, parent: Option<usize>, ow
     let (lx, _) = grid.hex(label_cell).to_world();
     let world = grid.wrap.world_width();
     let (mut lo, mut hi) = (0.0f32, 0.0f32);
-    for &c in &cells {
+    for &c in cells {
         let (x, _) = grid.hex(c).to_world();
         let mut dx = x - lx;
         if world > 0.0 {
@@ -1141,8 +1149,7 @@ fn zone(grid: &Grid, kind: SeaKind, cells: Vec<usize>, parent: Option<usize>, ow
         lo = lo.min(dx);
         hi = hi.max(dx);
     }
-    let half_width = (hi - lo) / 2.0 + crate::hex::HEX_SIZE;
-    SeaZone { kind, cells, inner, parent, half_width, name: String::new(), feminine: false, etymology: None }
+    (inner, (hi - lo) / 2.0 + crate::hex::HEX_SIZE)
 }
 
 #[cfg(test)]

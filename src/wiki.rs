@@ -485,10 +485,32 @@ fn terrain() -> Article {
                détroits de près, en capitales espacées pour les plus grandes ; un nom n'apparaît que si l'étendue est \
                assez large à l'écran et qu'une partie en est explorée. L'infobulle d'une case de mer donne ses \
                étendues (« Eaux peu profondes — Baie des Phoques, Mer de Vodava, Grand Océan »)."),
+            h("Terres et îles"),
+            p("Les terres sont nommées elles aussi : les continents (les plus grandes terres d'un seul tenant ; \
+               un très grand continent est coupé en deux à un isthme quand chaque côté en a la taille), les îles et \
+               les îlots (1 à 3 cases), les archipels (au moins trois îles proches, nommées dans la même langue), les \
+               péninsules et presqu'îles (parties d'une terre derrière un col étroit, entourées de mer, qui \
+               s'avancent : faciles à défendre) et les isthmes (passages de 1 à 3 cases de terre entre deux mers, \
+               qui relient deux grandes parties d'une terre : précieux à tenir). Une péninsule ou un isthme est dans \
+               son continent ou son île, une île dans son archipel. Les noms s'écrivent en lettres droites couleur \
+               sable (l'italique est réservé à l'eau) et s'affichent à leur échelle : continents en grandes \
+               capitales de très loin, archipels et grandes îles de loin, péninsules et îles moyennes en \
+               s'approchant, isthmes, petites îles et îlots de près. L'infobulle d'une case de terre donne ses \
+               terres (« Prairie — Presqu'île de Lanza, Esinzie »)."),
+            h("Montagnes et relief"),
+            p("Le relief a ses noms : les chaînes de montagnes (montagnes et pics d'un seul tenant), découpées en \
+               massifs d'une vingtaine de cases quand elles sont longues ; les cols, passages moins chers entre deux \
+               montagnes, là où les deux côtés de la chaîne ne se rejoignent pas de près (franchir une montagne \
+               coûte de 4 à 8 PM selon son altitude, un pic ne se franchit pas : le col fait gagner des PM, il est à \
+               tenir ; la recherche donne son altitude) ; les plateaux (terres plates ou vallonnées au-dessus de 1 500 m) et les \
+               collines (amas de cases vallonnées, bonnes à défendre). Les noms s'écrivent en brun clair : \
+               chaînes en capitales de loin, massifs, plateaux et collines en s'approchant, cols de près. \
+               L'infobulle donne le relief d'une case avant ses terres (« Montagne — Col de Grausara, Massif de \
+               Fiosona, Monts Grausara, Esinzie »)."),
             h("Trouver un lieu"),
             p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
-               ne comptent pas) ; les puces filtrent par catégorie (villes, cours d'eau, lacs et mers, bassins \
-               versants, plaques) et donnent le nombre de résultats de chacune. Flèches pour choisir, Entrée pour y \
+               ne comptent pas) ; les puces filtrent par catégorie (villes, mers, terres et îles, relief, cours \
+               d'eau, lacs, bassins versants, plaques) et donnent le nombre de résultats de chacune. Flèches pour choisir, Entrée pour y \
                aller, Tab pour changer de filtre, Échap pour fermer. Le lieu choisi ressort sur la carte (pourtour \
                doré d'une zone, surbrillance d'un cours d'eau ou d'un lac) et la caméra le cadre. Seuls les lieux \
                déjà explorés sont listés (tous en mode debug)."),
