@@ -1136,6 +1136,41 @@ impl WorldMap {
         &self.regions
     }
 
+    /// Lieux nommés d'une case, du plus vaste au plus précis (barre de lieu) : en mer, océan, mer,
+    /// golfe, baie, détroit ; sur un lac, le lac ; sur terre, archipel, continent ou île,
+    /// péninsule, isthme, région naturelle et sous-région, chaîne, massif, col, plateau, collines ;
+    /// puis le grand bassin versant.
+    pub fn place_names(&self, hex: Hex) -> Vec<String> {
+        let Some(c) = self.index(hex) else { return Vec::new() };
+        let mut names: Vec<String> = Vec::new();
+        let mut push = |name: &str| {
+            if !name.is_empty() && !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
+            }
+        };
+        // (chaque famille donne ses zones de la plus précise à la plus vaste : on les retourne)
+        for z in self.seas.chain(c).into_iter().rev() {
+            push(&self.seas.zones[z].name);
+        }
+        if let Some(lake) = self.basins.lake(c) {
+            push(&lake.name);
+        }
+        for z in self.lands.chain(c).into_iter().rev() {
+            push(&self.lands.zones[z].name);
+        }
+        for z in self.regions.chain(c).into_iter().rev() {
+            push(&self.regions.zones[z].name);
+        }
+        for z in self.reliefs.chain(c).into_iter().rev() {
+            push(&self.reliefs.zones[z].name);
+        }
+        let basin = self.basins.basin_of.get(c).copied().flatten().and_then(|b| self.basins.basins.get(b as usize));
+        if let Some(title) = basin.filter(|b| b.major()).and_then(|b| self.basins.basin_title(b)) {
+            push(&title);
+        }
+        names
+    }
+
     /// Plaques tectoniques.
     pub fn plates(&self) -> &Plates {
         &self.plates
@@ -3106,5 +3141,37 @@ mod fond_marin {
                 flag(marine::ISLAND),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod lieux {
+    use super::*;
+
+    #[test]
+    fn chaine_des_lieux_d_une_case() {
+        let m = WorldMap::generate_in(96, 56, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
+        // Une case de terre d'un continent : il ouvre la chaîne, sa région naturelle suit
+        let land = m.hexes().find(|&h| {
+            let c = m.cell(h);
+            m.lands().mass_of[c].is_some_and(|z| m.lands().zones[z as usize].kind == crate::lands::LandKind::Continent) && m.lands().group_of[c].is_none() && m.regions().region_of[c].is_some()
+        });
+        let land = land.expect("une case de continent dans une région naturelle");
+        let names = m.place_names(land);
+        let c = m.cell(land);
+        assert_eq!(names[0], m.lands().zones[m.lands().mass_of[c].unwrap() as usize].name, "{names:?}");
+        let region = &m.regions().zones[m.regions().region_of[c].unwrap() as usize].name;
+        assert!(names.contains(region), "{names:?}");
+        // Une case de haute mer : son océan d'abord
+        let sea = m.hexes().find(|&h| m.get(h) == Some(Terrain::Ocean) && m.seas().basin_of[m.cell(h)].is_some()).expect("haute mer");
+        let names = m.place_names(sea);
+        assert_eq!(names[0], m.seas().zones[m.seas().basin_of[m.cell(sea)].unwrap() as usize].name, "{names:?}");
+        // Pas de doublon ; rien au-delà d'un pôle
+        for h in m.hexes() {
+            let names = m.place_names(h);
+            let unique: std::collections::HashSet<&String> = names.iter().collect();
+            assert_eq!(unique.len(), names.len(), "{names:?}");
+        }
+        assert!(m.place_names(Hex::from_offset(3, -5)).is_empty());
     }
 }
