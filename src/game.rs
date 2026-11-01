@@ -1,7 +1,7 @@
 //! État du jeu côté ECS : composants, ressources, initialisation et fin de tour.
 
 use crate::explore::{self, ExploreOutcome, ExploreWorld};
-use crate::feedback::{Actor, Cues};
+use crate::feedback::{Actor, Cue, Cues};
 use crate::hex::Hex;
 use crate::hostile::{self, Blocked, Danger, EnemyZoc, Hostile, HostileTurnPending, KnownVillages, Occupancy, WorldSeed};
 use crate::map::WorldMap;
@@ -431,6 +431,8 @@ fn end_turn(
         return;
     }
     let map = &map.0;
+    // (le joueur reprendra la main à la fin des animations du passage de tour)
+    cues.0.push(Cue::TurnEnd);
 
     // 1) Économie des villes
     let mut list: Vec<(Entity, Hex, Mut<City>)> = cities.iter_mut().map(|(e, p, c)| (e, p.0, c)).collect();

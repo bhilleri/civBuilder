@@ -1,5 +1,6 @@
 //! Interface : barre du haut, panneau de sélection, infos de case, journal, bouton de fin de tour.
 
+use crate::feedback::TurnReplay;
 use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, HexPos, Importance, LogLink, LogText, Selection, ShownFog, Unit};
 use crate::hex::Hex;
 use crate::hostile::{Camp, Hostile, Village};
@@ -77,6 +78,8 @@ struct ProduceButton(UnitKind);
 const PANEL_BG: Color = Color::srgba(0.05, 0.06, 0.09, 0.88);
 const BUTTON_BG: Color = Color::srgb(0.16, 0.35, 0.70);
 const BUTTON_HOVER: Color = Color::srgb(0.22, 0.45, 0.85);
+/// Bouton de fin de tour pendant le passage de tour (sans effet).
+const BUTTON_WAIT: Color = Color::srgb(0.20, 0.23, 0.30);
 const PRODUCE_BG: Color = Color::srgba(0.16, 0.18, 0.24, 0.95);
 const PRODUCE_HOVER: Color = Color::srgb(0.24, 0.28, 0.38);
 const PRODUCE_ACTIVE: Color = Color::srgb(0.18, 0.40, 0.72);
@@ -736,15 +739,30 @@ fn map_layer_controls(
     }
 }
 
+/// Bouton de fin de tour : grisé, et sans effet, tant que le passage de tour se joue.
 fn end_turn_button(
-    mut buttons: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<EndTurnButton>)>,
+    replay: Res<TurnReplay>,
+    mut buttons: Query<(Ref<Interaction>, &mut BackgroundColor, &Children), With<EndTurnButton>>,
+    mut texts: Query<&mut Text>,
     mut end_turn: ResMut<EndTurnRequested>,
 ) {
-    for (interaction, mut bg) in &mut buttons {
-        match interaction {
-            Interaction::Pressed => end_turn.0 = true,
-            Interaction::Hovered => bg.0 = BUTTON_HOVER,
-            Interaction::None => bg.0 = BUTTON_BG,
+    for (interaction, mut bg, children) in &mut buttons {
+        if !interaction.is_changed() && !replay.is_changed() {
+            continue;
+        }
+        if interaction.is_changed() && *interaction == Interaction::Pressed && !replay.playing {
+            end_turn.0 = true;
+        }
+        bg.0 = match *interaction {
+            _ if replay.playing => BUTTON_WAIT,
+            Interaction::None => BUTTON_BG,
+            _ => BUTTON_HOVER,
+        };
+        let label = if replay.playing { "Le tour se joue…" } else { "Fin du tour (Entrée)" };
+        for &child in children {
+            if let Ok(mut text) = texts.get_mut(child) {
+                set_text(&mut text, label.into());
+            }
         }
     }
 }
@@ -753,10 +771,12 @@ fn end_turn_button(
 fn production_buttons(
     buttons: Query<(&Interaction, &ProduceButton), Changed<Interaction>>,
     selection: Res<Selection>,
+    replay: Res<TurnReplay>,
     mut cities: Query<(Entity, &mut City, &HexPos)>,
     mut log: ResMut<GameLog>,
 ) {
-    let Some((entity, mut city, center)) = selection.0.and_then(|e| cities.get_mut(e).ok()) else { return };
+    // (pas d'ordre tant que le passage de tour se joue)
+    let Some((entity, mut city, center)) = selection.0.filter(|_| !replay.playing).and_then(|e| cities.get_mut(e).ok()) else { return };
     for (interaction, button) in &buttons {
         if *interaction == Interaction::Pressed && city.state.producing != Some(button.0) {
             city.state.producing = Some(button.0);

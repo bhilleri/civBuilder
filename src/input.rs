@@ -6,7 +6,7 @@ use crate::game::{
 };
 use crate::hex::Hex;
 use crate::explore::ExploreWorld;
-use crate::feedback::{Actor, Cues};
+use crate::feedback::{Actor, Cues, TurnReplay};
 use crate::battle::{self, Side};
 use crate::combat::{self, Preview};
 use crate::hostile::{Blocked, Danger, EnemyZoc, Hostile, KnownVillages, Occupancy};
@@ -274,6 +274,7 @@ fn mouse_commands(
     mut selection: ResMut<Selection>,
     mut log: ResMut<GameLog>,
     mut cues: ResMut<Cues>,
+    replay: Res<TurnReplay>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
     mut hostiles: Query<(Entity, &mut Unit, &HexPos), With<Hostile>>,
     cities: Query<(Entity, &HexPos), With<City>>,
@@ -290,7 +291,8 @@ fn mouse_commands(
         };
     }
 
-    if !mouse.just_pressed(MouseButton::Right) {
+    // Pas d'ordre tant que le passage de tour se joue (la sélection reste possible)
+    if !mouse.just_pressed(MouseButton::Right) || replay.playing {
         return;
     }
     let Some(selected) = selection.0 else { return };
@@ -404,6 +406,7 @@ fn keyboard_commands(
     mut end_turn: ResMut<EndTurnRequested>,
     mut fog: ResMut<Fog>,
     knowledge: (Res<Blocked>, Res<Occupancy>, Res<Danger>, Res<KnownVillages>, ResMut<Cues>),
+    replay: Res<TurnReplay>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
     mut cities: Query<(&mut City, &HexPos)>,
     camera: Single<&mut Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
@@ -411,7 +414,7 @@ fn keyboard_commands(
 ) {
     // Ce que le joueur sait de la carte (regroupé : un système Bevy accepte 16 paramètres au plus)
     let (blocked, occupancy, danger, villages, mut cues) = knowledge;
-    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
+    if (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && !replay.playing {
         end_turn.0 = true;
     }
 
@@ -436,7 +439,8 @@ fn keyboard_commands(
         }
     }
 
-    let Some(selected) = selection.0 else { return };
+    // Pas d'ordre tant que le passage de tour se joue (Tab et la caméra restent libres)
+    let Some(selected) = selection.0.filter(|_| !replay.playing) else { return };
 
     // --- Commandes d'unité
     let reserved = reserved_by_others(&map.0, units.iter().map(|(e, u, _)| (e, &u.0)), selected);

@@ -58,6 +58,14 @@ importance, sans être envahissant.
   effacement), lue par la 2D (`Transform`) et la 3D (figurine posée sur le relief).
 - Ordre : actions du joueur ensemble ; puis faction hostile, une action visible après l'autre
   (+0,1 s), sans attendre la fin des effacements.
+- **Passage de tour** (demande de Benjamin : enchaîner les fins de tour accumulait les animations,
+  jusqu'à une dizaine de tours de retard) : le joueur ne donne pas d'ordre avant que son tour ait
+  réellement commencé. `end_turn` pose l'indication `Cue::TurnEnd` ; la mise en scène retient
+  alors le joueur (`TurnReplay`) jusqu'à la fin de la dernière animation de l'image, effacements
+  compris. Pendant ce temps : bouton de fin de tour grisé (« Le tour se joue… »), Entrée, clic
+  droit, touches d'unité et choix de production sans effet (ignorés, pas mis en attente) ; caméra,
+  sélection et Tab libres. Les déplacements ordonnés pendant le tour ne retiennent rien ; en
+  Instantané, la fin des animations est immédiate.
 - Unité dispersée : retirée du jeu (composants `Unit`, `HexPos`, `Hostile` ôtés) mais gardée pour
   s'effacer (`Retired`), puis supprimée.
 - `HeldHp` : les barres de PV gardent la valeur d'avant le coup jusqu'à l'impact.
@@ -97,6 +105,8 @@ la couleur du texte avec un soulignement léger (40 %), doré et franc au survol
 ## Limites et suite
 - Le brouillard se lève dès la fin du tour, avant l'arrivée de l'unité.
 - La caméra ne va pas chercher une attaque hostile hors de l'écran (le journal la signale).
+- Un passage de tour chargé (beaucoup d'actions hostiles visibles) fait attendre le joueur ; piste :
+  une touche pour passer la mise en scène.
 - Pistes : vitesse séparée pour les actions hostiles (ou « combat rapide »), son,
   journal qui n'affiche un message hostile qu'au moment où l'action se joue.
 

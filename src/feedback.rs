@@ -83,6 +83,9 @@ pub enum Cue {
     Strike(Strike),
     /// Récompense ou événement d'un site, montré quand `by` arrive sur la case.
     Reward { at: Hex, by: Option<Entity>, text: String, tone: Tone },
+    /// Fin de tour : les indications de l'image forment le passage au tour suivant, que le
+    /// joueur regarde avant de pouvoir redonner des ordres (`TurnReplay`).
+    TurnEnd,
 }
 
 /// Indications en attente de mise en scène (vidées à chaque image).
@@ -107,6 +110,23 @@ impl Cues {
 #[derive(Resource, Default)]
 struct Stage {
     hostile_until: f64,
+}
+
+/// Passage de tour en cours de mise en scène : tant qu'il se joue, le joueur ne peut ni donner
+/// d'ordres ni finir le tour (les animations ne prennent jamais de retard sur les tours).
+#[derive(Resource, Default)]
+pub struct TurnReplay {
+    /// Fin des animations du dernier passage de tour (secondes depuis le lancement).
+    until: f64,
+    /// Le passage de tour se joue encore (mis à jour au début de chaque image).
+    pub playing: bool,
+}
+
+impl TurnReplay {
+    /// Le passage de tour se joue encore à l'instant `now`.
+    pub fn playing_at(&self, now: f64) -> bool {
+        now < self.until
+    }
 }
 
 /// Unité retirée du jeu (dispersée) mais encore montrée le temps de son effacement.
@@ -316,6 +336,8 @@ impl Plugin for FeedbackPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Cues>()
             .init_resource::<Stage>()
+            .init_resource::<TurnReplay>()
+            .add_systems(PreUpdate, update_replay)
             .add_systems(
                 Update,
                 (stage_cues, animate_2d, finish_motions, draw_bursts)
@@ -327,9 +349,18 @@ impl Plugin for FeedbackPlugin {
     }
 }
 
+/// Fin du passage de tour : le joueur reprend la main quand ses animations sont terminées.
+fn update_replay(time: Res<Time>, mut replay: ResMut<TurnReplay>) {
+    let playing = replay.playing_at(time.elapsed_secs_f64());
+    if replay.playing != playing {
+        replay.playing = playing;
+    }
+}
+
 /// Répartit dans le temps les indications de l'image : actions du joueur tout de suite et
 /// ensemble, puis actions hostiles visibles l'une après l'autre, récompenses à l'arrivée de
-/// l'unité sur le site.
+/// l'unité sur le site. Un passage de tour retient le joueur jusqu'à la fin de ses animations.
+#[allow(clippy::too_many_arguments)]
 fn stage_cues(
     mut commands: Commands,
     time: Res<Time>,
@@ -338,6 +369,7 @@ fn stage_cues(
     settings: Res<crate::settings::Settings>,
     mut cues: ResMut<Cues>,
     mut stage: ResMut<Stage>,
+    mut replay: ResMut<TurnReplay>,
     motions: Query<&Motion>,
 ) {
     if cues.0.is_empty() {
@@ -361,6 +393,7 @@ fn stage_cues(
     let mut player_end = now;
     let mut hostile: Vec<&Cue> = Vec::new();
     let mut rewards: Vec<&Cue> = Vec::new();
+    let turn_end = cues.contains(&Cue::TurnEnd);
     let strike = |commands: &mut Commands, plans: &mut HashMap<Entity, Motion>, s: &Strike, start: f64| -> f64 {
         let (att, def, impact) = strike_legs(wrap, s, start, pace);
         // (l'action suivante n'attend pas la fin de l'effacement d'une unité dispersée)
@@ -382,6 +415,7 @@ fn stage_cues(
                 player_end = player_end.max(strike(&mut commands, &mut plans, s, start));
             }
             Cue::Reward { .. } => rewards.push(cue),
+            Cue::TurnEnd => {}
             _ => hostile.push(cue),
         }
     }
@@ -417,6 +451,12 @@ fn stage_cues(
         let (color, size) = tone_style(*tone);
         spawn_popup(&mut commands, *at, when, 0.0, text, color, size);
         commands.spawn(Burst { at: Vec2::new(x, y), start: when, end: when + 0.7, radius: crate::hex::HEX_SIZE * 0.9, color });
+    }
+    if turn_end {
+        // (jusqu'à la fin de la dernière animation, effacements compris)
+        let until = plans.values().filter(|m| !m.legs.is_empty()).map(Motion::end).fold(player_end.max(stage.hostile_until), f64::max);
+        replay.until = until;
+        replay.playing = replay.playing_at(now);
     }
     for (entity, motion) in plans {
         if motion.legs.is_empty() {
@@ -747,6 +787,15 @@ mod tests {
         assert_eq!(HeldHp::shown(Some(&held), 50, 2.0), 80);
         assert_eq!(HeldHp::shown(Some(&held), 50, 3.0), 50);
         assert_eq!(HeldHp::shown(None, 50, 2.0), 50);
+    }
+
+    #[test]
+    fn le_passage_de_tour_retient_le_joueur_jusqu_a_la_fin() {
+        let replay = TurnReplay { until: 3.0, playing: false };
+        assert!(replay.playing_at(2.9));
+        assert!(!replay.playing_at(3.0));
+        // Au lancement (ou en vitesse instantanée), rien ne retient le joueur
+        assert!(!TurnReplay::default().playing_at(0.0));
     }
 
     #[test]

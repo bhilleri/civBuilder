@@ -304,7 +304,7 @@ fn run_capture(
 }
 
 /// Instants (s après les actions) des vues prises pendant la mise en scène.
-const FEEDBACK_SHOTS: [f64; 7] = [0.1, 0.22, 0.36, 0.6, 0.85, 1.15, 1.6];
+const FEEDBACK_SHOTS: [f64; 8] = [0.1, 0.22, 0.36, 0.6, 0.85, 1.15, 1.6, 2.6];
 
 /// Mode capture de la mise en scène : un tour par vue (2D puis 3D).
 #[derive(Resource)]
@@ -430,6 +430,8 @@ fn run_feedback_capture(
             pos.0 = village;
         }
         cues.walk(scout, from, &[step, village], Actor::Player);
+        // Comme un passage de tour : le bouton de fin de tour est grisé jusqu'à la fin
+        cues.0.push(crate::feedback::Cue::TurnEnd);
         capture.started = Some(time.elapsed_secs_f64());
         return;
     };
@@ -444,7 +446,8 @@ fn run_feedback_capture(
         }
         return;
     }
-    if elapsed < 2.5 {
+    // (marge pour que la dernière vue soit enregistrée avant le tour suivant ou la fermeture)
+    if elapsed < 3.6 {
         return;
     }
     if capture.round == 0 {
