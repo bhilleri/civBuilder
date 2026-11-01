@@ -2,6 +2,9 @@
 
 ## 0.3.0 (en cours)
 
+### Barre de lieu
+- **Les lieux sous le centre de la vue**, du plus vaste au plus précis, dans une barre sous la barre du haut (étape 6 de la toponymie) : « Inetsie › Jungle de Shuchets › Bassin du Smurask » sur terre (continent ou île et son archipel, péninsule, isthme, région naturelle et sous-région, chaîne, massif, col, plateau, collines, grand bassin versant), « Océan Nizxexco › Mer de X › Golfe de Y » en mer, le lac sur un lac. En 2D comme en 3D ; cachée tant que le centre de la vue n'est pas exploré. L'infobulle donne déjà les mêmes lieux pour la case survolée, et la recherche a ses catégories (étapes 3 à 5).
+
 ### Un monde moins sec
 - **Plus de pluie sous les tropiques, déserts mieux placés** : les orages tropicaux montent plus haut (sommet des nuages selon la chaleur, jusqu'à 14 km) et font pleuvoir l'essentiel de la vapeur au lieu de l'exporter en altitude vers les latitudes moyennes. Désert 13 → 12 % / 20 → 18 % / 27 → 22 % des terres (graines 777 / 2 / 4242), jungle 3 → 5 % / 4 → 6 % / 1 → 3 % ; presque plus de désert à l'équateur ; les latitudes 20-40°, auparavant trop arrosées, s'assèchent (comme les déserts subtropicaux terrestres). Fleuves un peu moins abondants (graine 777 : ruissellement −10 %).
 - **Vent plus calme près de l'équateur** : là où la rotation ne dévie plus l'air, le vent ne descend plus la pente de pression à pleine vitesse (convergence de l'air divisée par 2 à 3). L'air marin équatorial reste plus humide, l'équateur a moins de saisons sèches. Au total : désert 13 → 11 % / 20 → 17 % / 27 → 20 %, jungle 3 → 6 % / 4 → 6,5 % / 1 → 5 % (graines 777 / 2 / 4242).

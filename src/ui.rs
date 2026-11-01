@@ -18,6 +18,13 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 struct TopBarText;
+/// Barre de lieu (sous la barre du haut) : les lieux nommés sous le centre de la vue.
+#[derive(Component)]
+struct PlaceBar;
+#[derive(Component)]
+struct PlaceBarText;
+/// Séparateur des lieux de la barre de lieu, du plus vaste au plus précis.
+const PLACE_SEPARATOR: &str = "  ›  ";
 #[derive(Component)]
 struct SelectionText;
 #[derive(Component)]
@@ -105,6 +112,7 @@ impl Plugin for UiPlugin {
                     production_buttons,
                     update_production_panel,
                     update_top_bar,
+                    update_place_bar,
                     update_selection_panel,
                     update_hover_text,
                     update_log,
@@ -136,6 +144,19 @@ fn setup_ui(mut commands: Commands) {
             ..default()
         }),
         children![(TopBarText, text("", 18.0))],
+    ));
+    // Barre de lieu, juste dessous (cachée tant que le centre de la vue n'est pas exploré)
+    commands.spawn((
+        PlaceBar,
+        panel(Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(50.0),
+            left: Val::Px(8.0),
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+            display: Display::None,
+            ..default()
+        }),
+        children![(PlaceBarText, Text::new(""), TextFont::from_font_size(14.0), TextColor(Color::srgb(0.80, 0.83, 0.90)))],
     ));
 
     // Journal (en haut à droite) : les lignes sont ajoutées par `update_log`
@@ -887,6 +908,30 @@ fn update_top_bar(
             waiting
         ),
     );
+}
+
+/// Barre de lieu : les lieux nommés de la case au centre de la vue (« Esinzie  ›  Forêt de
+/// Liji  ›  Monts Grausara »), si elle est explorée.
+fn update_place_bar(
+    mode: Res<crate::view3d::ViewMode>,
+    cam3d: Res<crate::view3d::Cam3d>,
+    cam2d: Query<&Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    mut bar: Single<&mut Node, With<PlaceBar>>,
+    mut text: Single<&mut Text, With<PlaceBarText>>,
+) {
+    let center = match cam2d.single() {
+        Ok(t) if !mode.is_3d => Hex::from_world(t.translation.x, t.translation.y),
+        _ => Hex::from_world(cam3d.target.x, -cam3d.target.z),
+    };
+    let center = map.0.canonical(center);
+    let names = if fog.explored.contains(&center) { map.0.place_names(center) } else { Vec::new() };
+    let display = if names.is_empty() { Display::None } else { Display::Flex };
+    if bar.display != display {
+        bar.display = display;
+    }
+    set_text(&mut text, names.join(PLACE_SEPARATOR));
 }
 
 fn update_selection_panel(
