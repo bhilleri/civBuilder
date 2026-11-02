@@ -277,7 +277,9 @@ fn climate() -> Article {
                mobiles qui changent tous les dix jours simulés. L'air va des hautes vers les basses pressions en \
                étant fortement dévié par la rotation de la planète (vers la droite au nord, vers la gauche au sud). Près \
                de l'équateur, la rotation ne dévie presque plus l'air, mais les écarts de pression y restent faibles : \
-               le vent y descend la pente de pression sans s'emballer. En altitude, les vents soufflent surtout de l'ouest. Les grandes cellules de circulation font descendre \
+               le vent y descend la pente de pression sans s'emballer. L'été, la terre chaude des continents tropicaux \
+               creuse une dépression qui remonte plus loin vers le pôle que sur la mer : elle aspire l'air marin, \
+               c'est la mousson (pluies d'été des savanes). En altitude, les vents soufflent surtout de l'ouest. Les grandes cellules de circulation font descendre \
                l'air vers 30° de latitude (anticyclones) et monter à l'équateur et vers 60°. L'air qui converge \
                quelque part doit monter, celui qui diverge est remplacé par de l'air qui descend."),
             table_icons(&["Latitude", "Effet", "Circulation"], belts),

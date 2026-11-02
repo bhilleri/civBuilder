@@ -67,6 +67,14 @@ const EQUATORIAL_CROSS_FLOW_MAX: f32 = 0.3;
 /// Déplacement des ceintures de pression avec le soleil (part de sa latitude) : la ceinture de
 /// pluies équatoriale va de ~5° (océans) à ~15° (continents) au fil de l'année.
 const SEASONAL_SHIFT: f32 = 0.45;
+/// Mousson : sur les continents, la dépression thermique d'été remonte plus loin vers le pôle
+/// que sur la mer (Sahel vers 15°, Inde vers 20-25°) et y aspire l'air marin. La pression y suit
+/// le soleil de `MONSOON_EXTRA_SHIFT` × sa latitude de plus, au cœur d'un continent (part de terre
+/// dans un rayon de `CONTINENT_RADIUS_KM`), pleinement entre les latitudes `MONSOON_LATITUDES`
+/// (degrés ; en rampe de 10° de part et d'autre) : l'équateur garde la ceinture de pluies de la
+/// mer et ne s'assèche pas en hiver, les latitudes moyennes gardent leurs vents d'ouest.
+const MONSOON_EXTRA_SHIFT: f32 = 0.3;
+const MONSOON_LATITUDES: (f32, f32) = (15.0, 25.0);
 /// Vent d'est observé près de l'équateur, là où les alizés des deux hémisphères se rejoignent (m/s).
 const EQUATORIAL_EASTERLY: f32 = 4.0;
 
@@ -613,14 +621,19 @@ struct Regime {
     w_subsidence: Vec<f32>,
 }
 
-fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], ground: &[f32]) -> Regime {
+fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], ground: &[f32], continental: &[f32]) -> Regime {
     let n = grid.lat.len();
     let weather: Fbm<Perlin> =
         Fbm::new(seed.wrapping_add(31_337).wrapping_add(k * 7_919)).set_octaves(2).set_frequency(1.0);
     let systems: Vec<f32> = (0..n).map(|i| grid.noise(&weather, i, WEATHER_SYSTEM_KM)).collect();
-    // Ceintures (décalées vers le soleil), continents, dépressions et anticyclones mobiles
+    // Ceintures (décalées vers le soleil, plus loin sur les continents : mousson), continents,
+    // dépressions et anticyclones mobiles
+    let monsoon = |i: usize| {
+        let (a, b) = MONSOON_LATITUDES;
+        MONSOON_EXTRA_SHIFT * continental[i] * bump(grid.lat[i].abs() * 90.0, a, b, 10.0)
+    };
     let pressure: Vec<f32> = (0..n)
-        .map(|i| band_pressure(grid.lat[i] - period.sun_lat * SEASONAL_SHIFT) + land_heat[i] + systems[i] * 1.1)
+        .map(|i| band_pressure(grid.lat[i] - period.sun_lat * (SEASONAL_SHIFT + monsoon(i))) + land_heat[i] + systems[i] * 1.1)
         .collect();
     let deflect = |lat: f32, max_deg: f32| -lat.signum() * max_deg.to_radians() * (lat.abs() / 0.12).min(1.0);
     let rotate = |(x, y): (f32, f32), a: f32| {
@@ -897,7 +910,7 @@ pub fn simulate_periods(
 
         let regimes: Vec<Regime> = (0..REGIMES)
             .into_par_iter()
-            .map(|k| regime(&grid, period, seed.wrapping_add(p as u32 * 101), k, &land_heat, &ground))
+            .map(|k| regime(&grid, period, seed.wrapping_add(p as u32 * 101), k, &land_heat, &ground, &continental))
             .collect();
         let warm_up = steps(if p == 0 { SPIN_UP_DAYS } else { TRANSITION_DAYS });
         let per_regime = steps(REGIME_DAYS);

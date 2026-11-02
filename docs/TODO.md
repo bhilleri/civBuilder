@@ -46,7 +46,8 @@ soudent par collision. Trois étapes, chacune vérifiée par bilan et captures :
 Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [x] a. Cycle de l'eau tropical (01/11) : sommet des nuages selon la chaleur, rendement des pluies.
 - [x] b. Vent près de l'équateur (01/11) : part du vent qui descend la pente de pression plafonnée (convergence divisée par 2 à 3).
-- [ ] d. Bande 10-20° des grands continents encore sèche (graine 4242 : 40 % de désert) : mousson d'été, air marin encore sec sous les alizés.
+- [x] d. Mousson continentale (01/11) : pression qui suit le soleil plus loin sur les continents tropicaux ; désert de la bande 10-20° −20 à −30 %.
+- [ ] e. Air marin encore sec sous les alizés (~40 %, Terre ~75-80 %) : couche basse de 2 km brassée et emportée vite (à reprendre si les côtes paraissent trop sèches).
 - [x] c. Relief trop haut (01/11) : altitude en mètres d'abord (échelle fixe depuis les plaques), 9 niveaux déduits des mètres, falaise en mètres (voir `conception/conception-altitude.md`).
 
 ## Plus tard
