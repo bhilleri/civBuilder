@@ -2824,7 +2824,8 @@ mod apercu {
 mod bilan {
     /// Bilan de l'aridité par bande de latitude (à lancer à la main) : pluie, ETP, aridité et
     /// biomes des terres, sur les graines 777 / 2 / 4242 (`SEEDS=a,b` pour d'autres) ; côtes est et
-    /// ouest (désert, pluie, vents et humidité de l'été et de l'hiver boréaux, mer au large).
+    /// ouest (désert, pluie, vents et humidité de l'été et de l'hiver boréaux, mer au large) ; bilan
+    /// d'eau de la planète (évaporation et pluie de la mer et des terres, eau de l'air, séjour).
     #[test]
     #[ignore]
     fn bilan_aridite() {
@@ -2842,6 +2843,20 @@ mod bilan {
             println!("désert {:.1} %, jungle {:.1} %, savane arborée {:.1} %, savane {:.1} %, forêt {:.1} %, plaine {:.1} %",
                 100.0 * count(Terrain::Desert) as f32 / n, 100.0 * count(Terrain::Jungle) as f32 / n, 100.0 * count(Terrain::WoodedSavanna) as f32 / n,
                 100.0 * count(Terrain::Savanna) as f32 / n, 100.0 * count(Terrain::Forest) as f32 / n, 100.0 * count(Terrain::Plains) as f32 / n);
+            // Bilan d'eau de la planète : mer et terres, eau de l'air et séjour de l'eau dans l'air
+            {
+                let all: Vec<usize> = (0..m.tiles.len()).collect();
+                let sea: Vec<usize> = all.iter().copied().filter(|&i| m.tiles[i].is_sea()).collect();
+                let lnd: Vec<usize> = land.iter().map(|&(i, _)| i).collect();
+                // Moyennes par case : les cases du climat ont toutes la même surface (pas de pondération
+                // par la latitude, qui ferait croire à une fuite d'eau)
+                let avg = |f: &Vec<f32>, set: &Vec<usize>| set.iter().map(|&i| f[i]).sum::<f32>() / set.len().max(1) as f32;
+                let evap_all = avg(&c.evaporation, &all);
+                println!("bilan : mer évap {:.0} pluie {:.0} mm, terres pluie {:.0} évap {:.0} mm, planète évap {:.0} pluie {:.0} mm, eau de l'air {:.1} mm, séjour {:.1} j",
+                    avg(&c.evaporation, &sea), avg(&c.rain, &sea), avg(&c.rain, &lnd), avg(&c.evaporation, &lnd), evap_all, avg(&c.rain, &all), avg(&c.column, &all), avg(&c.column, &all) / (evap_all / 365.0));
+                let bands: Vec<String> = (-9..9).map(|b| { let set: Vec<usize> = all.iter().copied().filter(|&i| { let l = m.latitude(m.hex_at(i)); l >= b as f32 * 10.0 && l < b as f32 * 10.0 + 10.0 }).collect(); format!("{}:{:.0}/{:.0}", b * 10, avg(&c.rain, &set), avg(&c.evaporation, &set)) }).collect();
+                println!("pluie/évap par bande (toutes cases) : {}", bands.join(" "));
+            }
             println!(" lat  terre   pluie   ETP  P/ETP  T  froide  sèches | désert jungle s.arb savane plaine forêt  | tropic. <0,75 sais.");
             for band in 0..9 {
                 let (lo, hi) = (band as f32 * 10.0, band as f32 * 10.0 + 10.0);
