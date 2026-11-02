@@ -4,7 +4,7 @@ use crate::feedback::TurnReplay;
 use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, HexPos, Importance, LogLink, LogText, Selection, ShownFog, Unit};
 use crate::hex::Hex;
 use crate::hostile::{Camp, Hostile, Village};
-use crate::search::{FocusTarget, MapTarget, PointedTarget};
+use crate::search::{FocusTarget, HoverColors, MapTarget, PointedTarget, TargetButton};
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::platform::collections::{HashMap, HashSet};
@@ -18,13 +18,12 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 struct TopBarText;
-/// Barre de lieu (sous la barre du haut) : les lieux nommés sous le centre de la vue.
+/// Barre de lieu (sous la barre du haut) : les lieux nommés sous le centre de la vue, chacun
+/// cliquable.
 #[derive(Component)]
 struct PlaceBar;
-#[derive(Component)]
-struct PlaceBarText;
-/// Séparateur des lieux de la barre de lieu, du plus vaste au plus précis.
-const PLACE_SEPARATOR: &str = "  ›  ";
+const PLACE_TEXT: Color = Color::srgb(0.80, 0.83, 0.90);
+const PLACE_HOVER: Color = Color::srgba(1.0, 1.0, 1.0, 0.14);
 #[derive(Component)]
 struct SelectionText;
 #[derive(Component)]
@@ -119,6 +118,7 @@ impl Plugin for UiPlugin {
                     (track_last_seen, log_links).chain().after(update_log),
                     animate_log.after(log_links),
                     update_basin_legend,
+                    geography_legend_controls,
                 ),
             );
     }
@@ -152,13 +152,14 @@ fn setup_ui(mut commands: Commands) {
             position_type: PositionType::Absolute,
             top: Val::Px(50.0),
             left: Val::Px(8.0),
-            padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+            padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
             // (une longue chaîne passe à la ligne plutôt que sous le bandeau du mode debug)
             max_width: Val::Px(400.0),
+            flex_wrap: FlexWrap::Wrap,
+            align_items: AlignItems::Center,
             display: Display::None,
             ..default()
         }),
-        children![(PlaceBarText, Text::new(""), TextFont::from_font_size(14.0), TextColor(Color::srgb(0.80, 0.83, 0.90)))],
     ));
 
     // Journal (en haut à droite) : les lignes sont ajoutées par `update_log`
@@ -246,6 +247,7 @@ fn setup_ui(mut commands: Commands) {
             plates_legend(),
             currents_legend(),
             resources_legend(),
+            geography_legend(),
             (
                 MapLayerMenu,
                 panel(Node {
@@ -266,6 +268,7 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Plates, "Carte des plaques tectoniques"),
                     map_option(MapLayer::Currents, "Carte des courants marins"),
                     map_option(MapLayer::Resources, "Carte des ressources"),
+                    map_option(MapLayer::Geography, "Carte géographique (découpage)"),
                 ],
             ),
             (
@@ -667,6 +670,91 @@ fn resources_legend() -> impl Bundle {
     )
 }
 
+/// Puce d'une famille de zones dans la légende de la carte géographique.
+#[derive(Component)]
+struct GeoChip(crate::geography::GeoFamily);
+/// Ligne de la légende géographique qui dit le niveau montré.
+#[derive(Component)]
+struct GeoLevelText;
+const GEO_CHIP_ON: Color = Color::srgb(0.30, 0.42, 0.66);
+
+/// Légende de la carte géographique : une puce par famille de zones (terres, mers, relief,
+/// régions naturelles), le niveau montré et comment lire la carte.
+fn geography_legend() -> impl Bundle {
+    use crate::geography::GeoFamily;
+    let chip = |family: GeoFamily| {
+        (
+            GeoChip(family),
+            Button,
+            Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
+            BackgroundColor(PRODUCE_BG),
+            children![text(family.label(), 13.0)],
+        )
+    };
+    (
+        Legend(MapLayer::Geography),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(5.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(330.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Géographie", 14.0)),
+            Spawn((
+                Node { flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(5.0), row_gap: Val::Px(5.0), ..default() },
+                Children::spawn(SpawnIter(GeoFamily::ALL.into_iter().map(chip))),
+            )),
+            Spawn((GeoLevelText, text("", 12.0))),
+            Spawn(text("Une couleur par zone : deux zones voisines n'ont jamais la même", 12.0)),
+            Spawn(text("De loin les grandes zones ; de près leurs parties, la grande zone en teinte sourde et ses limites en trait sombre", 12.0)),
+            Spawn(text("Survol d'un nom : la zone ressort ; clic : la carte y va", 12.0)),
+        )),
+    )
+}
+
+/// Légende de la carte géographique : choix de la famille (puces), niveau montré.
+fn geography_legend_controls(
+    mut view: ResMut<crate::render::GeoView>,
+    mut chips: Query<(Ref<Interaction>, &GeoChip, &mut BackgroundColor)>,
+    mut level: Single<&mut Text, With<GeoLevelText>>,
+) {
+    use crate::geography::GeoFamily;
+    for (interaction, chip, _) in &chips {
+        if interaction.is_changed() && *interaction == Interaction::Pressed && view.family != chip.0 {
+            view.family = chip.0;
+        }
+    }
+    for (interaction, chip, mut bg) in &mut chips {
+        let color = if view.family == chip.0 {
+            GEO_CHIP_ON
+        } else if *interaction == Interaction::None {
+            PRODUCE_BG
+        } else {
+            PRODUCE_HOVER
+        };
+        if bg.0 != color {
+            bg.0 = color;
+        }
+    }
+    let parts = match view.family {
+        GeoFamily::Lands => "péninsules, isthmes, îles des archipels",
+        GeoFamily::Seas => "golfes, baies, détroits",
+        GeoFamily::Reliefs => "massifs, cols",
+        GeoFamily::Regions => "sous-régions",
+    };
+    let shown = match (view.family, view.deep) {
+        (GeoFamily::Lands, false) => "Niveau : continents, îles, archipels".to_string(),
+        (GeoFamily::Seas, false) => "Niveau : océans et mers".to_string(),
+        (GeoFamily::Reliefs, false) => "Niveau : chaînes, plateaux, collines".to_string(),
+        (GeoFamily::Regions, false) => "Niveau : régions naturelles".to_string(),
+        (_, true) => format!("Niveau : {parts}"),
+    };
+    set_text(&mut level, shown);
+}
+
 /// Légende de la carte des plaques tectoniques.
 fn plates_legend() -> impl Bundle {
     use crate::plates::Boundary;
@@ -912,28 +1000,61 @@ fn update_top_bar(
     );
 }
 
-/// Barre de lieu : les lieux nommés de la case au centre de la vue (« Esinzie  ›  Forêt de
-/// Liji  ›  Monts Grausara »), si elle est explorée.
+/// Barre de lieu : les lieux nommés de la case au centre de la vue (« Esinzie › Forêt de Liji ›
+/// Monts Grausara »), si elle est explorée. Chaque lieu est un bouton : au survol, sa zone ressort
+/// sur la carte ; au clic, la caméra y va (comme la recherche). Refaite quand les lieux changent.
+#[allow(clippy::too_many_arguments)]
 fn update_place_bar(
+    mut commands: Commands,
     mode: Res<crate::view3d::ViewMode>,
     cam3d: Res<crate::view3d::Cam3d>,
     cam2d: Query<&Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
-    mut bar: Single<&mut Node, With<PlaceBar>>,
-    mut text: Single<&mut Text, With<PlaceBarText>>,
+    bar: Single<(Entity, &mut Node), With<PlaceBar>>,
+    mut shown: Local<Vec<(crate::map::Place, String)>>,
 ) {
+    use crate::map::Place;
     let center = match cam2d.single() {
         Ok(t) if !mode.is_3d => Hex::from_world(t.translation.x, t.translation.y),
         _ => Hex::from_world(cam3d.target.x, -cam3d.target.z),
     };
     let center = map.0.canonical(center);
-    let names = if fog.explored.contains(&center) { map.0.place_names(center) } else { Vec::new() };
-    let display = if names.is_empty() { Display::None } else { Display::Flex };
-    if bar.display != display {
-        bar.display = display;
+    let places = if fog.explored.contains(&center) { map.0.places(center) } else { Vec::new() };
+    let (entity, mut node) = bar.into_inner();
+    let display = if places.is_empty() { Display::None } else { Display::Flex };
+    if node.display != display {
+        node.display = display;
     }
-    set_text(&mut text, names.join(PLACE_SEPARATOR));
+    if *shown == places && !map.is_changed() {
+        return;
+    }
+    let mut row = commands.entity(entity);
+    row.despawn_related::<Children>();
+    row.with_children(|p| {
+        for (i, (place, name)) in places.iter().enumerate() {
+            if i > 0 {
+                p.spawn((Text::new("›"), TextFont::from_font_size(14.0), TextColor(Color::srgb(0.55, 0.58, 0.66)), Node { margin: UiRect::horizontal(Val::Px(2.0)), ..default() }));
+            }
+            let target = match *place {
+                Place::Sea(z) => MapTarget::Sea(z),
+                Place::Lake(l) => MapTarget::Lake(l),
+                Place::Land(z) => MapTarget::Land(z),
+                Place::Region(z) => MapTarget::Region(z),
+                Place::Relief(z) => MapTarget::Relief(z),
+                Place::Basin(b) => MapTarget::Basin(b),
+            };
+            p.spawn((
+                TargetButton::new(target),
+                Interaction::default(),
+                Node { padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(4.0)), ..default() },
+                BackgroundColor(Color::NONE),
+                HoverColors { normal: Color::NONE, hover: PLACE_HOVER },
+                children![(Text::new(name.clone()), TextFont::from_font_size(14.0), TextColor(PLACE_TEXT))],
+            ));
+        }
+    });
+    *shown = places;
 }
 
 fn update_selection_panel(

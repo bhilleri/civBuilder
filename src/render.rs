@@ -137,6 +137,9 @@ struct Palette {
     /// `currents_index`).
     currents: Vec<Handle<ColorMaterial>>,
     currents_dim: Vec<Handle<ColorMaterial>>,
+    /// Carte géographique (voir `geo_index`).
+    geo: Vec<Handle<ColorMaterial>>,
+    geo_dim: Vec<Handle<ColorMaterial>>,
     unexplored: Handle<ColorMaterial>,
     unit: Handle<ColorMaterial>,
     hostile_unit: Handle<ColorMaterial>,
@@ -178,10 +181,13 @@ pub enum MapLayer {
     Currents,
     /// Ressources : bancs de poissons (une icône par banc, la zone au survol).
     Resources,
+    /// Géographie : le découpage du territoire en zones nommées (terres, mers, relief, régions
+    /// naturelles), une couleur par zone, à deux niveaux selon le zoom.
+    Geography,
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 10] = [
+    pub const ALL: [MapLayer; 11] = [
         MapLayer::Normal,
         MapLayer::Altitude,
         MapLayer::Relief,
@@ -192,6 +198,7 @@ impl MapLayer {
         MapLayer::Plates,
         MapLayer::Currents,
         MapLayer::Resources,
+        MapLayer::Geography,
     ];
 
     /// Nom court (bouton « Carte »).
@@ -207,6 +214,7 @@ impl MapLayer {
             MapLayer::Plates => "plaques tectoniques",
             MapLayer::Currents => "courants marins",
             MapLayer::Resources => "ressources",
+            MapLayer::Geography => "géographie",
         }
     }
 
@@ -224,6 +232,144 @@ impl MapLayer {
     /// Les cartes thématiques masquent la végétation 3D, pour lire les couleurs.
     pub fn thematic(self) -> bool {
         !matches!(self, MapLayer::Normal | MapLayer::Resources)
+    }
+}
+
+/// Carte géographique : couleurs des zones (deux zones voisines n'ont jamais la même), puis la terre
+/// et l'eau hors des zones de la famille montrée.
+pub const GEO_PALETTE: [(f32, f32, f32); crate::geography::GEO_COLORS] = [
+    (0.84, 0.56, 0.44),
+    (0.54, 0.72, 0.44),
+    (0.44, 0.60, 0.82),
+    (0.88, 0.76, 0.44),
+    (0.66, 0.50, 0.78),
+    (0.42, 0.74, 0.72),
+    (0.82, 0.56, 0.70),
+    (0.70, 0.70, 0.40),
+    (0.54, 0.56, 0.72),
+    (0.80, 0.64, 0.50),
+];
+pub const GEO_LAND: (f32, f32, f32) = (0.30, 0.30, 0.29);
+pub const GEO_WATER: (f32, f32, f32) = (0.10, 0.13, 0.20);
+
+/// Couleur d'une teinte de la carte géographique (une grande zone hors de ses parties : sa
+/// couleur, assourdie).
+pub fn geo_color(shade: crate::geography::GeoShade) -> (f32, f32, f32) {
+    use crate::geography::GeoShade;
+    match shade {
+        GeoShade::Zone { color, muted: false } => GEO_PALETTE[usize::from(color) % GEO_PALETTE.len()],
+        GeoShade::Zone { color, muted: true } => {
+            let (r, g, b) = GEO_PALETTE[usize::from(color) % GEO_PALETTE.len()];
+            (r * 0.45 + 0.14, g * 0.45 + 0.14, b * 0.45 + 0.14)
+        }
+        GeoShade::Land => GEO_LAND,
+        GeoShade::Water => GEO_WATER,
+    }
+}
+
+/// Indice d'une teinte de la carte géographique dans la palette 2D : couleurs vives, assourdies,
+/// puis terre et eau.
+fn geo_index(shade: crate::geography::GeoShade) -> usize {
+    use crate::geography::GeoShade;
+    let n = GEO_PALETTE.len();
+    match shade {
+        GeoShade::Zone { color, muted } => usize::from(color) % n + if muted { n } else { 0 },
+        GeoShade::Land => 2 * n,
+        GeoShade::Water => 2 * n + 1,
+    }
+}
+
+/// Carte géographique : famille montrée (légende) et niveau (selon le zoom).
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+pub struct GeoView {
+    pub family: crate::geography::GeoFamily,
+    /// Niveau du dessous : les parties des grandes zones.
+    pub deep: bool,
+}
+
+/// Teintes de la carte géographique pour la famille et le niveau montrés.
+#[derive(Resource, Default)]
+pub struct GeoColors(pub crate::geography::GeoMap);
+
+/// Rayon d'une case à l'écran (pixels) au-delà duquel la carte géographique montre les parties des
+/// grandes zones, et en deçà duquel elle revient aux grandes zones (un écart pour ne pas
+/// clignoter au seuil) : le niveau des golfes, péninsules et massifs dans les noms.
+const GEO_DEEP_PX: f32 = 15.0;
+const GEO_TOP_PX: f32 = 13.0;
+
+/// Groupe de gizmos des limites des grandes zones (carte géographique, 2D).
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct GeoGizmos;
+const GEO_BORDER: Color = Color::srgba(0.05, 0.05, 0.07, 0.85);
+
+/// Teintes de la carte géographique, refaites quand la famille, le niveau ou le monde changent.
+fn update_geo_colors(layer: Res<MapLayer>, view: Res<GeoView>, map: Res<GameMap>, mut colors: ResMut<GeoColors>) {
+    if *layer != MapLayer::Geography || !(layer.is_changed() || view.is_changed() || map.is_changed()) {
+        return;
+    }
+    colors.0 = crate::geography::compute(&map.0, view.family, view.deep);
+}
+
+/// Niveau de la carte géographique selon le zoom : la taille à l'écran d'une case au point visé
+/// par la caméra (comme le niveau des noms).
+fn update_geo_depth(
+    layer: Res<MapLayer>,
+    mode: Res<crate::view3d::ViewMode>,
+    cam3d: Res<crate::view3d::Cam3d>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
+    mut view: ResMut<GeoView>,
+) {
+    if *layer != MapLayer::Geography {
+        return;
+    }
+    let Some((camera, transform, _)) = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active) else { return };
+    let focus = if mode.is_3d { cam3d.target } else { Vec3::new(transform.translation.x, transform.translation.y, 0.0) };
+    let global = GlobalTransform::from(*transform);
+    let (Ok(a), Ok(b)) = (camera.world_to_viewport(&global, focus), camera.world_to_viewport(&global, focus + transform.right() * HEX_SIZE)) else { return };
+    let px = a.distance(b);
+    let deep = if view.deep { px >= GEO_TOP_PX } else { px >= GEO_DEEP_PX };
+    if view.deep != deep {
+        view.deep = deep;
+    }
+}
+
+fn setup_geo_gizmos(mut store: ResMut<GizmoConfigStore>) {
+    let (config, _) = store.config_mut::<GeoGizmos>();
+    config.line.width = 3.0;
+}
+
+/// Carte géographique, niveau du dessous : limites des grandes zones en trait sombre (les parties
+/// sont en couleur, leur grande zone reste lisible).
+#[allow(clippy::too_many_arguments)]
+fn draw_geo_borders(
+    layer: Res<MapLayer>,
+    view: Res<GeoView>,
+    colors: Res<GeoColors>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    mode: Res<crate::view3d::ViewMode>,
+    relief: Option<Res<crate::view3d::Relief>>,
+    mut cache: Local<Vec<[Vec2; 2]>>,
+    mut lines: Gizmos<GeoGizmos>,
+    mut lines_3d: Gizmos<crate::view3d::Gizmos3d>,
+) {
+    if *layer != MapLayer::Geography || !view.deep {
+        cache.clear();
+        return;
+    }
+    if cache.is_empty() || colors.is_changed() || fog.is_changed() {
+        *cache = crate::geography::top_borders(&map.0, &colors.0, |h| fog.explored.contains(&map.0.canonical(h)));
+    }
+    if mode.is_3d {
+        let Some(relief) = relief else { return };
+        for [a, b] in cache.iter() {
+            let m = a.lerp(*b, 0.5);
+            lines_3d.linestrip([a, &m, b].map(|p| relief.on_ground(p.x, p.y, 2.5)), GEO_BORDER);
+        }
+    } else {
+        for [a, b] in cache.iter() {
+            lines.line_2d(*a, *b, GEO_BORDER);
+        }
     }
 }
 
@@ -946,9 +1092,12 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ReachArea>()
             .init_resource::<MapLayer>()
+            .init_resource::<GeoView>()
+            .init_resource::<GeoColors>()
+            .init_gizmo_group::<GeoGizmos>()
             .init_gizmo_group::<ReachGizmos>()
             .init_gizmo_group::<PlateGizmos>()
-            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_plate_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay, setup_bank_overlay))
+            .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_plate_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay, setup_bank_overlay, setup_geo_gizmos))
             .add_systems(
             Update,
             (
@@ -972,7 +1121,8 @@ impl Plugin for RenderPlugin {
                 update_hatch_overlay,
                 update_bank_overlay,
             ),
-        );
+        )
+        .add_systems(Update, ((update_geo_depth, update_geo_colors).chain().before(update_tile_fog), draw_geo_borders.after(update_geo_colors)));
     }
 }
 
@@ -1018,6 +1168,13 @@ fn setup_map_visuals(
     let (plates, plates_dim) = pair(plate_shades(map.0.plates()));
     let sea_shades = (0..SEA_SHADES).map(|i| sea_temperature_color(sea_shade_degrees(i)));
     let (currents, currents_dim) = pair(sea_shades.chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
+    let geo_shades = (0..GEO_PALETTE.len() as u8).flat_map(|c| [(c, false)]).chain((0..GEO_PALETTE.len() as u8).map(|c| (c, true)));
+    let (geo, geo_dim) = pair(
+        geo_shades
+            .map(|(color, muted)| geo_color(crate::geography::GeoShade::Zone { color, muted }))
+            .chain([GEO_LAND, GEO_WATER])
+            .collect(),
+    );
     // Hexagone à peine plus petit que la case : la grille reste discrète.
     let tile_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.99, 6));
     let palette = Palette {
@@ -1038,6 +1195,8 @@ fn setup_map_visuals(
         plates_dim,
         currents,
         currents_dim,
+        geo,
+        geo_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
         unit: mat(PLAYER_COLOR),
         hostile_unit: mat(HOSTILE_COLOR),
@@ -1204,8 +1363,9 @@ fn update_tile_fog(
     mut tiles: Query<(&Tile, &mut MeshMaterial2d<ColorMaterial>)>,
     mut marks: Query<(&HillMark, &mut Visibility)>,
     layer: Res<MapLayer>,
+    geo: Res<GeoColors>,
 ) {
-    if !fog.is_changed() && !layer.is_changed() {
+    if !fog.is_changed() && !layer.is_changed() && !(geo.is_changed() && *layer == MapLayer::Geography) {
         return;
     }
     let (lit, dim) = (&palette.terrain, &palette.terrain_dim);
@@ -1218,6 +1378,7 @@ fn update_tile_fog(
         MapLayer::Flow | MapLayer::Network => Some((&palette.flow, &palette.flow_dim)),
         MapLayer::Plates if !palette.plates.is_empty() => Some((&palette.plates, &palette.plates_dim)),
         MapLayer::Currents => Some((&palette.currents, &palette.currents_dim)),
+        MapLayer::Geography if geo.0.shade.len() == (map.0.width * map.0.height) as usize => Some((&palette.geo, &palette.geo_dim)),
         _ => None,
     };
     let shade_index = |hex: Hex| match (*layer, map.0.get(hex)) {
@@ -1228,6 +1389,7 @@ fn update_tile_fog(
         (MapLayer::Relief, _) => relief_index(&map.0, hex),
         (MapLayer::Plates, _) => plate_index(&map.0, hex),
         (MapLayer::Currents, _) => currents_index(&map.0, hex),
+        (MapLayer::Geography, _) => geo_index(geo.0.shade[map.0.cell(hex)]),
         _ => hydro_index(&map.0, hex, *layer),
     };
     for (mark, mut vis) in &mut marks {

@@ -17,6 +17,7 @@ mod explore;
 mod feedback;
 mod figures;
 mod game;
+mod geography;
 mod hex;
 mod highlight;
 mod hostile;

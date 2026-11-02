@@ -35,7 +35,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   `CIVBUILDER_SEED=777 CIVBUILDER_SCRIPT=<scratchpad>/cas.txt cargo run --release` exécute les commandes
   du fichier (console de debug, `debug_cmd.rs`), écrit les réponses dans `<scratchpad>/cas.reponses.txt`
   et les captures à côté du script. Commencer par `trouver …` (coordonnées colonne ligne), puis
-  `aller`, `vue 3d`, `camera 300`, `capture nom`, modifications brutes (`terrain`, `relief`,
+  `aller`, `vue 3d`, `camera 300`, `carte <nom>`, `geographie terres|mers|relief|regions`, `capture nom`, modifications brutes (`terrain`, `relief`,
   `altitude`, `temperature`, `pluie`, `pinceau`, `annuler` ; `~` devant pour un recalcul local :
   température, biome, pics), `verifier` (incohérences ; 0 sur une carte générée), `regenerer eau|climat`
   (l'eau ou toute la simulation refaite comme à la génération), `fleuve`, `unite creer|pv|pm|dette|soigner|supprimer`, `ville`, `tour n`,

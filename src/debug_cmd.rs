@@ -91,6 +91,8 @@ pub enum Arg {
     Cells,
     Unit,
     Regen,
+    /// Famille de zones de la carte géographique.
+    Geo,
     Text,
 }
 
@@ -144,6 +146,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
     Spec { name: "camera", args: &[("distance", Arg::Number, false), ("angle", Arg::Number, true)], help: "Vue 3D : distance de la caméra (250 à 2 800 ; 300 : une case de près) et orientation en degrés (0 : vers le nord).", group: Group::Camera },
     Spec { name: "carte", args: &[("carte", Arg::Layer, false)], help: "Carte affichée (normale, altitude, relief, climat…).", group: Group::Camera },
+    Spec { name: "geographie", args: &[("famille", Arg::Geo, false)], help: "Carte géographique : famille de zones montrée (terres, mers, relief, regions) ; affiche la carte.", group: Group::Camera },
     Spec { name: "capture", args: &[("fichier", Arg::Text, false)], help: "Enregistre l'écran en PNG (sans la console). Chemin relatif : dossier du script, sinon dossier temporaire « civbuilder ».", group: Group::Camera },
     Spec { name: "attendre", args: &[("images", Arg::Number, false)], help: "Attend un nombre d'images avant la commande suivante (relief 3D à construire).", group: Group::Camera },
     Spec { name: "aide", args: &[("commande", Arg::Command, true)], help: "Liste des commandes, ou détail d'une commande (valeurs possibles).", group: Group::Console },
@@ -208,6 +211,11 @@ fn unit_tokens() -> Vec<(String, UnitKind)> {
 
 fn layer_tokens() -> Vec<(String, MapLayer)> {
     MapLayer::ALL.iter().map(|&l| (token(l.short_name()), l)).collect()
+}
+
+/// Familles de la carte géographique : « terres », « mers », « relief », « regions ».
+fn geo_tokens() -> Vec<(String, crate::geography::GeoFamily)> {
+    crate::geography::GeoFamily::ALL.iter().map(|&f| (token(f.label().split_whitespace().next().unwrap_or("")), f)).collect()
 }
 
 /// Critères de `trouver` (avec leur opérateur) : complétion et aide.
@@ -299,6 +307,7 @@ pub enum Command {
     View(bool),
     Camera { distance: f32, yaw_deg: Option<f32> },
     Layer(MapLayer),
+    Geo(crate::geography::GeoFamily),
     Capture(String),
     Wait(u32),
     Help(Option<String>),
@@ -468,6 +477,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             yaw_deg: args.get(1).map(|a| number(a, "angle")).transpose()?,
         },
         "carte" => Command::Layer(pick(&args.join(" "), &layer_tokens(), "carte")?),
+        "geographie" => Command::Geo(pick(&args.join(" "), &geo_tokens(), "famille")?),
         "capture" => Command::Capture(args[0].to_string()),
         "attendre" => Command::Wait(number(args[0], "images")?.clamp(0.0, 10_000.0) as u32),
         "aide" => Command::Help((!args.is_empty()).then(|| args.iter().map(|a| token(a)).collect::<Vec<_>>().join(" "))),
@@ -491,6 +501,7 @@ fn values(arg: Arg) -> Vec<String> {
         Arg::Criteria => CRITERIA.iter().map(|s| s.to_string()).collect(),
         Arg::Unit => unit_tokens().into_iter().map(|(n, _)| n).collect(),
         Arg::Regen => vec!["eau".into(), "climat".into()],
+        Arg::Geo => geo_tokens().into_iter().map(|(n, _)| n).collect(),
         _ => Vec::new(),
     }
 }
@@ -1047,6 +1058,7 @@ pub enum Effect {
     View(bool),
     Camera { distance: f32, yaw_deg: Option<f32> },
     Layer(MapLayer),
+    Geo(crate::geography::GeoFamily),
     Capture(String),
     Wait(u32),
     SaveJournal(String),
@@ -1299,6 +1311,7 @@ impl Session {
             Command::View(is_3d) => Reply::effect(format!("OK vue {}", if is_3d { "3d" } else { "2d" }), Effect::View(is_3d)),
             Command::Camera { distance, yaw_deg } => Reply::effect(format!("OK camera distance={distance:.0}{}", yaw_deg.map_or(String::new(), |y| format!(" angle={y:.0}"))), Effect::Camera { distance, yaw_deg }),
             Command::Layer(l) => Reply::effect(format!("OK carte={}", token(l.short_name())), Effect::Layer(l)),
+            Command::Geo(f) => Reply::effect(format!("OK carte geographie, {}", f.label().to_lowercase()), Effect::Geo(f)),
             Command::Capture(path) => Reply::effect(format!("OK capture demandée : {path}"), Effect::Capture(path)),
             Command::Wait(n) => Reply::effect(format!("OK attente de {n} image(s)"), Effect::Wait(n)),
             Command::Help(about) => help(about.as_deref()).map_or_else(Reply::error, Reply::ok),
@@ -1388,6 +1401,7 @@ mod tests {
                 Arg::Cells => "2 2 3 2",
                 Arg::Unit => "milice",
                 Arg::Regen => "eau",
+                Arg::Geo => "mers",
                 Arg::Text => "x",
             }).collect();
             assert!(parse(&m, &format!("{} {}", s.name, args.join(" "))).is_ok(), "{}", s.name);
