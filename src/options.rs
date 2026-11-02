@@ -153,6 +153,7 @@ fn setup_panel(mut commands: Commands) {
                     MapLayer::Plates => "Plaques",
                     MapLayer::Currents => "Courants",
                     MapLayer::Resources => "Ressources",
+                    MapLayer::Geography => "Géo",
                 };
                 r.spawn((Node { width: Val::Px(COLUMN_WIDTH), justify_content: JustifyContent::Center, ..default() }, children![text(name, 13.0, MUTED)]));
             }
