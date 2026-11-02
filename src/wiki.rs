@@ -493,7 +493,8 @@ fn terrain() -> Article {
                (21 cases et plus, sans limite : un golfe peut être immense) et les baies (3 à 20 cases), échancrures \
                d'une même terre derrière une entrée plus étroite qu'elles ne sont profondes, jusqu'à la ligne entre \
                les deux caps (un golfe où se jette un fleuve peut en porter le nom : « Golfe de la Vaska ») ; les \
-               détroits (passages de 1 à 4 cases entre deux terres distinctes, précieux à tenir). Une baie peut être \
+               détroits (passages de 1 à 4 cases entre deux terres distinctes, précieux à tenir ; un chenal qui se \
+               resserre en plusieurs endroits forme un seul détroit). Une baie peut être \
                dans un golfe, un golfe dans une mer, elle-même dans un océan. Les \
                noms s'affichent à leur échelle : océans de très loin, mers de loin, golfes en s'approchant, baies et \
                détroits de près, en capitales espacées pour les plus grandes ; un nom n'apparaît que si l'étendue est \
