@@ -176,6 +176,11 @@ pub struct GameLog {
 }
 
 impl GameLog {
+    /// Vide le journal (tournage des animations : une scène sans les messages de la précédente).
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     /// Message de routine (retour d'une commande).
     pub fn push(&mut self, msg: impl Into<LogText>) {
         self.notify(Importance::Routine, msg);

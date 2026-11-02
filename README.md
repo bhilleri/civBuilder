@@ -26,6 +26,8 @@ Version actuelle : **0.2.0 « Biome Update »**. Nouveautés : voir le [journal 
 - **Cartes** : normale, altitude, relief, climat, bassins versants, débits, réseau hydrographique ; vues 2D et 3D.
 - **Jeu** : exploration (automatique ou non), villes et production, unités, combats, camps hostiles et villages.
 
+**Comment se joue une partie, en images** : déplacements, combats, fin de tour, villages et camps, en 2D et en 3D → [les actions animées](docs/ANIMATIONS.md).
+
 ## Développement
 
 ### Installer Rust (Windows)
@@ -48,6 +50,8 @@ Pour une version optimisée : `cargo run --release`.
 Pour rejouer une carte précise, fixer sa graine (affichée dans la console au lancement) : `$env:CIVBUILDER_SEED=12345; cargo run` (PowerShell).
 
 **Mode capture** (vérifier le rendu sans jouer) : `$env:CIVBUILDER_CAPTURE="captures"; cargo run` met en scène deux villes (dont une sur un relief accidenté), les douze types d'unités près d'une montagne (celle qui est sur la montagne est immobilisée), révèle la carte, passe en 3D et enregistre plusieurs vues en PNG dans le dossier `captures` (ville, unités de près et de loin, camp, village, puis les unités en montagne en 2D), puis se ferme (module `capture.rs`). Avec en plus `CIVBUILDER_CAPTURE_EXPLORE=1`, la carte n'est pas révélée : un éclaireur longe un fleuve case par case (exploration progressive), des vues sont prises le long de son trajet et la console indique combien de cases gardent des lits creusés périmés (doit être 0).
+
+**Tournage des GIF** (`docs/ANIMATIONS.md`) : `scripts/animations.sh` (ou `$env:CIVBUILDER_CAPTURE="docs/animations"; $env:CIVBUILDER_CAPTURE_GIF=1; cargo run --release`) joue chaque action du jeu (déplacement, trajet de plusieurs tours, échange, corps à corps, charge, tir, attaque perdue, attaque hostile en fin de tour, trois issues de village, camp) en pilotant une souris dessinée avec les vraies commandes du joueur, en 2D puis en 3D ; le temps avance de 1/20 s par image, chaque image est enregistrée puis ffmpeg assemble un GIF par scène (module `film.rs`). `CIVBUILDER_CAPTURE_GIF=tir,camp` limite aux scènes nommées.
 
 **Console de debug** (mode debug, touche ²) : ligne de commande pour inspecter et modifier une case (terrain, relief, altitude, température, pluie ; pinceau, annulation), chercher des cases par critères, placer la caméra et enregistrer l'écran ; Tab complète, `aide` liste les commandes (rubrique « Console de debug » du wiki en mode debug). Les modifications sont brutes (rien n'est recalculé) ou, précédées de `~`, locales (température selon l'altitude, biome, relief de la case et de ses voisines recalculé comme à la génération) ; `verifier` liste les incohérences de la carte (rivière qui remonte, cuvette sans lac, biome, pics côte à côte…) ; `regenerer eau|climat` refait l'eau ou toute la simulation comme à la génération, `fleuve` trace un fleuve à la main. Pour une situation de jeu : `unite creer|supprimer|pv|pm|dette|soigner`, `ville`, `tour`, `chemin`. Le rendu 2D et 3D des cases voisines suit. **Scripts** (agents IA, cas à rejouer) : `$env:CIVBUILDER_SCRIPT="cas.txt"; cargo run` exécute les commandes du fichier (une par ligne, `#` pour un commentaire) et écrit les réponses dans `cas.reponses.txt` ; par exemple `trouver relief=montagne voisin=pic max=1`, `aller 16 48`, `vue 3d`, `capture avant`, `terrain 16 48 neige`, `capture apres`, `quitter`. Langage dans `debug_cmd.rs` (pur, testé), console et scripts dans `console.rs`.
 
@@ -178,6 +182,7 @@ src/
 ├── debug_cmd.rs    Langage de la console de debug : commandes, complétion, aide, modifications brutes d'une case (pur, testé)
 ├── console.rs      Console de debug (touche ²) et scripts de commandes (CIVBUILDER_SCRIPT) ; rendu des cases modifiées
 ├── capture.rs      Mode capture (CIVBUILDER_CAPTURE) : mise en scène, vues 3D enregistrées en PNG (CIVBUILDER_CAPTURE_FEEDBACK : animations des combats)
+├── film.rs         Tournage des GIF des actions (CIVBUILDER_CAPTURE_GIF) : souris pilotée, temps fixe par image, ffmpeg
 └── view3d.rs       Vue 3D optionnelle (relief, forêts, figurines, villes et camps posés sur le sol), synchronisée avec la vue 2D
 ```
 

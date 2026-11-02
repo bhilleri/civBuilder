@@ -76,6 +76,24 @@ importance, sans être envahissant.
   qui restait).
 - Vérification : `CIVBUILDER_CAPTURE_FEEDBACK=1` avec `CIVBUILDER_CAPTURE=<dossier>`.
 
+## GIF des actions (`film.rs`, page `docs/ANIMATIONS.md`)
+Demande de Benjamin : des GIF des combats et des déplacements pour montrer comment se joue le jeu,
+en 2D et en 3D, **avec l'interface**, générés à la demande et rassemblés dans une page du dépôt.
+- Une scène par action (déplacement, trajet de plusieurs tours, échange, corps à corps, charge et
+  victoire, tir, attaque perdue, attaque hostile en fin de tour, village : commerce, habitants,
+  embuscade ; camp vide) sur une zone de terre plate loin du départ (une ville y est fondée pour
+  l'issue « habitants »). Les ordres passent par les vraies commandes : une souris pilotée
+  (`input::Pilot` : case survolée et clics imposés) que le jeu dessine (flèche) et une légende en
+  haut (« Clic gauche : sélectionner », « Entrée : fin du tour »). Aperçu du chemin, prévision de
+  combat, journal et bouton de fin de tour sont donc filmés tels qu'en jeu.
+- Temps fixe : `TimeUpdateStrategy::ManualDuration` (1/20 s par image), chaque image enregistrée en
+  PNG ; GIF réguliers quelle que soit la vitesse du rendu (et du logiciel de rendu sans carte
+  graphique). ffmpeg assemble (palette par scène), images effacées ensuite.
+- Issues fixées : PV de départ (milice hostile à 30 PV contre la cavalerie lourde, milice du joueur
+  à 10 PV contre un guerrier au bouclier, éclaireur à 12 PV) ; village : `NextVillageEvent`.
+- Limites : la position des milices de l'embuscade reste tirée au hasard ; pas de scène pour
+  l'exploration automatique (un déplacement comme un autre) ni pour la barque.
+
 ## Journal
 - `Importance` : routine (gris, sans flash), information (bleu, 0,9 s), succès (doré, 1,3 s),
   alerte (orange, 1,8 s, 2 pulsations, contour), critique (rouge, 2,6 s, 3 pulsations, contour,
