@@ -654,11 +654,12 @@ pub fn info(map: &WorldMap, hex: Hex) -> Vec<String> {
     ];
     let edges: Vec<String> = (0..6).filter(|&d| map.river_flow(hex, d) > 0.0).map(|d| format!("{d}:{:.0}", map.river_flow(hex, d))).collect();
     let mut water = format!(
-        "fleuve={} petit-lac={} eau-douce={} debit={:.0}m3/s aval={} rivieres-aretes=[{}]",
+        "fleuve={} petit-lac={} eau-douce={} debit={:.0}m3/s limon={:.2} aval={} rivieres-aretes=[{}]",
         if map.is_fleuve(hex) { "oui" } else { "non" },
         if map.small_lake(hex) { "oui" } else { "non" },
         if map.fresh_water(hex) { "oui" } else { "non" },
         map.discharge(hex),
+        map.water_murk(hex),
         map.downstream(hex).map_or("—".to_string(), |d| d.to_string()),
         edges.join(" "),
     );

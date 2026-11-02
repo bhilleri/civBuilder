@@ -227,7 +227,9 @@ fn course_point(map: &WorldMap, fog: &ShownFog, p: CoursePoint) -> (Vec2, bool) 
     let (cx, cy) = hex.to_world();
     let center = Vec2::new(cx, cy);
     if p.corner == CoursePoint::CENTER {
-        return (center, fog.explored.contains(&hex));
+        // Fleuve : là où passe son eau (un peu écarté du centre quand il serpente)
+        let at = if map.is_fleuve(hex) { crate::waterways::fleuve_center(map, hex) } else { center };
+        return (at, fog.explored.contains(&hex));
     }
     if p.corner >= CoursePoint::EDGE {
         // Milieu d'une arête : connu si l'une des deux cases l'est
@@ -281,20 +283,37 @@ fn river_runs(map: &WorldMap, fog: &ShownFog, river: &NamedRiver) -> Vec<Vec<Vec
     for course in std::iter::once(&river.course).chain(&river.arms) {
         let mut run: Vec<Vec2> = Vec::new();
         let mut last: Option<Vec2> = None;
+        let mut before: Option<CoursePoint> = None;
         for &p in course {
-            let (mut at, known) = course_point(map, fog, p);
-            // Planète : chaque point pris du côté du raccord le plus proche du précédent (tracé
-            // continu qui passe le raccord)
-            if let Some(prev) = last
-                && world > 0.0
+            // D'une case de fleuve à la suivante : par le point où son eau franchit l'arête
+            let mut points = Vec::with_capacity(2);
+            if let Some(q) = before
+                && q.corner == CoursePoint::CENTER
+                && p.corner == CoursePoint::CENTER
+                && let (from, to) = (map.hex_at(q.cell), map.hex_at(p.cell))
+                && map.is_fleuve(from)
+                && map.is_fleuve(to)
+                && let Some(d) = map.wrap().direction(from, to)
             {
-                at.x -= ((at.x - prev.x) / world).round() * world;
+                let known = fog.explored.contains(&from) || fog.explored.contains(&to);
+                points.push((crate::waterways::fleuve_crossing(map, from, d), known));
             }
-            last = Some(at);
-            if known {
-                run.push(at);
-            } else if !run.is_empty() {
-                runs.push(std::mem::take(&mut run));
+            points.push(course_point(map, fog, p));
+            before = Some(p);
+            for (mut at, known) in points {
+                // Planète : chaque point pris du côté du raccord le plus proche du précédent
+                // (tracé continu qui passe le raccord)
+                if let Some(prev) = last
+                    && world > 0.0
+                {
+                    at.x -= ((at.x - prev.x) / world).round() * world;
+                }
+                last = Some(at);
+                if known {
+                    run.push(at);
+                } else if !run.is_empty() {
+                    runs.push(std::mem::take(&mut run));
+                }
             }
         }
         if !run.is_empty() {

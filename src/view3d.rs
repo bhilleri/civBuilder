@@ -1523,10 +1523,12 @@ fn water_mesh<'a>(
     // Eau douce : la couleur des lacs ; en arrivant dans la mer ou un lac, elle prend
     // progressivement la couleur de leur eau (l'embouchure se fond dans l'étendue d'eau)
     let fresh = terrain_color(Terrain::Lake);
-    let tint = |p: Vec2| {
+    let tint = |p: Vec2, tone: crate::waterways::Tone| {
+        // Teinte du cours d'eau (débit, limon), qui se fond dans la mer ou le lac où il se jette
+        let own = tone.apply(fresh);
         let c = match relief.nearest_water(p) {
-            Some((d, water)) => fresh.lerp(water, 1.0 - smoothstep01(d / MOUTH_BLEND)),
-            None => fresh,
+            Some((d, water)) => own.lerp(water, 1.0 - smoothstep01(d / MOUTH_BLEND)),
+            None => own,
         };
         [c.x, c.y, c.z, 1.0]
     };
@@ -1549,7 +1551,7 @@ fn water_mesh<'a>(
         for (p, y) in pts.into_iter().zip(ys) {
             data.positions.push([p.x, y, -p.y]);
             data.normals.push([0.0, 1.0, 0.0]);
-            data.colors.push(if foam { linear(Color::srgb(0.86, 0.93, 0.98)) } else { tint(p) });
+            data.colors.push(if foam { linear(Color::srgb(0.86, 0.93, 0.98)) } else { tint(p, t.tone_at(p)) });
             data.indices.push(data.indices.len() as u32);
         }
     }
