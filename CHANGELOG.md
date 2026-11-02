@@ -2,6 +2,12 @@
 
 ## 0.3.0 (en cours)
 
+### Noms de zones plus lisibles
+- **Quotas par niveau** : chaque rang de noms de zones (océans et continents ; mers, chaînes, grandes régions ; golfes, péninsules, massifs ; baies, détroits, collines ; îlots) a un nombre maximal de noms à l'écran (8, 10, 12, 16, 20 pour un écran de 1600 × 900, proportionnel à la taille de la fenêtre), les plus grandes zones d'abord, avec un écart minimal entre deux noms : une densité régulière, la vue lointaine ne se charge plus. Seuls les noms à l'écran comptent.
+- **Noms courbés** le long des chaînes de montagnes, des massifs et des golfes allongés : une lettre par nœud, posée et tournée le long de l'axe de la zone (chemin entre ses deux cases les plus éloignées, lissé), lue de gauche à droite. Le nom reste droit si l'axe n'est pas entièrement exploré, est trop court à l'écran, tourne trop d'une lettre à l'autre ou penche de plus de 60°.
+- **Un seul niveau de zoom pour toute la vue**, mesuré au point visé par la caméra (retour de Benjamin) : en 3D, les cases du premier plan paraissent plus grandes que celles du fond, et les grands noms (océans, continents) s'effaçaient au premier plan au profit des noms de petites zones.
+- La barre de lieu passe à la ligne plutôt que sous le bandeau du mode debug.
+
 ### Barre de lieu
 - **Les lieux sous le centre de la vue**, du plus vaste au plus précis, dans une barre sous la barre du haut (étape 6 de la toponymie) : « Inetsie › Jungle de Shuchets › Bassin du Smurask » sur terre (continent ou île et son archipel, péninsule, isthme, région naturelle et sous-région, chaîne, massif, col, plateau, collines, grand bassin versant), « Océan Nizxexco › Mer de X › Golfe de Y » en mer, le lac sur un lac. En 2D comme en 3D ; cachée tant que le centre de la vue n'est pas exploré. L'infobulle donne déjà les mêmes lieux pour la case survolée, et la recherche a ses catégories (étapes 3 à 5).
 
