@@ -150,6 +150,12 @@ const CLOSED_BASE: u16 = 30_000;
 const STRAIT_MAX_WIDTH: usize = 4;
 const STRAIT_MIN_LAND: usize = 4;
 const MAX_STRAITS: usize = 30;
+/// Un même chenal : les passages étroits entre les deux mêmes terres, reliés par une eau que ces
+/// deux terres bordent encore à au plus `CHANNEL_MAX_WIDTH` cases, et à au plus `CHANNEL_JOIN`
+/// cases l'un de l'autre, forment un seul détroit (avec l'eau qui les relie). Sans cela, un chenal
+/// un peu large qui ne se resserre que par endroits donnait plusieurs détroits côte à côte.
+const CHANNEL_MAX_WIDTH: usize = 7;
+const CHANNEL_JOIN: usize = 6;
 
 /// Grille de la carte : voisines et position des cases (partagée avec `lands`).
 pub(crate) struct Grid {
@@ -422,9 +428,9 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
     }
     // 4) Détroits : passages étroits entre deux terres distinctes
     // Terres de part et d'autre d'une case étroite (les deux plus petites tailles comptent)
-    let narrow: Vec<Option<(usize, usize)>> = (0..n).map(|c| if water[c] { narrow_sides(&grid, water, &land_id, c) } else { None }).collect();
+    let narrow: Vec<Option<(usize, usize)>> = (0..n).map(|c| if water[c] { narrow_sides(&grid, water, &land_id, c, STRAIT_MAX_WIDTH) } else { None }).collect();
     let mut seen = vec![false; n];
-    let mut found: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut found: Vec<((usize, usize), Vec<usize>)> = Vec::new();
     for start in 0..n {
         let Some(sides) = narrow[start] else { continue };
         if seen[start] || land_size[sides.0].min(land_size[sides.1]) < STRAIT_MIN_LAND {
@@ -443,9 +449,12 @@ pub fn compute(width: i32, height: i32, wrap: Wrap, water: &[bool], shelf: &[boo
                 }
             }
         }
-        let weight = land_size[sides.0].min(land_size[sides.1]);
-        found.push((weight, cells));
+        found.push((sides, cells));
     }
+    let mut found: Vec<(usize, Vec<usize>)> = join_channels(&grid, water, &land_id, found)
+        .into_iter()
+        .map(|(sides, cells)| (land_size[sides.0].min(land_size[sides.1]), cells))
+        .collect();
     found.sort_by_key(|(w, cells)| (std::cmp::Reverse(*w), cells[0]));
     for (_, mut cells) in found.into_iter().take(MAX_STRAITS) {
         cells.sort_unstable();
@@ -1082,13 +1091,98 @@ fn ray_hit(grid: &Grid, water: &[bool], land_id: &[usize], c: usize, ray: usize,
     None
 }
 
-/// Case étroite : le long d'un des trois axes, de la terre des deux côtés à moins de
-/// `STRAIT_MAX_WIDTH` cases d'eau en tout, et ces deux terres sont distinctes. Rend les deux terres.
-fn narrow_sides(grid: &Grid, water: &[bool], land_id: &[usize], c: usize) -> Option<(usize, usize)> {
+/// Passages d'un même chenal réunis (voir `CHANNEL_JOIN`) : deux passages entre les deux mêmes
+/// terres sont réunis quand un chemin d'eau du chenal (bordée par ces deux terres à au plus
+/// `CHANNEL_MAX_WIDTH` cases) les relie en au plus `CHANNEL_JOIN` pas ; le détroit réuni prend
+/// les cases de ces chemins les plus courts (à un pas près), l'eau entre les passages.
+fn join_channels(grid: &Grid, water: &[bool], land_id: &[usize], found: Vec<((usize, usize), Vec<usize>)>) -> Vec<((usize, usize), Vec<usize>)> {
+    let n = water.len();
+    let mut channel: HashMap<usize, Option<(usize, usize)>> = HashMap::new();
+    let mut in_channel = |c: usize, sides: (usize, usize)| *channel.entry(c).or_insert_with(|| narrow_sides(grid, water, land_id, c, CHANNEL_MAX_WIDTH)) == Some(sides);
+    // Distances, par le chenal, depuis chaque passage
+    let mut reach: Vec<HashMap<usize, usize>> = Vec::with_capacity(found.len());
+    for (sides, cells) in &found {
+        let mut dist: HashMap<usize, usize> = cells.iter().map(|&c| (c, 0)).collect();
+        let mut queue: VecDeque<usize> = cells.iter().copied().collect();
+        while let Some(c) = queue.pop_front() {
+            let d = dist[&c];
+            if d == CHANNEL_JOIN {
+                continue;
+            }
+            for j in grid.neighbors(c) {
+                if water[j] && !dist.contains_key(&j) && in_channel(j, *sides) {
+                    dist.insert(j, d + 1);
+                    queue.push_back(j);
+                }
+            }
+        }
+        reach.push(dist);
+    }
+    // Passages reliés (même paire de terres, distance par le chenal) : union-find
+    let mut root: Vec<usize> = (0..found.len()).collect();
+    fn find(root: &mut [usize], i: usize) -> usize {
+        let mut i = i;
+        while root[i] != i {
+            root[i] = root[root[i]];
+            i = root[i];
+        }
+        i
+    }
+    let mut links: Vec<(usize, usize, usize)> = Vec::new();
+    for a in 0..found.len() {
+        for b in a + 1..found.len() {
+            if found[a].0 != found[b].0 {
+                continue;
+            }
+            let gap = found[b].1.iter().filter_map(|c| reach[a].get(c)).min();
+            if let Some(&gap) = gap {
+                links.push((a, b, gap));
+                let (ra, rb) = (find(&mut root, a), find(&mut root, b));
+                root[ra] = rb;
+            }
+        }
+    }
+    // Chaque groupe : ses passages, plus l'eau des plus courts chemins entre passages reliés
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+    for i in 0..found.len() {
+        groups.entry(find(&mut root, i)).or_default().push(i);
+    }
+    let mut joined: Vec<((usize, usize), Vec<usize>)> = Vec::new();
+    let mut keys: Vec<usize> = groups.keys().copied().collect();
+    keys.sort_unstable();
+    for k in keys {
+        let members = &groups[&k];
+        let mut taken = vec![false; n];
+        let mut cells: Vec<usize> = Vec::new();
+        for &i in members {
+            for &c in &found[i].1 {
+                if !taken[c] {
+                    taken[c] = true;
+                    cells.push(c);
+                }
+            }
+        }
+        for &(a, b, gap) in links.iter().filter(|l| members.contains(&l.0)) {
+            for (&c, &da) in &reach[a] {
+                if !taken[c] && reach[b].get(&c).is_some_and(|&db| da + db <= gap + 1) {
+                    taken[c] = true;
+                    cells.push(c);
+                }
+            }
+        }
+        cells.sort_unstable();
+        joined.push((found[members[0]].0, cells));
+    }
+    joined
+}
+
+/// Case étroite : le long d'un des trois axes, de la terre des deux côtés à moins de `width`
+/// cases d'eau en tout, et ces deux terres sont distinctes. Rend les deux terres.
+fn narrow_sides(grid: &Grid, water: &[bool], land_id: &[usize], c: usize, width: usize) -> Option<(usize, usize)> {
     let origin = grid.hex(c);
     let walk = |d: usize| -> Option<(usize, usize)> {
         let mut at = origin;
-        for steps in 1..=STRAIT_MAX_WIDTH {
+        for steps in 1..=width {
             at = at + DIRECTIONS[d];
             let j = grid.index(at)?;
             if !water[j] {
@@ -1099,7 +1193,7 @@ fn narrow_sides(grid: &Grid, water: &[bool], land_id: &[usize], c: usize) -> Opt
     };
     (0..3).find_map(|a| {
         let ((s1, l1), (s2, l2)) = (walk(a)?, walk(a + 3)?);
-        (s1 + s2 - 1 <= STRAIT_MAX_WIDTH && l1 != l2).then_some((l1.min(l2), l1.max(l2)))
+        (s1 + s2 - 1 <= width && l1 != l2).then_some((l1.min(l2), l1.max(l2)))
     })
 }
 
@@ -1221,6 +1315,25 @@ mod tests {
         let strait = seas.strait_of[(20 * w + 55) as usize];
         assert!(strait.is_some(), "un détroit dans la passe");
         assert_eq!(seas.zones[strait.unwrap() as usize].kind, SeaKind::Strait);
+    }
+
+    #[test]
+    fn un_seul_detroit_par_chenal() {
+        // Une île séparée du continent par un chenal de 6 cases, resserré à 3 par deux caps
+        // voisins : un seul détroit, qui prend aussi l'eau qui relie les deux resserrements
+        let mut rows: Vec<String> = Vec::new();
+        for y in 0..40 {
+            rows.push((0..60).map(|x| if y < 15 || ((20..23).contains(&x) || (26..29).contains(&x)) && y < 18 || (21..30).contains(&y) && (10..50).contains(&x) { '#' } else { '.' }).collect());
+        }
+        let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
+        let (w, h, water) = grid(&refs);
+        let seas = compute(w, h, Wrap::NONE, &water, &vec![false; water.len()], &vec![f32::NEG_INFINITY; water.len()]);
+        let straits = seas.zones.iter().filter(|z| z.kind == SeaKind::Strait).count();
+        assert_eq!(straits, 1, "un seul détroit dans le chenal");
+        let at = |x: i32, y: i32| seas.strait_of[(y * w + x) as usize];
+        assert!(at(21, 19).is_some());
+        assert_eq!(at(21, 19), at(27, 19), "les deux resserrements forment un même détroit");
+        assert_eq!(at(24, 19), at(21, 19), "l'eau qui relie les deux resserrements en fait partie");
     }
 
     #[test]

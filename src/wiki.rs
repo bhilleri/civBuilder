@@ -468,8 +468,14 @@ fn terrain() -> Article {
             h("Cartes et vues"),
             p("Le bouton « Carte » (touche T) choisit la carte : normale, de l'altitude (couleur selon les mètres), du \
                relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau, du réseau hydrographique, \
-               des plaques tectoniques, des courants marins (température de la mer, sens des courants) ou des \
-               ressources (bancs de poissons). \
+               des plaques tectoniques, des courants marins (température de la mer, sens des courants), des \
+               ressources (bancs de poissons) ou géographique. \
+               La carte géographique montre le découpage du territoire, une couleur par zone (deux zones voisines \
+               n'ont jamais la même) ; sa légende choisit la famille : terres, mers, relief ou régions naturelles. \
+               De loin, les grandes zones (continents, océans, chaînes, régions) ; de près, leurs parties \
+               (péninsules, golfes, massifs, sous-régions) en nuances de la couleur de leur grande zone, le reste \
+               de la grande zone en teinte sourde et ses limites en trait sombre. Seuls les noms de la famille \
+               montrée s'affichent, en blanc. \
                Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. En 3D, \
                chaque unité est une figurine (un petit groupe pour les militaires), plus grande quand on s'éloigne, \
                posée sur le relief et entourée d'un anneau aux couleurs de son camp \
@@ -489,7 +495,8 @@ fn terrain() -> Article {
                (21 cases et plus, sans limite : un golfe peut être immense) et les baies (3 à 20 cases), échancrures \
                d'une même terre derrière une entrée plus étroite qu'elles ne sont profondes, jusqu'à la ligne entre \
                les deux caps (un golfe où se jette un fleuve peut en porter le nom : « Golfe de la Vaska ») ; les \
-               détroits (passages de 1 à 4 cases entre deux terres distinctes, précieux à tenir). Une baie peut être \
+               détroits (passages de 1 à 4 cases entre deux terres distinctes, précieux à tenir ; un chenal qui se \
+               resserre en plusieurs endroits forme un seul détroit). Une baie peut être \
                dans un golfe, un golfe dans une mer, elle-même dans un océan. Les \
                noms s'affichent à leur échelle : océans de très loin, mers de loin, golfes en s'approchant, baies et \
                détroits de près, en capitales espacées pour les plus grandes ; un nom n'apparaît que si l'étendue est \
@@ -536,7 +543,8 @@ fn terrain() -> Article {
                au plus précis : « Inetsie › Jungle de Shuchets › Bassin du Smurask » sur terre (continent ou île, \
                péninsule, région naturelle, relief, bassin versant), « Océan Nizxexco › Mer de X › Golfe de Y » en \
                mer. Elle se met à jour quand la caméra bouge, en 2D comme en 3D, et reste vide tant que le centre \
-               de la vue n'est pas exploré. L'infobulle donne la même chose pour la case survolée."),
+               de la vue n'est pas exploré. Chaque lieu est cliquable : le survoler fait ressortir sa zone sur \
+               la carte, cliquer y amène la caméra. L'infobulle donne la même chose pour la case survolée."),
             h("Trouver un lieu"),
             p("Le bouton « Rechercher » (Ctrl+F) ouvre la recherche : tapez le début d'un nom (accents et majuscules \
                ne comptent pas) ; les puces filtrent par catégorie (villes, mers, terres et îles, relief, régions \

@@ -1122,7 +1122,7 @@ fn update_relief_3d(
     layer: Res<MapLayer>,
     cam2d: Query<&Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>, Without<Decor3d>)>,
     mut commands: Commands,
-    (mut edited, kit, mut pending): (MessageReader<crate::console::MapEdited>, Option<Res<DecorKit>>, ResMut<ReliefPending>),
+    (mut edited, kit, mut pending, geo): (MessageReader<crate::console::MapEdited>, Option<Res<DecorKit>>, ResMut<ReliefPending>, Res<crate::render::GeoColors>),
 ) {
     let (Some(assets), Some(mut relief)) = (assets, relief) else { return };
     let queue = &mut *known;
@@ -1209,7 +1209,8 @@ fn update_relief_3d(
     }
     // Changement de carte (normale / relief / climat) : seules les couleurs changent, le relief déjà
     // calculé est réutilisé. La vision peut déborder du bord de la carte : on ne garde que la carte.
-    if layer.is_changed() {
+    // (carte géographique : aussi quand sa famille ou son niveau changent)
+    if layer.is_changed() || (geo.is_changed() && *layer == MapLayer::Geography) {
         queue.color.extend(fog.explored.iter().copied().filter(|h| map.0.contains(*h)));
         // (beaucoup de cases d'un coup : l'ordre est refait en une fois)
         queue.order_focus = None;
@@ -1295,6 +1296,7 @@ fn update_relief_3d(
                 MapLayer::Altitude | MapLayer::Relief => elevation_layer_color(&map.0, hex, thematic),
                 MapLayer::Climate => climate_color(t, map.0.rain(hex).unwrap_or(500.0)),
                 MapLayer::Plates => plate_color(&map.0, hex),
+                MapLayer::Geography => geo.0.shade.get(map.0.cell(map.0.canonical(hex))).map_or(crate::render::GEO_LAND, |&s| crate::render::geo_color(s)),
                 MapLayer::Currents => currents_color(&map.0, hex),
                 _ => hydro_color(&map.0, hex, thematic),
             };

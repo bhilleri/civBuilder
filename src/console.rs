@@ -312,6 +312,7 @@ struct ConsoleContext<'w, 's> {
     mode: ResMut<'w, ViewMode>,
     cam: ResMut<'w, Cam3d>,
     layer: ResMut<'w, MapLayer>,
+    geo: ResMut<'w, crate::render::GeoView>,
     seed: Option<Res<'w, WorldSeed>>,
     edited: MessageWriter<'w, MapEdited>,
     renamed: MessageWriter<'w, NamesChanged>,
@@ -449,6 +450,14 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
         Some(Effect::Layer(l)) => {
             if *ctx.layer != *l {
                 *ctx.layer = *l;
+            }
+        }
+        Some(Effect::Geo(family)) => {
+            if *ctx.layer != MapLayer::Geography {
+                *ctx.layer = MapLayer::Geography;
+            }
+            if ctx.geo.family != *family {
+                ctx.geo.family = *family;
             }
         }
         Some(Effect::Capture(name)) => {
