@@ -4,10 +4,12 @@
 //! - **Niveau du dessus** (vue lointaine) : les grandes zones (continents, îles et archipels ;
 //!   océans et mers ; chaînes, plateaux et collines ; régions naturelles), une couleur chacune.
 //! - **Niveau du dessous** (vue proche) : leurs parties (péninsules, isthmes, îles d'un archipel ;
-//!   golfes, baies, détroits ; massifs, cols ; sous-régions), une couleur chacune ; le reste de la
-//!   grande zone garde sa couleur, en teinte sourde.
-//! - **Couleurs** : deux zones voisines n'ont jamais la même (coloriage de graphe « DSatur » : la
-//!   zone qui a déjà le plus de couleurs différentes autour d'elle choisit d'abord).
+//!   golfes, baies, détroits ; massifs, cols ; sous-régions), en nuances de la couleur de leur
+//!   grande zone (on voit qu'elles la composent) ; le reste de la grande zone garde sa couleur, en
+//!   teinte sourde.
+//! - **Couleurs** : deux grandes zones voisines n'ont jamais la même, ni deux parties voisines
+//!   d'une même grande zone la même nuance (coloriage de graphe « DSatur » : la zone qui a déjà le
+//!   plus de couleurs différentes autour d'elle choisit d'abord).
 
 use crate::hex::{DIRECTIONS, Hex};
 use crate::map::WorldMap;
@@ -39,12 +41,17 @@ impl GeoFamily {
 /// Nombre de couleurs de zones.
 pub const GEO_COLORS: usize = 10;
 
+/// Nuances d'une couleur pour les parties d'une grande zone (0 : la couleur elle-même), puis la
+/// teinte sourde (`MUTED`) du reste de la grande zone.
+pub const GEO_TONES: u8 = 4;
+pub const MUTED: u8 = GEO_TONES;
+
 /// Teinte d'une case sur la carte géographique.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GeoShade {
-    /// Dans une zone montrée : sa couleur ; `muted` : la partie d'une grande zone hors de ses
-    /// sous-zones (niveau du dessous).
-    Zone { color: u8, muted: bool },
+    /// Dans une zone montrée : la couleur de sa grande zone, et la nuance de la partie (0 au niveau
+    /// du dessus), ou `MUTED` pour une grande zone hors de ses parties.
+    Zone { color: u8, tone: u8 },
     /// Hors des zones de la famille.
     Land,
     Water,
@@ -98,6 +105,32 @@ fn zone_of(map: &WorldMap, family: GeoFamily, deep: bool, c: usize) -> (Option<u
     (top, shown)
 }
 
+/// Zones voisines : taille de chaque zone et zones qu'elle touche (cases voisines de zones
+/// différentes), parmi les cases que `key` range dans une zone.
+fn neighbors_of(map: &WorldMap, key: impl Fn(usize) -> Option<usize>) -> (HashMap<usize, usize>, HashMap<usize, HashSet<usize>>) {
+    let n = (map.width * map.height) as usize;
+    let mut size: HashMap<usize, usize> = HashMap::new();
+    let mut touching: HashMap<usize, HashSet<usize>> = HashMap::new();
+    for c in 0..n {
+        let Some(z) = key(c) else { continue };
+        *size.entry(z).or_default() += 1;
+        let h = map.hex_at(c);
+        for d in DIRECTIONS {
+            let nb = map.canonical(h + d);
+            if !map.contains(nb) {
+                continue;
+            }
+            if let Some(o) = key(map.cell(nb))
+                && o != z
+            {
+                touching.entry(z).or_default().insert(o);
+                touching.entry(o).or_default().insert(z);
+            }
+        }
+    }
+    (size, touching)
+}
+
 /// Carte géographique d'une famille, au niveau du dessus ou du dessous (`deep`).
 pub fn compute(map: &WorldMap, family: GeoFamily, deep: bool) -> GeoMap {
     let n = (map.width * map.height) as usize;
@@ -106,44 +139,52 @@ pub fn compute(map: &WorldMap, family: GeoFamily, deep: bool) -> GeoMap {
     for c in 0..n {
         (top[c], shown[c]) = zone_of(map, family, deep, c);
     }
-    // Zones voisines (deux cases voisines dans deux zones montrées différentes)
-    let mut size: HashMap<usize, usize> = HashMap::new();
-    let mut touching: HashMap<usize, HashSet<usize>> = HashMap::new();
-    for c in 0..n {
-        let Some((z, _)) = shown[c] else { continue };
-        *size.entry(z).or_default() += 1;
-        let h = map.hex_at(c);
-        for d in DIRECTIONS {
-            let nb = map.canonical(h + d);
-            if !map.contains(nb) {
-                continue;
-            }
-            if let Some((o, _)) = shown[map.cell(nb)]
-                && o != z
-            {
-                touching.entry(z).or_default().insert(o);
-                touching.entry(o).or_default().insert(z);
-            }
-        }
+    // Couleurs des grandes zones (voisines : couleurs différentes)
+    let (size, touching) = neighbors_of(map, |c| top[c]);
+    let colors = color_zones(&size, &touching, GEO_COLORS);
+    // Nuances des parties : voisines dans une même grande zone, nuances différentes (des parties
+    // de deux grandes zones différentes ont déjà des couleurs différentes)
+    let part = |c: usize| shown[c].filter(|&(z, muted)| !muted && Some(z) != top[c]).map(|(z, _)| z);
+    let (part_size, mut part_touching) = neighbors_of(map, part);
+    let parent_of: HashMap<usize, Option<usize>> = (0..n).filter_map(|c| part(c).map(|z| (z, top[c]))).collect();
+    for (z, others) in part_touching.iter_mut() {
+        others.retain(|o| parent_of.get(o) == parent_of.get(z));
     }
-    let colors = color_zones(&size, &touching);
+    let tones = color_zones(&part_size, &part_touching, usize::from(GEO_TONES));
     let shade = (0..n)
-        .map(|c| match shown[c] {
-            Some((z, muted)) => GeoShade::Zone { color: colors[&z], muted },
-            None if map.get(map.hex_at(c)).is_some_and(|t| t.is_water()) => GeoShade::Water,
-            None => GeoShade::Land,
+        .map(|c| match (shown[c], top[c]) {
+            (Some((_, true)), Some(t)) => GeoShade::Zone { color: colors[&t], tone: MUTED },
+            (Some((z, false)), Some(t)) => GeoShade::Zone { color: colors[&t], tone: if z == t { 0 } else { tones[&z] } },
+            (Some((z, _)), None) => GeoShade::Zone { color: colors.get(&z).copied().unwrap_or(0), tone: 0 },
+            (None, _) if map.get(map.hex_at(c)).is_some_and(|t| t.is_water()) => GeoShade::Water,
+            (None, _) => GeoShade::Land,
         })
         .collect();
     GeoMap { shade, top }
 }
 
-/// Coloriage des zones (DSatur) : à chaque pas, la zone qui touche le plus de couleurs déjà
-/// données (puis la plus grande) prend, parmi les couleurs libres autour d'elle, la moins donnée
-/// jusque-là (des zones qui ne se touchent pas, des îles, n'ont pas toutes la même) ; s'il n'y en
-/// a pas, la moins présente autour d'elle.
-fn color_zones(size: &HashMap<usize, usize>, touching: &HashMap<usize, HashSet<usize>>) -> HashMap<usize, u8> {
+/// Une zone de la famille est-elle une partie d'une grande zone (montrée au niveau du dessous) ?
+/// Péninsules, isthmes et îles d'un archipel ; golfes, baies, détroits ; massifs, cols ;
+/// sous-régions.
+pub fn is_part(map: &WorldMap, family: GeoFamily, zone: usize) -> bool {
+    use crate::lands::LandKind;
+    use crate::mountains::ReliefKind;
+    use crate::seas::SeaKind;
+    match family {
+        GeoFamily::Lands => map.lands().zones.get(zone).is_some_and(|z| matches!(z.kind, LandKind::Peninsula | LandKind::Isthmus) || (matches!(z.kind, LandKind::Island | LandKind::Islet) && z.parent.is_some())),
+        GeoFamily::Seas => map.seas().zones.get(zone).is_some_and(|z| matches!(z.kind, SeaKind::Gulf | SeaKind::Bay | SeaKind::Strait)),
+        GeoFamily::Reliefs => map.reliefs().zones.get(zone).is_some_and(|z| matches!(z.kind, ReliefKind::Massif | ReliefKind::Pass)),
+        GeoFamily::Regions => map.regions().zones.get(zone).is_some_and(|z| z.parent.is_some()),
+    }
+}
+
+/// Coloriage des zones sur `count` couleurs (DSatur) : à chaque pas, la zone qui touche le plus
+/// de couleurs déjà données (puis la plus grande) prend, parmi les couleurs libres autour d'elle,
+/// la moins donnée jusque-là (des zones qui ne se touchent pas, des îles, n'ont pas toutes la
+/// même) ; s'il n'y en a pas, la moins présente autour d'elle.
+fn color_zones(size: &HashMap<usize, usize>, touching: &HashMap<usize, HashSet<usize>>, count: usize) -> HashMap<usize, u8> {
     let mut colors: HashMap<usize, u8> = HashMap::new();
-    let mut given = [0usize; GEO_COLORS];
+    let mut given = vec![0usize; count];
     let mut left: Vec<usize> = size.keys().copied().collect();
     left.sort_unstable();
     let empty = HashSet::new();
@@ -153,10 +194,10 @@ fn color_zones(size: &HashMap<usize, usize>, touching: &HashMap<usize, HashSet<u
         let (k, &z) = left.iter().enumerate().max_by_key(|&(_, &z)| (saturation(z), size[&z], std::cmp::Reverse(z))).unwrap();
         left.swap_remove(k);
         let used = around(z, &colors);
-        let color = (0..GEO_COLORS as u8)
+        let color = (0..count as u8)
             .filter(|c| !used.contains(c))
             .min_by_key(|&c| (given[usize::from(c)], c))
-            .unwrap_or_else(|| (0..GEO_COLORS as u8).min_by_key(|c| used.iter().filter(|u| *u == c).count()).unwrap_or(0));
+            .unwrap_or_else(|| (0..count as u8).min_by_key(|c| used.iter().filter(|u| *u == c).count()).unwrap_or(0));
         given[usize::from(color)] += 1;
         colors.insert(z, color);
     }
@@ -207,18 +248,26 @@ mod tests {
                 let geo = compute(&m, family, deep);
                 let mut zones = 0;
                 for c in 0..geo.shade.len() {
-                    let GeoShade::Zone { color, .. } = geo.shade[c] else { continue };
+                    let GeoShade::Zone { color, tone } = geo.shade[c] else { continue };
                     zones += 1;
-                    let (_, mine) = zone_of(&m, family, deep, c);
+                    let (mine_top, mine) = zone_of(&m, family, deep, c);
                     for d in DIRECTIONS {
                         let nb = m.canonical(m.hex_at(c) + d);
                         if !m.contains(nb) {
                             continue;
                         }
                         let j = m.cell(nb);
-                        let (_, theirs) = zone_of(&m, family, deep, j);
-                        if let (GeoShade::Zone { color: other, .. }, true) = (geo.shade[j], mine.map(|z| z.0) != theirs.map(|z| z.0)) {
+                        let (theirs_top, theirs) = zone_of(&m, family, deep, j);
+                        let GeoShade::Zone { color: other, tone: other_tone } = geo.shade[j] else { continue };
+                        // Grandes zones différentes : couleurs différentes ; même grande zone :
+                        // même couleur, et deux parties différentes, nuances différentes
+                        if mine_top != theirs_top {
                             assert_ne!(color, other, "{family:?} {deep} : cases {c} et {j}");
+                        } else {
+                            assert_eq!(color, other, "{family:?} {deep} : cases {c} et {j}");
+                            if mine.map(|z| z.0) != theirs.map(|z| z.0) {
+                                assert_ne!(tone, other_tone, "{family:?} {deep} : cases {c} et {j}");
+                            }
                         }
                     }
                 }
@@ -236,11 +285,11 @@ mod tests {
         // sous-régions : impossible (une région découpée l'est entièrement) ; d'une région non
         // découpée : pleine couleur
         for c in 0..geo.shade.len() {
-            if let GeoShade::Zone { muted, .. } = geo.shade[c] {
-                assert!(!muted || r.part_of[c].is_none(), "case {c}");
+            if let GeoShade::Zone { tone, .. } = geo.shade[c] {
+                assert!(tone != MUTED || r.part_of[c].is_none(), "case {c}");
             }
         }
         let top = compute(&m, GeoFamily::Regions, false);
-        assert!(top.shade.iter().all(|s| !matches!(s, GeoShade::Zone { muted: true, .. })));
+        assert!(top.shade.iter().all(|s| matches!(s, GeoShade::Zone { tone: 0, .. } | GeoShade::Land | GeoShade::Water)));
     }
 }

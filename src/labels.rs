@@ -269,6 +269,8 @@ struct SeaName {
     fit: f32,
     /// Importance dans son rang (nombre de cases) : les plus grandes zones d'abord.
     weight: usize,
+    /// Partie d'une grande zone (carte géographique : montrée au niveau du dessous seulement).
+    part: bool,
     /// Nom courbé le long de l'axe de la zone (chaîne, massif, golfe allongés).
     curve: Option<Curve>,
 }
@@ -299,6 +301,25 @@ const CURVE_SLACK: f32 = 1.1;
 const CURVE_MAX_TURN: f32 = 0.5;
 /// Un nom courbé ne penche pas de plus de tant (radians, 60°) : plus raide, il se lit mal.
 const CURVE_MAX_TILT: f32 = 1.05;
+/// Carte géographique : les noms de la famille montrée, en blanc, plus nombreux.
+const GEO_NAME_COLOR: (f32, f32, f32) = (0.99, 0.98, 0.95);
+const GEO_QUOTA: f32 = 1.5;
+/// Hauteur d'écran de référence (pixels logiques) du niveau de zoom : une case se mesure comme sur
+/// un écran de cette hauteur, pour que le niveau ne dépende pas de la taille de la fenêtre (sur un
+/// grand écran, à distance égale, les cases paraissent plus grandes et les océans ne se
+/// montraient plus, même dézoomé au maximum).
+const LEVEL_SCREEN_HEIGHT: f32 = 900.0;
+
+/// Niveau de zoom de la vue : taille à l'écran d'une case au point visé par la caméra (`focus`),
+/// ramenée à un écran de `LEVEL_SCREEN_HEIGHT` pixels de haut. Le même pour tous les noms et la
+/// carte géographique.
+pub(crate) fn view_level(camera: &Camera, transform: &Transform, focus: Vec3) -> Option<f32> {
+    let global = GlobalTransform::from(*transform);
+    let a = camera.world_to_viewport(&global, focus).ok()?;
+    let b = camera.world_to_viewport(&global, focus + transform.right() * crate::hex::HEX_SIZE).ok()?;
+    let height = camera.logical_viewport_size().map_or(LEVEL_SCREEN_HEIGHT, |v| v.y.max(1.0));
+    Some((a.distance(b) * LEVEL_SCREEN_HEIGHT / height).max(0.01))
+}
 
 /// Style d'un nom d'étendue marine : capitales espacées pour les océans et les mers, italique
 /// bleu pour toutes ; taille et zoom selon l'importance.
@@ -438,6 +459,13 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
         };
         let cells = cells_of(target);
         let hexes = if curved(target) { map.0.zone_spine(cells) } else { Vec::new() };
+        let part = match target {
+            MapTarget::Sea(z) => crate::geography::is_part(&map.0, crate::geography::GeoFamily::Seas, z),
+            MapTarget::Land(z) => crate::geography::is_part(&map.0, crate::geography::GeoFamily::Lands, z),
+            MapTarget::Relief(z) => crate::geography::is_part(&map.0, crate::geography::GeoFamily::Reliefs, z),
+            MapTarget::Region(z) => crate::geography::is_part(&map.0, crate::geography::GeoFamily::Regions, z),
+            _ => false,
+        };
         for copy in 0..copies {
             let curve = (!hexes.is_empty()).then(|| {
                 let letters = text
@@ -462,7 +490,7 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
                 Curve { letters, hexes: hexes.clone(), points: smooth_line(&hexes), gap: spacing * size }
             });
             commands.spawn((
-                SeaName { zone: area, copy, min_px, max_px, rank, family, tint, fit, weight: cells.len(), curve },
+                SeaName { zone: area, copy, min_px, max_px, rank, family, tint, fit, weight: cells.len(), part, curve },
                 (TargetButton::new(target), Interaction::default()),
                 Node { position_type: PositionType::Absolute, ..default() },
                 UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
@@ -563,6 +591,7 @@ fn curve_letters(line: &[Vec2], widths: &[f32], gap: f32) -> Option<Vec<(Vec2, f
 fn place_sea_names(
     mode: Res<ViewMode>,
     cam3d: Res<crate::view3d::Cam3d>,
+    (layer, geo): (Res<crate::render::MapLayer>, Res<crate::render::GeoView>),
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     filter: Res<LabelFilter>,
@@ -617,29 +646,39 @@ fn place_sea_names(
     let screen = viewport.x * viewport.y;
     // (seuls les noms à l'écran comptent dans les quotas)
     let on_screen = |r: &ScreenRect| r.min.x < viewport.x && r.min.y < viewport.y && r.min.x + r.size.x > 0.0 && r.min.y + r.size.y > 0.0;
-    let quota = |rank: u8| (AREA_QUOTA[usize::from(rank).min(AREA_QUOTA.len() - 1)] * screen / QUOTA_SCREEN).round().max(1.0) as usize;
+    // Carte géographique : seuls les noms de la famille montrée, ceux des zones colorées
+    let geo_map = *layer == crate::render::MapLayer::Geography;
+    let quota_scale = if geo_map { GEO_QUOTA } else { 1.0 };
+    let quota = |rank: u8| (AREA_QUOTA[usize::from(rank).min(AREA_QUOTA.len() - 1)] * quota_scale * screen / QUOTA_SCREEN).round().max(1.0) as usize;
     let mut per_rank = [0usize; AREA_QUOTA.len()];
-    // Niveau de zoom de la vue : taille à l'écran d'une case au point visé par la caméra
+    // Niveau de zoom de la vue : taille d'une case au point visé par la caméra
     let view_px = camera.and_then(|(cam, transform, _)| {
-        let global = GlobalTransform::from(*transform);
         let focus = if mode.is_3d { cam3d.target } else { Vec3::new(transform.translation.x, transform.translation.y, 0.0) };
-        let a = cam.world_to_viewport(&global, focus).ok()?;
-        let b = cam.world_to_viewport(&global, focus + transform.right() * crate::hex::HEX_SIZE).ok()?;
-        Some(a.distance(b).max(0.01))
+        view_level(cam, transform, focus)
     });
     let mut order: Vec<_> = names.iter_mut().collect();
     order.sort_by_key(|(n, ..)| (n.rank, n.copy, std::cmp::Reverse(n.weight), n.zone));
     let mut placed: Vec<ScreenRect> = Vec::new();
     for (name, mut node, mut vis, mut color, computed) in order {
-        let tint = name.tint;
+        let tint = if geo_map { GEO_NAME_COLOR } else { name.tint };
         // (centre du nom droit, alpha) ou (lettres du nom courbé, alpha)
         let mut straight = None;
         let mut bent: Option<(Vec<(Vec2, f32)>, f32)> = None;
-        let wanted = match name.family {
-            AreaFamily::Sea => filter.seas,
-            AreaFamily::Land => filter.lands,
-            AreaFamily::Relief => filter.reliefs,
-            AreaFamily::Region => filter.regions,
+        let family = match name.family {
+            AreaFamily::Sea => crate::geography::GeoFamily::Seas,
+            AreaFamily::Land => crate::geography::GeoFamily::Lands,
+            AreaFamily::Relief => crate::geography::GeoFamily::Reliefs,
+            AreaFamily::Region => crate::geography::GeoFamily::Regions,
+        };
+        let wanted = if geo_map {
+            family == geo.family && (!name.part || geo.deep)
+        } else {
+            match name.family {
+                AreaFamily::Sea => filter.seas,
+                AreaFamily::Land => filter.lands,
+                AreaFamily::Relief => filter.reliefs,
+                AreaFamily::Region => filter.regions,
+            }
         };
         let rank = usize::from(name.rank).min(AREA_QUOTA.len() - 1);
         if let (Some((camera, transform, _)), true, Some(hex)) = (camera, wanted && per_rank[rank] < quota(name.rank), spots.get(name.zone).and_then(|a| a.get(name.copy))) {
@@ -655,7 +694,8 @@ fn place_sea_names(
                 // Fondu aux bords de la plage de zoom
                 let fade_in = if name.min_px <= 0.0 { 1.0 } else { ((level - name.min_px * 0.8) / (name.min_px * 0.4)).clamp(0.0, 1.0) };
                 let fade_out = ((name.max_px * 1.2 - level) / (name.max_px * 0.4)).clamp(0.0, 1.0);
-                let alpha = fade_in.min(fade_out);
+                // (carte géographique : le niveau de la carte décide, pas la plage du nom)
+                let alpha = if geo_map { 1.0 } else { fade_in.min(fade_out) };
                 // Nom courbé : axe exploré, projeté à l'écran (d'un seul tenant près de la caméra)
                 let curve = name.curve.as_ref().filter(|c| alpha > 0.02 && c.hexes.iter().all(|h| fog.explored.contains(&map.0.canonical(*h))));
                 if let Some(curve) = curve {

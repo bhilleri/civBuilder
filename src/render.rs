@@ -252,30 +252,36 @@ pub const GEO_PALETTE: [(f32, f32, f32); crate::geography::GEO_COLORS] = [
 pub const GEO_LAND: (f32, f32, f32) = (0.30, 0.30, 0.29);
 pub const GEO_WATER: (f32, f32, f32) = (0.10, 0.13, 0.20);
 
-/// Couleur d'une teinte de la carte géographique (une grande zone hors de ses parties : sa
-/// couleur, assourdie).
+/// Couleur d'une teinte de la carte géographique : la couleur de la grande zone, en nuances pour
+/// ses parties (plus claire, plus sombre, très claire), assourdie pour le reste de la grande zone.
 pub fn geo_color(shade: crate::geography::GeoShade) -> (f32, f32, f32) {
     use crate::geography::GeoShade;
     match shade {
-        GeoShade::Zone { color, muted: false } => GEO_PALETTE[usize::from(color) % GEO_PALETTE.len()],
-        GeoShade::Zone { color, muted: true } => {
+        GeoShade::Zone { color, tone } => {
             let (r, g, b) = GEO_PALETTE[usize::from(color) % GEO_PALETTE.len()];
-            (r * 0.45 + 0.14, g * 0.45 + 0.14, b * 0.45 + 0.14)
+            let light = |k: f32| (r + (1.0 - r) * k, g + (1.0 - g) * k, b + (1.0 - b) * k);
+            match tone {
+                0 => (r, g, b),
+                1 => light(0.32),
+                2 => (r * 0.70, g * 0.70, b * 0.70),
+                3 => light(0.58),
+                _ => (r * 0.40 + 0.13, g * 0.40 + 0.13, b * 0.40 + 0.13),
+            }
         }
         GeoShade::Land => GEO_LAND,
         GeoShade::Water => GEO_WATER,
     }
 }
 
-/// Indice d'une teinte de la carte géographique dans la palette 2D : couleurs vives, assourdies,
-/// puis terre et eau.
+/// Indice d'une teinte de la carte géographique dans la palette 2D : pour chaque couleur, ses
+/// nuances et sa teinte sourde, puis terre et eau.
 fn geo_index(shade: crate::geography::GeoShade) -> usize {
-    use crate::geography::GeoShade;
-    let n = GEO_PALETTE.len();
+    use crate::geography::{GeoShade, MUTED};
+    let (n, tones) = (GEO_PALETTE.len(), usize::from(MUTED) + 1);
     match shade {
-        GeoShade::Zone { color, muted } => usize::from(color) % n + if muted { n } else { 0 },
-        GeoShade::Land => 2 * n,
-        GeoShade::Water => 2 * n + 1,
+        GeoShade::Zone { color, tone } => usize::from(color) % n * tones + usize::from(tone.min(MUTED)),
+        GeoShade::Land => n * tones,
+        GeoShade::Water => n * tones + 1,
     }
 }
 
@@ -324,9 +330,7 @@ fn update_geo_depth(
     }
     let Some((camera, transform, _)) = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active) else { return };
     let focus = if mode.is_3d { cam3d.target } else { Vec3::new(transform.translation.x, transform.translation.y, 0.0) };
-    let global = GlobalTransform::from(*transform);
-    let (Ok(a), Ok(b)) = (camera.world_to_viewport(&global, focus), camera.world_to_viewport(&global, focus + transform.right() * HEX_SIZE)) else { return };
-    let px = a.distance(b);
+    let Some(px) = crate::labels::view_level(camera, transform, focus) else { return };
     let deep = if view.deep { px >= GEO_TOP_PX } else { px >= GEO_DEEP_PX };
     if view.deep != deep {
         view.deep = deep;
@@ -1168,13 +1172,8 @@ fn setup_map_visuals(
     let (plates, plates_dim) = pair(plate_shades(map.0.plates()));
     let sea_shades = (0..SEA_SHADES).map(|i| sea_temperature_color(sea_shade_degrees(i)));
     let (currents, currents_dim) = pair(sea_shades.chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
-    let geo_shades = (0..GEO_PALETTE.len() as u8).flat_map(|c| [(c, false)]).chain((0..GEO_PALETTE.len() as u8).map(|c| (c, true)));
-    let (geo, geo_dim) = pair(
-        geo_shades
-            .map(|(color, muted)| geo_color(crate::geography::GeoShade::Zone { color, muted }))
-            .chain([GEO_LAND, GEO_WATER])
-            .collect(),
-    );
+    let geo_shades = (0..GEO_PALETTE.len() as u8).flat_map(|color| (0..=crate::geography::MUTED).map(move |tone| crate::geography::GeoShade::Zone { color, tone }));
+    let (geo, geo_dim) = pair(geo_shades.map(geo_color).chain([GEO_LAND, GEO_WATER]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
     let tile_mesh = meshes.add(RegularPolygon::new(HEX_SIZE * 0.99, 6));
     let palette = Palette {
