@@ -2,6 +2,13 @@
 
 ## 0.3.0 (en cours)
 
+### Des cours d'eau plus variés
+- **Largeur selon le débit** : un fleuve va d'un quart de case (2 000 m³/s) à presque toute la case (60 000 m³/s et plus) ; les rivières s'élargissent nettement plus avec leur débit (de 2 à 14 de large sur une arête de 32), une grosse rivière arrive presque à la largeur d'un petit fleuve.
+- **Méandres** : les fleuves ne sont plus des lignes brisées. Ils courbent d'une arête à l'autre, en franchissant chaque arête à un endroit tiré de la graine (le même vu des deux cases) et en passant un peu à côté du centre ; ils serpentent plus en plaine qu'en pente. L'eau couvre toujours le centre de la case (unités en barque). La surbrillance au survol suit le nouveau tracé.
+- **Rivières légèrement bombées** le long de leur arête, sans changer de côté.
+- **Couleur de l'eau** : plus sombre pour les grands fleuves ; **limoneuse** (olive) dans les déserts, steppes et savanes, **claire** dans la taïga, la toundra et les hautes terres. Le cours d'eau prend peu à peu la couleur des terres qu'il traverse, les affluents se mêlent selon leur débit, un lac garde le limon. En 2D comme en 3D. Console : `info` donne le limon (`limon=`).
+- **Embouchures** : un petit fleuve s'évase en proportion de sa largeur (il finissait en pointe de flèche).
+
 ### Les actions en images
 - **Page [Comment se joue CivBuilder](docs/ANIMATIONS.md)**, accessible depuis le README : un GIF par action, en 2D et en 3D, avec l'interface — déplacement, trajet de plusieurs tours, échange de place, corps à corps, charge et victoire, tir, attaque perdue, attaque hostile en fin de tour, les trois issues d'un village (commerce, habitants, embuscade), camp vide pris.
 - **Tournage par le jeu** (`scripts/animations.sh`, module `film.rs`, `CIVBUILDER_CAPTURE_GIF=1`) : les scènes sont jouées avec les vraies commandes du joueur, par une souris pilotée (`input::Pilot`) et dessinée à l'écran, avec une légende (« Clic droit : ordre »). Le temps avance de 1/20 s par image quelle que soit la vitesse du rendu ; ffmpeg assemble les images. Issues fixées : PV de départ des unités pour les combats, événement de village imposé (`hostile::NextVillageEvent`).
