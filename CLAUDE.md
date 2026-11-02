@@ -19,6 +19,9 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   vérifier un rendu ; ajouter des vues dans `src/capture.rs` si besoin. Le dossier de captures
   va dans le scratchpad, pas dans le dépôt. Avec `CIVBUILDER_CAPTURE_FEEDBACK=1` en plus : animations
   des combats et d'une visite de village (`feedback.rs`), vues à huit instants (la dernière, bouton de fin de tour rendu), en 2D puis en 3D.
+- **GIF des actions** (`docs/ANIMATIONS.md`, liée depuis le README) : `scripts/animations.sh` (sans écran : sous
+  `xvfb-run`, ffmpeg requis) rejoue chaque scène de `src/film.rs` avec une souris pilotée, en 2D puis en 3D, et
+  remplace les GIF de `docs/animations` (`SCENES=tir,camp` pour quelques scènes, ≈ 10 min pour toutes en rendu logiciel).
 - Tests : `cargo test --no-default-features` (suite complète ≈ 5-6 min : la génération des mondes
   est longue ; pendant le développement, lancer les tests du module touché, par ex.
   `cargo test --no-default-features seas::`).

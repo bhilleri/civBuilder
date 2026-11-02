@@ -2,6 +2,10 @@
 
 ## 0.3.0 (en cours)
 
+### Les actions en images
+- **Page [Comment se joue CivBuilder](docs/ANIMATIONS.md)**, accessible depuis le README : un GIF par action, en 2D et en 3D, avec l'interface — déplacement, trajet de plusieurs tours, échange de place, corps à corps, charge et victoire, tir, attaque perdue, attaque hostile en fin de tour, les trois issues d'un village (commerce, habitants, embuscade), camp vide pris.
+- **Tournage par le jeu** (`scripts/animations.sh`, module `film.rs`, `CIVBUILDER_CAPTURE_GIF=1`) : les scènes sont jouées avec les vraies commandes du joueur, par une souris pilotée (`input::Pilot`) et dessinée à l'écran, avec une légende (« Clic droit : ordre »). Le temps avance de 1/20 s par image quelle que soit la vitesse du rendu ; ffmpeg assemble les images. Issues fixées : PV de départ des unités pour les combats, événement de village imposé (`hostile::NextVillageEvent`).
+
 ### Barre de lieu
 - **Les lieux sous le centre de la vue**, du plus vaste au plus précis, dans une barre sous la barre du haut (étape 6 de la toponymie) : « Inetsie › Jungle de Shuchets › Bassin du Smurask » sur terre (continent ou île et son archipel, péninsule, isthme, région naturelle et sous-région, chaîne, massif, col, plateau, collines, grand bassin versant), « Océan Nizxexco › Mer de X › Golfe de Y » en mer, le lac sur un lac. En 2D comme en 3D ; cachée tant que le centre de la vue n'est pas exploré. L'infobulle donne déjà les mêmes lieux pour la case survolée, et la recherche a ses catégories (étapes 3 à 5).
 

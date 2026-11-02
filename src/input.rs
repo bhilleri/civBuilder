@@ -49,6 +49,17 @@ pub struct AttackInfo {
     pub reachable: bool,
 }
 
+/// Souris pilotée par le programme (tournage des animations, voir `film`) : quand elle est
+/// active, la case survolée est celle du pilote (la vraie souris est ignorée) et ses clics
+/// valent ceux de la souris pour une image.
+#[derive(Resource, Default)]
+pub struct Pilot {
+    pub active: bool,
+    pub cursor: Option<Hex>,
+    /// Clic à jouer à la prochaine image (consommé par les commandes de souris).
+    pub click: Option<MouseButton>,
+}
+
 /// Vrai quand le curseur est au-dessus d'un élément d'interface.
 #[derive(Resource, Default)]
 pub struct PointerOverUi(pub bool);
@@ -66,6 +77,7 @@ impl Plugin for InputPlugin {
             .init_resource::<OrderPath>()
             .init_resource::<AttackPreview>()
             .init_resource::<PointerOverUi>()
+            .init_resource::<Pilot>()
             .add_systems(Startup, spawn_camera)
             .add_systems(
                 Update,
@@ -159,7 +171,14 @@ fn update_hovered_hex(
     map: Res<GameMap>,
     relief: Option<Res<crate::view3d::Relief>>,
     over_ui: Res<PointerOverUi>,
+    pilot: Res<Pilot>,
 ) {
+    if pilot.active {
+        if hovered.0 != pilot.cursor {
+            hovered.0 = pilot.cursor;
+        }
+        return;
+    }
     // Caméra active : 2D (projection directe) ou 3D (rayon intersecté avec le relief)
     let Some((camera, cam_transform, is_3d)) = cameras.iter().find(|(c, ..)| c.is_active) else { return };
     let hex = window.cursor_position().filter(|_| !over_ui.0).and_then(|p| {
@@ -278,10 +297,14 @@ fn mouse_commands(
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
     mut hostiles: Query<(Entity, &mut Unit, &HexPos), With<Hostile>>,
     cities: Query<(Entity, &HexPos), With<City>>,
+    mut pilot: ResMut<Pilot>,
 ) {
+    // Clic du pilote (une seule image) ou de la souris
+    let click = pilot.click.take();
+    let pressed = |b: MouseButton| mouse.just_pressed(b) || click == Some(b);
     let Some(target) = hovered.0 else { return };
 
-    if mouse.just_pressed(MouseButton::Left) {
+    if pressed(MouseButton::Left) {
         // Clic répété sur une case : on passe de l'unité à la ville (et inversement).
         let mut candidates: Vec<Entity> = units.iter().filter(|(_, _, p)| p.0 == target).map(|(e, _, _)| e).collect();
         candidates.extend(cities.iter().filter(|(_, p)| p.0 == target).map(|(e, _)| e));
@@ -292,7 +315,7 @@ fn mouse_commands(
     }
 
     // Pas d'ordre tant que le passage de tour se joue (la sélection reste possible)
-    if !mouse.just_pressed(MouseButton::Right) || replay.playing {
+    if !pressed(MouseButton::Right) || replay.playing {
         return;
     }
     let Some(selected) = selection.0 else { return };

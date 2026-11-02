@@ -93,6 +93,7 @@ impl Plugin for HostilePlugin {
             .init_resource::<Danger>()
             .init_resource::<KnownVillages>()
             .init_resource::<HostileTurnPending>()
+            .init_resource::<NextVillageEvent>()
             .add_systems(Startup, spawn_sites);
     }
 }
@@ -124,9 +125,15 @@ fn spawn_sites(mut commands: Commands, map: Res<GameMap>, seed: Res<WorldSeed>) 
     info!("{} villages et {} camps hostiles placés", placed.villages.len(), placed.camps.len());
 }
 
+/// Événement imposé à la prochaine visite d'un village au lieu du tirage (mise en scène des
+/// animations, voir `film`) ; vidé par la visite.
+#[derive(Resource, Default)]
+pub struct NextVillageEvent(pub Option<VillageEvent>);
+
 /// Visites des unités du joueur (y compris les cases traversées) : villages et camps vides.
 pub fn visit_sites(
     mut commands: Commands,
+    mut forced: ResMut<NextVillageEvent>,
     map: Res<GameMap>,
     mut state: ResMut<GameState>,
     mut territory: ResMut<Territory>,
@@ -165,7 +172,8 @@ pub fn visit_sites(
         }
         commands.entity(village).despawn();
         let city_list: Vec<(Entity, Hex)> = cities.iter().map(|(e, p, _)| (e, p.0)).collect();
-        match sites::roll_village_event(&mut rng, !city_list.is_empty()) {
+        let event = forced.0.take().filter(|e| *e != VillageEvent::JoinCity || !city_list.is_empty());
+        match event.unwrap_or_else(|| sites::roll_village_event(&mut rng, !city_list.is_empty())) {
             VillageEvent::JoinCity => {
                 let target = sites::nearest(&map.0, pos.0, &city_list).expect("au moins une ville");
                 let (entity, center, mut city) = cities.get_mut(target).unwrap();
