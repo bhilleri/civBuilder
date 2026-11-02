@@ -1061,16 +1061,17 @@ fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<Wate
     if !fog.is_changed() {
         return;
     }
-    let color = |kind: WaterKind, lit: bool| {
+    let color = |kind: WaterKind, tone: crate::waterways::Tone, lit: bool| {
         let c = match kind {
             WaterKind::River => RIVER_2D,
             WaterKind::Fleuve => FLEUVE_2D,
             WaterKind::Lake => SMALL_LAKE_2D,
         }
         .to_linear();
-        // Hors de vue : assombri comme les cases
+        // Teinte du sommet (débit, limon) ; hors de vue : assombri comme les cases
+        let c = tone.apply(Vec3::new(c.red, c.green, c.blue));
         let k = if lit { 1.0 } else { 0.5 };
-        [c.red * k, c.green * k, c.blue * k * 1.1, 1.0]
+        [c.x * k, c.y * k, c.z * k * 1.1, 1.0]
     };
     let mut builder = SlopeMeshBuilder::default();
     // (une case vue au-delà du raccord est celle de la carte)
@@ -1078,10 +1079,10 @@ fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<Wate
     for (hex, shape) in &overlay.shapes {
         let lit = fog.visible.contains(hex);
         for t in shape.visible(*hex, explored) {
-            let c = color(t.kind, lit || t.also.is_some_and(|o| fog.visible.contains(&map.0.canonical(o))));
+            let lit = lit || t.also.is_some_and(|o| fog.visible.contains(&map.0.canonical(o)));
             // L'eau s'arrête au bord de la zone explorée
             for pts in crate::waterways::clip_to_explored(t.pts, &explored) {
-                builder.tri([(pts[0], c), (pts[1], c), (pts[2], c)]);
+                builder.tri(pts.map(|p| (p, color(t.kind, t.tone_at(p), lit))));
             }
         }
     }

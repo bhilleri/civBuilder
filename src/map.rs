@@ -717,6 +717,70 @@ fn relief_score(local_rank: f32, rough_rank: f32, elevation_m: f32) -> f32 {
     0.45 * local_rank + 0.3 * rough_rank + 0.35 * (elevation_m / PEAK_M).clamp(0.0, 1.0)
 }
 
+/// Limon apporté par l'eau qui ruisselle sur une case (0 à 1, indice relatif) : fort sur les
+/// sols nus ou peu couverts (désert, steppe, savane), faible sous la forêt boréale, la toundra
+/// et la neige ; les hautes terres rocheuses donnent une eau claire.
+pub fn sediment_yield(terrain: Terrain, elevation_m: f32) -> f32 {
+    let soil = match terrain {
+        Terrain::Desert => 1.0,
+        Terrain::Steppe => 0.85,
+        Terrain::Savanna => 0.8,
+        Terrain::Mediterranean | Terrain::Plains => 0.6,
+        Terrain::WoodedSavanna => 0.55,
+        Terrain::Jungle => 0.5,
+        Terrain::Grassland => 0.45,
+        Terrain::Marsh => 0.35,
+        Terrain::Forest => 0.25,
+        Terrain::Taiga | Terrain::Tundra => 0.1,
+        Terrain::Snow | Terrain::Ocean | Terrain::Coast | Terrain::Lake => 0.0,
+    };
+    let rock = ((elevation_m - 600.0) / 1_400.0).clamp(0.0, 1.0);
+    soil * (1.0 - 0.7 * rock)
+}
+
+/// Part de limon qui ressort d'un lac (le reste s'y dépose : l'eau qui en sort est claire).
+const LAKE_MURK_KEPT: f32 = 0.25;
+
+/// Part du limon d'une case dans la turbidité de l'eau qui la traverse (le reste vient de
+/// l'amont) : un cours d'eau prend la couleur des terres qu'il traverse en trois cases environ.
+const MURK_LOCAL: f32 = 0.35;
+
+/// Turbidité de l'eau sortant de chaque case : celle de l'amont (affluents mêlés selon leur
+/// débit) tirée vers le limon de la case (`yields`), de sorte qu'un cours d'eau prend peu à peu
+/// la couleur des terres qu'il traverse ; un lac en garde la plus grande partie. `down` : case aval.
+pub fn murk_of_cells(down: &[Option<usize>], discharge: &[f32], yields: &[f32], lake: &[bool]) -> Vec<f32> {
+    let n = down.len();
+    let mut uphill = vec![0u32; n];
+    for j in down.iter().flatten() {
+        uphill[*j] += 1;
+    }
+    let is_lake = |k: usize| lake.get(k).copied().unwrap_or(false);
+    // Des sources vers l'aval : une case est traitée quand tout son amont l'a été
+    let mut ready: Vec<usize> = (0..n).filter(|&i| uphill[i] == 0).collect();
+    // Débit reçu de l'amont, et limon qu'il porte (pondéré par le débit)
+    let (mut inflow, mut load) = (vec![0.0f32; n], vec![0.0f32; n]);
+    let mut murk = yields.to_vec();
+    while let Some(i) = ready.pop() {
+        let upstream = if inflow[i] > 0.0 { load[i] / inflow[i] } else { yields[i] };
+        murk[i] = upstream + (yields[i] - upstream) * MURK_LOCAL;
+        // Le limon se dépose dans le lac : l'eau en sort claire (une fois, à son exutoire)
+        if is_lake(i) && down[i].is_none_or(|j| !is_lake(j)) {
+            murk[i] *= LAKE_MURK_KEPT;
+        }
+        if let Some(j) = down[i] {
+            // (au moins un peu de poids : une case sèche transmet quand même sa couleur)
+            let q = discharge.get(i).copied().unwrap_or(0.0).max(1e-3);
+            inflow[j] += q;
+            load[j] += q * murk[i];
+            uphill[j] -= 1;
+            if uphill[j] == 0 {
+                ready.push(j);
+            }
+        }
+    }
+    murk
+}
+
 #[derive(Clone, Debug)]
 pub struct WorldMap {
     pub width: i32,
@@ -770,6 +834,8 @@ pub struct WorldMap {
     /// Coût d'un pas de chaque case vers chacune de ses voisines (`u8::MAX` : infranchissable),
     /// calculé à la première demande (le terrain ne change pas en cours de partie).
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
+    /// Turbidité de l'eau sortant de chaque case (voir `water_murk`), calculée à la première demande.
+    murk_cache: std::sync::OnceLock<Vec<f32>>,
 }
 
 impl WorldMap {
@@ -805,6 +871,7 @@ impl WorldMap {
             seed: 0,
             climate_base: None,
             step_cache: std::sync::OnceLock::new(),
+            murk_cache: std::sync::OnceLock::new(),
         }
     }
 
@@ -1297,6 +1364,7 @@ impl WorldMap {
     pub fn set_wraps(&mut self, wraps: bool) {
         self.wrap = Wrap::new(self.width, wraps);
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
     }
 
     /// La case ramenée dans la carte (d'est en ouest si la carte boucle).
@@ -1331,6 +1399,7 @@ impl WorldMap {
     /// Change le terrain ; la mer est ramenée au niveau 0, la terre (et les lacs) au niveau 1 au moins.
     pub fn set(&mut self, hex: Hex, terrain: Terrain) {
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.tiles[i] = terrain;
             self.levels[i] = if terrain.is_sea() { 0 } else { self.levels[i].max(1) };
@@ -1359,6 +1428,7 @@ impl WorldMap {
     /// Change le relief (seulement sur la terre ; un fleuve reste plat) (tests, console de debug).
     pub fn set_relief(&mut self, hex: Hex, relief: Relief) {
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.relief[i] = if self.tiles[i].is_water() || self.hydro.fleuve[i] { Relief::Flat } else { relief };
             // (relief voulu gardé pour la terre, même sous un fleuve qui l'aplanit aujourd'hui)
@@ -1512,6 +1582,7 @@ impl WorldMap {
     /// Change l'altitude (m) d'une case de terre, et sa classe d'altitude (tests, console de debug).
     pub fn set_elevation(&mut self, hex: Hex, meters: f32) {
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
         {
@@ -1588,6 +1659,25 @@ impl WorldMap {
         self.index(hex).and_then(|i| self.hydro.downstream[i]).map(usize::from)
     }
 
+    /// Graine de la génération (0 pour une carte remplie à la main).
+    pub fn seed(&self) -> u32 {
+        self.seed
+    }
+
+    /// Turbidité de l'eau qui sort de la case (0 : claire, 1 : très chargée en limon) : moyenne
+    /// des apports de son bassin pondérée par leur débit (voir `murk_of_cells`).
+    pub fn water_murk(&self, hex: Hex) -> f32 {
+        let all = self.murk_cache.get_or_init(|| {
+            let n = self.tiles.len();
+            let down = (0..n)
+                .map(|i| self.hydro.downstream[i].and_then(|d| self.index(self.wrap.neighbor(self.hex_at(i), d as usize))))
+                .collect::<Vec<_>>();
+            let yields = (0..n).map(|i| sediment_yield(self.tiles[i], self.elevation[i])).collect::<Vec<_>>();
+            murk_of_cells(&down, &self.hydro.discharge, &yields, &self.hydro.lake)
+        });
+        self.index(hex).map_or(0.0, |i| all[i])
+    }
+
     /// Coûts d'un pas de chaque case (indice) vers ses six voisines (`u8::MAX` : infranchissable,
     /// hors de la carte compris). Mis en cache : la recherche de chemin les consulte sans cesse.
     pub fn step_costs(&self) -> &[[u8; 6]] {
@@ -1655,6 +1745,7 @@ impl WorldMap {
     /// de debug ; bassins et noms ne suivent pas).
     pub fn link_fleuve(&mut self, hex: Hex, dir: usize, flow: f32) {
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         let to = self.wrap.neighbor(hex, dir);
         let (Some(i), Some(j)) = (self.index(hex), self.index(to)) else { return };
         for (k, d) in [(i, dir), (j, (dir + 3) % 6)] {
@@ -1675,6 +1766,7 @@ impl WorldMap {
     #[cfg(test)]
     pub fn set_fleuve(&mut self, hex: Hex) {
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.hydro.fleuve[i] = true;
             self.relief[i] = Relief::Flat;
@@ -1694,6 +1786,7 @@ impl WorldMap {
     #[cfg(test)]
     pub fn set_river(&mut self, hex: Hex, dir: usize, flow: f32) {
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         let other = self.wrap.neighbor(hex, dir);
         if let (Some(i), Some(j)) = (self.index(hex), self.index(other)) {
             self.hydro.edge_flow[i][dir] = flow;
@@ -1851,6 +1944,7 @@ impl WorldMap {
     #[cfg(test)]
     pub fn set_level(&mut self, hex: Hex, level: u8) {
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
         {
@@ -2189,6 +2283,8 @@ impl WorldMap {
                 self.relief[i] = base.relief[i];
             }
             self.step_cache = std::sync::OnceLock::new();
+            self.murk_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
             // Courants marins poussés par le vent (vents théoriques à la première passe, puis ceux
             // du climat de la passe précédente) : température de la mer donnée au climat
             let wind = if pass == 0 { currents::theoretical_wind(width, height, &region) } else { self.climate.wind.clone() };
@@ -2275,6 +2371,7 @@ impl WorldMap {
         self.add_marshes();
         self.add_names(self.seed);
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
         true
     }
 
@@ -2434,6 +2531,7 @@ impl WorldMap {
             self.tiles[i] = Terrain::Marsh;
         }
         self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
     }
 
     /// Bassins versants et noms des fleuves (après l'hydrologie).
@@ -2480,6 +2578,27 @@ impl WorldMap {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn turbidite_selon_les_terres_traversees_et_eclaircie_par_les_lacs() {
+        let desert = sediment_yield(Terrain::Desert, 200.0);
+        let taiga = sediment_yield(Terrain::Taiga, 200.0);
+        // Affluents 0 (désert, 10 m³/s) et 1 (taïga, 90 m³/s) mêlés en 2 (taïga)
+        let down = [Some(2), Some(2), Some(3), Some(4), Some(5), None];
+        let discharge = [10.0, 90.0, 100.0, 100.0, 100.0, 100.0];
+        let yields = [desert, taiga, taiga, desert, desert, desert];
+        let m = murk_of_cells(&down, &discharge, &yields, &[false; 6]);
+        let mixed = (10.0 * desert + 90.0 * taiga) / 100.0;
+        assert!((m[2] - (mixed + (taiga - mixed) * MURK_LOCAL)).abs() < 1e-5, "{} {mixed}", m[2]);
+        // Dans le désert, l'eau se charge peu à peu
+        assert!(m[2] < m[3] && m[3] < m[4] && m[4] < m[5] && m[5] < desert);
+        // Lac de deux cases (3, 4) : éclaircie une seule fois, à sa sortie
+        let lake = [false, false, false, true, true, false];
+        let l = murk_of_cells(&down, &discharge, &yields, &lake);
+        assert!((l[3] - m[3]).abs() < 1e-5 && l[4] < m[4] * 0.5);
+        // Les hautes terres rocheuses donnent une eau plus claire
+        assert!(sediment_yield(Terrain::Steppe, 2_500.0) < sediment_yield(Terrain::Steppe, 200.0));
+    }
 
     #[test]
     fn biomes_selon_les_saisons() {

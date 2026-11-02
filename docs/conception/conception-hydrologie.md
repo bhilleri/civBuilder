@@ -28,6 +28,7 @@ Implémenté dans `src/hydro.rs` (simulation, logique pure), `src/basins.rs` (ba
 22. **Rivière d'arête au bord de l'exploration non dessinée en 3D** (la case qui la porte était inexplorée : eau à une hauteur fixe, sous la berge taillée) : la case reprend les lits de ses voisines explorées.
 23. **Bassin fermé nommé d'après son lac** : un bassin qui finit dans un lac salé ou une mer intérieure nommés porte leur nom (« Lac Eyre »), pas celui du fleuve qui s'y jette. Noms : Mar Chiquita, mer Morte et mer de Salton passées dans les lacs salés ; mers intérieures étendues à 50 noms (tropiques et hémisphère sud).
 24. **Plus de grands fleuves qui finissent dans une case de mer isolée** : les petites étendues de mer enclavées deviennent des cuvettes que l'hydrologie remplit (voir « Mares de mer »).
+25. **Variabilité des cours d'eau** (02/11/2026, pistes A à D choisies) : largeur des fleuves selon le débit, méandres des fleuves, rivières plus contrastées et légèrement bombées, teinte de l'eau selon le débit et le limon des terres traversées. Voir « Affichage › Formes et teintes des cours d'eau ».
 
 ## Chaîne de calcul (à la génération, après le climat)
 
@@ -82,12 +83,21 @@ Chiffres antérieurs aux mares de mer (à remesurer) : ruissellement 236 900 m³
 - **Cartes** : normale, relief, climat, bassins versants, débits, réseau hydrographique.
 - **Étiquettes**, **surbrillance**, **carte du réseau** : voir `conception-options-carte.md`.
 - **Bord de la zone explorée** : `clip_to_explored` ; en 3D, une case inexplorée qui porte une rivière d'arête visible prend les lits de ses voisines explorées.
+- **Formes et teintes des cours d'eau** (`waterways.rs`, géométrie partagée par la 2D et la 3D) :
+  - **Largeur selon le débit** : rivière, demi-largeur 1 + 4 par décade de débit au-delà de 100 m³/s, au plus 7 (l'arête mesure 32) ; fleuve, d'un quart de case au seuil (2 000 m³/s) à 92 % de la case à 60 000 m³/s, en échelle logarithmique. Sur une arête entre deux cases de fleuve, la largeur est celle du plus petit des deux débits (la même vue des deux cases). Une grosse rivière arrive presque à la largeur d'un petit fleuve.
+  - **Méandres des fleuves** : le point où le fleuve franchit une arête vers une autre case de fleuve glisse le long de l'arête (tirage selon la graine et l'arête, le même des deux côtés), dans la place que laisse sa largeur (marge de 1,5 avec les coins). Un fleuve qui traverse sa case (deux arêtes) suit une courbe de Hermite d'une arête à l'autre par un point du milieu un peu écarté du centre, en travers du cours (au plus 45 % de sa demi-largeur : l'eau couvre toujours le centre, où sont les unités) ; les courbes arrivent perpendiculaires aux arêtes (raccord lisse d'une case à l'autre). Ailleurs (confluent, source, embouchure, rive de lac) : un rond au milieu et un bras courbe vers chaque arête. La sinuosité baisse avec la pente (dénivelée entre les deux cases : 1 en plaine, 0,3 au-delà de 250 m). La surbrillance au survol passe par les mêmes points.
+  - **Embouchure** : le fleuve s'évase de moitié (au plus toute l'arête) ; le long d'un lac qui n'est pas sur son cours, l'arête reste ouverte sur toute sa largeur (une seule nappe d'eau) ; les coins ne sont remplis qu'à côté d'une arête ouverte en entier (sinon un petit fleuve finissait en pointe de flèche).
+  - **Rivières** : chaque arête est un peu bombée d'un côté ou de l'autre (au plus 2,2, une demi-sinusoïde tirée selon la graine) ; les bouts restent aux coins, on voit toujours de quel côté de la rivière est une unité.
+  - **Teinte** (par sommet, interpolée) : les grands débits sont plus sombres (jusqu'à −30 %) ; l'eau chargée tire vers un limon olive (au plus 65 %). **Turbidité** (`map::murk_of_cells`, calculée à la première demande) : chaque case a un limon propre selon son biome (désert 1, steppe 0,85, savane 0,8, plaine et maquis 0,6, jungle 0,5, prairie 0,45, forêt 0,25, taïga et toundra 0,1, neige 0), réduit jusqu'à 70 % entre 600 et 2 000 m (hautes terres rocheuses : eau claire) ; l'eau d'une case est celle de l'amont (affluents mêlés selon leur débit) tirée de 35 % vers le limon de la case : un cours d'eau prend la couleur des terres qu'il traverse en trois cases environ. Un lac garde 75 % du limon (une fois, à son exutoire). Premier essai écarté : un mélange pondéré par l'eau apportée laissait presque toute l'eau claire (les terres sèches donnent peu d'eau, les montagnes beaucoup). Graine 777 : fleuve de savane à l'embouchure 0,75, fleuve de jungle 0,51, fleuve de taïga 0,07. Console : `info` donne `limon=`.
+  - Coût : un fleuve est découpé en 12 tronçons de lit par case (3 auparavant), une rivière d'arête en 4 ; FPS inchangés une fois le relief 3D construit.
 - **3D** : hauteur de l'eau sur les axes, surface mélangée, lit taillé, maillage par paquets, cascades et plages. Surfaces d'eau refaites en parallèle et comptées dans le budget de temps par image (voir `conception-altitude.md`, « Performances de la construction du relief 3D »).
 
 ## À faire ensuite
 
 - **Refonte du dénivelé** (relief géologique) : lissage le long des cours d'eau, unifier les deux écoulements.
 - **Aménagements des villes** : ponts, moulins à eau.
+- **Îles et bras** dans les grands fleuves de plaine, **deltas** à l'embouchure (piste E, mise de côté).
+- Méandres : la courbe passe près du centre de chaque case ; des boucles plus amples qu'une case demanderaient de lisser le tracé sur plusieurs cases.
 - **Saisons** : fonte des neiges, crues et étiages.
 - **Retour au climat** : évaporation des lacs et mers intérieures.
 - Navigation fluviale et lacustre.

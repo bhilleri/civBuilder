@@ -139,6 +139,10 @@ fn waters() -> Article {
                comme la Charente débite environ 100 m³/s, le Rhône 1 700 m³/s, le Congo 41 000 m³/s."),
             h("Rivières, fleuves et lacs"),
             table_icons(&["Type", "Taille", "Sur la carte"], kinds),
+            p("Sur la carte, un cours d'eau s'élargit avec son débit, et les plus grands sont d'un bleu plus \
+               sombre. Les fleuves serpentent, d'autant plus en plaine. La couleur de l'eau suit les terres \
+               traversées : chargée de limon (olive) dans les déserts, les steppes et les savanes, claire dans la \
+               taïga, la toundra et les hautes terres. Un lac garde le limon : l'eau en sort claire."),
             h("Les lacs"),
             p("Une cuvette sans issue recueille l'eau de son bassin, et la surface du lac en évapore (d'autant plus \
                qu'il fait chaud et sec). Si les apports dépassent ce que la cuvette pleine évapore, le lac se remplit \
