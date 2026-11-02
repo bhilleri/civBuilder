@@ -2804,7 +2804,8 @@ mod apercu {
 #[cfg(test)]
 mod bilan {
     /// Bilan de l'aridité par bande de latitude (à lancer à la main) : pluie, ETP, aridité et
-    /// biomes des terres, sur les graines 777 / 2 / 4242 (`SEEDS=a,b` pour d'autres).
+    /// biomes des terres, sur les graines 777 / 2 / 4242 (`SEEDS=a,b` pour d'autres) ; côtes est et
+    /// ouest (désert, pluie, vents et humidité de l'été et de l'hiver boréaux, mer au large).
     #[test]
     #[ignore]
     fn bilan_aridite() {
@@ -2892,6 +2893,40 @@ mod bilan {
                 println!("{:>3}..{:<3} {:>6.0} {:>9.0} {:>8.0} {:>9.2}  | {} | {}", lo, hi,
                     med(set.iter().map(|&i| m.elevation[i].max(0.0)).collect()), med(set.iter().map(|&i| c.rain[i]).collect()),
                     med(set.iter().map(|&i| c.pet[i]).collect()), med(set.iter().map(|&i| c.aridity(i).unwrap()).collect()), season.join(""), by_dist.join("  "));
+            }
+            // Côtes est et ouest (terres à 3 cases au plus de la mer) : la mer la plus proche sur la
+            // ligne, à l'est ou à l'ouest (6 cases au plus)
+            // Climat d'une saison seule (été boréal, hiver boréal) : vents et pluie
+            let surface: Vec<crate::climate::Surface> = (0..m.tiles.len()).map(|i| if m.tiles[i].is_sea() { crate::climate::Surface::Water } else if m.tiles[i] == Terrain::Lake { crate::climate::Surface::Lake(m.lake_level_m[i]) } else { crate::climate::Surface::Land(m.elevation[i].max(0.0)) }).collect();
+            let seasons: Vec<crate::climate::Climate> = [0.26f32, -0.26].iter().map(|&sun| crate::climate::simulate_periods(m.width, m.height, &surface, m.seed, &m.region, &m.currents.anomaly, &[crate::climate::Period { sun_lat: sun }])).collect();
+            println!(" lat   côte est : désert / cases, pluie méd, P/ETP méd | côte ouest : idem");
+            let sea_at = |h: Hex, step: i32| (1..=6).find(|&k| { let (col, row) = h.to_offset(); m.get(m.canonical(Hex::from_offset(col + step * k, row))).is_some_and(|t| t.is_sea()) });
+            for band in [-4i32, -3, -2, -1, 0, 1, 2, 3] {
+                let (lo, hi) = (band as f32 * 10.0, band as f32 * 10.0 + 10.0);
+                let (mut east, mut west) = (Vec::new(), Vec::new());
+                for &(i, h) in &land {
+                    if !(lo..hi).contains(&m.latitude(h)) || !(1..=3).contains(&dist[i]) { continue; }
+                    match (sea_at(h, 1), sea_at(h, -1)) {
+                        (Some(e), Some(w)) if e < w => east.push(i),
+                        (Some(_), None) => east.push(i),
+                        (Some(e), Some(w)) if w < e => west.push(i),
+                        (None, Some(_)) => west.push(i),
+                        _ => {}
+                    }
+                }
+                let show = |v: &Vec<usize>| {
+                    let k = v.len().max(1) as f32;
+                    let mean = |f: &dyn Fn(usize) -> f32| v.iter().map(|&i| f(i)).sum::<f32>() / k;
+                    format!("{:>4}/{:<4} {:>6.0} {:>5.2} HR {:>2.0} vent ({:>5.2},{:>5.2}) saisons {:>4.0} {:>4.0} {:>4.0} {:>4.0}", v.iter().filter(|&&i| m.tiles[i] == Terrain::Desert).count(), v.len(),
+                        med(v.iter().map(|&i| c.rain[i]).collect()), med(v.iter().map(|&i| c.aridity(i).unwrap()).collect()),
+                        mean(&|i| 100.0 * c.humidity[i]), mean(&|i| c.wind[i].0), mean(&|i| c.wind[i].1),
+                        mean(&|i| c.season_rain[i][0]), mean(&|i| c.season_rain[i][1]), mean(&|i| c.season_rain[i][2]), mean(&|i| c.season_rain[i][3]))
+                };
+                println!("{lo:>3}..{hi:<3} {} | {}", show(&east), show(&west));
+                let sw = |v: &Vec<usize>| seasons.iter().map(|cl| { let k = v.len().max(1) as f32; format!("vent ({:>5.2},{:>5.2}) pluie {:>5.0} HR {:>2.0}", v.iter().map(|&i| cl.wind[i].0).sum::<f32>() / k, v.iter().map(|&i| cl.wind[i].1).sum::<f32>() / k, v.iter().map(|&i| cl.rain[i]).sum::<f32>() / k, v.iter().map(|&i| 100.0 * cl.humidity[i]).sum::<f32>() / k) }).collect::<Vec<_>>().join(" / ");
+                println!("          est été/hiver N : {}   ouest : {}", sw(&east), sw(&west));
+                let sst = |v: &Vec<usize>, step: i32| { let k = v.len().max(1) as f32; v.iter().map(|&i| { let h = m.hex_at(i); let (col, row) = h.to_offset(); (1..=6).filter_map(|d| m.index(m.canonical(Hex::from_offset(col + step * d, row)))).find(|&j| m.tiles[j].is_sea()).map_or(0.0, |j| m.currents.anomaly[j]) }).sum::<f32>() / k };
+                println!("          mer au large : est {:+.1} °C, ouest {:+.1} °C", sst(&east, 1), sst(&west, -1));
             }
         }
     }

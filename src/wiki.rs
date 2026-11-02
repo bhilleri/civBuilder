@@ -281,7 +281,9 @@ fn climate() -> Article {
                de l'équateur, la rotation ne dévie presque plus l'air, mais les écarts de pression y restent faibles : \
                le vent y descend la pente de pression sans s'emballer. L'été, la terre chaude des continents tropicaux \
                creuse une dépression qui remonte plus loin vers le pôle que sur la mer : elle aspire l'air marin, \
-               c'est la mousson (pluies d'été des savanes). En altitude, les vents soufflent surtout de l'ouest. Les grandes cellules de circulation font descendre \
+               c'est la mousson (pluies d'été des savanes). L'hiver, l'air froid des continents qui sort sur une mer \
+               chaude (au large des côtes est, vers 30-45°) y fait naître des dépressions ; en passant, elles ramènent \
+               l'air marin sur la côte, qui garde des pluies d'hiver. En altitude, les vents soufflent surtout de l'ouest. Les grandes cellules de circulation font descendre \
                l'air vers 30° de latitude (anticyclones) et monter à l'équateur et vers 60°. L'air qui converge \
                quelque part doit monter, celui qui diverge est remplacé par de l'air qui descend."),
             table_icons(&["Latitude", "Effet", "Circulation"], belts),

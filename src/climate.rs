@@ -75,6 +75,22 @@ const SEASONAL_SHIFT: f32 = 0.45;
 /// mer et ne s'assèche pas en hiver, les latitudes moyennes gardent leurs vents d'ouest.
 const MONSOON_EXTRA_SHIFT: f32 = 0.3;
 const MONSOON_LATITUDES: (f32, f32) = (15.0, 25.0);
+/// Dépressions d'hiver au-dessus des mers chaudes : l'hiver, l'air froid des continents rencontre
+/// la mer chaude des courants de bord ouest (Gulf Stream, Kuroshio, courant du Brésil, d'Australie
+/// orientale) au large des côtes est ; les dépressions y naissent, et en passant elles brassent
+/// l'air marin avec celui de la côte (pluies d'hiver de Shanghai, de Charleston, de Sydney).
+/// Intensité 0 à 1 : mer plus chaude que sa latitude (`CYCLOGENESIS_WARM_C` pour 1) avec une terre
+/// à l'ouest, d'où sort l'air froid (pas la côte ouest des continents, même devant une mer douce
+/// comme l'Europe), étendue à `CYCLOGENESIS_RADIUS_KM` (côtes comprises), entre
+/// `CYCLOGENESIS_LATITUDES` (rampe de 6°), l'hiver seulement. Elle ajoute `CYCLOGENESIS_STORMS` ×
+/// `STORM_W` aux fronts et `CYCLOGENESIS_MIXING` × le brassage du rail des dépressions
+/// (`EDDY_DIFFUSION`). Une dépression fixe (pression abaissée) ne marche pas : sur la côte, le vent
+/// part vers elle, donc vers la mer ; ce sont les dépressions qui passent qui apportent l'air marin.
+const CYCLOGENESIS_WARM_C: f32 = 3.0;
+const CYCLOGENESIS_RADIUS_KM: f32 = 500.0;
+const CYCLOGENESIS_LATITUDES: (f32, f32) = (30.0, 45.0);
+const CYCLOGENESIS_STORMS: f32 = 1.0;
+const CYCLOGENESIS_MIXING: f32 = 1.0;
 /// Vent d'est observé près de l'équateur, là où les alizés des deux hémisphères se rejoignent (m/s).
 const EQUATORIAL_EASTERLY: f32 = 4.0;
 
@@ -790,6 +806,40 @@ pub fn simulate_periods(
             .collect()
     };
     let continental = share_within(CONTINENT_RADIUS_KM);
+    // Lieux de naissance des dépressions d'hiver : mer chaude avec une terre à l'ouest (d'où sort
+    // l'air froid), puis étendus au rayon (côtes comprises)
+    let cyclogenesis: Vec<f32> = {
+        let radius = grid.cells(CYCLOGENESIS_RADIUS_KM, 2);
+        let west_land = |i: usize| {
+            let col = grid.hexes[i].to_offset().0;
+            let (mut land, mut all) = (0usize, 0usize);
+            for h in grid.hexes[i].range(radius) {
+                let Some(j) = grid.index(h) else { continue };
+                all += 1;
+                let mut dcol = h.to_offset().0 - col;
+                if grid.wraps {
+                    dcol = (dcol + grid.width / 2).rem_euclid(grid.width) - grid.width / 2;
+                }
+                land += usize::from(dcol < 0 && is_land(j));
+            }
+            (land as f32 / all.max(1) as f32 / 0.15).min(1.0)
+        };
+        let (a, b) = CYCLOGENESIS_LATITUDES;
+        let seed: Vec<f32> = (0..n)
+            .map(|i| {
+                if is_land(i) || sea_anomaly[i] <= 0.0 {
+                    return 0.0;
+                }
+                let lat = bump(grid.lat[i].abs() * 90.0, a, b, 6.0);
+                if lat <= 0.0 { 0.0 } else { (sea_anomaly[i] / CYCLOGENESIS_WARM_C).min(1.0) * lat * west_land(i) }
+            })
+            .collect();
+        (0..n)
+            .map(|i| {
+                grid.hexes[i].range(radius).filter_map(|h| grid.index(h)).map(|j| seed[j]).fold(0.0, f32::max)
+            })
+            .collect()
+    };
     let land_share = share_within(MARITIME_RADIUS_KM);
 
     let mixing: Vec<f32> = (0..n).map(|i| grid.mixing(i)).collect();
@@ -847,6 +897,15 @@ pub fn simulate_periods(
     for (p, &period) in periods.iter().enumerate() {
         let before: Vec<(f32, f32, f32)> = sums.iter().map(|s| (s.temperature, s.rain, s.pet)).collect();
         let samples_before = samples;
+        // Hiver de chaque hémisphère (0 à 1) : dépressions d'hiver des mers chaudes
+        let winter = |i: usize| cyclogenesis[i] * (-period.sun_lat * grid.lat[i].signum() / 0.26).clamp(0.0, 1.0);
+        // Brassage par les tourbillons, renforcé l'hiver là où naissent les dépressions
+        let mixing: Vec<f32> = (0..n)
+            .map(|i| {
+                let extra = CYCLOGENESIS_MIXING * EDDY_DIFFUSION.1 * winter(i) * grid.dt / (grid.dx * grid.dx);
+                (mixing[i] + extra).min(0.45)
+            })
+            .collect();
         // Constantes de la période pour chaque case
         let consts: Vec<CellConst> = (0..n)
             .map(|i| {
@@ -880,7 +939,7 @@ pub fn simulate_periods(
                     snow: t_upper + LAPSE * (z_upper - ground[i] - LOW_DEPTH) < 0.0 && t_surface < 2.0,
                     // Évaporation potentielle de Hargreaves, sans le facteur de l'écart jour-nuit
                     pet_base: hargreaves(grid.lat[i] - period.sun_lat, t_ground, 1.0),
-                    storms: STORM_W * bump((grid.lat[i] - period.sun_lat * 0.5).abs(), 0.42, 0.68, 0.12),
+                    storms: STORM_W * (bump((grid.lat[i] - period.sun_lat * 0.5).abs(), 0.42, 0.68, 0.12) + CYCLOGENESIS_STORMS * winter(i)),
                     land_share: land_share[i],
                     ground: ground[i],
                 }
