@@ -4,8 +4,8 @@
 //! cases, celle pour qui elle est dans les directions 0 à 2), le fleuve qui l'occupe (une bande
 //! d'eau courbe d'une arête à l'autre en passant près du centre, berges de part et d'autre) et son
 //! petit lac. La largeur suit le débit ; les fleuves serpentent (point de passage de chaque arête
-//! et du milieu de la case tirés de la graine, d'autant plus en plaine) et les rivières ondulent
-//! un peu le long de leur arête. Chaque sommet porte une teinte (débit, limon). Les triangles
+//! et du milieu de la case tirés de la graine, d'autant plus en plaine) et les rivières courbent
+//! de coin en coin en se raccordant à leurs tronçons d'amont et d'aval. Chaque sommet porte une teinte (débit, limon). Les triangles
 //! sont découpés finement pour épouser le relief en 3D.
 
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
@@ -37,8 +37,6 @@ const CENTER_SHIFT: f32 = 0.45;
 const MEANDER_DROP_M: f32 = 250.0;
 /// Sinuosité la plus faible (fleuve en forte pente).
 const MEANDER_MIN: f32 = 0.3;
-/// Ondulation d'une rivière de part et d'autre de son arête (unités monde, au plus).
-const RIVER_WIGGLE: f32 = 2.2;
 /// Léger débord d'un tronçon sur la case voisine : pas de liseré entre deux tronçons.
 const OVERLAP: f32 = 0.6;
 /// Petit lac : décalage depuis le centre (le centre reste libre pour les unités) et rayons.
@@ -46,8 +44,8 @@ const SMALL_LAKE_AT: Vec2 = Vec2::new(10.0, 12.0);
 const SMALL_LAKE_RADII: Vec2 = Vec2::new(8.5, 5.5);
 /// Découpage des bandes (segments par arête ou par demi-case).
 const STEPS: usize = 6;
-/// Découpage d'une rivière d'arête (moins fin : elles sont nombreuses).
-const RIVER_STEPS: usize = 4;
+/// Découpage d'une rivière d'arête.
+const RIVER_STEPS: usize = 6;
 /// Teinte : limon (sRGB) vers lequel tire une eau chargée, part au plus ; assombrissement des
 /// plus grands débits.
 const SILT_SRGB: [f32; 3] = [0.58, 0.52, 0.26];
@@ -400,33 +398,62 @@ pub fn fleuve_center(map: &WorldMap, hex: Hex) -> Vec2 {
     c + along.perp() * noise(map, hex, 3) * fleuve_half_width(map.discharge(hex)) * CENTER_SHIFT * sinuous
 }
 
+/// Rivière d'une arête : bouts amont et aval, débit et teinte.
+struct EdgeRiver {
+    up: Vec2,
+    down: Vec2,
+    q: f32,
+    tone: Tone,
+}
+
+/// Rivière de l'arête `d` d'une case (sans sens connu, du premier coin de l'arête au second).
+fn edge_river(map: &WorldMap, hex: Hex, d: usize) -> Option<EdgeRiver> {
+    let q = map.river_flow(hex, d);
+    if q <= 0.0 {
+        return None;
+    }
+    let (a, b) = hex.edge_corners(d);
+    let (a, b) = (v(a), v(b));
+    let down = map.river_down_corner(hex, d).map(|(h, j)| corner(h, j));
+    let (up, down) = if down.is_some_and(|p| p.distance(a) < 0.5) { (b, a) } else { (a, b) };
+    Some(EdgeRiver { up, down, q, tone: tone(q, (map.water_murk(hex) + map.water_murk(hex + DIRECTIONS[d])) / 2.0) })
+}
+
+/// Rivières des arêtes qui touchent le coin `j` de la case, sauf celle de son arête `d` (les
+/// trois arêtes d'un coin : deux de la case, une entre ses deux voisines).
+fn rivers_at_corner(map: &WorldMap, hex: Hex, j: usize, d: usize) -> impl Iterator<Item = EdgeRiver> + '_ {
+    let (n1, n2) = (hex + DIRECTIONS[(j + 5) % 6], hex + DIRECTIONS[j]);
+    let between = DIRECTIONS.iter().position(|&s| n1 + s == n2).unwrap_or(0);
+    [(hex, (j + 5) % 6), (hex, j), (n1, between)].into_iter().filter(move |&(h, e)| !(h == hex && e == d)).filter_map(|(h, e)| edge_river(map, h, e))
+}
+
 /// Formes d'eau d'une case.
 pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
     let mut shape = WaterShape::default();
-    // Rivières des arêtes « à soi » (directions 0 à 2), un peu bombées d'un côté ou de l'autre
-    // de l'arête, avec un rond à chaque bout pour raccorder les arêtes successives
+    // Rivières des arêtes « à soi » (directions 0 à 2) : une courbe de coin en coin qui se
+    // raccorde à celles d'amont et d'aval, avec un rond à chaque bout (confluents)
     for (d, &step) in DIRECTIONS.iter().enumerate().take(3) {
-        let q = map.river_flow(hex, d);
-        if q <= 0.0 {
-            continue;
-        }
-        let ((ax, ay), (bx, by)) = hex.edge_corners(d);
-        let (a, b) = (Vec2::new(ax, ay), Vec2::new(bx, by));
-        let hw = river_half_width(q);
-        let t = tone(q, (map.water_murk(hex) + map.water_murk(hex + step)) / 2.0);
-        let across = (b - a).perp().normalize_or_zero();
-        let bend = noise(map, hex, 20 + d as u32) * RIVER_WIGGLE;
-        let path: Vec<PathPoint> = (0..=RIVER_STEPS)
-            .map(|k| {
-                let s = k as f32 / RIVER_STEPS as f32;
-                (a.lerp(b, s) + across * bend * (std::f32::consts::PI * s).sin(), hw, t)
-            })
-            .collect();
+        let Some(own) = edge_river(map, hex, d) else { continue };
+        let along = (own.down - own.up).normalize_or_zero();
+        // Tronçons voisins aux deux bouts, dans le sens du courant (en amont, le plus abondant)
+        let (j_up, j_down) = if own.up.distance(corner(hex, d)) < 0.5 { (d, (d + 1) % 6) } else { ((d + 1) % 6, d) };
+        let main = |list: Vec<EdgeRiver>| list.into_iter().max_by(|x, y| x.q.total_cmp(&y.q));
+        let prev = main(rivers_at_corner(map, hex, j_up, d).filter(|r| r.down.distance(own.up) < 0.5).collect());
+        let next = main(rivers_at_corner(map, hex, j_down, d).filter(|r| r.up.distance(own.down) < 0.5).collect());
+        // Au coin, la direction moyenne des deux tronçons : pas de cassure d'une arête à l'autre
+        let bisect = |r: &EdgeRiver| (along + (r.down - r.up).normalize_or_zero()).normalize_or(along);
+        let (t_up, t_down) = (prev.as_ref().map_or(along, bisect), next.as_ref().map_or(along, bisect));
+        let hw = river_half_width(own.q);
+        let (hw_up, tone_up) = prev.as_ref().map_or((hw, own.tone), |r| (river_half_width(r.q), r.tone));
+        let length = own.up.distance(own.down);
+        let mut path: Vec<PathPoint> = vec![(own.up, hw_up, tone_up)];
+        path.extend(hermite(own.up, t_up * length, own.down, t_down * length, RIVER_STEPS).map(|(s, p)| (p, hw_up + (hw - hw_up) * s, tone_up.lerp(own.tone, s))));
         shape.also = Some(hex + step);
-        shape.tone = t;
         shape.strip(&path, WaterKind::River);
-        shape.disc(a, Vec2::splat(hw), WaterKind::River);
-        shape.disc(b, Vec2::splat(hw), WaterKind::River);
+        shape.tone = tone_up;
+        shape.disc(own.up, Vec2::splat(hw_up), WaterKind::River);
+        shape.tone = own.tone;
+        shape.disc(own.down, Vec2::splat(hw), WaterKind::River);
         shape.also = None;
     }
     if map.is_fleuve(hex) {
@@ -691,6 +718,27 @@ mod tests {
             let shape = hex_water(&map, h);
             assert!(shape.tris.iter().any(|t| t.kind == WaterKind::Fleuve && inside(t, center(h))), "{:?}", h.to_offset());
         }
+    }
+
+    #[test]
+    fn rivieres_raccordees_aux_coins() {
+        // Deux arêtes de la même case : l'eau coule du coin 0 au coin 1, puis du coin 1 au coin 2
+        let mut map = WorldMap::filled(8, 8, Terrain::Plains);
+        let h = Hex::from_offset(3, 3);
+        map.set_river(h, 0, 300.0);
+        map.set_river(h, 1, 600.0);
+        map.orient_river(h, 0, 1);
+        map.orient_river(h, 1, 2);
+        let shape = hex_water(&map, h);
+        let strips: Vec<&WaterAxis> = shape.channels.iter().filter(|c| c.a != c.b).collect();
+        assert_eq!(strips.len(), 2 * RIVER_STEPS);
+        let (last, first) = (strips[RIVER_STEPS - 1], strips[RIVER_STEPS]);
+        // Même point, même largeur, presque même direction au coin : 60° entre les deux arêtes,
+        // moins de 25° entre les cordes des deux petits tronçons qui l'encadrent (même tangente)
+        assert!(last.b.distance(first.a) < 1e-3);
+        let angle = (last.b - last.a).angle_to(first.b - first.a).abs().to_degrees();
+        assert!(angle < 25.0, "cassure de {angle:.0}° au coin");
+        assert!((last.hw_end - first.hw).abs() < 1e-3 && first.hw_end > first.hw);
     }
 
     #[test]
