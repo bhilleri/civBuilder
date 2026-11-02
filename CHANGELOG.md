@@ -2,6 +2,10 @@
 
 ## 0.3.0 (en cours)
 
+### Les actions en images
+- **Page [Comment se joue CivBuilder](docs/ANIMATIONS.md)**, accessible depuis le README : un GIF par action, en 2D et en 3D, avec l'interface — déplacement, trajet de plusieurs tours, échange de place, corps à corps, charge et victoire, tir, attaque perdue, attaque hostile en fin de tour, les trois issues d'un village (commerce, habitants, embuscade), camp vide pris.
+- **Tournage par le jeu** (`scripts/animations.sh`, module `film.rs`, `CIVBUILDER_CAPTURE_GIF=1`) : les scènes sont jouées avec les vraies commandes du joueur, par une souris pilotée (`input::Pilot`) et dessinée à l'écran, avec une légende (« Clic droit : ordre »). Le temps avance de 1/20 s par image quelle que soit la vitesse du rendu ; ffmpeg assemble les images. Issues fixées : PV de départ des unités pour les combats, événement de village imposé (`hostile::NextVillageEvent`).
+
 ### Noms de zones plus lisibles
 - **Quotas par niveau** : chaque rang de noms de zones (océans et continents ; mers, chaînes, grandes régions ; golfes, péninsules, massifs ; baies, détroits, collines ; îlots) a un nombre maximal de noms à l'écran (8, 10, 12, 16, 20 pour un écran de 1600 × 900, proportionnel à la taille de la fenêtre), les plus grandes zones d'abord, avec un écart minimal entre deux noms : une densité régulière, la vue lointaine ne se charge plus. Seuls les noms à l'écran comptent.
 - **Noms courbés** le long des chaînes de montagnes, des massifs et des golfes allongés : une lettre par nœud, posée et tournée le long de l'axe de la zone (chemin entre ses deux cases les plus éloignées, lissé), lue de gauche à droite. Le nom reste droit si l'axe n'est pas entièrement exploré, est trop court à l'écran, tourne trop d'une lettre à l'autre ou penche de plus de 60°.

@@ -93,6 +93,8 @@ pub fn debug_article() -> Article {
     blocks.push(h("Scripts (agents IA, cas à rejouer)"));
     blocks.push(p("CIVBUILDER_SCRIPT=<fichier> cargo run exécute les commandes du fichier, une par image, en mode debug (lignes vides et lignes commençant par # ignorées). Chaque commande et sa réponse sont écrites dans CIVBUILDER_SCRIPT_OUT (sinon <script>.reponses.txt à côté du script) et dans la console du terminal. Une réponse commence par OK ou ERREUR, suivie de lignes clé=valeur. « capture » attend que le relief 3D soit construit puis enregistre l'écran, sans la console ; « quitter » ferme le jeu. « journal <fichier> » écrit les commandes de la séance en script, avec la graine et la taille de la carte en tête : un cas trouvé à la main se rejoue tel quel."));
     blocks.push(p("Exemple : trouver relief=montagne terrain=foret voisin=pic max=1 · aller 52 37 · vue 3d · camera 300 · capture montagne · terrain 52 37 neige · capture montagne_neige · quitter"));
+    blocks.push(h("GIF des actions"));
+    blocks.push(p("scripts/animations.sh (ou CIVBUILDER_CAPTURE=docs/animations CIVBUILDER_CAPTURE_GIF=1 cargo run --release) joue chaque action — déplacement, trajet de plusieurs tours, échange, corps à corps, charge, tir, attaque perdue, attaque hostile en fin de tour, village (commerce, habitants, embuscade), camp — avec une souris pilotée, en 2D puis en 3D, et en fait des GIF avec ffmpeg (page docs/ANIMATIONS.md du dépôt). CIVBUILDER_CAPTURE_GIF=tir,camp limite aux scènes nommées."));
     Article { title: "Console de debug", icon: "icons/wiki_mechanics.png", blocks }
 }
 

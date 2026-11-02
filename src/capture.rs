@@ -35,6 +35,10 @@ pub struct CapturePlugin;
 impl Plugin for CapturePlugin {
     fn build(&self, app: &mut App) {
         let Some(dir) = std::env::var_os("CIVBUILDER_CAPTURE").map(PathBuf::from) else { return };
+        // (tournage des GIF : voir `film`)
+        if std::env::var_os("CIVBUILDER_CAPTURE_GIF").is_some() {
+            return;
+        }
         if let Err(e) = std::fs::create_dir_all(&dir) {
             error!("Mode capture : dossier {} impossible à créer ({e})", dir.display());
             return;
