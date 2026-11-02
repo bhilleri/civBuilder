@@ -467,8 +467,9 @@ fn terrain() -> Article {
                La carte géographique montre le découpage du territoire, une couleur par zone (deux zones voisines \
                n'ont jamais la même) ; sa légende choisit la famille : terres, mers, relief ou régions naturelles. \
                De loin, les grandes zones (continents, océans, chaînes, régions) ; de près, leurs parties \
-               (péninsules, golfes, massifs, sous-régions), le reste de la grande zone en teinte sourde et ses \
-               limites en trait sombre. \
+               (péninsules, golfes, massifs, sous-régions) en nuances de la couleur de leur grande zone, le reste \
+               de la grande zone en teinte sourde et ses limites en trait sombre. Seuls les noms de la famille \
+               montrée s'affichent, en blanc. \
                Le bouton « Vue 3D » (touche V) passe en vue 3D ; la carte choisie s'applique aux deux vues. En 3D, \
                chaque unité est une figurine (un petit groupe pour les militaires), plus grande quand on s'éloigne, \
                posée sur le relief et entourée d'un anneau aux couleurs de son camp \

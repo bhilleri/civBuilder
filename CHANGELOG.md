@@ -7,6 +7,7 @@
 - **Le niveau suit le zoom**, comme les noms : de loin les grandes zones ; de près leurs parties, le reste de la grande zone en teinte sourde et ses limites en trait sombre (pas les côtes, déjà visibles). Un petit écart entre les seuils évite le clignotement.
 - **Couleurs** : deux zones voisines n'ont jamais la même (coloriage « DSatur »), et les couleurs sont réparties (des îles éloignées ne se ressemblent pas). En 2D comme en 3D ; survol d'un nom : la zone ressort ; clic : la caméra y va.
 - Console : `geographie terres|mers|relief|regions` affiche la carte et choisit sa famille.
+- **Retours de Benjamin** : sur la carte géographique, seuls les **noms de la famille montrée** s'affichent, en blanc, ceux des zones colorées (les grandes zones toujours, leurs parties de près) ; les **parties d'une zone sont des nuances de sa couleur** (plus claire, plus sombre, très claire ; deux parties voisines jamais la même nuance), on voit qu'elles la composent ; le **niveau de zoom ne dépend plus de la taille de la fenêtre** (mesuré comme sur un écran de 900 pixels de haut : sur un grand écran, les océans ne se montraient plus en 3D, même dézoomé au maximum).
 - Choix de Benjamin (après recherche : modes de carte de Crusader Kings III, lentilles de Civilization VI, hiérarchie des limites en cartographie) : une seule carte avec un sélecteur, niveau selon le zoom, une couleur par zone.
 
 ### Noms de zones plus lisibles
