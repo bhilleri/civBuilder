@@ -836,6 +836,9 @@ pub struct WorldMap {
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
     /// Turbidité de l'eau sortant de chaque case (voir `water_murk`), calculée à la première demande.
     murk_cache: std::sync::OnceLock<Vec<f32>>,
+    /// Coin aval de la rivière de chaque arête (numéroté dans la case qui porte le tronçon, 255 sans
+    /// tronçon), calculé à la première demande.
+    river_down_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
 }
 
 impl WorldMap {
@@ -872,6 +875,7 @@ impl WorldMap {
             climate_base: None,
             step_cache: std::sync::OnceLock::new(),
             murk_cache: std::sync::OnceLock::new(),
+            river_down_cache: std::sync::OnceLock::new(),
         }
     }
 
@@ -1365,6 +1369,7 @@ impl WorldMap {
         self.wrap = Wrap::new(self.width, wraps);
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
     }
 
     /// La case ramenée dans la carte (d'est en ouest si la carte boucle).
@@ -1400,6 +1405,7 @@ impl WorldMap {
     pub fn set(&mut self, hex: Hex, terrain: Terrain) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.tiles[i] = terrain;
             self.levels[i] = if terrain.is_sea() { 0 } else { self.levels[i].max(1) };
@@ -1429,6 +1435,7 @@ impl WorldMap {
     pub fn set_relief(&mut self, hex: Hex, relief: Relief) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.relief[i] = if self.tiles[i].is_water() || self.hydro.fleuve[i] { Relief::Flat } else { relief };
             // (relief voulu gardé pour la terre, même sous un fleuve qui l'aplanit aujourd'hui)
@@ -1583,6 +1590,7 @@ impl WorldMap {
     pub fn set_elevation(&mut self, hex: Hex, meters: f32) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
         {
@@ -1678,6 +1686,28 @@ impl WorldMap {
         self.index(hex).map_or(0.0, |i| all[i])
     }
 
+    /// Coin vers lequel coule la rivière de l'arête `dir` de la case : la case dont il porte le
+    /// numéro (`hex` ou sa voisine d'en face, non ramenée dans la carte) et ce numéro (0 à 5 ; le
+    /// coin j est commun à la case et à ses voisines des directions j−1 et j). `None` sans tronçon
+    /// orienté (rivière posée à la main).
+    pub fn river_down_corner(&self, hex: Hex, dir: usize) -> Option<(Hex, usize)> {
+        let all = self.river_down_cache.get_or_init(|| {
+            let mut all = vec![[u8::MAX; 6]; self.tiles.len()];
+            for s in &self.hydro.river_segments {
+                if let Some(row) = all.get_mut(s.cell as usize) {
+                    row[s.dir as usize % 6] = s.down_corner;
+                }
+            }
+            all
+        });
+        let dir = dir % 6;
+        if let Some(j) = self.index(hex).map(|i| all[i][dir]).filter(|&j| j != u8::MAX) {
+            return Some((hex, j as usize));
+        }
+        let other = hex + crate::hex::DIRECTIONS[dir];
+        self.index(other).map(|i| all[i][(dir + 3) % 6]).filter(|&j| j != u8::MAX).map(|j| (other, j as usize))
+    }
+
     /// Coûts d'un pas de chaque case (indice) vers ses six voisines (`u8::MAX` : infranchissable,
     /// hors de la carte compris). Mis en cache : la recherche de chemin les consulte sans cesse.
     pub fn step_costs(&self) -> &[[u8; 6]] {
@@ -1746,6 +1776,7 @@ impl WorldMap {
     pub fn link_fleuve(&mut self, hex: Hex, dir: usize, flow: f32) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         let to = self.wrap.neighbor(hex, dir);
         let (Some(i), Some(j)) = (self.index(hex), self.index(to)) else { return };
         for (k, d) in [(i, dir), (j, (dir + 3) % 6)] {
@@ -1767,6 +1798,7 @@ impl WorldMap {
     pub fn set_fleuve(&mut self, hex: Hex) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.hydro.fleuve[i] = true;
             self.relief[i] = Relief::Flat;
@@ -1782,11 +1814,22 @@ impl WorldMap {
         }
     }
 
+    /// Oriente la rivière de l'arête `dir` vers le coin `down_corner` de la case (tests).
+    #[cfg(test)]
+    pub fn orient_river(&mut self, hex: Hex, dir: usize, down_corner: usize) {
+        self.river_down_cache = std::sync::OnceLock::new();
+        if let Some(i) = self.index(hex) {
+            let flow = self.hydro.edge_flow[i][dir];
+            self.hydro.river_segments.push(crate::hydro::RiverSegment { cell: i as u32, dir: dir as u8, up: 0, down: 0, down_corner: down_corner as u8, flow });
+        }
+    }
+
     /// Pose une rivière sur l'arête entre une case et sa voisine `dir` (tests, éditeur).
     #[cfg(test)]
     pub fn set_river(&mut self, hex: Hex, dir: usize, flow: f32) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         let other = self.wrap.neighbor(hex, dir);
         if let (Some(i), Some(j)) = (self.index(hex), self.index(other)) {
             self.hydro.edge_flow[i][dir] = flow;
@@ -1945,6 +1988,7 @@ impl WorldMap {
     pub fn set_level(&mut self, hex: Hex, level: u8) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
         {
@@ -2284,7 +2328,9 @@ impl WorldMap {
             }
             self.step_cache = std::sync::OnceLock::new();
             self.murk_cache = std::sync::OnceLock::new();
+            self.river_down_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
             // Courants marins poussés par le vent (vents théoriques à la première passe, puis ceux
             // du climat de la passe précédente) : température de la mer donnée au climat
             let wind = if pass == 0 { currents::theoretical_wind(width, height, &region) } else { self.climate.wind.clone() };
@@ -2372,6 +2418,7 @@ impl WorldMap {
         self.add_names(self.seed);
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
         true
     }
 
@@ -2532,6 +2579,7 @@ impl WorldMap {
         }
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
     }
 
     /// Bassins versants et noms des fleuves (après l'hydrologie).
