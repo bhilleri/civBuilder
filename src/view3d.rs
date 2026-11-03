@@ -497,10 +497,16 @@ const LEVEL_TOWARD_MEAN: f32 = 0.3;
 
 /// Un cours d'eau qui se jette dans la mer ou un lac arrive juste sous leur surface.
 const MOUTH_BELOW: f32 = 0.06;
-/// Distance sur laquelle l'eau d'une embouchure prend la couleur de la mer ou du lac.
+/// Distance sur laquelle l'eau d'une embouchure prend la couleur de la mer ou du lac (rivière, fleuve).
 const MOUTH_BLEND: f32 = 14.0;
+const MOUTH_BLEND_FLEUVE: f32 = 30.0;
 /// Dénivelé minimal d'une chute d'eau.
 const CASCADE_MIN_DROP: f32 = 4.0;
+/// Surélévation de l'eau d'un affluent qui entre dans un fleuve, de l'écume des rapides et des
+/// rochers qui affleurent.
+const INFLOW_LIFT: f32 = 0.04;
+const FOAM_LIFT: f32 = 0.08;
+const ROCK_LIFT: f32 = 0.25;
 
 /// Hauteur 3D d'une altitude réelle (m) : 150 m ≈ 16, 2 400 m ≈ 56, 4 800 m ≈ 98 (les anciennes
 /// tranches d'altitude tombent aux mêmes hauteurs).
@@ -1527,11 +1533,17 @@ fn water_mesh<'a>(
     // Eau douce : la couleur des lacs ; en arrivant dans la mer ou un lac, elle prend
     // progressivement la couleur de leur eau (l'embouchure se fond dans l'étendue d'eau)
     let fresh = terrain_color(Terrain::Lake);
-    let tint = |p: Vec2, tone: crate::waterways::Tone| {
+    let tint = |p: Vec2, tone: crate::waterways::Tone, kind: WaterKind| {
         // Teinte du cours d'eau (débit, limon), qui se fond dans la mer ou le lac où il se jette
-        let own = tone.apply(fresh);
+        // (sur une plus longue distance pour un fleuve : pas de coupure de couleur à l'embouchure)
+        let own = match kind {
+            WaterKind::Foam => crate::waterways::foam_color(),
+            WaterKind::Rock => crate::waterways::rock_color(),
+            _ => tone.apply(fresh, p),
+        };
+        let blend = if kind == WaterKind::Fleuve { MOUTH_BLEND_FLEUVE } else { MOUTH_BLEND };
         let c = match relief.nearest_water(p) {
-            Some((d, water)) => own.lerp(water, 1.0 - smoothstep01(d / MOUTH_BLEND)),
+            Some((d, water)) => own.lerp(water, 1.0 - smoothstep01(d / blend)),
             None => own,
         };
         [c.x, c.y, c.z, 1.0]
@@ -1546,6 +1558,15 @@ fn water_mesh<'a>(
         // Même surface que celle qui a servi à tailler le lit (lits de la case et des voisines) ;
         // hors de portée des lits, la hauteur du tronçon (calcul coûteux : seulement dans ce cas)
         let ys = pts.map(|p| water_surface(near, p).unwrap_or_else(|| channels.entry(t.channel).or_insert_with(|| relief.channel(&shape.channels[t.channel])).levels[0]));
+        // Affluent dans un fleuve : un rien au-dessus de l'eau du fleuve (sa couleur s'y fond
+        // sans que les deux surfaces se chevauchent par endroits)
+        let ys = if shape.channels[t.channel].inflow.is_some() { ys.map(|y| y + INFLOW_LIFT) } else { ys };
+        // Écume des rapides : posée sur l'eau
+        let ys = match t.kind {
+            WaterKind::Foam => ys.map(|y| y + FOAM_LIFT),
+            WaterKind::Rock => ys.map(|y| y + ROCK_LIFT),
+            _ => ys,
+        };
         // Chute d'eau : l'eau descend très fort le long du cours (elle franchit une falaise) →
         // couleur de l'écume
         let hi = (0..3).max_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
@@ -1555,7 +1576,7 @@ fn water_mesh<'a>(
         for (p, y) in pts.into_iter().zip(ys) {
             data.positions.push([p.x, y, -p.y]);
             data.normals.push([0.0, 1.0, 0.0]);
-            data.colors.push(if foam { linear(Color::srgb(0.86, 0.93, 0.98)) } else { tint(p, t.tone_at(p)) });
+            data.colors.push(if foam { linear(Color::srgb(0.86, 0.93, 0.98)) } else { tint(p, t.tone_at(p), t.kind) });
             data.indices.push(data.indices.len() as u32);
         }
     }

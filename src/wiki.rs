@@ -142,7 +142,8 @@ fn waters() -> Article {
             p("Sur la carte, un cours d'eau s'élargit avec son débit, et les plus grands sont d'un bleu plus \
                sombre. Les fleuves serpentent, d'autant plus en plaine. La couleur de l'eau suit les terres \
                traversées : chargée de limon (olive) dans les déserts, les steppes et les savanes, claire dans la \
-               taïga, la toundra et les hautes terres. Un lac garde le limon : l'eau en sort claire."),
+               taïga, la toundra et les hautes terres. Un lac garde le limon : l'eau en sort claire. Là où un cours \
+               d'eau descend une forte pente, des rapides : eau vive, écume et rochers."),
             h("Les lacs"),
             p("Une cuvette sans issue recueille l'eau de son bassin, et la surface du lac en évapore (d'autant plus \
                qu'il fait chaud et sec). Si les apports dépassent ce que la cuvette pleine évapore, le lac se remplit \
