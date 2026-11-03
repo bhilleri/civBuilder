@@ -1814,6 +1814,14 @@ impl WorldMap {
         }
     }
 
+    /// Change le débit sortant d'une case (tests).
+    #[cfg(test)]
+    pub fn set_discharge(&mut self, hex: Hex, flow: f32) {
+        if let Some(i) = self.index(hex) {
+            self.hydro.discharge[i] = flow;
+        }
+    }
+
     /// Oriente la rivière de l'arête `dir` vers le coin `down_corner` de la case (tests).
     #[cfg(test)]
     pub fn orient_river(&mut self, hex: Hex, dir: usize, down_corner: usize) {
