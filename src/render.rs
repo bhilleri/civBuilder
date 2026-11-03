@@ -1061,19 +1061,18 @@ fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<Wate
     if !fog.is_changed() {
         return;
     }
-    let color = |kind: WaterKind, tone: crate::waterways::Tone, p: Vec2, lit: bool| {
+    let color = |kind: WaterKind, tone: crate::waterways::Tone, lit: bool| {
         let base = match kind {
             WaterKind::River => RIVER_2D,
             WaterKind::Fleuve => FLEUVE_2D,
-            WaterKind::Lake | WaterKind::Foam | WaterKind::Rock => SMALL_LAKE_2D,
+            WaterKind::Lake => SMALL_LAKE_2D,
+            // Éléments des rapides : posés sur l'eau d'une rivière
+            WaterKind::Foam | WaterKind::Rock | WaterKind::Light | WaterKind::Shade => RIVER_2D,
         }
         .to_linear();
         // Teinte du sommet (débit, limon) ; écume des rapides ; hors de vue : assombri comme les cases
-        let c = match kind {
-            WaterKind::Foam => crate::waterways::foam_color(),
-            WaterKind::Rock => crate::waterways::rock_color(),
-            _ => tone.apply(Vec3::new(base.red, base.green, base.blue), p),
-        };
+        let water = tone.apply(Vec3::new(base.red, base.green, base.blue));
+        let c = kind.rapids_color(tone, water).unwrap_or(water);
         let k = if lit { 1.0 } else { 0.5 };
         [c.x * k, c.y * k, c.z * k * 1.1, 1.0]
     };
@@ -1086,7 +1085,7 @@ fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<Wate
             let lit = lit || t.also.is_some_and(|o| fog.visible.contains(&map.0.canonical(o)));
             // L'eau s'arrête au bord de la zone explorée
             for pts in crate::waterways::clip_to_explored(t.pts, &explored) {
-                builder.tri(pts.map(|p| (p, color(t.kind, t.tone_at(p), p, lit))));
+                builder.tri(pts.map(|p| (p, color(t.kind, t.tone_at(p), lit))));
             }
         }
     }
