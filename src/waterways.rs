@@ -82,8 +82,8 @@ impl WaterKind {
 }
 
 /// Axe d'un tronçon d'eau (coordonnées monde 2D) : segment `a`–`b` (un disque si a = b) de
-/// demi-largeur `hw`. `inflow` : affluent qui entre dans un fleuve (sa hauteur rejoint
-/// progressivement celle du fleuve).
+/// demi-largeur `hw`. `inflow` : affluent qui entre dans un fleuve, avec la part du chemin vers le
+/// fleuve faite au début et à la fin du tronçon (sa hauteur rejoint progressivement celle du fleuve).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WaterAxis {
     pub a: Vec2,
@@ -93,7 +93,7 @@ pub struct WaterAxis {
     pub hw_end: f32,
     pub kind: WaterKind,
     pub also: Option<Hex>,
-    pub inflow: bool,
+    pub inflow: Option<[f32; 2]>,
 }
 
 /// Teinte d'un point d'eau : abondance (0 : rivière au seuil, 0,5 : fleuve au seuil, 1 : plus
@@ -202,14 +202,10 @@ impl WaterShape {
         self.tris.push(WaterTri { pts, tones, kind, also: self.also, channel });
     }
 
-    /// Enregistre le lit d'un tronçon.
-    fn channel(&mut self, a: Vec2, b: Vec2, hw: f32, hw_end: f32, kind: WaterKind) {
-        self.channels.push(WaterAxis { a, b, hw, hw_end, kind, also: self.also, inflow: self.inflow });
-    }
-
-    /// Bande droite de `a` à `b` (demi-largeur `hw`), découpée en `STEPS` tronçons.
-    fn band(&mut self, a: Vec2, b: Vec2, hw: f32, kind: WaterKind) {
-        self.flared_band(a, b, hw, hw, kind);
+    /// Enregistre le lit d'un tronçon (`span` : part du chemin d'un affluent vers son fleuve).
+    fn channel(&mut self, a: Vec2, b: Vec2, hw: f32, hw_end: f32, kind: WaterKind, span: [f32; 2]) {
+        let inflow = self.inflow.then_some(span);
+        self.channels.push(WaterAxis { a, b, hw, hw_end, kind, also: self.also, inflow });
     }
 
     /// Bande droite de `a` à `b` dont la demi-largeur passe de `hw` à `hw_end`.
@@ -237,7 +233,7 @@ impl WaterShape {
         let at = |k: usize, j: usize| path[k].0 + side(k) * path[k].1 * (2.0 * j as f32 / across as f32 - 1.0);
         for k in 0..last {
             let ((a, ha, ta), (b, hb, tb)) = (path[k], path[k + 1]);
-            self.channel(a, b, ha, hb, kind);
+            self.channel(a, b, ha, hb, kind, [k as f32 / last as f32, (k + 1) as f32 / last as f32]);
             for j in 0..across {
                 self.tri([at(k, j), at(k + 1, j), at(k + 1, j + 1)], [ta, tb, tb], kind);
                 self.tri([at(k, j), at(k + 1, j + 1), at(k, j + 1)], [ta, tb, ta], kind);
@@ -250,7 +246,7 @@ impl WaterShape {
         const SIDES: usize = 12;
         // Lit : segment le long du grand axe (une ellipse en largeur, un disque si r.x = r.y)
         let half = Vec2::X * (r.x - r.y).max(0.0);
-        self.channel(c - half, c + half, r.y, r.y, kind);
+        self.channel(c - half, c + half, r.y, r.y, kind, [1.0, 1.0]);
         let at = |k: usize| {
             let a = std::f32::consts::TAU * k as f32 / SIDES as f32;
             c + Vec2::new(a.cos() * r.x, a.sin() * r.y)
@@ -496,6 +492,8 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
     };
     let dirs: Vec<usize> = (0..6).filter(|d| open & (1 << d) != 0).collect();
     shape.tone = own;
+    // Axe de l'eau du fleuve dans la case (où les affluents le rejoignent)
+    let mut course: Vec<Vec2> = vec![mid];
     if dirs.len() == 2 && full == 0 {
         // Traversée : d'une arête au milieu du fleuve, puis à l'autre arête
         let ((p0, h0, t0, out0), (p1, h1, t1, out1)) = (end(dirs[0]), end(dirs[1]));
@@ -506,6 +504,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
         let l1 = mid.distance(p1);
         path.extend(hermite(mid, along * l1, p1, out1 * l1, STEPS).map(|(s, p)| (p, hw + (h1 - hw) * s, own.lerp(t1, s))));
         path.push((p1 + out1 * OVERLAP, h1, t1));
+        course.extend(path.iter().map(|x| x.0));
         shape.strip(&path, WaterKind::Fleuve);
     } else {
         shape.disc(mid, Vec2::splat(hw), WaterKind::Fleuve);
@@ -515,6 +514,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
             let mut path: Vec<PathPoint> = vec![(mid, hw, own)];
             path.extend(hermite(mid, (p - mid).normalize_or_zero() * l, p, out * l, STEPS).map(|(s, x)| (x, hw + (h - hw) * s, own.lerp(t, s))));
             path.push((p + out * OVERLAP, h, t));
+            course.extend(path.iter().map(|x| x.0));
             shape.strip(&path, WaterKind::Fleuve);
         }
         // Deux arêtes ouvertes côte à côte dont l'une sur toute sa largeur : l'eau remplit aussi
@@ -530,18 +530,22 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
             }
         }
     }
-    // Affluents (rivières d'arête) qui arrivent à un coin : ils rejoignent le fleuve
+    // Affluents (rivières d'arête) qui arrivent à un coin : ils continuent dans leur direction
+    // et courbent jusqu'à l'axe du fleuve (point le plus proche), où leur eau se mêle à la sienne
     for j in 0..6 {
         let (a, b) = (hex + DIRECTIONS[(j + 5) % 6], hex + DIRECTIONS[j]);
         let Some(dir) = DIRECTIONS.iter().position(|&dd| a + dd == b) else { continue };
-        let qa = map.river_flow(a, dir);
-        if qa > 0.0 {
-            let k = corner(hex, j);
-            shape.inflow = true;
-            shape.tone = tone(qa, (map.water_murk(a) + map.water_murk(b)) / 2.0);
-            shape.band(k, k.lerp(mid, 0.6), river_half_width(qa), WaterKind::River);
-            shape.inflow = false;
-        }
+        let Some(trib) = edge_river(map, a, dir) else { continue };
+        let k = corner(hex, j);
+        let target = course.iter().copied().min_by(|p, q| p.distance(k).total_cmp(&q.distance(k))).unwrap_or(mid);
+        let toward = (target - k).normalize_or_zero();
+        let incoming = if trib.down.distance(k) < 0.5 { (trib.down - trib.up).normalize_or(toward) } else { toward };
+        let (l, hw_r) = (k.distance(target), river_half_width(trib.q));
+        let mut path: Vec<PathPoint> = vec![(k, hw_r, trib.tone)];
+        path.extend(hermite(k, incoming * l, target, toward * l, STEPS).map(|(_, p)| (p, hw_r, trib.tone)));
+        shape.inflow = true;
+        shape.strip(&path, WaterKind::River);
+        shape.inflow = false;
     }
 }
 
@@ -739,6 +743,31 @@ mod tests {
         let angle = (last.b - last.a).angle_to(first.b - first.a).abs().to_degrees();
         assert!(angle < 25.0, "cassure de {angle:.0}° au coin");
         assert!((last.hw_end - first.hw).abs() < 1e-3 && first.hw_end > first.hw);
+    }
+
+    #[test]
+    fn affluent_relie_a_son_fleuve() {
+        // Fleuve à sa source (une seule arête) ; une rivière arrive à un coin de sa case
+        let (mut map, row) = fleuve_rangee(4);
+        let h = row[0];
+        let j = 2;
+        let (a, b) = (h + DIRECTIONS[(j + 5) % 6], h + DIRECTIONS[j]);
+        let dir = DIRECTIONS.iter().position(|&dd| a + dd == b).unwrap();
+        map.set_river(a, dir, 400.0);
+        let shape = hex_water(&map, h);
+        let inflow: Vec<&WaterAxis> = shape.channels.iter().filter(|c| c.inflow.is_some()).collect();
+        assert_eq!(inflow.len(), STEPS);
+        // Il part du coin, finit dans l'eau du fleuve, et rejoint sa hauteur d'un bout à l'autre
+        assert!(inflow[0].a.distance(corner(h, j)) < 1e-3);
+        let end = inflow.last().unwrap();
+        let inside = |t: &WaterTri, p: Vec2| {
+            let [a, b, c] = t.pts;
+            let (d1, d2, d3) = ((b - a).perp_dot(p - a), (c - b).perp_dot(p - b), (a - c).perp_dot(p - c));
+            !((d1 < 0.0 || d2 < 0.0 || d3 < 0.0) && (d1 > 0.0 || d2 > 0.0 || d3 > 0.0))
+        };
+        assert!(shape.tris.iter().any(|t| t.kind == WaterKind::Fleuve && inside(t, end.b)));
+        assert_eq!(inflow[0].inflow.unwrap()[0], 0.0);
+        assert_eq!(end.inflow.unwrap()[1], 1.0);
     }
 
     #[test]

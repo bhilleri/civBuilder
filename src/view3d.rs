@@ -266,9 +266,13 @@ impl Relief {
             let t = k as f32 / (CHANNEL_LEVELS - 1) as f32;
             let p = axis.a.lerp(axis.b, t);
             let own = self.water_level(axis.kind, p);
-            if axis.inflow { own + (self.water_level(WaterKind::Fleuve, p) - own) * t } else { own }
+            match axis.inflow {
+                // (part du chemin vers le fleuve : du début à la fin du tronçon)
+                Some([s0, s1]) => own + (self.water_level(WaterKind::Fleuve, p) - own) * (s0 + (s1 - s0) * t),
+                None => own,
+            }
         });
-        let bed = if axis.inflow { WaterKind::Fleuve.bed().bed } else { axis.kind.bed().bed };
+        let bed = if axis.inflow.is_some() { WaterKind::Fleuve.bed().bed } else { axis.kind.bed().bed };
         Channel { a: axis.a, b: axis.b, hw: axis.hw, hw_end: axis.hw_end, levels, bed }
     }
 
