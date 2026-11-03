@@ -52,19 +52,18 @@ const SILT_SRGB: [f32; 3] = [0.58, 0.52, 0.26];
 const SILT_MAX: f32 = 0.65;
 const DEEP_DARKEN: f32 = 0.3;
 /// Rapides : pente (m/km) où ils commencent et où ils sont au plus fort ; taille des tronçons qui
-/// en ont ; eau vive (sRGB) et part au plus ; écume et rochers (sRGB) ; amas d'écume au plus par
-/// tronçon de lit (plus dans les larges), épaisseur d'un remous en V.
+/// en ont ; intensité minimale d'un rapide ; eau vive (sRGB) et part au plus ; assombrissement de
+/// l'eau lisse au plus ; écume et rochers (sRGB), part de l'écume mêlée à l'eau.
 const RAPIDS_FROM_M_PER_KM: f32 = 3.0;
 const RAPIDS_FULL_M_PER_KM: f32 = 9.0;
 const STRETCH: f32 = 22.0;
-const WHITEWATER_SRGB: [f32; 3] = [0.62, 0.80, 0.86];
-const WHITEWATER_MAX: f32 = 0.7;
-const FOAM_SRGB: [f32; 3] = [0.84, 0.92, 0.96];
-const ROCK_SRGB: [f32; 3] = [0.42, 0.40, 0.38];
-const FOAM_BLOBS: f32 = 7.0;
-const CHEVRON_THICKNESS: f32 = 0.6;
-/// Allongement des amas d'écume dans le sens du courant.
-const FOAM_STRETCH: f32 = 2.4;
+const RAPID_MIN: f32 = 0.25;
+const WHITEWATER_SRGB: [f32; 3] = [0.66, 0.84, 0.90];
+const WHITEWATER_MAX: f32 = 0.35;
+const SHADE_MAX: f32 = 0.2;
+const FOAM_SRGB: [f32; 3] = [0.88, 0.94, 0.97];
+const FOAM_MIX: f32 = 0.6;
+const ROCK_SRGB: [f32; 3] = [0.45, 0.42, 0.39];
 /// Affluent dans un fleuve : il le rejoint vers l'aval, le long de sa rive (part de la
 /// demi-largeur du fleuve), puis sa couleur se fond dans celle du fleuve sur `PLUME` unités.
 const INFLOW_BANK: f32 = 0.45;
@@ -76,10 +75,13 @@ pub enum WaterKind {
     River,
     Fleuve,
     Lake,
-    /// Écume des rapides : amas et remous posés sur l'eau.
+    /// Rapides, posés sur l'eau : écume (tête, vagues, coussins des rochers, traînées) ;
+    /// rocher qui affleure ; eau vive plus claire et eau lisse plus sombre (langue, remous derrière
+    /// un rocher), dosées par sommet (`Tone::rapids`).
     Foam,
-    /// Rocher qui affleure dans des rapides.
     Rock,
+    Light,
+    Shade,
 }
 
 /// Réglages 3D d'un type d'eau : la hauteur de l'eau est le terrain le plus bas autour de l'axe
@@ -96,7 +98,7 @@ pub struct Bed {
 impl WaterKind {
     pub fn bed(self) -> Bed {
         match self {
-            WaterKind::River | WaterKind::Foam | WaterKind::Rock => Bed { near: 3.0, far: 6.0, below: 1.1, bed: 1.4 },
+            WaterKind::River | WaterKind::Foam | WaterKind::Rock | WaterKind::Light | WaterKind::Shade => Bed { near: 3.0, far: 6.0, below: 1.1, bed: 1.4 },
             WaterKind::Fleuve => Bed { near: 7.0, far: 15.0, below: 1.5, bed: 2.2 },
             WaterKind::Lake => Bed { near: 4.5, far: 9.0, below: 0.9, bed: 1.2 },
         }
@@ -134,27 +136,28 @@ impl Tone {
         Tone { size: mix(self.size, o.size), murk: mix(self.murk, o.murk), rapids: mix(self.rapids, o.rapids) }
     }
 
-    /// Couleur (linéaire) de l'eau de couleur de base `base` (linéaire) avec cette teinte au point
-    /// `p` : tirée vers le limon, assombrie par le débit, éclaircie dans les rapides (eau vive).
-    pub fn apply(self, base: Vec3, p: Vec2) -> Vec3 {
+    /// Couleur (linéaire) de l'eau de couleur de base `base` (linéaire) avec cette teinte : tirée
+    /// vers le limon, assombrie par le débit.
+    pub fn apply(self, base: Vec3) -> Vec3 {
         let silt = Vec3::from(SILT_SRGB.map(srgb_to_linear));
-        let water = base.lerp(silt, self.murk.clamp(0.0, 1.0) * SILT_MAX) * (1.0 - DEEP_DARKEN * self.size.clamp(0.0, 1.0));
-        water.lerp(Vec3::from(WHITEWATER_SRGB.map(srgb_to_linear)), white_water(self.rapids, p) * WHITEWATER_MAX)
+        base.lerp(silt, self.murk.clamp(0.0, 1.0) * SILT_MAX) * (1.0 - DEEP_DARKEN * self.size.clamp(0.0, 1.0))
     }
 }
 
-/// Eau vive (0 à 1) en un point d'un cours d'eau de rapides `rapids` : seulement sur certains
-/// tronçons, variation lente (la même quel que soit le découpage en triangles).
-fn white_water(rapids: f32, p: Vec2) -> f32 {
-    rapids.clamp(0.0, 1.0) * stretch(p)
-}
-
-/// Couleur (linéaire) de l'écume des rapides, et des rochers qui affleurent.
-pub fn foam_color() -> Vec3 {
-    Vec3::from(FOAM_SRGB.map(srgb_to_linear))
-}
-pub fn rock_color() -> Vec3 {
-    Vec3::from(ROCK_SRGB.map(srgb_to_linear))
+impl WaterKind {
+    /// Couleur (linéaire) d'un élément de rapides posé sur une eau de couleur `water` (linéaire),
+    /// avec la teinte `tone` de son sommet ; `None` pour l'eau elle-même.
+    pub fn rapids_color(self, tone: Tone, water: Vec3) -> Option<Vec3> {
+        let amount = tone.rapids.clamp(0.0, 1.0);
+        match self {
+            // (comme une écume en partie transparente : mêlée à l'eau en dessous)
+            WaterKind::Foam => Some(water.lerp(Vec3::from(FOAM_SRGB.map(srgb_to_linear)), FOAM_MIX)),
+            WaterKind::Rock => Some(Vec3::from(ROCK_SRGB.map(srgb_to_linear))),
+            WaterKind::Light => Some(water.lerp(Vec3::from(WHITEWATER_SRGB.map(srgb_to_linear)), amount * WHITEWATER_MAX)),
+            WaterKind::Shade => Some(water * (1.0 - amount * SHADE_MAX)),
+            _ => None,
+        }
+    }
 }
 
 /// Valeur pseudo-aléatoire (0 à 1) attachée à un point (traînées d'écume).
@@ -306,74 +309,148 @@ impl WaterShape {
             _ => path[k].2,
         };
         for k in 0..last {
-            let ((a, ha, ta), (b, hb, tb)) = (path[k], path[k + 1]);
+            let ((a, ha, _), (b, hb, _)) = (path[k], path[k + 1]);
             self.channel(a, b, ha, hb, kind, [k as f32 / last as f32, (k + 1) as f32 / last as f32]);
             for j in 0..across {
                 self.tri([at(k, j), at(k + 1, j), at(k + 1, j + 1)], [tone(k, j), tone(k + 1, j), tone(k + 1, j + 1)], kind);
                 self.tri([at(k, j), at(k + 1, j + 1), at(k, j + 1)], [tone(k, j), tone(k + 1, j + 1), tone(k, j + 1)], kind);
             }
-            // Rapides : amas d'écume sur toute la largeur, remous en V, quelques rochers
-            let rapid = (ta.rapids + tb.rapids) / 2.0;
-            if rapid > 0.0 && kind != WaterKind::Lake {
-                self.rapids(a, b, ha, hb, white_water(rapid, (a + b) / 2.0));
-            }
         }
     }
 
-    /// Rapides sur un tronçon de lit de `a` à `b` (demi-largeurs `ha`, `hb`), d'intensité `w`
-    /// (0 à 1) : amas d'écume irréguliers sur toute la largeur, un remous en V (pointe vers
-    /// l'amont, ou l'aval : le sens du tronçon n'est pas toujours celui du courant), parfois un
-    /// rocher. Tout est tiré au point, la même forme à chaque affichage.
-    fn rapids(&mut self, a: Vec2, b: Vec2, ha: f32, hb: f32, w: f32) {
-        if w < 0.05 {
+    /// Élément de rapides (polygone convexe, en éventail depuis son centre), teinte `tone`
+    /// (`rapids` : dosage de l'eau vive ou de l'eau lisse).
+    fn mark(&mut self, pts: &[Vec2], kind: WaterKind, tone: Tone) {
+        let center = pts.iter().copied().sum::<Vec2>() / pts.len() as f32;
+        let channel = self.channels.len() - 1;
+        for k in 0..pts.len() {
+            self.tris.push(WaterTri { pts: [center, pts[k], pts[(k + 1) % pts.len()]], tones: [tone; 3], kind, also: self.also, channel });
+        }
+    }
+
+    /// Trait d'écume de `a` à `b`, d'épaisseur `thick`, effilé aux deux bouts.
+    fn streak(&mut self, a: Vec2, b: Vec2, thick: f32) {
+        let n = (b - a).perp().normalize_or_zero() * thick / 2.0;
+        let (q1, q3) = (a.lerp(b, 0.25), a.lerp(b, 0.75));
+        self.mark(&[a, q1 + n, q3 + n, b, q3 - n, q1 - n], WaterKind::Foam, Tone::default());
+    }
+
+    /// Rapide composé sur une ligne d'eau, là où ses rapides sont les plus forts (`downstream` :
+    /// la ligne est donnée d'amont en aval) : comme vu d'en haut sur de vrais rapides,
+    /// - une eau vive plus claire sur tout le rapide, qui se fond dans l'eau autour ;
+    /// - la tête : une langue d'eau lisse un peu plus sombre en V vers l'aval, une amorce d'écume
+    ///   le long des rives ;
+    /// - le train de vagues : des bandes d'écume en travers, espacées, qui s'affaiblissent ;
+    /// - des rochers qui affleurent : coussin d'écume en amont, ailes en V vers l'aval, eau calme
+    ///   et sombre derrière ;
+    /// - en aval, l'écume se dissipe en traînées dans le sens du courant.
+    ///
+    /// Tout est tiré de la position du rapide : la même forme à chaque affichage.
+    fn rapid(&mut self, path: &[PathPoint], downstream: bool) {
+        let reach = Reach::new(path, downstream);
+        let len = reach.length();
+        // Intensité le long de la ligne : pente, et seulement par tronçons
+        let (best, w) = reach.path.iter().enumerate().map(|(k, p)| (k, p.2.rapids.clamp(0.0, 1.0) * stretch(p.0))).fold((0, 0.0f32), |acc, x| if x.1 > acc.1 { x } else { acc });
+        if w < RAPID_MIN || len < 6.0 {
             return;
         }
+        let hw = reach.path[best].1;
+        let site = (6.0 + 5.0 * hw).clamp(10.0, len * 0.9);
+        let s0 = (reach.at[best] - 0.4 * site).clamp(0.0, len - site);
+        let seed = reach.path[best].0;
+        let at = |f: f32| s0 + f * site;
+        let thick = (0.08 * hw).clamp(0.2, 0.8);
+        let base = reach.sample(at(0.5)).3;
+        let dosed = |amount: f32| Tone { rapids: amount, ..base };
+        // Eau vive : bande sur toute la largeur, dosée par sommet (pas de bord net)
+        let steps = 8;
+        for k in 0..steps {
+            let (f0, f1) = (k as f32 / steps as f32, (k + 1) as f32 / steps as f32);
+            let bump = |f: f32| (f / 0.15).min(1.0).min((1.15 - f) / 0.35).clamp(0.0, 1.0) * w;
+            let (a0, a1) = (reach.point(at(f0 * 1.15 - 0.05), 0.97), reach.point(at(f1 * 1.15 - 0.05), 0.97));
+            let (b0, b1) = (reach.point(at(f0 * 1.15 - 0.05), -0.97), reach.point(at(f1 * 1.15 - 0.05), -0.97));
+            let channel = self.channels.len() - 1;
+            let (t0, t1) = (dosed(bump(f0)), dosed(bump(f1)));
+            self.tris.push(WaterTri { pts: [a0, a1, b1], tones: [t0, t1, t1], kind: WaterKind::Light, also: self.also, channel });
+            self.tris.push(WaterTri { pts: [a0, b1, b0], tones: [t0, t1, t0], kind: WaterKind::Light, also: self.also, channel });
+        }
+        // Tête, discrète : langue à peine plus sombre, et un peu d'écume le long des rives là où
+        // l'eau s'engage (une amorce, pas un V qui traverse la rivière)
+        let tip = at(0.3);
+        let tongue = [reach.point(at(0.0), 0.8), reach.point(tip, 0.0), reach.point(at(0.0), -0.8)];
         let channel = self.channels.len() - 1;
-        let along = (b - a).normalize_or_zero();
-        let across = along.perp();
-        let half = (ha + hb) / 2.0;
-        let blob = |shape: &mut Self, c: Vec2, r: f32, kind: WaterKind, seed: f32| {
-            const SIDES: usize = 6;
-            let ring: Vec<Vec2> = (0..SIDES)
-                .map(|k| {
-                    let ang = std::f32::consts::TAU * (k as f32 + 0.5 * hash01(c + Vec2::splat(seed + k as f32))) / SIDES as f32;
-                    // Allongé dans le sens du courant, bords irréguliers
-                    let jitter = 0.6 + 0.6 * hash01(c * 1.7 + Vec2::splat(k as f32 + seed));
-                    c + (along * ang.cos() * FOAM_STRETCH + across * ang.sin() * 0.7) * r * jitter
-                })
-                .collect();
-            for k in 0..SIDES {
-                shape.tris.push(WaterTri { pts: [c, ring[k], ring[(k + 1) % SIDES]], tones: [Tone::default(); 3], kind, also: shape.also, channel });
-            }
-        };
-        // Amas d'écume : d'autant plus nombreux que l'eau est vive et la rivière large
-        let count = (w * FOAM_BLOBS * (0.6 + half / 4.0)).round() as usize;
-        for i in 0..count {
-            let seed = i as f32 * 3.1;
-            let t = hash01(a + Vec2::splat(seed));
-            let c = a.lerp(b, t);
-            let h = ha + (hb - ha) * t;
-            // (assez grands pour se rejoindre en plaques d'eau blanche)
-            let r = (0.3 + 0.35 * hash01(c + Vec2::splat(seed + 1.0))) * (0.6 + 0.4 * w) * h.max(1.2);
-            let shift = (h - r).max(0.0) * (2.0 * hash01(c + Vec2::splat(seed + 2.0)) - 1.0);
-            blob(self, c + across * shift, r, WaterKind::Foam, seed);
+        self.tris.push(WaterTri { pts: tongue, tones: [dosed(0.0), dosed(0.35 * w), dosed(0.0)], kind: WaterKind::Shade, also: self.also, channel });
+        for side in [1.0, -1.0] {
+            self.streak(reach.point(at(0.02), side * 0.9), reach.point(at(0.14), side * 0.65), thick * 0.8);
         }
-        // Remous en V d'une rive à l'autre
-        if hash01(a * 0.7) < w {
-            let tip = a.lerp(b, 0.35);
-            let back = a.lerp(b, 0.85);
-            let t = CHEVRON_THICKNESS;
+        // Train de vagues : bandes en travers, de plus en plus courtes et fines
+        let waves = 2 + (2.0 * w).round() as usize;
+        for i in 0..waves {
+            let f = 0.38 + 0.12 * i as f32;
+            if f > 0.9 {
+                break;
+            }
+            let fade = 1.0 - 0.2 * i as f32;
+            let reach_u = (0.8 - 0.1 * i as f32) * (0.85 + 0.3 * hash01(seed + Vec2::splat(i as f32)));
+            let depth = (thick * 0.9 * fade).max(0.18);
+            // Crête un peu bombée vers l'amont, effilée aux deux bouts
+            let crest: Vec<(f32, f32)> = (0..=6).map(|j| {
+                let u = -reach_u + 2.0 * reach_u * j as f32 / 6.0;
+                (u, 1.0 - (u / reach_u).powi(2))
+            }).collect();
+            let front: Vec<Vec2> = crest.iter().map(|&(u, b)| reach.point(at(f) - 0.04 * site * b + depth * b.sqrt() / 2.0, u)).collect();
+            let back: Vec<Vec2> = crest.iter().rev().map(|&(u, b)| reach.point(at(f) - 0.04 * site * b - depth * b.sqrt() / 2.0, u)).collect();
+            let ring: Vec<Vec2> = front.into_iter().chain(back).collect();
+            // (par quadrilatères : la crête est courbe)
+            for j in 0..6 {
+                let quad = [ring[j], ring[j + 1], ring[ring.len() - 2 - j], ring[ring.len() - 1 - j]];
+                self.mark(&quad, WaterKind::Foam, Tone::default());
+            }
+        }
+        // Rochers : coussin d'écume en amont, ailes en V vers l'aval, eau calme derrière
+        let rocks = if hw < 1.5 { 0 } else if w > 0.6 && hw > 4.0 { 2 } else { 1 };
+        for r in 0..rocks {
+            let h = hash01(seed + Vec2::new(3.0, r as f32));
+            let f = 0.5 + 0.3 * h;
+            let u = (0.25 + 0.35 * hash01(seed + Vec2::new(r as f32, 5.0))) * if r % 2 == 0 { 1.0 } else { -1.0 };
+            let (_, dir, hw_r, _) = reach.sample(at(f));
+            let c = reach.point(at(f), u);
+            let radius = (0.2 * hw_r).clamp(0.45, 2.0);
+            let across = dir.perp();
+            // Eau calme et sombre derrière le rocher
+            let eddy: Vec<Vec2> = (0..8).map(|k| {
+                let a = std::f32::consts::TAU * k as f32 / 8.0;
+                c + dir * (radius * 1.8 + a.cos() * radius * 1.8) + across * a.sin() * radius
+            }).collect();
+            self.mark(&eddy, WaterKind::Shade, dosed(0.7 * w));
+            // Ailes d'écume qui s'écartent vers l'aval
             for side in [1.0, -1.0] {
-                let bank = back + across * side * half * 0.85;
-                let n = (bank - tip).perp().normalize_or_zero() * t;
-                self.tris.push(WaterTri { pts: [tip - n, bank - n, bank + n], tones: [Tone::default(); 3], kind: WaterKind::Foam, also: self.also, channel });
-                self.tris.push(WaterTri { pts: [tip - n, bank + n, tip + n], tones: [Tone::default(); 3], kind: WaterKind::Foam, also: self.also, channel });
+                let from = c + across * side * radius * 0.8;
+                self.streak(from, from + dir * radius * 3.5 + across * side * radius * 1.4, thick);
             }
+            // Coussin d'écume sur la face amont
+            let pillow: Vec<Vec2> = (0..=6).map(|k| {
+                let a = std::f32::consts::PI * (0.5 + k as f32 / 6.0);
+                c + (dir * a.cos() + across * a.sin()) * radius * 1.45
+            }).chain((0..=6).rev().map(|k| {
+                let a = std::f32::consts::PI * (0.5 + k as f32 / 6.0);
+                c + (dir * a.cos() + across * a.sin()) * radius * 0.9
+            })).collect();
+            for k in 0..6 {
+                self.mark(&[pillow[k], pillow[k + 1], pillow[12 - k], pillow[13 - k]], WaterKind::Foam, Tone::default());
+            }
+            // Le rocher, irrégulier
+            let stone: Vec<Vec2> = (0..7).map(|k| {
+                let a = std::f32::consts::TAU * k as f32 / 7.0;
+                c + (dir * a.cos() * 1.2 + across * a.sin()) * radius * (0.75 + 0.35 * hash01(c + Vec2::splat(k as f32)))
+            }).collect();
+            self.mark(&stone, WaterKind::Rock, Tone::default());
         }
-        // Un rocher qui affleure, parfois
-        if hash01(b * 1.3) < w * 0.35 && half > 1.5 {
-            let c = a.lerp(b, 0.5) + across * half * 0.5 * (2.0 * hash01(b) - 1.0);
-            blob(self, c, (0.5 + 0.4 * hash01(c)) * half.min(3.0) / 2.5, WaterKind::Rock, 7.0);
+        // En aval, l'écume se dissipe en traînées dans le sens du courant
+        for k in 0..2 {
+            let f = 0.88 + 0.08 * k as f32;
+            let u = 0.6 * (2.0 * hash01(seed + Vec2::new(k as f32, 9.0)) - 1.0);
+            self.streak(reach.point(at(f), u), reach.point(at(f) + 0.2 * site, u * 0.8), (thick * 0.6).max(0.2));
         }
     }
 
@@ -391,6 +468,47 @@ impl WaterShape {
         for k in 0..SIDES {
             self.tri([c, at(k), at(k + 1)], [tone; 3], kind);
         }
+    }
+}
+
+/// Ligne d'eau parcourue d'amont en aval, repérée par la distance `s` depuis son début (et le
+/// côté `u`, de −1 à 1 d'une rive à l'autre).
+struct Reach {
+    path: Vec<PathPoint>,
+    at: Vec<f32>,
+}
+
+impl Reach {
+    fn new(path: &[PathPoint], downstream: bool) -> Self {
+        let mut path = path.to_vec();
+        if !downstream {
+            path.reverse();
+        }
+        let mut at = vec![0.0];
+        for w in path.windows(2) {
+            at.push(at.last().unwrap() + w[0].0.distance(w[1].0));
+        }
+        Reach { path, at }
+    }
+
+    fn length(&self) -> f32 {
+        *self.at.last().unwrap_or(&0.0)
+    }
+
+    /// Point à la distance `s` : position, sens du courant, demi-largeur, teinte.
+    fn sample(&self, s: f32) -> (Vec2, Vec2, f32, Tone) {
+        let s = s.clamp(0.0, self.length());
+        let k = self.at.iter().rposition(|&x| x <= s).unwrap_or(0).min(self.path.len().saturating_sub(2));
+        let (a, b) = (self.path[k], self.path[(k + 1).min(self.path.len() - 1)]);
+        let span = (self.at[(k + 1).min(self.at.len() - 1)] - self.at[k]).max(1e-6);
+        let t = ((s - self.at[k]) / span).clamp(0.0, 1.0);
+        (a.0.lerp(b.0, t), (b.0 - a.0).normalize_or(Vec2::X), a.1 + (b.1 - a.1) * t, a.2.lerp(b.2, t))
+    }
+
+    /// Point à la distance `s`, au côté `u` (−1 à 1 d'une rive à l'autre).
+    fn point(&self, s: f32, u: f32) -> Vec2 {
+        let (p, dir, hw, _) = self.sample(s);
+        p + dir.perp() * u * hw
     }
 }
 
@@ -604,6 +722,7 @@ pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
         path.extend(hermite(own.up, t_up * length, own.down, t_down * length, RIVER_STEPS).map(|(s, p)| (p, hw_up + (hw - hw_up) * s, tone_up.lerp(own.tone, s))));
         shape.also = Some(hex + step);
         shape.strip(&path, WaterKind::River);
+        shape.rapid(&path, true);
         shape.tone = tone_up;
         shape.disc(own.up, Vec2::splat(hw_up), WaterKind::River);
         shape.tone = own.tone;
@@ -677,6 +796,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
         path.push((p1 + out1 * OVERLAP, h1, t1));
         follow(&path, if down_dir == Some(dirs[0]) { -1.0 } else { 1.0 });
         shape.strip(&path, WaterKind::Fleuve);
+        shape.rapid(&path, down_dir != Some(dirs[0]));
     } else {
         shape.disc(mid, Vec2::splat(hw), WaterKind::Fleuve);
         for &d in &dirs {
@@ -687,6 +807,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
             path.push((p + out * OVERLAP, h, t));
             follow(&path, if down_dir == Some(d) { 1.0 } else { -1.0 });
             shape.strip(&path, WaterKind::Fleuve);
+            shape.rapid(&path, down_dir == Some(d));
         }
         // Deux arêtes ouvertes côte à côte, l'une sur toute sa largeur ou toutes deux sur l'eau
         // (embouchure dans un coin de mer) : l'eau remplit aussi le coin qui les sépare (pas de
@@ -982,14 +1103,50 @@ mod tests {
     }
 
     #[test]
+    fn rapide_compose_dans_le_sens_du_courant() {
+        // Ligne d'eau droite vers l'est, en forte pente, là où le bruit des tronçons donne des rapides
+        let start = (0..400).map(|k| Vec2::new(k as f32 * 7.3, 11.0)).find(|&p| stretch(p + Vec2::X * 10.0) > 0.9).unwrap();
+        let tone = Tone { rapids: 1.0, ..Tone::default() };
+        let path: Vec<PathPoint> = (0..=6).map(|k| (start + Vec2::X * 5.0 * k as f32, 4.0, tone)).collect();
+        let mut shape = WaterShape::default();
+        shape.strip(&path, WaterKind::River);
+        shape.rapid(&path, true);
+        let of = |kind: WaterKind| shape.tris.iter().filter(move |t| t.kind == kind);
+        for kind in [WaterKind::Light, WaterKind::Shade, WaterKind::Foam, WaterKind::Rock] {
+            assert!(of(kind).count() > 0, "{kind:?}");
+        }
+        // L'écume reste dans l'eau (à la largeur près, plus l'épaisseur d'un trait)
+        let worst = of(WaterKind::Foam).flat_map(|t| t.pts).map(|p| (p.y - start.y).abs()).fold(0.0f32, f32::max);
+        assert!(worst <= 4.0 + 1.0, "écume à {worst} de l'axe");
+        // La langue de la tête pointe vers l'aval (l'est), et vers l'amont si la ligne est donnée à l'envers
+        let tongue = |shape: &WaterShape| of_shade(shape).pts;
+        fn of_shade(shape: &WaterShape) -> &WaterTri {
+            shape.tris.iter().find(|t| t.kind == WaterKind::Shade).unwrap()
+        }
+        let [a, tip, b] = tongue(&shape);
+        assert!(tip.x > a.x && tip.x > b.x);
+        let mut reversed = WaterShape::default();
+        reversed.strip(&path, WaterKind::River);
+        reversed.rapid(&path, false);
+        let [a, tip, b] = tongue(&reversed);
+        assert!(tip.x < a.x && tip.x < b.x);
+        // Sans pente, pas de rapide
+        let calm: Vec<PathPoint> = path.iter().map(|&(p, h, _)| (p, h, Tone::default())).collect();
+        let mut flat = WaterShape::default();
+        flat.strip(&calm, WaterKind::River);
+        flat.rapid(&calm, true);
+        assert!(flat.tris.iter().all(|t| t.kind == WaterKind::River));
+    }
+
+    #[test]
     fn teinte_interpolee_dans_un_triangle() {
         let t = WaterTri { pts: [Vec2::ZERO, Vec2::X, Vec2::Y], tones: [Tone { size: 0.0, murk: 0.0, rapids: 0.0 }, Tone { size: 1.0, murk: 0.0, rapids: 0.0 }, Tone { size: 0.0, murk: 1.0, rapids: 0.0 }], kind: WaterKind::River, also: None, channel: 0 };
         let m = t.tone_at(Vec2::new(0.5, 0.25));
         assert!((m.size - 0.5).abs() < 1e-5 && (m.murk - 0.25).abs() < 1e-5);
         // Une eau limoneuse tire vers le brun, un grand fleuve est plus sombre
         let blue = Vec3::new(0.05, 0.2, 0.5);
-        assert!(Tone { size: 0.0, murk: 1.0, rapids: 0.0 }.apply(blue, Vec2::ZERO).x > blue.x);
-        assert!(Tone { size: 1.0, murk: 0.0, rapids: 0.0 }.apply(blue, Vec2::ZERO).z < blue.z);
+        assert!(Tone { size: 0.0, murk: 1.0, rapids: 0.0 }.apply(blue).x > blue.x);
+        assert!(Tone { size: 1.0, murk: 0.0, rapids: 0.0 }.apply(blue).z < blue.z);
     }
 }
 

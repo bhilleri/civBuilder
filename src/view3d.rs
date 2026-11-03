@@ -502,9 +502,11 @@ const MOUTH_BLEND: f32 = 14.0;
 const MOUTH_BLEND_FLEUVE: f32 = 30.0;
 /// Dénivelé minimal d'une chute d'eau.
 const CASCADE_MIN_DROP: f32 = 4.0;
-/// Surélévation de l'eau d'un affluent qui entre dans un fleuve, de l'écume des rapides et des
-/// rochers qui affleurent.
+/// Surélévation de l'eau d'un affluent qui entre dans un fleuve, et des éléments des rapides (eau
+/// vive, eau lisse, écume, rochers : dans cet ordre, du dessous au dessus).
 const INFLOW_LIFT: f32 = 0.04;
+const LIGHT_LIFT: f32 = 0.02;
+const SHADE_LIFT: f32 = 0.03;
 const FOAM_LIFT: f32 = 0.08;
 const ROCK_LIFT: f32 = 0.25;
 
@@ -1536,11 +1538,8 @@ fn water_mesh<'a>(
     let tint = |p: Vec2, tone: crate::waterways::Tone, kind: WaterKind| {
         // Teinte du cours d'eau (débit, limon), qui se fond dans la mer ou le lac où il se jette
         // (sur une plus longue distance pour un fleuve : pas de coupure de couleur à l'embouchure)
-        let own = match kind {
-            WaterKind::Foam => crate::waterways::foam_color(),
-            WaterKind::Rock => crate::waterways::rock_color(),
-            _ => tone.apply(fresh, p),
-        };
+        let water = tone.apply(fresh);
+        let own = kind.rapids_color(tone, water).unwrap_or(water);
         let blend = if kind == WaterKind::Fleuve { MOUTH_BLEND_FLEUVE } else { MOUTH_BLEND };
         let c = match relief.nearest_water(p) {
             Some((d, water)) => own.lerp(water, 1.0 - smoothstep01(d / blend)),
@@ -1562,11 +1561,14 @@ fn water_mesh<'a>(
         // sans que les deux surfaces se chevauchent par endroits)
         let ys = if shape.channels[t.channel].inflow.is_some() { ys.map(|y| y + INFLOW_LIFT) } else { ys };
         // Écume des rapides : posée sur l'eau
-        let ys = match t.kind {
-            WaterKind::Foam => ys.map(|y| y + FOAM_LIFT),
-            WaterKind::Rock => ys.map(|y| y + ROCK_LIFT),
-            _ => ys,
+        let lift = match t.kind {
+            WaterKind::Light => LIGHT_LIFT,
+            WaterKind::Shade => SHADE_LIFT,
+            WaterKind::Foam => FOAM_LIFT,
+            WaterKind::Rock => ROCK_LIFT,
+            _ => 0.0,
         };
+        let ys = ys.map(|y| y + lift);
         // Chute d'eau : l'eau descend très fort le long du cours (elle franchit une falaise) →
         // couleur de l'écume
         let hi = (0..3).max_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
