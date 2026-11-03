@@ -504,6 +504,11 @@ const MOUTH_BLEND_FLEUVE: f32 = 30.0;
 const CASCADE_MIN_DROP: f32 = 4.0;
 /// Part de l'écume dans la couleur d'une chute d'eau (le reste : la couleur de l'eau).
 const CASCADE_FOAM: f32 = 0.55;
+/// Redécoupage des triangles d'eau là où la surface se courbe : écart toléré entre la surface et
+/// la ligne droite au milieu d'une arête, profondeur et arête la plus courte.
+const WATER_SPLIT_TOLERANCE: f32 = 0.12;
+const WATER_SPLIT_DEPTH: usize = 3;
+const WATER_SPLIT_MIN: f32 = 0.5;
 /// Surélévation de l'eau d'un affluent qui entre dans un fleuve, et des éléments des rapides (eau
 /// vive, eau lisse, écume, rochers : dans cet ordre, du dessous au dessus).
 const INFLOW_LIFT: f32 = 0.04;
@@ -1562,33 +1567,59 @@ fn water_mesh<'a>(
         let pts = if ccw { [a, b, c] } else { [a, c, b] };
         // Même surface que celle qui a servi à tailler le lit (lits de la case et des voisines) ;
         // hors de portée des lits, la hauteur du tronçon (calcul coûteux : seulement dans ce cas)
-        let ys = pts.map(|p| water_surface(near, p).unwrap_or_else(|| channels.entry(t.channel).or_insert_with(|| relief.channel(&shape.channels[t.channel])).levels[0]));
+        let mut level = |p: Vec2| water_surface(near, p).unwrap_or_else(|| channels.entry(t.channel).or_insert_with(|| relief.channel(&shape.channels[t.channel])).levels[0]);
         // Affluent dans un fleuve : un rien au-dessus de l'eau du fleuve (sa couleur s'y fond
-        // sans que les deux surfaces se chevauchent par endroits)
-        let ys = if shape.channels[t.channel].inflow.is_some() { ys.map(|y| y + INFLOW_LIFT) } else { ys };
-        // Écume des rapides : posée sur l'eau
+        // sans que les deux surfaces se chevauchent par endroits) ; éléments des rapides : posés
+        // sur l'eau
         let lift = match t.kind {
             WaterKind::Light => LIGHT_LIFT,
             WaterKind::Shade => SHADE_LIFT,
             WaterKind::Foam => FOAM_LIFT,
             WaterKind::Rock => ROCK_LIFT,
             _ => 0.0,
-        };
-        let ys = ys.map(|y| y + lift);
+        } + if shape.channels[t.channel].inflow.is_some() { INFLOW_LIFT } else { 0.0 };
         // Chute d'eau : l'eau descend très fort le long du cours (elle franchit une falaise) →
-        // couleur de l'écume
+        // écume (décidée sur le triangle d'origine)
+        let ys = pts.map(&mut level);
         let hi = (0..3).max_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
         let lo = (0..3).min_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
         let rise = ys[hi] - ys[lo];
         let foam = rise > CASCADE_MIN_DROP && rise > 1.2 * pts[hi].distance(pts[lo]);
-        for (p, y) in pts.into_iter().zip(ys) {
-            data.positions.push([p.x, y, -p.y]);
-            data.normals.push([0.0, 1.0, 0.0]);
-            // (écume mêlée à l'eau : un blanc plat se lisait comme une zone sans eau)
-            let water = tint(p, t.tone_at(p), t.kind);
-            let white = linear(Color::srgb(0.86, 0.93, 0.98));
-            data.colors.push(if foam { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM) } else { water });
-            data.indices.push(data.indices.len() as u32);
+        // Là où la surface se courbe (bord d'une chute : plate puis plongeante), le triangle est
+        // redécoupé : tendu en ligne droite, il passait sous la surface, donc sous le sol taillé
+        // pour elle (zone sans eau). Décision arête par arête (milieu de l'arête comparé à la
+        // surface), la même pour les deux triangles qui la partagent : pas de fente entre eux
+        let mut stack = vec![(pts, 0usize)];
+        while let Some(([a, b, c], depth)) = stack.pop() {
+            let mut split = |p: Vec2, q: Vec2| {
+                if depth >= WATER_SPLIT_DEPTH || p.distance(q) < WATER_SPLIT_MIN {
+                    return None;
+                }
+                let m = (p + q) / 2.0;
+                ((level(m) - (level(p) + level(q)) / 2.0).abs() > WATER_SPLIT_TOLERANCE).then_some(m)
+            };
+            let children: Vec<[Vec2; 3]> = match (split(a, b), split(b, c), split(c, a)) {
+                (None, None, None) => {
+                    for p in [a, b, c] {
+                        data.positions.push([p.x, level(p) + lift, -p.y]);
+                        data.normals.push([0.0, 1.0, 0.0]);
+                        // (écume mêlée à l'eau : un blanc plat se lisait comme une zone sans eau)
+                        let water = tint(p, t.tone_at(p), t.kind);
+                        let white = linear(Color::srgb(0.86, 0.93, 0.98));
+                        data.colors.push(if foam { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM) } else { water });
+                        data.indices.push(data.indices.len() as u32);
+                    }
+                    continue;
+                }
+                (Some(ab), None, None) => vec![[a, ab, c], [ab, b, c]],
+                (None, Some(bc), None) => vec![[a, b, bc], [a, bc, c]],
+                (None, None, Some(ca)) => vec![[a, b, ca], [ca, b, c]],
+                (Some(ab), Some(bc), None) => vec![[ab, b, bc], [a, ab, bc], [a, bc, c]],
+                (None, Some(bc), Some(ca)) => vec![[ca, bc, c], [a, b, bc], [a, bc, ca]],
+                (Some(ab), None, Some(ca)) => vec![[a, ab, ca], [ab, b, c], [ab, c, ca]],
+                (Some(ab), Some(bc), Some(ca)) => vec![[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]],
+            };
+            stack.extend(children.into_iter().map(|tri| (tri, depth + 1)));
         }
     }
     data

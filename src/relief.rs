@@ -191,6 +191,9 @@ const BANK_SLOPE: f32 = 0.6;
 /// douce, sans paroi verticale) ; un remblai éventuel (berge plus basse que l'eau) se raccorde
 /// plus vite.
 const FILL_FADE: f32 = 8.0;
+/// Creusement en plus du lit là où l'eau descend fort : par unité de pente, et au plus.
+const STEEP_DEEPEN: f32 = 2.5;
+const STEEP_DEEPEN_MAX: f32 = 3.0;
 /// Portée d'un lit au-delà de sa demi-largeur (au-delà, il ne touche plus le terrain).
 const CHANNEL_REACH: f32 = 12.0;
 /// Largeur de la bande de terre humide au-delà du replat.
@@ -237,6 +240,17 @@ impl Channel {
 
     fn reach(&self) -> f32 {
         self.hw.max(self.hw_end) + SHELF + CHANNEL_REACH
+    }
+
+    /// Pente de l'eau (sans unité : hauteur par longueur) à la position `t` le long de l'axe.
+    fn slope(&self, t: f32) -> f32 {
+        let length = self.a.distance(self.b);
+        if length < 1e-3 {
+            return 0.0;
+        }
+        let x = t * (CHANNEL_LEVELS - 1) as f32;
+        let k = (x.floor() as usize).min(CHANNEL_LEVELS - 2);
+        (self.levels[k + 1] - self.levels[k]).abs() * (CHANNEL_LEVELS - 1) as f32 / length
     }
 
     /// Demi-largeur à la position `t` (0 à 1) le long de l'axe.
@@ -297,6 +311,7 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
     let mut shape = f32::MAX;
     let mut bank = 0.0f32;
     let (mut cut, mut fill) = (0.0f32, 0.0f32);
+    let mut steep = 0.0f32;
     let (mut sw, mut sh, mut dw, mut dh) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
     for c in channels {
         let t = c.param(p);
@@ -307,6 +322,9 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
         }
         let hw = c.half_width(t);
         shape = shape.min(c.profile(d, hw));
+        if d < hw + SHELF {
+            steep = steep.max(c.slope(t));
+        }
         // Emprise du lit sur le terrain : totale jusqu'au bout du replat, puis décroissante
         let beyond = (d - hw - SHELF).max(0.0);
         cut = cut.max(1.0 - smoothstep(beyond / CHANNEL_REACH));
@@ -334,7 +352,9 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
     };
     // Le sol prend la forme du lit : creusé là où le terrain est plus haut, remblayé (berge) là
     // où il est plus bas, en se raccordant progressivement au terrain d'origine
-    let target = water + shape;
+    // Là où l'eau descend fort (chute), le lit est creusé plus profond : au pied, la surface se
+    // creuse, et le maillage du sol, tendu entre ses sommets, la dépassait (zone sans eau)
+    let target = water + shape - (steep * STEEP_DEEPEN).min(STEEP_DEEPEN_MAX);
     let weight = if target < terrain { cut } else { fill };
     let h = terrain + (target - terrain) * weight;
     // Berge entaillée : terre aussi, selon la profondeur de l'entaille
@@ -928,6 +948,20 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn lit_plus_profond_dans_une_chute() {
+        // Même lit, d'abord à plat, puis descendant de 12 sur 10 (une chute)
+        let flat = Channel { a: Vec2::ZERO, b: Vec2::X * 10.0, hw: 4.0, hw_end: 4.0, levels: [20.0; CHANNEL_LEVELS], bed: 1.4 };
+        let steep = Channel { levels: std::array::from_fn(|k| 26.0 - 2.0 * k as f32), ..flat };
+        let p = Vec2::new(5.0, 0.0);
+        let (ground_flat, _) = carve(&[flat], p, 30.0);
+        let (ground_steep, _) = carve(&[steep], p, 30.0);
+        // Sous l'eau dans les deux cas, plus profond dans la chute (le maillage du sol, tendu entre
+        // ses sommets, ne dépasse pas de l'eau au pied)
+        assert!(ground_flat < 20.0 && ground_steep < 20.0);
+        assert!(20.0 - ground_steep > 20.0 - ground_flat + 2.0, "à plat {ground_flat}, en chute {ground_steep}");
     }
 
     #[test]
