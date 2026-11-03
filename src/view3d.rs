@@ -502,6 +502,8 @@ const MOUTH_BLEND: f32 = 14.0;
 const MOUTH_BLEND_FLEUVE: f32 = 30.0;
 /// Dénivelé minimal d'une chute d'eau.
 const CASCADE_MIN_DROP: f32 = 4.0;
+/// Part de l'écume dans la couleur d'une chute d'eau (le reste : la couleur de l'eau).
+const CASCADE_FOAM: f32 = 0.55;
 /// Surélévation de l'eau d'un affluent qui entre dans un fleuve, et des éléments des rapides (eau
 /// vive, eau lisse, écume, rochers : dans cet ordre, du dessous au dessus).
 const INFLOW_LIFT: f32 = 0.04;
@@ -747,6 +749,10 @@ fn setup_3d(
             let p = a.lerp(b, u + (jitter.0 - 0.5) * 0.12);
             let p = p + (center - p).normalize() * (3.0 + jitter.1 * 3.0);
             let size = 0.7 + jitter.0 * 0.6;
+            // Pas de rocher dans le lit d'un cours d'eau qui descend la falaise
+            if crate::waterways::in_water(&map.0, edge.high, edge.dir, p, 3.2 * size) {
+                continue;
+            }
             ids.push(
                 commands
                     .spawn((
@@ -1578,7 +1584,10 @@ fn water_mesh<'a>(
         for (p, y) in pts.into_iter().zip(ys) {
             data.positions.push([p.x, y, -p.y]);
             data.normals.push([0.0, 1.0, 0.0]);
-            data.colors.push(if foam { linear(Color::srgb(0.86, 0.93, 0.98)) } else { tint(p, t.tone_at(p), t.kind) });
+            // (écume mêlée à l'eau : un blanc plat se lisait comme une zone sans eau)
+            let water = tint(p, t.tone_at(p), t.kind);
+            let white = linear(Color::srgb(0.86, 0.93, 0.98));
+            data.colors.push(if foam { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM) } else { water });
             data.indices.push(data.indices.len() as u32);
         }
     }

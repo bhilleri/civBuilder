@@ -58,6 +58,8 @@ const RAPIDS_FROM_M_PER_KM: f32 = 3.0;
 const RAPIDS_FULL_M_PER_KM: f32 = 9.0;
 const STRETCH: f32 = 22.0;
 const RAPID_MIN: f32 = 0.25;
+/// Taille des mailles des éléments de rapides (unités monde).
+const MARK_STEP: f32 = 1.5;
 const WHITEWATER_SRGB: [f32; 3] = [0.66, 0.84, 0.90];
 const WHITEWATER_MAX: f32 = 0.35;
 const SHADE_MAX: f32 = 0.2;
@@ -328,18 +330,36 @@ impl WaterShape {
         }
     }
 
-    /// Trait d'écume de `a` à `b`, d'épaisseur `thick`, effilé aux deux bouts.
+    /// Grille de `rows` × `cols` mailles (sommets `point(i, j)`, teintes `tone(i, j)`) : assez
+    /// fine, un élément de rapides suit la pente de l'eau au lieu de la couper.
+    fn grid(&mut self, rows: usize, cols: usize, point: impl Fn(usize, usize) -> Vec2, tone: impl Fn(usize, usize) -> Tone, kind: WaterKind) {
+        let channel = self.channels.len() - 1;
+        for i in 0..rows {
+            for j in 0..cols {
+                let (a, b, c, d) = ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1));
+                let p = |(x, y): (usize, usize)| point(x, y);
+                let t = |(x, y): (usize, usize)| tone(x, y);
+                self.tris.push(WaterTri { pts: [p(a), p(b), p(c)], tones: [t(a), t(b), t(c)], kind, also: self.also, channel });
+                self.tris.push(WaterTri { pts: [p(a), p(c), p(d)], tones: [t(a), t(c), t(d)], kind, also: self.also, channel });
+            }
+        }
+    }
+
+    /// Trait d'écume de `a` à `b`, d'épaisseur `thick`, effilé aux deux bouts (découpé finement).
     fn streak(&mut self, a: Vec2, b: Vec2, thick: f32) {
         let n = (b - a).perp().normalize_or_zero() * thick / 2.0;
-        let (q1, q3) = (a.lerp(b, 0.25), a.lerp(b, 0.75));
-        self.mark(&[a, q1 + n, q3 + n, b, q3 - n, q1 - n], WaterKind::Foam, Tone::default());
+        let rows = ((a.distance(b) / MARK_STEP).ceil() as usize).max(2);
+        let point = |i: usize, j: usize| {
+            let t = i as f32 / rows as f32;
+            a.lerp(b, t) + n * (std::f32::consts::PI * t).sin().max(0.15) * (2.0 * j as f32 - 1.0)
+        };
+        self.grid(rows, 1, point, |_, _| Tone::default(), WaterKind::Foam);
     }
 
     /// Rapide composé sur une ligne d'eau, là où ses rapides sont les plus forts (`downstream` :
     /// la ligne est donnée d'amont en aval) : comme vu d'en haut sur de vrais rapides,
     /// - une eau vive plus claire sur tout le rapide, qui se fond dans l'eau autour ;
-    /// - la tête : une langue d'eau lisse un peu plus sombre en V vers l'aval, une amorce d'écume
-    ///   le long des rives ;
+    /// - la tête : une amorce d'écume le long des rives ;
     /// - le train de vagues : des bandes d'écume en travers, espacées, qui s'affaiblissent ;
     /// - des rochers qui affleurent : coussin d'écume en amont, ailes en V vers l'aval, eau calme
     ///   et sombre derrière ;
@@ -362,24 +382,13 @@ impl WaterShape {
         let thick = (0.08 * hw).clamp(0.2, 0.8);
         let base = reach.sample(at(0.5)).3;
         let dosed = |amount: f32| Tone { rapids: amount, ..base };
-        // Eau vive : bande sur toute la largeur, dosée par sommet (pas de bord net)
-        let steps = 8;
-        for k in 0..steps {
-            let (f0, f1) = (k as f32 / steps as f32, (k + 1) as f32 / steps as f32);
-            let bump = |f: f32| (f / 0.15).min(1.0).min((1.15 - f) / 0.35).clamp(0.0, 1.0) * w;
-            let (a0, a1) = (reach.point(at(f0 * 1.15 - 0.05), 0.97), reach.point(at(f1 * 1.15 - 0.05), 0.97));
-            let (b0, b1) = (reach.point(at(f0 * 1.15 - 0.05), -0.97), reach.point(at(f1 * 1.15 - 0.05), -0.97));
-            let channel = self.channels.len() - 1;
-            let (t0, t1) = (dosed(bump(f0)), dosed(bump(f1)));
-            self.tris.push(WaterTri { pts: [a0, a1, b1], tones: [t0, t1, t1], kind: WaterKind::Light, also: self.also, channel });
-            self.tris.push(WaterTri { pts: [a0, b1, b0], tones: [t0, t1, t0], kind: WaterKind::Light, also: self.also, channel });
-        }
-        // Tête, discrète : langue à peine plus sombre, et un peu d'écume le long des rives là où
-        // l'eau s'engage (une amorce, pas un V qui traverse la rivière)
-        let tip = at(0.3);
-        let tongue = [reach.point(at(0.0), 0.8), reach.point(tip, 0.0), reach.point(at(0.0), -0.8)];
-        let channel = self.channels.len() - 1;
-        self.tris.push(WaterTri { pts: tongue, tones: [dosed(0.0), dosed(0.35 * w), dosed(0.0)], kind: WaterKind::Shade, also: self.also, channel });
+        // Eau vive : sur toute la largeur, dosée par sommet (pas de bord net)
+        let rows = ((site * 1.15 / MARK_STEP).ceil() as usize).max(8);
+        let bump = |f: f32| (f / 0.15).min(1.0).min((1.15 - f) / 0.35).clamp(0.0, 1.0) * w;
+        let f_of = |i: usize| i as f32 / rows as f32 * 1.15;
+        self.grid(rows, 4, |i, j| reach.point(at(f_of(i) - 0.05), 0.97 * (j as f32 / 2.0 - 1.0)), |i, _| dosed(bump(f_of(i))), WaterKind::Light);
+        // Tête, discrète : un peu d'écume le long des rives là où l'eau s'engage (une amorce, pas
+        // de V qui traverse la rivière, ni de langue sombre : trop visibles)
         for side in [1.0, -1.0] {
             self.streak(reach.point(at(0.02), side * 0.9), reach.point(at(0.14), side * 0.65), thick * 0.8);
         }
@@ -699,6 +708,19 @@ fn rivers_at_corner(map: &WorldMap, hex: Hex, j: usize, d: usize) -> impl Iterat
     [(hex, (j + 5) % 6), (hex, j), (n1, between)].into_iter().filter(move |&(h, e)| !(h == hex && e == d)).filter_map(|(h, e)| edge_river(map, h, e))
 }
 
+/// Le point `p` est dans le lit d'un cours d'eau (à `margin` près) de la case ou de sa voisine
+/// d'en face par l'arête `dir` (une rivière d'arête est portée par l'une ou l'autre) : pour ne pas
+/// poser de décor dans l'eau.
+pub fn in_water(map: &WorldMap, hex: Hex, dir: usize, p: Vec2, margin: f32) -> bool {
+    [hex, hex + DIRECTIONS[dir % 6]].into_iter().any(|h| {
+        hex_water(map, h).channels.iter().any(|c| {
+            let ab = c.b - c.a;
+            let t = if ab.length_squared() > 0.0 { ((p - c.a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+            p.distance(c.a + ab * t) < c.hw + (c.hw_end - c.hw) * t + margin
+        })
+    })
+}
+
 /// Formes d'eau d'une case.
 pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
     let mut shape = WaterShape::default();
@@ -756,10 +778,10 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
         let out = (edge_mid(hex, d) - c).normalize_or_zero();
         let nb = hex + DIRECTIONS[d];
         if full & (1 << d) != 0 {
-            // Embouchure, rive d'un lac : le fleuve s'évase, d'autant plus qu'il est large (au plus
-            // toute l'arête) ; les coins entre deux ouvertures sont remplis plus bas (le lac et le
-            // fleuve forment une seule nappe d'eau)
-            return (edge_mid(hex, d), (hw * MOUTH_FLARE).min(ESTUARY_HALF_WIDTH), own, out);
+            // Lac (embouchure, sortie ou rive) : toute l'arête, le lac et le fleuve forment une
+            // seule nappe d'eau ; mer : le fleuve s'évase, d'autant plus qu'il est large
+            let flare = if map.get(nb) == Some(Terrain::Lake) { ESTUARY_HALF_WIDTH } else { (hw * MOUTH_FLARE).min(ESTUARY_HALF_WIDTH) };
+            return (edge_mid(hex, d), flare, own, out);
         }
         let t = if map.is_fleuve(nb) {
             let rapids = (own.rapids + fleuve_rapids(map, nb)) / 2.0;
@@ -1118,18 +1140,22 @@ mod tests {
         // L'écume reste dans l'eau (à la largeur près, plus l'épaisseur d'un trait)
         let worst = of(WaterKind::Foam).flat_map(|t| t.pts).map(|p| (p.y - start.y).abs()).fold(0.0f32, f32::max);
         assert!(worst <= 4.0 + 1.0, "écume à {worst} de l'axe");
-        // La langue de la tête pointe vers l'aval (l'est), et vers l'amont si la ligne est donnée à l'envers
-        let tongue = |shape: &WaterShape| of_shade(shape).pts;
-        fn of_shade(shape: &WaterShape) -> &WaterTri {
-            shape.tris.iter().find(|t| t.kind == WaterKind::Shade).unwrap()
-        }
-        let [a, tip, b] = tongue(&shape);
-        assert!(tip.x > a.x && tip.x > b.x);
+        // Dans le sens du courant : la tête (premières écumes, le long des rives) en amont du rocher
+        let head_and_rock = |shape: &WaterShape| {
+            let head = shape.tris.iter().find(|t| t.kind == WaterKind::Foam).unwrap().pts[0].x;
+            let rock = shape.tris.iter().find(|t| t.kind == WaterKind::Rock).unwrap().pts[0].x;
+            (head, rock)
+        };
+        let (head, rock) = head_and_rock(&shape);
+        assert!(head < rock, "tête {head}, rocher {rock}");
         let mut reversed = WaterShape::default();
         reversed.strip(&path, WaterKind::River);
         reversed.rapid(&path, false);
-        let [a, tip, b] = tongue(&reversed);
-        assert!(tip.x < a.x && tip.x < b.x);
+        let (head, rock) = head_and_rock(&reversed);
+        assert!(head > rock, "à l'envers : tête {head}, rocher {rock}");
+        // Les éléments sont découpés finement (ils suivent la pente de l'eau)
+        let longest = shape.tris.iter().filter(|t| t.kind != WaterKind::River).flat_map(|t| [t.pts[0].distance(t.pts[1]), t.pts[1].distance(t.pts[2]), t.pts[2].distance(t.pts[0])]).fold(0.0f32, f32::max);
+        assert!(longest < 4.5, "maille de {longest}");
         // Sans pente, pas de rapide
         let calm: Vec<PathPoint> = path.iter().map(|&(p, h, _)| (p, h, Tone::default())).collect();
         let mut flat = WaterShape::default();
@@ -1152,7 +1178,8 @@ mod tests {
 
 #[cfg(test)]
 mod diag {
-    /// Ouvertures et voisines d'une case de fleuve (`WATER_SEED`, `WATER_AT=col,lig`).
+    /// Ouvertures, altitude et voisines d'une case de fleuve (`WATER_SEED`, `WATER_AT=col,lig` ;
+    /// `WATER_SPAN=n` : les n cases vers l'est).
     #[test]
     #[ignore]
     fn ouvertures_d_une_case() {
@@ -1160,10 +1187,12 @@ mod diag {
         let seed: u32 = std::env::var("WATER_SEED").map_or(777, |s| s.parse().unwrap());
         let at: Vec<i32> = std::env::var("WATER_AT").unwrap_or("106,32".into()).split(',').map(|x| x.parse().unwrap()).collect();
         let m = crate::map::WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
-        for (c, r) in [(at[0], at[1]), (at[0], at[1] + 1), (at[0] + 1, at[1]), (at[0] - 1, at[1])] {
+        let span = std::env::var("WATER_SPAN").map_or(1, |s| s.parse().unwrap());
+        let around: Vec<(i32, i32)> = if span > 1 { (0..span).map(|k| (at[0] + k, at[1])).collect() } else { vec![(at[0], at[1]), (at[0], at[1] + 1), (at[0] + 1, at[1]), (at[0] - 1, at[1])] };
+        for (c, r) in around {
             let h = Hex::from_offset(c, r);
             let o = fleuve_openings(&m, h);
-            println!("{:?} fleuve {} liens {:06b} ouvert {:06b} plein {:06b} aval {:?} q {:.0}", (c, r), m.is_fleuve(h), m.fleuve_links(h), o.open, o.full, m.downstream(h), m.discharge(h));
+            println!("{:?} fleuve {} liens {:06b} ouvert {:06b} plein {:06b} aval {:?} q {:.0} alt {:.0}", (c, r), m.is_fleuve(h), m.fleuve_links(h), o.open, o.full, m.downstream(h), m.discharge(h), m.surface_elevation(h).unwrap_or(0.0));
             for (d, &step) in DIRECTIONS.iter().enumerate() {
                 let n = h + step;
                 println!("   {d} → {:?} {:?} fleuve {} riviere {:.0}", m.canonical(n).to_offset(), m.get(n), m.is_fleuve(n), m.river_flow(h, d));
