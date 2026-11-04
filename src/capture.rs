@@ -238,6 +238,7 @@ fn run_capture(
             if let Some(h) = fastest {
                 add_on("courants", h, 700.0, 0.0, MapLayer::Currents);
                 add_on("courants_loin", h, 2_200.0, 0.0, MapLayer::Currents);
+                add_on("marees_loin", h, 2_200.0, 0.0, MapLayer::Tides);
             }
             // Pages du menu Échap, par-dessus la vue de départ
             for (name, page) in [("menu", MenuPage::Main), ("menu_parametres", MenuPage::Settings), ("menu_nouveau_monde", MenuPage::NewWorld)] {

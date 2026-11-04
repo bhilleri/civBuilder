@@ -2,6 +2,11 @@
 
 ## 0.3.0 (en cours)
 
+### Marées
+- **Modèle de marée** (module `tides.rs`, choix de Benjamin : une simulation physique simple plutôt qu'une estimation géométrique) : les équations de l'eau peu profonde linéarisées, résolues pas à pas à la génération sur les cases de mer, avec la marée lunaire semi-diurne comme moteur, la force de Coriolis et le frottement sur le fond. En sortent, pour chaque case de mer, le marnage de vives-eaux (m), l'heure de la pleine mer et le courant de marée au plus fort (m/s). Comme sur Terre : environ 1 m en plein océan, davantage sur les plateaux continentaux, des points amphidromiques sans marée, des golfes qui résonnent (golfe du Kitresoult, graine 777 : 12,6 m, comme la baie de Fundy) et des mers fermées presque sans marée derrière un détroit peu profond. Environ 2 s de plus à la génération.
+- **Carte des marées** (menu des cartes, touche T, console `carte marees`) : marnage de vives-eaux par classes (moins de 0,5 m à plus de 8 m), en 2D et en 3D, avec sa légende. Infobulle d'une case de mer : marnage, et courant de marée quand il dépasse 0,3 m/s (rubrique « Marée », par défaut sur la carte des marées). Console : `info` donne `maree=`, `pleine-mer=`, `courant-maree=`.
+- Les marées serviront à la forme des embouchures (estuaires, deltas de marée) et à l'estran ; leurs effets en jeu (ports, courants, ressources) restent à décider.
+
 ### Des cours d'eau plus variés
 - **Moins de saccades en 3D** (constat de Benjamin : saccades en zoomant en se déplaçant) : les cours d'eau plus détaillés multipliaient par 4 à 6 les lits d'une case, et la construction du relief débordait du temps d'une image. Hauteurs d'eau des lits calculées en parallèle, lits rangés par mailles (chaque point ne regarde que ceux à sa portée), surfaces d'eau moins coûteuses : sur un long parcours rapide avec zoom, 1 à-coup au lieu de 18 (pire image 36 ms au lieu de 43). Console : `travelling col lig distance [images]` déplace la vue en douceur et mesure les durées d'image.
 - **Largeur selon le débit** : un fleuve va d'un quart de case (2 000 m³/s) à presque toute la case (60 000 m³/s et plus) ; les rivières s'élargissent nettement plus avec leur débit (de 2 à 14 de large sur une arête de 32), une grosse rivière arrive presque à la largeur d'un petit fleuve.

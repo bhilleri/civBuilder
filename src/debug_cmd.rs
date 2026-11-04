@@ -673,6 +673,10 @@ pub fn info(map: &WorldMap, hex: Hex) -> Vec<String> {
     );
     if t.is_water() {
         water += &format!(" surface={:.0}m profondeur={}", map.surface_elevation(hex).unwrap_or(0.0), opt(map.depth(hex), "m"));
+        if let Some(range) = map.tidal_range(hex) {
+            let i = map.cell(hex);
+            water += &format!(" maree={range:.1}m pleine-mer={:.1}h courant-maree={:.2}m/s", map.tides().high_water_h[i], map.tides().current[i]);
+        }
     }
     lines.push(water);
     if let Some(name) = map.named_river(hex).map(|r| r.name.clone()) {

@@ -41,6 +41,7 @@ mod search;
 mod seas;
 mod settings;
 mod sites;
+mod tides;
 mod tooltip;
 mod toponymy;
 mod ui;

@@ -1347,6 +1347,7 @@ fn update_relief_3d(
                 MapLayer::Plates => plate_color(&map.0, hex),
                 MapLayer::Geography => geo.0.shade.get(map.0.cell(map.0.canonical(hex))).map_or(crate::render::GEO_LAND, |&s| crate::render::geo_color(s)),
                 MapLayer::Currents => currents_color(&map.0, hex),
+                MapLayer::Tides => crate::render::tides_color(&map.0, hex),
                 _ => hydro_color(&map.0, hex, thematic),
             };
             let c = Color::srgb(r, g, b).to_linear();
