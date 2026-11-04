@@ -70,6 +70,8 @@ const ROCK_SRGB: [f32; 3] = [0.45, 0.42, 0.39];
 /// Affluent dans un fleuve : il le rejoint vers l'aval, le long de sa rive (part de la
 /// demi-largeur du fleuve), puis sa couleur se fond dans celle du fleuve sur `PLUME` unités.
 const INFLOW_BANK: f32 = 0.45;
+/// Largeur du panache d'un affluent au plus (part de la demi-largeur du fleuve).
+const INFLOW_FILL: f32 = 0.9;
 const PLUME: f32 = 12.0;
 /// Îles d'un fleuve en plaine : pente (m/km) au-delà de laquelle il n'y en a plus ; chance
 /// d'une île (fleuve plat) au seuil d'un fleuve et pour les plus grands ; part de cette chance
@@ -1335,9 +1337,15 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
         let flow = if flow == Vec2::ZERO { toward } else { flow };
         // Du côté de l'affluent, un peu vers l'aval
         let side = flow.perp() * (k - axis).dot(flow.perp()).signum();
-        let target = axis + side * hw * INFLOW_BANK + flow * hw * 0.6;
+        // Le panache reste dans le fleuve : il s'élargit au plus jusqu'à `INFLOW_FILL` du fleuve,
+        // et longe la rive d'autant plus près de l'axe que l'affluent est large (sinon il dépasse
+        // de la berge, puis s'arrête net)
+        let hw_r = river_half_width(trib.q);
+        let widest = (hw_r * (1.0 + 0.2 * 3.0)).min(hw * INFLOW_FILL);
+        let bank = (hw * INFLOW_BANK).min(hw - widest).max(0.0);
+        let target = axis + side * bank + flow * hw * 0.6;
         let incoming = if trib.down.distance(k) < 0.5 { (trib.down - trib.up).normalize_or(toward) } else { toward };
-        let (l, hw_r) = (k.distance(target), river_half_width(trib.q));
+        let l = k.distance(target);
         let mut pts: Vec<Vec2> = vec![k];
         pts.extend(hermite(k, incoming * l, target, flow * l, STEPS).map(|(_, p)| p));
         // Puis le long de la rive, en suivant le fleuve (ses virages compris)
@@ -1350,7 +1358,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
             if f == Vec2::ZERO || a.distance(ahead) > hw {
                 break;
             }
-            at = a + f.perp() * bank_side * hw * INFLOW_BANK;
+            at = a + f.perp() * bank_side * bank;
             pts.push(at);
         }
         // Dans l'eau du fleuve : à moins de sa demi-largeur de son axe
@@ -1362,6 +1370,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
         for (i, &p) in pts.iter().enumerate() {
             let fade = if i < first_wet { 0.0 } else { (i - first_wet + 1) as f32 / (last - first_wet + 1) as f32 };
             let width = if i <= STEPS { hw_r } else { hw_r * (1.0 + 0.2 * (i - STEPS) as f32) };
+            let width = if i < first_wet { width } else { width.min(widest) };
             path.push((p, width, trib.tone.lerp(own, fade)));
             rims.push(if i < first_wet { trib.tone } else { own });
         }
@@ -1774,6 +1783,31 @@ mod tests {
         assert!(shape.tris.iter().any(|t| t.kind == WaterKind::Fleuve && inside(t, end.b)));
         assert_eq!(inflow[0].inflow.unwrap()[0], 0.0);
         assert_eq!(end.inflow.unwrap()[1], 1.0);
+    }
+
+    #[test]
+    fn panache_d_un_gros_affluent_dans_le_fleuve() {
+        // Petit fleuve à sa source ; une rivière presque aussi large arrive à chacun de deux coins
+        let (mut map, row) = fleuve_rangee(4);
+        let h = row[0];
+        for j in [1, 4] {
+            let (a, b) = (h + DIRECTIONS[(j + 5) % 6], h + DIRECTIONS[j]);
+            let dir = DIRECTIONS.iter().position(|&dd| a + dd == b).unwrap();
+            map.set_river(a, dir, 1_800.0);
+        }
+        let shape = hex_water(&map, h);
+        let fleuve: Vec<&WaterAxis> = shape.channels.iter().filter(|c| c.kind == WaterKind::Fleuve && c.isle.is_none()).collect();
+        // Dans le fleuve, le panache ne dépasse pas de la berge (il s'arrêtait net au-dehors)
+        let reach = |p: Vec2| fleuve.iter().map(|c| -segment_depth((c.a, c.hw), (c.b, c.hw_end), p)).fold(f32::MAX, f32::min);
+        // (le panache : les tronçons d'un affluent après son arrivée, `STEPS` tronçons depuis son coin)
+        let inflow: Vec<&WaterAxis> = shape.channels.iter().filter(|c| c.inflow.is_some()).collect();
+        let starts: Vec<usize> = (0..inflow.len()).filter(|&i| [1, 4].iter().any(|&j| inflow[i].a.distance(corner(h, j)) < 1e-3)).collect();
+        assert_eq!(starts.len(), 2);
+        let plume: Vec<&&WaterAxis> = starts.iter().flat_map(|&s| inflow[s..].iter().take_while(|c| c.inflow.unwrap()[1] <= 1.0).skip(STEPS).take(3)).collect();
+        assert!(!plume.is_empty());
+        for c in plume.iter().filter(|c| reach(c.b) < -1.0) {
+            assert!(reach(c.b) + c.hw_end <= 0.6, "panache hors du fleuve : {} au-delà de la berge", reach(c.b) + c.hw_end);
+        }
     }
 
     #[test]
