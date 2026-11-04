@@ -137,6 +137,8 @@ struct Palette {
     /// `currents_index`).
     currents: Vec<Handle<ColorMaterial>>,
     currents_dim: Vec<Handle<ColorMaterial>>,
+    tides: Vec<Handle<ColorMaterial>>,
+    tides_dim: Vec<Handle<ColorMaterial>>,
     /// Carte géographique (voir `geo_index`).
     geo: Vec<Handle<ColorMaterial>>,
     geo_dim: Vec<Handle<ColorMaterial>>,
@@ -179,6 +181,8 @@ pub enum MapLayer {
     Plates,
     /// Courants marins : température de la mer et sens des courants.
     Currents,
+    /// Marées : marnage de vives-eaux des mers.
+    Tides,
     /// Ressources : bancs de poissons (une icône par banc, la zone au survol).
     Resources,
     /// Géographie : le découpage du territoire en zones nommées (terres, mers, relief, régions
@@ -187,7 +191,7 @@ pub enum MapLayer {
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 11] = [
+    pub const ALL: [MapLayer; 12] = [
         MapLayer::Normal,
         MapLayer::Altitude,
         MapLayer::Relief,
@@ -197,6 +201,7 @@ impl MapLayer {
         MapLayer::Network,
         MapLayer::Plates,
         MapLayer::Currents,
+        MapLayer::Tides,
         MapLayer::Resources,
         MapLayer::Geography,
     ];
@@ -213,6 +218,7 @@ impl MapLayer {
             MapLayer::Network => "réseau hydrographique",
             MapLayer::Plates => "plaques tectoniques",
             MapLayer::Currents => "courants marins",
+            MapLayer::Tides => "marées",
             MapLayer::Resources => "ressources",
             MapLayer::Geography => "géographie",
         }
@@ -670,6 +676,40 @@ fn currents_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
             (((t - lo) / (hi - lo) * SEA_SHADES as f32).max(0.0) as usize).min(SEA_SHADES - 1)
         }
         _ => SEA_SHADES,
+    }
+}
+
+/// Carte des marées : bornes des classes de marnage de vives-eaux (m) et leurs couleurs (sRGB), de
+/// l'eau presque sans marée aux plus fortes marées.
+pub const TIDE_CLASSES: [(f32, (f32, f32, f32)); 6] = [
+    (0.0, (0.86, 0.93, 0.96)),
+    (0.5, (0.62, 0.82, 0.90)),
+    (1.0, (0.36, 0.64, 0.82)),
+    (2.0, (0.30, 0.42, 0.72)),
+    (4.0, (0.46, 0.27, 0.62)),
+    (8.0, (0.66, 0.16, 0.42)),
+];
+
+/// Classe de marnage (indice dans `TIDE_CLASSES`) d'une case de mer.
+fn tide_class(range: f32) -> usize {
+    TIDE_CLASSES.iter().rposition(|&(from, _)| range >= from).unwrap_or(0)
+}
+
+/// Teinte (indice) d'une case sur la carte des marées : classes de marnage, puis terre et lac.
+fn tides_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
+    match (map.get(hex), map.tidal_range(hex)) {
+        (Some(Terrain::Lake), _) => TIDE_CLASSES.len() + 1,
+        (_, Some(r)) => tide_class(r),
+        _ => TIDE_CLASSES.len(),
+    }
+}
+
+/// Couleur d'une case sur la carte des marées (3D).
+pub fn tides_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
+    match (map.get(hex), map.tidal_range(hex)) {
+        (Some(Terrain::Lake), _) => CURRENTS_LAKE,
+        (_, Some(r)) => TIDE_CLASSES[tide_class(r)].1,
+        _ => CURRENTS_LAND,
     }
 }
 
@@ -1176,6 +1216,7 @@ fn setup_map_visuals(
     let (plates, plates_dim) = pair(plate_shades(map.0.plates()));
     let sea_shades = (0..SEA_SHADES).map(|i| sea_temperature_color(sea_shade_degrees(i)));
     let (currents, currents_dim) = pair(sea_shades.chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
+    let (tides, tides_dim) = pair(TIDE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
     let geo_shades = (0..GEO_PALETTE.len() as u8).flat_map(|color| (0..=crate::geography::MUTED).map(move |tone| crate::geography::GeoShade::Zone { color, tone }));
     let (geo, geo_dim) = pair(geo_shades.map(geo_color).chain([GEO_LAND, GEO_WATER]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
@@ -1198,6 +1239,8 @@ fn setup_map_visuals(
         plates_dim,
         currents,
         currents_dim,
+        tides,
+        tides_dim,
         geo,
         geo_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
@@ -1381,6 +1424,7 @@ fn update_tile_fog(
         MapLayer::Flow | MapLayer::Network => Some((&palette.flow, &palette.flow_dim)),
         MapLayer::Plates if !palette.plates.is_empty() => Some((&palette.plates, &palette.plates_dim)),
         MapLayer::Currents => Some((&palette.currents, &palette.currents_dim)),
+        MapLayer::Tides => Some((&palette.tides, &palette.tides_dim)),
         MapLayer::Geography if geo.0.shade.len() == (map.0.width * map.0.height) as usize => Some((&palette.geo, &palette.geo_dim)),
         _ => None,
     };
@@ -1392,6 +1436,7 @@ fn update_tile_fog(
         (MapLayer::Relief, _) => relief_index(&map.0, hex),
         (MapLayer::Plates, _) => plate_index(&map.0, hex),
         (MapLayer::Currents, _) => currents_index(&map.0, hex),
+        (MapLayer::Tides, _) => tides_index(&map.0, hex),
         (MapLayer::Geography, _) => geo_index(geo.0.shade[map.0.cell(hex)]),
         _ => hydro_index(&map.0, hex, *layer),
     };

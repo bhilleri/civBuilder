@@ -798,6 +798,8 @@ pub struct WorldMap {
     climate: Climate,
     /// Courants marins et température de la mer (vides pour une carte remplie à la main).
     currents: crate::currents::Currents,
+    /// Marées des cases de mer (voir `tides.rs`).
+    tides: crate::tides::Tides,
     /// Cours d'eau et lacs (vides pour une carte remplie à la main).
     hydro: Hydrology,
     /// Échelle et latitude de la carte.
@@ -856,6 +858,7 @@ impl WorldMap {
             lake_level_m: vec![150.0; n],
             climate: Climate::default(),
             currents: crate::currents::Currents::default(),
+            tides: crate::tides::Tides::default(),
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
             basins: Basins::empty(n),
@@ -1917,6 +1920,21 @@ impl WorldMap {
     }
 
     /// Courants marins de toute la carte.
+    /// Marées de toutes les cases (amplitude, heure de la pleine mer, courant).
+    pub fn tides(&self) -> &crate::tides::Tides {
+        &self.tides
+    }
+
+    /// Marnage de vives-eaux d'une case de mer (m).
+    pub fn tidal_range(&self, hex: Hex) -> Option<f32> {
+        self.index(hex).filter(|&i| self.tiles[i].is_sea()).map(|i| self.tides.spring_range(i))
+    }
+
+    /// Courant de marée au plus fort d'une case de mer (m/s, vives-eaux).
+    pub fn tidal_current(&self, hex: Hex) -> Option<f32> {
+        self.index(hex).filter(|&i| self.tiles[i].is_sea()).and_then(|i| self.tides.current.get(i).copied())
+    }
+
     pub fn currents(&self) -> &crate::currents::Currents {
         &self.currents
     }
@@ -2367,6 +2385,9 @@ impl WorldMap {
             // 8) Eaux poissonneuses (remontées d'eaux, monts sous-marins, îles volcaniques)
             self.add_marine_life(seed);
         }
+        // 9) Marées (voir tides.rs), sur les mers définitives
+        let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
+        self.tides = crate::tides::simulate(width, height, &sea, &self.depth, &region);
     }
 
     /// Biome d'une case de terre selon son climat, l'aridité variée de `jitter` (sols, exposition).
@@ -3347,6 +3368,43 @@ mod fond_marin {
     /// circumpolaire, rencontres de courants. `CURRENTS_DUMP=<dossier>` écrit pour chaque case
     /// « terre/mer, température, écart, u, v » (une ligne par case) :
     /// `cargo test bilan_courants -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bilan_marees() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").map_or(vec![777, 2, 5], |s| s.split(',').map(|x| x.parse().unwrap()).collect());
+        for seed in seeds {
+            let m = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let sea: Vec<usize> = (0..m.tiles.len()).filter(|&i| m.tiles[i].is_sea()).collect();
+            let t = std::time::Instant::now();
+            let land: Vec<bool> = m.tiles.iter().map(|t| t.is_sea()).collect();
+            let _ = crate::tides::simulate(m.width, m.height, &land, &m.depth, &crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let took = t.elapsed().as_secs_f32();
+            let tides = m.tides();
+            let coast = |i: usize| m.neighbors(m.hex_at(i)).iter().any(|&n| m.get(n).is_some_and(|t| !t.is_water()));
+            let pct = |mut v: Vec<f32>, p: f32| {
+                v.sort_by(f32::total_cmp);
+                if v.is_empty() { 0.0 } else { v[((v.len() - 1) as f32 * p) as usize] }
+            };
+            let open: Vec<f32> = sea.iter().copied().filter(|&i| m.depth[i] > 3_000.0).map(|i| tides.spring_range(i)).collect();
+            let shelf: Vec<f32> = sea.iter().copied().filter(|&i| m.depth[i] < SHELF_DEPTH_M).map(|i| tides.spring_range(i)).collect();
+            let shore: Vec<f32> = sea.iter().copied().filter(|&i| coast(i)).map(|i| tides.spring_range(i)).collect();
+            let current: Vec<f32> = sea.iter().map(|&i| tides.current[i]).collect();
+            let still = sea.iter().filter(|&&i| tides.amplitude[i] < 0.05).count();
+            println!(
+                "graine {seed} : marnage de vives-eaux (m) en pleine mer (> 3 000 m) médiane {:.2}, 90 % {:.2} ; plateau médiane {:.2}, 90 % {:.2}, max {:.1} ; côtes médiane {:.2}, 10 % {:.2}, 90 % {:.2}, 99 % {:.1}, max {:.1} ; courant (m/s) médiane {:.2}, 99 % {:.2}, max {:.2} ; cases presque sans marée {still} ; calcul {took:.1} s",
+                pct(open.clone(), 0.5), pct(open, 0.9), pct(shelf.clone(), 0.5), pct(shelf.clone(), 0.9), pct(shelf, 1.0),
+                pct(shore.clone(), 0.5), pct(shore.clone(), 0.1), pct(shore.clone(), 0.9), pct(shore.clone(), 0.99), pct(shore, 1.0),
+                pct(current.clone(), 0.5), pct(current.clone(), 0.99), pct(current, 1.0),
+            );
+            // Les plus forts marnages côtiers : où sont-ils ?
+            let mut best: Vec<usize> = sea.iter().copied().filter(|&i| coast(i)).collect();
+            best.sort_by(|&a, &b| tides.spring_range(b).total_cmp(&tides.spring_range(a)));
+            for &i in best.iter().take(5) {
+                println!("   {:?} marnage {:.1} m, fond {:.0} m, courant {:.2} m/s", m.hex_at(i).to_offset(), tides.spring_range(i), m.depth[i], tides.current[i]);
+            }
+        }
+    }
+
     #[test]
     #[ignore]
     fn bilan_courants() {

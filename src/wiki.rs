@@ -280,6 +280,16 @@ fn climate() -> Article {
                grands continents arrêtent l'eau : les petites îles la laissent passer. La carte des courants marins \
                montre la température de la mer et le sens des courants (flèches rouges : courant chaud, bleu clair : \
                courant froid). Les courants ne changent pas au fil de l'année."),
+            h("Marées"),
+            p("La Lune (et un peu le Soleil) attire l'eau des océans : deux fois par jour, la mer monte et descend. \
+               En plein océan, l'écart entre pleine et basse mer, le marnage, ne dépasse guère un mètre. Sur un \
+               plateau continental, l'onde de marée ralentit et grandit ; dans un golfe de la bonne taille, elle \
+               résonne et dépasse 8 à 10 m (comme dans la baie de Fundy ou la baie du Mont-Saint-Michel). Une mer \
+               fermée reliée à l'océan par un détroit étroit et peu profond n'a presque pas de marée (comme la \
+               Méditerranée ou la Baltique). Avec la rotation de la planète, la marée tourne autour de points où \
+               elle est nulle. La carte des marées montre le marnage de vives-eaux (quand la Lune et le Soleil \
+               s'ajoutent) ; l'infobulle d'une mer le donne, avec le courant de marée quand il est fort (détroits, \
+               plateaux)."),
             h("Vents"),
             p("Le vent naît des différences de pression : ceintures alternées de hautes et basses pressions, effet des \
                continents (une terre chaude attire l'air, une terre froide le repousse), dépressions et anticyclones \

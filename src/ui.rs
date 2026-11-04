@@ -246,6 +246,7 @@ fn setup_ui(mut commands: Commands) {
             network_legend(),
             plates_legend(),
             currents_legend(),
+            tides_legend(),
             resources_legend(),
             geography_legend(),
             (
@@ -267,6 +268,7 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Network, "Carte du réseau hydrographique"),
                     map_option(MapLayer::Plates, "Carte des plaques tectoniques"),
                     map_option(MapLayer::Currents, "Carte des courants marins"),
+                    map_option(MapLayer::Tides, "Carte des marées"),
                     map_option(MapLayer::Resources, "Carte des ressources"),
                     map_option(MapLayer::Geography, "Carte géographique (découpage)"),
                 ],
@@ -642,6 +644,44 @@ fn currents_legend() -> impl Bundle {
             Spawn(text("Les courants froids rafraîchissent et assèchent les côtes (déserts côtiers, brouillards) ; les courants chauds les adoucissent et les arrosent. Leur rencontre enrichit la pêche.", 12.0)),
         )),
     )
+}
+
+/// Légende de la carte des marées : classes de marnage de vives-eaux.
+fn tides_legend() -> impl Bundle {
+    use crate::render::TIDE_CLASSES;
+    let label = |k: usize| match TIDE_CLASSES.get(k + 1) {
+        Some(next) => format!("{} à {} m", tide_meters(TIDE_CLASSES[k].0), tide_meters(next.0)),
+        None => format!("{} m et plus", tide_meters(TIDE_CLASSES[k].0)),
+    };
+    (
+        Legend(MapLayer::Tides),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(330.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Marnage de vives-eaux", 14.0)),
+            Spawn(legend_row(TIDE_CLASSES[5].1, label(5))),
+            Spawn(legend_row(TIDE_CLASSES[4].1, label(4))),
+            Spawn(legend_row(TIDE_CLASSES[3].1, label(3))),
+            Spawn(legend_row(TIDE_CLASSES[2].1, label(2))),
+            Spawn(legend_row(TIDE_CLASSES[1].1, label(1))),
+            Spawn(legend_row(TIDE_CLASSES[0].1, label(0))),
+            Spawn(text("Écart entre pleine et basse mer quand la Lune et le Soleil s'ajoutent. Faible en plein océan et dans les mers fermées, fort sur les plateaux continentaux et dans les bassins qui résonnent ; nul au centre des points amphidromiques, autour desquels la marée tourne.", 12.0)),
+        )),
+    )
+}
+
+/// Courant de marée (m/s) à partir duquel l'infobulle le donne (il gêne ou aide les bateaux).
+const TIDAL_CURRENT_SHOWN: f32 = 0.3;
+
+/// Marnage en mètres, sans décimale inutile (0,5 ; 1 ; 2).
+fn tide_meters(m: f32) -> String {
+    if m.fract() == 0.0 { format!("{m:.0}") } else { format!("{m:.1}").replace('.', ",") }
 }
 
 /// Légende de la carte des ressources.
@@ -1263,6 +1303,14 @@ fn update_hover_text(
                 {
                     place.push(format!("{:.0} mm/an", (r / 10.0).round() * 10.0));
                 }
+            }
+            // Mer : marnage de vives-eaux, et courant de marée quand il compte
+            if shows(Info::Tide)
+                && let Some(range) = m.tidal_range(h)
+            {
+                let current = m.tidal_current(h).unwrap_or(0.0);
+                let range = if range < 10.0 { format!("{range:.1}").replace('.', ",") } else { format!("{range:.0}") };
+                place.push(if current >= TIDAL_CURRENT_SHOWN { format!("marnage {range} m, courant de marée {} m/s", format!("{current:.1}").replace('.', ",")) } else { format!("marnage {range} m") });
             }
             if shows(Info::Latitude) {
                 let lat = m.latitude(h);
