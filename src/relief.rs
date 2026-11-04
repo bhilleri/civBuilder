@@ -167,6 +167,46 @@ pub fn lift_at(p: Vec2, bumps: &BumpMap) -> (f32, f32) {
     (lift, if snow_w > 0.0 { snow / snow_w } else { f32::MAX })
 }
 
+/// Taille des mailles d'une grille de lits (unités monde).
+const GRID_CELL: f32 = 8.0;
+
+/// Lits rangés par mailles carrées autour d'une zone (centre, demi-côté) : pour un point, les
+/// seuls lits qui peuvent le toucher (à leur portée). Même résultat que la liste entière, bien
+/// plus vite quand une case et ses voisines ont beaucoup de lits (rivières courbes, affluents,
+/// îles) : le sol et l'eau d'une case sont calculés en des milliers de points.
+pub struct ChannelGrid {
+    origin: Vec2,
+    cols: usize,
+    rows: usize,
+    cells: Vec<Vec<Channel>>,
+    all: Vec<Channel>,
+}
+
+impl ChannelGrid {
+    pub fn new(channels: &[Channel], center: Vec2, half: f32) -> Self {
+        let origin = center - Vec2::splat(half);
+        let n = ((2.0 * half / GRID_CELL).ceil() as usize).max(1);
+        // (une maille garde un lit dès que l'un de ses points est à sa portée)
+        let corner = GRID_CELL * std::f32::consts::FRAC_1_SQRT_2;
+        let cells = (0..n * n)
+            .map(|i| {
+                let c = origin + (Vec2::new((i % n) as f32, (i / n) as f32) + 0.5) * GRID_CELL;
+                channels.iter().filter(|ch| c.distance(ch.nearest(c)) < ch.reach() + corner).copied().collect()
+            })
+            .collect();
+        ChannelGrid { origin, cols: n, rows: n, cells, all: channels.to_vec() }
+    }
+
+    /// Lits qui peuvent toucher le point `p` (tous, hors de la zone).
+    pub fn near(&self, p: Vec2) -> &[Channel] {
+        let q = (p - self.origin) / GRID_CELL;
+        if q.x < 0.0 || q.y < 0.0 || q.x as usize >= self.cols || q.y as usize >= self.rows {
+            return &self.all;
+        }
+        &self.cells[q.y as usize * self.cols + q.x as usize]
+    }
+}
+
 /// Effacement de la déformation près des cours d'eau (0 au bord de l'eau, 1 au loin) : les
 /// rivières coulent dans des vallées, jamais sous la roche.
 pub fn valley_fade(channels: &[Channel], p: Vec2) -> f32 {
@@ -772,13 +812,15 @@ pub fn build_hex(
     // Relief interne (collines, montagnes) de la case ou de ses voisines : maillage fin
     let bumpy = !skirt && std::iter::once(hex).chain(hex.neighbors()).any(|h| bumps.get(&h).is_some_and(|b| b.amp > 0.0 || b.summit > 0.0));
     let fine = !channels.is_empty() || bumpy;
+    // (lits rangés par mailles : chaque point ne regarde que ceux qui peuvent le toucher)
+    let grid = ChannelGrid::new(channels, origin, HEX_SIZE + 2.0);
     // Déformation du relief (effacée près de l'eau) et limite des neiges
     let lift = |q: Vec2| -> (f32, f32) {
         if !bumpy {
             return (0.0, f32::MAX);
         }
         let (l, snow) = lift_at(origin + q, bumps);
-        (l * valley_fade(channels, origin + q), snow)
+        (l * valley_fade(grid.near(origin + q), origin + q), snow)
     };
     let terrain = |q: Vec2| top.sample(q) + lift(q).0;
     // Rivages de la case (côté terre) : arête, hauteur de l'eau
@@ -789,7 +831,7 @@ pub fn build_hex(
         .collect();
     let dig = |q: Vec2| {
         let terrain = terrain(q);
-        if !channels.is_empty() { carve(channels, origin + q, terrain) } else { (terrain, 0.0) }
+        if !channels.is_empty() { carve(grid.near(origin + q), origin + q, terrain) } else { (terrain, 0.0) }
     };
     let height = |q: Vec2| dig(q).0;
     // Normale : gradient du terrain (`g`, mesuré comme `HexTop::gradient`), corrigé du creusement
@@ -987,6 +1029,30 @@ mod tests {
                 if (1..8).contains(&k) {
                     assert!(angle < 6.0, "arête {d}, point {k} : pli de {angle:.1}°");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn grille_de_lits_comme_la_liste_entiere() {
+        // Lits épars autour d'une case (longueurs, largeurs, hauteurs variées)
+        let channels: Vec<Channel> = (0..40)
+            .map(|k| {
+                let f = k as f32;
+                let a = Vec2::new((f * 37.0) % 90.0 - 45.0, (f * 53.0) % 90.0 - 45.0);
+                let b = a + Vec2::from_angle(f * 0.7) * (3.0 + (f * 7.0) % 15.0);
+                Channel { a, b, hw: 1.0 + (f * 3.0) % 9.0, hw_end: 1.0 + (f * 5.0) % 9.0, levels: std::array::from_fn(|i| 20.0 - i as f32 * (f % 3.0)), bed: 1.4, isle: (k % 7 == 0).then_some(IsleTop { lift: 1.0, soil: 0.5 }) }
+            })
+            .collect();
+        let grid = ChannelGrid::new(&channels, Vec2::ZERO, HEX_SIZE + 2.0);
+        for i in 0..60 {
+            for j in 0..60 {
+                let p = Vec2::new(i as f32 * 1.3 - 39.0, j as f32 * 1.3 - 39.0);
+                let (h, bank) = carve(&channels, p, 25.0);
+                let (h2, bank2) = carve(grid.near(p), p, 25.0);
+                assert!((h - h2).abs() < 1e-4 && (bank - bank2).abs() < 1e-4, "{p} : {h} {h2}");
+                assert!((valley_fade(&channels, p) - valley_fade(grid.near(p), p)).abs() < 1e-5);
+                assert_eq!(water_surface(&channels, p).map(|w| (w * 1e3).round()), water_surface(grid.near(p), p).map(|w| (w * 1e3).round()));
             }
         }
     }

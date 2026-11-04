@@ -165,17 +165,16 @@ impl Relief {
         self.tops.get(&self.wrap.hex(hex)).map_or(unexplored_height(), |t| t.sample(Vec2::new(x - cx, y - cy)))
     }
 
-    /// Mer ou lac exploré le plus proche d'un point : distance (approchée) et couleur.
-    fn nearest_water(&self, p: Vec2) -> Option<(f32, Vec3)> {
+    /// Mers et lacs explorés autour d'un point (à trois cases au plus) : centre et couleur.
+    fn waters_around(&self, p: Vec2) -> Vec<(Vec2, Vec3)> {
         Hex::from_world(p.x, p.y)
-            .range(2)
+            .range(3)
             .filter(|&h| self.water_seen.contains(&self.wrap.hex(h)))
             .filter_map(|h| {
                 let (cx, cy) = h.to_world();
-                let d = (p.distance(Vec2::new(cx, cy)) - HEX_SIZE * 0.866).max(0.0);
-                self.water_colors.get(&self.wrap.hex(h)).map(|&c| (d, c))
+                self.water_colors.get(&self.wrap.hex(h)).map(|&c| (Vec2::new(cx, cy), c))
             })
-            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .collect()
     }
 
     /// Lits visibles qui touchent une case : les siens et ceux de ses voisines (une arête est
@@ -262,6 +261,10 @@ impl Relief {
     /// Lit 3D d'un tronçon : hauteurs de l'eau le long de l'axe. Un affluent qui entre dans un
     /// fleuve passe progressivement de la hauteur d'une rivière à celle du fleuve.
     fn channel(&self, axis: &WaterAxis) -> Channel {
+        // (un lit d'île n'a pas d'eau : pas de hauteur à calculer)
+        if axis.isle.is_some() {
+            return Channel { a: axis.a, b: axis.b, hw: axis.hw, hw_end: axis.hw_end, levels: [0.0; CHANNEL_LEVELS], bed: 0.0, isle: axis.isle };
+        }
         let levels = std::array::from_fn(|k| {
             let t = k as f32 / (CHANNEL_LEVELS - 1) as f32;
             let p = axis.a.lerp(axis.b, t);
@@ -1387,6 +1390,20 @@ fn update_relief_3d(
             }
             processed.push((hex, paquet));
         }
+        // Hauteurs d'eau des lits des cases du paquet et de leurs voisines, calculées en parallèle
+        // (beaucoup de lits par case : rivières courbes, affluents, îles ; en série, la
+        // préparation d'un paquet dépassait le temps d'une image)
+        let missing: HashSet<Hex> = processed[processed.len() - count..]
+            .iter()
+            .flat_map(|&(h, _)| h.range(1))
+            .map(|seen| relief.wrap.hex(seen))
+            .filter(|h| relief.water.contains_key(h) && !relief.axis_cache.contains_key(h))
+            .collect();
+        let computed: Vec<(Hex, Vec<Channel>)> = {
+            let r = &*relief;
+            missing.into_iter().collect::<Vec<Hex>>().into_par_iter().map(|h| (h, r.water[&h].0.channels.iter().map(|a| r.channel(a)).collect())).collect()
+        };
+        relief.axis_cache.extend(computed);
         for &(hex, _) in &processed[processed.len() - count..] {
             // Lits qui touchent la case (la surface d'un lac ou de la mer reste plate, une case
             // inexplorée aussi)
@@ -1569,13 +1586,16 @@ fn water_mesh<'a>(
     // Eau douce : la couleur des lacs ; en arrivant dans la mer ou un lac, elle prend
     // progressivement la couleur de leur eau (l'embouchure se fond dans l'étendue d'eau)
     let fresh = terrain_color(Terrain::Lake);
-    let tint = |p: Vec2, tone: crate::waterways::Tone, kind: WaterKind| {
+    // Mer ou lac le plus proche d'un point parmi ceux d'alentour (`waters_around`, cherchés une
+    // fois par triangle) : distance (approchée) et couleur
+    let nearest_water = |waters: &[(Vec2, Vec3)], p: Vec2| waters.iter().map(|&(c, color)| ((p.distance(c) - HEX_SIZE * 0.866).max(0.0), color)).min_by(|a, b| a.0.total_cmp(&b.0));
+    let tint = |waters: &[(Vec2, Vec3)], p: Vec2, tone: crate::waterways::Tone, kind: WaterKind| {
         // Teinte du cours d'eau (débit, limon), qui se fond dans la mer ou le lac où il se jette
         // (sur une plus longue distance pour un fleuve : pas de coupure de couleur à l'embouchure)
         let water = tone.apply(fresh);
         let own = kind.rapids_color(tone, water).unwrap_or(water);
         let blend = if kind == WaterKind::Fleuve { MOUTH_BLEND_FLEUVE } else { MOUTH_BLEND };
-        let c = match relief.nearest_water(p) {
+        let c = match nearest_water(waters, p) {
             Some((d, water)) => own.lerp(water, 1.0 - smoothstep01(d / blend)),
             None => own,
         };
@@ -1584,13 +1604,26 @@ fn water_mesh<'a>(
     // L'eau s'arrête net au bord de la zone explorée (une rivière d'arête se voit dès qu'une
     // rive est explorée : seule sa moitié côté exploré est dessinée)
     let pieces = tris.flat_map(|t| crate::waterways::clip_to_explored(t.pts, &explored).into_iter().map(move |pts| (t, pts)));
+    // (lits rangés par mailles autour de l'eau de la case : voir `ChannelGrid`)
+    let (lo, hi) = shape.tris.iter().flat_map(|t| t.pts).fold((Vec2::MAX, Vec2::MIN), |(lo, hi), p| (lo.min(p), hi.max(p)));
+    let grid = crate::relief::ChannelGrid::new(near, (lo + hi) / 2.0, ((hi - lo).max_element() / 2.0 + 2.0).max(1.0));
     for (t, [a, b, c]) in pieces {
         // Sens trigonométrique vu du dessus (repère 3D : z = −y)
         let ccw = (b - a).perp_dot(c - a) > 0.0;
         let pts = if ccw { [a, b, c] } else { [a, c, b] };
         // Même surface que celle qui a servi à tailler le lit (lits de la case et des voisines) ;
         // hors de portée des lits, la hauteur du tronçon (calcul coûteux : seulement dans ce cas)
-        let mut level = |p: Vec2| water_surface(near, p).unwrap_or_else(|| channels.entry(t.channel).or_insert_with(|| relief.channel(&shape.channels[t.channel])).levels[0]);
+        // (hauteurs déjà calculées dans ce triangle : chaque point en sert plusieurs fois)
+        let mut known: Vec<(Vec2, f32)> = Vec::new();
+        let mut level = |p: Vec2| {
+            if let Some(&(_, y)) = known.iter().find(|(q, _)| *q == p) {
+                return y;
+            }
+            let y = water_surface(grid.near(p), p).unwrap_or_else(|| channels.entry(t.channel).or_insert_with(|| relief.channel(&shape.channels[t.channel])).levels[0]);
+            known.push((p, y));
+            y
+        };
+        let waters = relief.waters_around((a + b + c) / 3.0);
         // Affluent dans un fleuve : un rien au-dessus de l'eau du fleuve (sa couleur s'y fond
         // sans que les deux surfaces se chevauchent par endroits) ; éléments des rapides : posés
         // sur l'eau
@@ -1627,7 +1660,7 @@ fn water_mesh<'a>(
                         data.positions.push([p.x, level(p) + lift, -p.y]);
                         data.normals.push([0.0, 1.0, 0.0]);
                         // (écume mêlée à l'eau : un blanc plat se lisait comme une zone sans eau)
-                        let water = tint(p, t.tone_at(p), t.kind);
+                        let water = tint(&waters, p, t.tone_at(p), t.kind);
                         let white = linear(Color::srgb(0.86, 0.93, 0.98));
                         data.colors.push(if foam { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM) } else { water });
                         data.indices.push(data.indices.len() as u32);
