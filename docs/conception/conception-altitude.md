@@ -131,6 +131,15 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 - **Non retenu pour l'instant** : piste 3 (chercher les étendues d'eau proches une fois par maillage plutôt qu'à chaque sommet) ; tableaux indexés par case à la place des tables les plus consultées.
 - **Non mesuré** : vue 2D, fin de tour, coût du rendu sur la carte graphique.
 
+## Saccades au zoom et au déplacement (04/11/2026)
+- **Constat de Benjamin** : saccades en zoomant et dézoomant en se déplaçant sur la carte.
+- **Mesure** : nouvelle commande de console `travelling col lig distance [images]` (vue déplacée en douceur, zoom en échelle logarithmique, souris tenue au milieu de la vue : la case survolée change en chemin), qui donne les durées d'image (moyenne, pire, à-coups au-delà de 33, 50 et 100 ms). Scénario : graine 777, carte révélée, profil de développement (`cargo run`), six longs déplacements rapides en 3D (de 2 800 à 260 de distance) puis trois en 2D. **Avant** les travaux sur les cours d'eau (commit 5bd1a12) : pire image 22 ms, aucun à-coup. **Après** (rivières en courbes de six tronçons, affluents, panaches, rapides, îles) : pire 43 ms, 18 à-coups au-delà de 33 ms en 3D (2D inchangée, fluide). Un paquet de relief (32 cases, au moins un par image) prenait 10 à 17 ms : préparation **en série** de 5 à 8 ms (hauteurs d'eau des lits des cases du paquet et de leurs voisines, `Relief::channel` : 4 à 6 fois plus de lits par case qu'avant), construction parallèle de 3 à 7 ms ; surfaces d'eau 5 à 11 ms.
+- **Corrections** :
+  1. Hauteurs d'eau des lits calculées **en parallèle** avant la préparation (préparation 5-8 → ≈ 1,4 ms) ; pas de calcul pour un lit d'île (pas d'eau).
+  2. **Grille de lits** (`relief::ChannelGrid`, mailles de 8 unités) : chaque point du sol ou de l'eau ne regarde que les lits à sa portée, au lieu de tous ceux de la case et de ses voisines ; même résultat (test `grille_de_lits_comme_la_liste_entiere`).
+  3. Surfaces d'eau : hauteur de chaque point calculée une fois par triangle (un sommet sert au découpage des chutes et au maillage) ; mers et lacs d'alentour cherchés **une fois par triangle** (piste 3 de l'analyse du 30/10, non retenue alors), la distance au plus proche à chaque sommet. Surfaces d'eau ≈ 2 à 3 ms.
+- **Résultat** (même scénario) : un seul à-coup (36 ms) au lieu de 18, pire image 36 ms au lieu de 43 ; paquet de relief ≈ 8 ms. Rendu identique en captures. Reste : la construction d'un paquet (32 cases) est indivisible et coûte encore plus que le budget de 6 ms quand beaucoup de cases à cours d'eau arrivent d'un coup.
+
 ## Limites et suite
 - Le bruit d'élévation donne de larges hauts plateaux : le massif le plus haut reste une grande zone de montagnes (désormais franchissable). L'étape C (chaînes + érosion) doit le découper en crêtes et vallées.
 - Les pics ressemblent encore à des cônes arrondis enneigés ; collines discrètes sous les forêts denses.

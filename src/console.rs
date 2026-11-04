@@ -72,6 +72,16 @@ struct Script {
     wait: u32,
 }
 
+/// Travelling en cours : départ et arrivée (point visé en 3D, centre en 2D, distance de la
+/// caméra 3D), images faites et à faire, durées des images (ms).
+struct Travel {
+    from: (Vec3, Vec2, f32),
+    to: (Vec3, Vec2, f32),
+    done: u32,
+    frames: u32,
+    times: Vec<f32>,
+}
+
 /// Capture demandée : fichier, images déjà attendues, capture faite (attente de l'écriture).
 struct PendingCapture {
     path: PathBuf,
@@ -92,6 +102,7 @@ pub struct Console {
     dirty: bool,
     script: Option<Script>,
     capture: Option<PendingCapture>,
+    travel: Option<Travel>,
     /// Tours à jouer (`tour n`) et tour attendu pour celui en cours.
     turns: Option<(u32, Option<u32>)>,
     /// Modification à l'image précédente : le brouillard affiché est marqué changé une seconde
@@ -148,7 +159,7 @@ impl Plugin for ConsolePlugin {
             .add_message::<NamesChanged>()
             .add_systems(Startup, setup_console)
             .add_systems(PreUpdate, console_keys.after(InputSystems).after(crate::search::capture_keyboard))
-            .add_systems(Update, (run_script, run_capture, run_turns, touch_fog, refresh_console).chain());
+            .add_systems(Update, (run_script, run_travel, run_capture, run_turns, touch_fog, refresh_console).chain());
     }
 }
 
@@ -475,6 +486,13 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
             lines = vec![format!("OK capture : {}", path.display())];
             console.capture = Some(PendingCapture { path, waited: 0, settled: 0, shot: false });
         }
+        Some(Effect::Travel { to, distance, frames }) => {
+            let center = ctx.camera_2d.single().map_or(Vec2::ZERO, |t| t.translation.truncate());
+            let (x, y) = to.to_world();
+            let from = (ctx.cam.target, center, ctx.cam.distance);
+            let to = (to_3d(*to, tile_height(&ctx.map.0, *to)), Vec2::new(x, y), *distance);
+            console.travel = Some(Travel { from, to, done: 0, frames: *frames, times: Vec::new() });
+        }
         Some(Effect::Wait(n)) => {
             if let Some(s) = console.script.as_mut() {
                 s.wait = *n;
@@ -535,6 +553,7 @@ fn describe_unit(u: &crate::rules::UnitState, hostile: bool, place: &str) -> Str
 fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ctx: ConsoleContext) {
     let capturing = console.capture.is_some();
     let playing = console.turns.is_some();
+    let travelling = console.travel.is_some();
     let Some(script) = console.script.as_mut() else { return };
     if !debug.0 {
         debug.0 = true;
@@ -543,7 +562,7 @@ fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ct
         script.wait -= 1;
         return;
     }
-    if capturing || playing {
+    if capturing || playing || travelling {
         return;
     }
     // (lignes vides et commentaires passés d'un coup)
@@ -567,6 +586,52 @@ fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ct
             console.script = None;
         }
     }
+}
+
+/// Travelling (`travelling`) : la vue avance d'un pas par image (départ et arrivée en douceur), le
+/// zoom suit (en 2D, l'échelle équivalente à la distance de la caméra 3D) ; à la fin, les durées
+/// des images (la première, celle de la commande, n'est pas comptée). La souris est tenue au
+/// milieu de la vue (souris pilotée) : la case survolée change en chemin, comme quand on se
+/// déplace sur la carte (infobulle, surbrillance).
+fn run_travel(mut console: ResMut<Console>, time: Res<Time>, mut cam: ResMut<Cam3d>, mode: Res<ViewMode>, mut pilot: ResMut<crate::input::Pilot>, mut camera_2d: Query<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>) {
+    let Some(travel) = console.travel.as_mut() else { return };
+    if travel.done > 0 {
+        travel.times.push(time.delta_secs() * 1000.0);
+    }
+    travel.done += 1;
+    let t = (travel.done as f32 / travel.frames as f32).min(1.0);
+    let t = t * t * (3.0 - 2.0 * t);
+    let ((a3, a2, ad), (b3, b2, bd)) = (travel.from, travel.to);
+    cam.target = a3.lerp(b3, t);
+    // (zoom en échelle logarithmique : la vitesse apparente reste la même)
+    cam.distance = (ad.ln() + (bd.ln() - ad.ln()) * t).exp();
+    let p = a2.lerp(b2, t);
+    pilot.active = true;
+    pilot.cursor = Some(if mode.is_3d { Hex::from_world(cam.target.x, -cam.target.z) } else { Hex::from_world(p.x, p.y) });
+    if let Ok((mut transform, mut projection)) = camera_2d.single_mut() {
+        (transform.translation.x, transform.translation.y) = (p.x, p.y);
+        if let Projection::Orthographic(ortho) = projection.as_mut() {
+            ortho.scale = (cam.distance / 700.0).clamp(0.3, 8.0);
+        }
+    }
+    if travel.done <= travel.frames {
+        return;
+    }
+    let times = std::mem::take(&mut travel.times);
+    console.travel = None;
+    (pilot.active, pilot.cursor) = (false, None);
+    let n = times.len().max(1) as f32;
+    let mean = times.iter().sum::<f32>() / n;
+    let worst = times.iter().copied().fold(0.0f32, f32::max);
+    let jolts = |ms: f32| times.iter().filter(|&&x| x > ms).count();
+    let line = format!("OK travelling fini : {} images, moyenne {mean:.1} ms, pire {worst:.0} ms, à-coups {} au-delà de 33 ms, {} au-delà de 50 ms, {} au-delà de 100 ms", times.len(), jolts(33.0), jolts(50.0), jolts(100.0));
+    info!("console> {line}");
+    if let Some(s) = &console.script
+        && let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&s.out)
+    {
+        let _ = writeln!(f, "{line}");
+    }
+    console.push(line);
 }
 
 /// `tour n` : fin de tour demandée, puis attente du tour suivant et de la fin de ses animations,

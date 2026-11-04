@@ -149,6 +149,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "geographie", args: &[("famille", Arg::Geo, false)], help: "Carte géographique : famille de zones montrée (terres, mers, relief, regions) ; affiche la carte.", group: Group::Camera },
     Spec { name: "capture", args: &[("fichier", Arg::Text, false)], help: "Enregistre l'écran en PNG (sans la console). Chemin relatif : dossier du script, sinon dossier temporaire « civbuilder ».", group: Group::Camera },
     Spec { name: "attendre", args: &[("images", Arg::Number, false)], help: "Attend un nombre d'images avant la commande suivante (relief 3D à construire).", group: Group::Camera },
+    Spec { name: "travelling", args: &[AT[0], AT[1], ("distance", Arg::Number, false), ("images", Arg::Number, true)], help: "Déplace la vue en douceur jusqu'à la case en changeant le zoom (distance comme « camera » ; en 2D, zoom équivalent), sur un nombre d'images (120 par défaut), puis donne les durées d'image : moyenne, pire, nombre d'à-coups (saccades).", group: Group::Camera },
     Spec { name: "aide", args: &[("commande", Arg::Command, true)], help: "Liste des commandes, ou détail d'une commande (valeurs possibles).", group: Group::Console },
     Spec { name: "journal", args: &[("fichier", Arg::Text, true)], help: "Commandes réussies de la séance ; avec un fichier, les y écrit en script à rejouer (graine en tête).", group: Group::Console },
     Spec { name: "effacer", args: &[], help: "Vide l'affichage de la console.", group: Group::Console },
@@ -310,6 +311,8 @@ pub enum Command {
     Geo(crate::geography::GeoFamily),
     Capture(String),
     Wait(u32),
+    /// Vue déplacée en douceur jusqu'à une case, zoom changé, sur un nombre d'images.
+    Travel { to: Hex, distance: f32, frames: u32 },
     Help(Option<String>),
     Journal(Option<String>),
     Clear,
@@ -480,6 +483,11 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
         "geographie" => Command::Geo(pick(&args.join(" "), &geo_tokens(), "famille")?),
         "capture" => Command::Capture(args[0].to_string()),
         "attendre" => Command::Wait(number(args[0], "images")?.clamp(0.0, 10_000.0) as u32),
+        "travelling" => Command::Travel {
+            to: at()?,
+            distance: number(args[2], "distance")?.clamp(250.0, 2_800.0),
+            frames: args.get(3).map(|a| number(a, "images")).transpose()?.map_or(120, |n| n.clamp(2.0, 10_000.0) as u32),
+        },
         "aide" => Command::Help((!args.is_empty()).then(|| args.iter().map(|a| token(a)).collect::<Vec<_>>().join(" "))),
         "journal" => Command::Journal(args.first().map(|a| a.to_string())),
         "effacer" => Command::Clear,
@@ -1062,6 +1070,7 @@ pub enum Effect {
     Geo(crate::geography::GeoFamily),
     Capture(String),
     Wait(u32),
+    Travel { to: Hex, distance: f32, frames: u32 },
     SaveJournal(String),
     Clear,
     Quit,
@@ -1315,6 +1324,7 @@ impl Session {
             Command::Geo(f) => Reply::effect(format!("OK carte geographie, {}", f.label().to_lowercase()), Effect::Geo(f)),
             Command::Capture(path) => Reply::effect(format!("OK capture demandée : {path}"), Effect::Capture(path)),
             Command::Wait(n) => Reply::effect(format!("OK attente de {n} image(s)"), Effect::Wait(n)),
+            Command::Travel { to, distance, frames } => Reply::effect(format!("OK travelling vers {} (distance {distance:.0}, {frames} images)", coords(map, to)), Effect::Travel { to, distance, frames }),
             Command::Help(about) => help(about.as_deref()).map_or_else(Reply::error, Reply::ok),
             Command::Journal(None) => {
                 let mut lines = vec![format!("OK {} commande(s) au journal", self.journal.len())];

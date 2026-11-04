@@ -39,7 +39,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   du fichier (console de debug, `debug_cmd.rs`), écrit les réponses dans `<scratchpad>/cas.reponses.txt`
   et les captures à côté du script. Commencer par `trouver …` (coordonnées colonne ligne), puis
   `aller`, `vue 3d`, `camera 300`, `carte <nom>`, `geographie terres|mers|relief|regions`, `capture nom`, modifications brutes (`terrain`, `relief`,
-  `altitude`, `temperature`, `pluie`, `pinceau`, `annuler` ; `~` devant pour un recalcul local :
+  `altitude`, `temperature`, `pluie`, `pinceau`, `annuler` ; `travelling col lig distance` pour mesurer la fluidité (durées d'image en se déplaçant avec zoom) ; `~` devant pour un recalcul local :
   température, biome, pics), `verifier` (incohérences ; 0 sur une carte générée), `regenerer eau|climat`
   (l'eau ou toute la simulation refaite comme à la génération), `fleuve`, `unite creer|pv|pm|dette|soigner|supprimer`, `ville`, `tour n`,
   `chemin`, et finir par `quitter`. `aide` et
