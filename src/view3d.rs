@@ -273,7 +273,7 @@ impl Relief {
             }
         });
         let bed = if axis.inflow.is_some() { WaterKind::Fleuve.bed().bed } else { axis.kind.bed().bed };
-        Channel { a: axis.a, b: axis.b, hw: axis.hw, hw_end: axis.hw_end, levels, bed }
+        Channel { a: axis.a, b: axis.b, hw: axis.hw, hw_end: axis.hw_end, levels, bed, isle: axis.isle }
     }
 
     /// Point 3D posé sur le sol (plus `lift`) au point 2D (x, y).
@@ -952,6 +952,29 @@ fn spawn_decor(commands: &mut Commands, kit: &DecorKit, map: &crate::map::WorldM
                 }
             }
             _ => {}
+        }
+    }
+    // Îles de terre d'un fleuve : des arbres du milieu (les mêmes qu'alentour, plus petits ; des
+    // feuillus de bord de l'eau dans les plaines et les steppes, des buissons au désert)
+    if map.is_fleuve(hex) {
+        let (cx, cy) = hex.to_world();
+        for (p, size) in crate::waterways::isle_trees(&hex_water(map, hex), hex) {
+            let at = p - Vec2::new(cx, cy);
+            let broad = |leaf: &Handle<StandardMaterial>, size: f32, pieces: &mut Vec<_>| {
+                pieces.push((kit.trunk_mesh.clone(), kit.trunk.clone(), at, 4.0 * size, Vec3::splat(size)));
+                pieces.push((kit.crown_mesh.clone(), leaf.clone(), at, 10.5 * size, Vec3::new(size, 0.85 * size, size)));
+            };
+            match t {
+                Terrain::Jungle => broad(&kit.jungle_leaf, size * 1.1, &mut pieces),
+                Terrain::Taiga => pieces.push((kit.conifer_mesh.clone(), kit.conifer.clone(), at, 9.0 * size, Vec3::splat(size))),
+                Terrain::Savanna | Terrain::WoodedSavanna => {
+                    pieces.push((kit.trunk_mesh.clone(), kit.trunk.clone(), at, 4.0 * size, Vec3::new(0.7 * size, 1.2 * size, 0.7 * size)));
+                    pieces.push((kit.canopy_mesh.clone(), kit.acacia.clone(), at, 9.5 * size, Vec3::splat(size)));
+                }
+                Terrain::Desert | Terrain::Mediterranean => pieces.push((kit.shrub_mesh.clone(), kit.shrub.clone(), at, 2.0 * size, Vec3::new(1.5 * size, 0.9 * size, 1.5 * size))),
+                Terrain::Tundra | Terrain::Snow => {}
+                _ => broad(&kit.broadleaf, size, &mut pieces),
+            }
         }
     }
     pieces
@@ -1997,7 +2020,7 @@ fn sync_mirrors(
                 let river = relief.channels.get(&hex).filter(|_| !on_roof && map.0.is_fleuve(hex));
                 let afloat = river.and_then(|near| {
                     let water = crate::relief::water_surface(near, c)?;
-                    let axis = near.iter().filter(|ch| !ch.is_disc()).min_by(|a, b| c.distance(a.nearest(c)).total_cmp(&c.distance(b.nearest(c))))?;
+                    let axis = near.iter().filter(|ch| !ch.is_disc() && ch.isle.is_none()).min_by(|a, b| c.distance(a.nearest(c)).total_cmp(&c.distance(b.nearest(c))))?;
                     let d = axis.b - axis.a;
                     Some((water, Quat::from_rotation_y(d.x.atan2(-d.y))))
                 });

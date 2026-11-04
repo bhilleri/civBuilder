@@ -13,6 +13,7 @@
 //! La même fonction [`HexTop::sample`] sert à construire le maillage et à poser les objets.
 
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex, Wrap};
+use crate::waterways::IsleTop;
 use bevy::math::{Vec2, Vec3};
 use bevy::platform::collections::HashMap;
 
@@ -198,6 +199,15 @@ const STEEP_DEEPEN_MAX: f32 = 3.0;
 const CHANNEL_REACH: f32 = 12.0;
 /// Largeur de la bande de terre humide au-delà du replat.
 const BANK_TINT_WIDTH: f32 = 5.0;
+/// Île : hauteur de sa rive au-dessus de l'eau, distance au bord où elle atteint son dessus ;
+/// au-dehors, sous l'eau : profondeur au bord (une marche nette : le maillage du sol, plus lâche
+/// que le bord de l'eau, ne dépasse ni ne se creuse guère de part et d'autre), distance où le sol
+/// rejoint le lit, profondeur là.
+const ISLE_SHORE: f32 = 0.05;
+const ISLE_RISE: f32 = 4.0;
+const ISLE_SKIRT_EDGE: f32 = 0.12;
+const ISLE_SKIRT: f32 = 4.5;
+const ISLE_SKIRT_DEPTH: f32 = 0.4;
 
 /// Lit d'un cours d'eau (coordonnées monde 2D) : segment `a`–`b` (un disque si a = b), demi-
 /// largeur de l'eau `hw`, hauteur de l'eau le long de l'axe (`levels`, de a à b) et profondeur
@@ -211,6 +221,8 @@ pub struct Channel {
     pub hw_end: f32,
     pub levels: [f32; CHANNEL_LEVELS],
     pub bed: f32,
+    /// Lit d'île : le sol y sort de l'eau (dessus de l'île), au lieu d'être creusé.
+    pub isle: Option<IsleTop>,
 }
 
 impl Channel {
@@ -288,7 +300,7 @@ impl Channel {
 pub fn water_surface(channels: &[Channel], p: Vec2) -> Option<f32> {
     let blend = |discs: bool| {
         let (mut sw, mut sh) = (0.0f32, 0.0f32);
-        for c in channels.iter().filter(|c| c.is_disc() == discs) {
+        for c in channels.iter().filter(|c| c.is_disc() == discs && c.isle.is_none()) {
             let d = p.distance(c.nearest(p));
             let r = c.reach();
             if d < r {
@@ -313,9 +325,18 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
     let (mut cut, mut fill) = (0.0f32, 0.0f32);
     let mut steep = 0.0f32;
     let (mut sw, mut sh, mut dw, mut dh) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    // Île la plus proche : profondeur du point dans l'île, dessus
+    let mut isle: Option<(f32, IsleTop)> = None;
     for c in channels {
         let t = c.param(p);
         let d = p.distance(c.a + (c.b - c.a) * t);
+        if let Some(top) = c.isle {
+            let depth = c.half_width(t) - d;
+            if depth > -ISLE_SKIRT && isle.is_none_or(|(best, _)| depth > best) {
+                isle = Some((depth, top));
+            }
+            continue;
+        }
         let r = c.reach();
         if d >= r {
             continue;
@@ -358,7 +379,27 @@ pub fn carve(channels: &[Channel], p: Vec2, terrain: f32) -> (f32, f32) {
     let weight = if target < terrain { cut } else { fill };
     let h = terrain + (target - terrain) * weight;
     // Berge entaillée : terre aussi, selon la profondeur de l'entaille
-    (h, bank.max(smoothstep((terrain - h) / 4.0)))
+    let bank = bank.max(smoothstep((terrain - h) / 4.0));
+    match isle {
+        Some((depth, top)) => isle_ground(depth, top, p, water, terrain, h, bank),
+        None => (h, bank),
+    }
+}
+
+/// Sol d'une île à la profondeur `depth` (distance à son bord, négative au-dehors) : sa rive juste
+/// au-dessus de l'eau, puis il monte vers son dessus (bosselé, jamais plus haut que le terrain
+/// alentour) ; au-dehors, sous l'eau, il redescend vers le lit (`h`). La terre d'une île de terre
+/// n'est pas une berge (couleur du sol de la case).
+fn isle_ground(depth: f32, top: IsleTop, p: Vec2, water: f32, terrain: f32, h: f32, bank: f32) -> (f32, f32) {
+    if depth < 0.0 {
+        let under = water - ISLE_SKIRT_EDGE - (ISLE_SKIRT_DEPTH - ISLE_SKIRT_EDGE) * (-depth / ISLE_SKIRT);
+        return (h.max(under), bank);
+    }
+    let rise = smoothstep(depth / ISLE_RISE);
+    let bumps = 0.8 + 0.2 * ((p.x * 0.45).sin() * (p.y * 0.38).cos());
+    let lift = ISLE_SHORE + (top.lift * bumps - ISLE_SHORE).max(0.0) * rise;
+    let ground = (water + lift).min(terrain.max(water + ISLE_SHORE));
+    (h.max(ground), bank * (1.0 - top.soil * rise))
 }
 
 /// Rayon (fraction de l'apothème) du plateau central plat.
@@ -906,7 +947,7 @@ mod tests {
         let a = Hex::new(0, 0);
         let b = a + DIRECTIONS[0];
         let ((ax, ay), (bx, by)) = a.edge_corners(0);
-        let ch = [Channel { a: Vec2::new(ax, ay), b: Vec2::new(bx, by), hw: 3.0, hw_end: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0 }];
+        let ch = [Channel { a: Vec2::new(ax, ay), b: Vec2::new(bx, by), hw: 3.0, hw_end: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0, isle: None }];
         let flat = compute_top(a, |_| 10.0, |_, _| Link::Gentle, |_| false);
         let (ma, mb) = (build_hex(a, &flat, Vec3::ONE, None, &ch, false, &BumpMap::new()), build_hex(b, &flat, Vec3::ONE, None, &ch, false, &BumpMap::new()));
         let mid = Vec3::new((ax + bx) / 2.0, 0.0, -(ay + by) / 2.0);
@@ -951,9 +992,29 @@ mod tests {
     }
 
     #[test]
+    fn ile_hors_de_l_eau() {
+        // Deux bras de part et d'autre d'une île de 4 de demi-largeur
+        let arm = |y: f32| Channel { a: Vec2::new(0.0, y), b: Vec2::new(40.0, y), hw: 5.5, hw_end: 5.5, levels: [20.0; CHANNEL_LEVELS], bed: 1.4, isle: None };
+        let top = IsleTop { lift: 1.0, soil: 1.0 };
+        let isle = Channel { a: Vec2::new(5.0, 0.0), b: Vec2::new(35.0, 0.0), hw: 4.0, hw_end: 4.0, levels: [20.0; CHANNEL_LEVELS], bed: 1.4, isle: Some(top) };
+        let channels = [arm(-9.5), arm(9.5), isle];
+        // Le sol de l'île est au-dessus de l'eau partout, plus haut au milieu, sans berge
+        let water = water_surface(&channels, Vec2::new(20.0, 0.0)).unwrap();
+        for y in [-3.9f32, -2.0, 0.0, 2.0, 3.9] {
+            let (h, _) = carve(&channels, Vec2::new(20.0, y), 30.0);
+            assert!(h > water, "sol de l'île sous l'eau en y = {y} ({h} pour une eau à {water})");
+        }
+        let (rim, _) = carve(&channels, Vec2::new(20.0, 3.9), 30.0);
+        let (middle, bank) = carve(&channels, Vec2::new(20.0, 0.0), 30.0);
+        assert!(middle > rim + 0.3 && bank < 0.5, "{middle} {rim} {bank}");
+        // Dans les bras, le lit reste sous l'eau
+        assert!(carve(&channels, Vec2::new(20.0, 11.0), 30.0).0 < water - 1.0);
+    }
+
+    #[test]
     fn lit_plus_profond_dans_une_chute() {
         // Même lit, d'abord à plat, puis descendant de 12 sur 10 (une chute)
-        let flat = Channel { a: Vec2::ZERO, b: Vec2::X * 10.0, hw: 4.0, hw_end: 4.0, levels: [20.0; CHANNEL_LEVELS], bed: 1.4 };
+        let flat = Channel { a: Vec2::ZERO, b: Vec2::X * 10.0, hw: 4.0, hw_end: 4.0, levels: [20.0; CHANNEL_LEVELS], bed: 1.4, isle: None };
         let steep = Channel { levels: std::array::from_fn(|k| 26.0 - 2.0 * k as f32), ..flat };
         let p = Vec2::new(5.0, 0.0);
         let (ground_flat, _) = carve(&[flat], p, 30.0);
@@ -1055,7 +1116,7 @@ mod tests {
         assert!(lift_at(center(a), &bumps).0 > 8.0, "sommet au centre de la montagne");
         assert_eq!(lift_at(center(b), &bumps).0, 0.0, "rien au centre de la voisine plate");
         // Près d'un cours d'eau, la déformation s'efface (vallée)
-        let ch = [Channel { a: center(a) - Vec2::X * 20.0, b: center(a) + Vec2::X * 20.0, hw: 3.0, hw_end: 3.0, levels: [20.0; CHANNEL_LEVELS], bed: 1.0 }];
+        let ch = [Channel { a: center(a) - Vec2::X * 20.0, b: center(a) + Vec2::X * 20.0, hw: 3.0, hw_end: 3.0, levels: [20.0; CHANNEL_LEVELS], bed: 1.0, isle: None }];
         assert_eq!(valley_fade(&ch, center(a)), 0.0);
         assert_eq!(valley_fade(&ch, center(a) + Vec2::Y * 30.0), 1.0);
         // Maillage fin, sommet plus haut que le profil plat, neige au-dessus de la limite
@@ -1129,7 +1190,7 @@ mod bench {
         let mut ch = Vec::new();
         for k in 0..10 {
             let o = Vec2::new(k as f32 * 3.0, 0.0);
-            ch.push(Channel { a: Vec2::new(ax, ay) + o, b: Vec2::new(bx, by) + o, hw: 3.0, hw_end: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0 });
+            ch.push(Channel { a: Vec2::new(ax, ay) + o, b: Vec2::new(bx, by) + o, hw: 3.0, hw_end: 3.0, levels: [9.0; CHANNEL_LEVELS], bed: 1.0, isle: None });
         }
         let t = std::time::Instant::now();
         for _ in 0..200 { std::hint::black_box(compute_top(a, |h| 10.0 + (h.q * 3 + h.r * 5) as f32, |_, _| Link::Gentle, |_| false)); }

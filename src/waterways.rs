@@ -83,12 +83,22 @@ const ISLE_EDGE_SHARE: f32 = 0.6;
 const ISLE_SIDE_SHARE: f32 = 0.5;
 const ISLE_MIN_HALF_WIDTH: f32 = 2.6;
 const ISLE_STEPS: usize = 16;
-/// Île à cheval sur une arête : le fleuve s'élargit de la largeur de l'île plus cette part de
-/// sa demi-largeur, sur `ISLE_SPREAD` unités de part et d'autre de l'arête ; chaque bras garde
-/// au moins `ISLE_ARM_MIN` de la largeur du fleuve.
+/// Îles à cheval sur une arête : le fleuve s'élargit de la largeur des îles plus cette part de
+/// sa demi-largeur, sur au moins `ISLE_SPREAD` unités de part et d'autre de l'arête.
 const ISLE_ARM_EXTRA: f32 = 0.1;
 const ISLE_SPREAD: f32 = HEX_SIZE * 0.85;
-const ISLE_ARM_MIN: f32 = 0.5;
+/// Au moins cette part de la demi-largeur d'un fleuve en eau, de part et d'autre, autour de ses
+/// îles (tous bras confondus), et dans chaque bras entre deux îles.
+const ISLE_WATER_MIN: f32 = 1.1;
+const ISLE_ARM_MIN: f32 = 0.4;
+/// Arbres d'une île : part de terre qu'il lui faut, distance au bord où ils poussent, écart le
+/// long de l'île.
+const ISLE_TREE_SOIL: f32 = 0.5;
+const ISLE_TREE_ROOM: f32 = 2.0;
+const ISLE_TREE_STEP: f32 = 4.5;
+/// Dessus d'une île : hauteur sur l'eau au moins (banc de sable), en plus pour une île de terre.
+const ISLE_LIFT_MIN: f32 = 0.3;
+const ISLE_LIFT_SOIL: f32 = 1.0;
 /// Bras secondaire : le fleuve se resserre d'autant (part de sa demi-largeur, au milieu du bras).
 const ISLE_SIDE_NARROW: f32 = 0.3;
 /// Variation de la largeur d'un fleuve le long de son cours (part, au plus, en plaine).
@@ -133,6 +143,68 @@ impl WaterKind {
 /// Axe d'un tronçon d'eau (coordonnées monde 2D) : segment `a`–`b` (un disque si a = b) de
 /// demi-largeur `hw`. `inflow` : affluent qui entre dans un fleuve, avec la part du chemin vers le
 /// fleuve faite au début et à la fin du tronçon (sa hauteur rejoint progressivement celle du fleuve).
+/// Dessus d'une île : hauteur au-dessus de l'eau (au plus haut) et part de terre (0 : banc de
+/// sable ou de limon nu, 1 : terre où poussent des arbres).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct IsleTop {
+    pub lift: f32,
+    pub soil: f32,
+}
+
+/// Île d'un fleuve : ligne de milieu (points et demi-largeurs) et dessus.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Isle {
+    pub spine: Vec<(Vec2, f32)>,
+    pub top: IsleTop,
+}
+
+impl Isle {
+    /// Profondeur du point `p` dans l'île (distance à son bord, négative au-dehors).
+    pub fn depth(&self, p: Vec2) -> f32 {
+        self.spine.windows(2).map(|w| segment_depth(w[0], w[1], p)).fold(f32::MIN, f32::max)
+    }
+}
+
+/// Arbres des îles de terre d'une case (point du monde, taille de 0,5 à 1 environ) : le long de
+/// leur ligne de milieu, assez loin du bord (deux rangs sur une île large), un peu dispersés ;
+/// seulement dans la case (une île à cheval sur une arête : chaque case plante sa moitié).
+pub fn isle_trees(shape: &WaterShape, hex: Hex) -> Vec<(Vec2, f32)> {
+    let mut trees = Vec::new();
+    for isle in shape.isles.iter().filter(|i| i.top.soil >= ISLE_TREE_SOIL) {
+        let mut walked = 0.0f32;
+        for w in isle.spine.windows(2) {
+            let (a, b) = (w[0].0, w[1].0);
+            let length = a.distance(b);
+            let across = (b - a).perp().normalize_or_zero();
+            while walked <= length {
+                let p = a.lerp(b, if length > 0.0 { walked / length } else { 0.0 });
+                walked += ISLE_TREE_STEP;
+                let room = isle.depth(p);
+                if room < ISLE_TREE_ROOM {
+                    continue;
+                }
+                let rows: &[f32] = if room > 2.0 * ISLE_TREE_ROOM { &[-0.45, 0.45] } else { &[0.0] };
+                for &row in rows {
+                    let jitter = hash01(p + Vec2::splat(row)) - 0.5;
+                    let at = p + across * (row + 0.3 * jitter) * room;
+                    if isle.depth(at) >= ISLE_TREE_ROOM * 0.8 && Hex::from_world(at.x, at.y) == hex {
+                        trees.push((at, ((0.45 + 0.08 * room) * (0.85 + 0.3 * hash01(at))).min(1.0)));
+                    }
+                }
+            }
+            walked -= length;
+        }
+    }
+    trees
+}
+
+/// Profondeur de `p` dans un tronçon d'île ou de lit (de `a` à `b`, demi-largeurs données).
+fn segment_depth((a, ha): (Vec2, f32), (b, hb): (Vec2, f32), p: Vec2) -> f32 {
+    let ab = b - a;
+    let t = if ab.length_squared() > 1e-6 { ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+    ha + (hb - ha) * t - p.distance(a + ab * t)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WaterAxis {
     pub a: Vec2,
@@ -143,6 +215,8 @@ pub struct WaterAxis {
     pub kind: WaterKind,
     pub also: Option<Hex>,
     pub inflow: Option<[f32; 2]>,
+    /// Lit d'île : le sol y sort de l'eau (pas d'eau dessus).
+    pub isle: Option<IsleTop>,
 }
 
 /// Teinte d'un point d'eau : abondance (0 : rivière au seuil, 0,5 : fleuve au seuil, 1 : plus
@@ -245,6 +319,7 @@ impl WaterTri {
 pub struct WaterShape {
     pub tris: Vec<WaterTri>,
     pub channels: Vec<WaterAxis>,
+    pub isles: Vec<Isle>,
     /// Case d'en face des prochains triangles ajoutés, affluent d'un fleuve, et teinte des
     /// prochains triangles de teinte uniforme.
     also: Option<Hex>,
@@ -297,7 +372,15 @@ impl WaterShape {
     /// Enregistre le lit d'un tronçon (`span` : part du chemin d'un affluent vers son fleuve).
     fn channel(&mut self, a: Vec2, b: Vec2, hw: f32, hw_end: f32, kind: WaterKind, span: [f32; 2]) {
         let inflow = self.inflow.then_some(span);
-        self.channels.push(WaterAxis { a, b, hw, hw_end, kind, also: self.also, inflow });
+        self.channels.push(WaterAxis { a, b, hw, hw_end, kind, also: self.also, inflow, isle: None });
+    }
+
+    /// Range une île (ligne de milieu, dessus), avec un lit d'île par tronçon.
+    fn isle(&mut self, spine: Vec<(Vec2, f32)>, top: IsleTop) {
+        for w in spine.windows(2) {
+            self.channels.push(WaterAxis { a: w[0].0, b: w[1].0, hw: w[0].1, hw_end: w[1].1, kind: WaterKind::Fleuve, also: None, inflow: None, isle: Some(top) });
+        }
+        self.isles.push(Isle { spine, top });
     }
 
     /// Bande droite de `a` à `b` dont la demi-largeur passe de `hw` à `hw_end`.
@@ -793,43 +876,78 @@ fn draw(map: &WorldMap, hex: Hex, salt: u32) -> f32 {
     (noise(map, hex, salt) + 1.0) / 2.0
 }
 
-/// Île à cheval sur l'arête `d` d'une case de fleuve (demi-largeur, demi-longueur), la même vue
-/// des deux cases : le fleuve traverse les deux, en plaine, sans affluent tout près.
-fn edge_isle(map: &WorldMap, hex: Hex, d: usize) -> Option<(f32, f32)> {
+/// Île tirée de la graine : demi-largeur et demi-longueur au plus large, décalage le long du
+/// cours et en travers (dans les sens propres à l'arête qui la porte), dessus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct IsleSpec {
+    g: f32,
+    l: f32,
+    shift: f32,
+    /// Décalage en travers dans un groupe (part de la place d'une île), dans le sens de l'arête.
+    nudge: f32,
+    top: IsleTop,
+}
+
+/// Dessus d'une île (même tirage vu des deux cases d'une arête) : plus elle est grande, plus
+/// elle a de terre (sinon un banc de sable ou de limon nu, bas sur l'eau) et plus elle peut
+/// s'élever.
+fn isle_top(g: f32, l: f32, r1: f32, r2: f32) -> IsleTop {
+    let smooth = |x: f32| {
+        let x = x.clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    let soil = smooth((g - ISLE_MIN_HALF_WIDTH) / 2.0) * smooth((2.0 * l - 8.0) / 10.0);
+    IsleTop { lift: ISLE_LIFT_MIN + 0.25 * r1 + ISLE_LIFT_SOIL * soil * (0.5 + 0.5 * r2), soil }
+}
+
+/// Îles à cheval sur l'arête `d` d'une case de fleuve, les mêmes vues des deux cases : le fleuve
+/// traverse les deux, en plaine, sans affluent tout près. Une île le plus souvent, deux ou trois
+/// côte à côte dans un grand fleuve (autant de bras de plus), de tailles et de longueurs
+/// variées, décalées le long du cours ; aucune si la liste est vide.
+fn edge_isles(map: &WorldMap, hex: Hex, d: usize) -> Vec<IsleSpec> {
     let nb = hex + DIRECTIONS[d];
     let back = (d + 3) % 6;
     if !crossed(map, hex).is_some_and(|ds| ds.contains(&d)) || !crossed(map, nb).is_some_and(|ds| ds.contains(&back)) {
-        return None;
+        return Vec::new();
     }
     // (coins de l'arête et des deux arêtes qui l'encadrent, de chaque côté : le panache d'un
     // affluent passerait sur l'île)
     let near = |h: Hex, e: usize| [(e + 5) % 6, e, (e + 1) % 6, (e + 2) % 6].into_iter().any(|j| tributary_at(map, h, j));
     if near(hex, d) || near(nb, back) {
-        return None;
+        return Vec::new();
     }
     let (owner, od) = edge_owner(hex, d);
     let q = map.discharge(hex).min(map.discharge(nb));
     if draw(map, owner, 20 + od as u32) >= isle_chance(q, drop_slope(map, hex, nb)) * ISLE_EDGE_SHARE {
-        return None;
+        return Vec::new();
     }
     let hw = fleuve_edge_half_width(map, hex, d);
-    let half_width = (hw * (0.25 + 0.1 * draw(map, owner, 23 + od as u32))).max(ISLE_MIN_HALF_WIDTH);
-    Some((half_width, HEX_SIZE * (0.3 + 0.15 * draw(map, owner, 26 + od as u32))))
+    let r = |i: usize, j: u32| draw(map, owner, 100 + 24 * i as u32 + 4 * j + od as u32);
+    let many = r(0, 5);
+    let n = 1 + usize::from(hw >= 10.0 && many < 0.45) + usize::from(hw >= 12.0 && many < 0.2);
+    (0..n)
+        .map(|i| {
+            let g = (hw * (0.12 + 0.43 * r(i, 0).powf(0.8)) / (n as f32).powf(0.3)).max(ISLE_MIN_HALF_WIDTH);
+            let l = HEX_SIZE * (0.18 + 0.4 * r(i, 1));
+            let nudge = if n > 1 { 0.3 * (r(i, 5) - 0.5) } else { 0.0 };
+            IsleSpec { g, l, shift: (r(i, 2) - 0.5) * HEX_SIZE * 0.4, nudge, top: isle_top(g, l, r(i, 3), r(i, 4)) }
+        })
+        .collect()
 }
 
-/// Îles d'une case que le fleuve traverse par les arêtes `dirs` : moitiés d'îles à cheval sur
-/// ces arêtes (demi-largeur, demi-longueur), ou bras secondaire (demi-largeur de l'île et de
-/// son bras ; le côté est choisi avec la forme du fleuve).
+/// Îles d'une case que le fleuve traverse par les arêtes `dirs` : groupes d'îles à cheval sur
+/// ces arêtes, ou bras secondaire (l'île, le long de la traversée, et la demi-largeur de son
+/// bras ; le côté est choisi avec la forme du fleuve).
 #[derive(Default)]
 struct Isles {
-    edge: [Option<(f32, f32)>; 2],
-    side: Option<(f32, f32)>,
+    edge: [Vec<IsleSpec>; 2],
+    side: Option<(IsleSpec, f32)>,
 }
 
 impl Isles {
     fn of(map: &WorldMap, hex: Hex, dirs: [usize; 2]) -> Self {
-        let edge = dirs.map(|d| edge_isle(map, hex, d));
-        if edge.iter().any(Option::is_some) {
+        let edge = dirs.map(|d| edge_isles(map, hex, d));
+        if edge.iter().any(|e| !e.is_empty()) {
             return Isles { edge, side: None };
         }
         let q = map.discharge(hex);
@@ -838,12 +956,16 @@ impl Isles {
             return Isles::default();
         }
         let hw = fleuve_half_width(q);
-        let isle = (hw * (0.2 + 0.1 * draw(map, hex, 31))).max(ISLE_MIN_HALF_WIDTH);
-        Isles { edge, side: Some((isle, hw * (0.18 + 0.07 * draw(map, hex, 32)))) }
+        let r = |salt: u32| draw(map, hex, salt);
+        let g = (hw * (0.15 + 0.35 * r(31))).max(ISLE_MIN_HALF_WIDTH);
+        // (longueur : part de la traversée, de 30 à 60 % ; décalage : son milieu)
+        let (l, shift) = (0.15 + 0.15 * r(33), 0.4 + 0.2 * r(34));
+        let isle = IsleSpec { g, l, shift, nudge: 0.0, top: isle_top(g, l * 2.0 * HEX_SIZE * 0.9, r(35), r(36)) };
+        Isles { edge, side: Some((isle, hw * (0.15 + 0.15 * r(32)))) }
     }
 
     fn any(&self) -> bool {
-        self.side.is_some() || self.edge.iter().any(Option::is_some)
+        self.side.is_some() || self.edge.iter().any(|e| !e.is_empty())
     }
 }
 
@@ -853,16 +975,30 @@ fn lens(x: f32, round: f32) -> f32 {
     if (0.0..=1.0).contains(&x) { (std::f32::consts::PI * x).sin().max(0.0).powf(round) } else { 0.0 }
 }
 
+/// Une île sur la ligne d'eau : demi-largeur (`gap`) à chaque point, décalage en travers (part
+/// de la place d'une île), place dans son groupe, dessus.
+struct Cut {
+    gap: Vec<f32>,
+    nudge: f32,
+    /// Rang en travers dans son groupe, taille du groupe.
+    slot: (usize, usize),
+    top: IsleTop,
+}
+
 /// Fleuve qui traverse sa case (ligne `path`, de son débord sur la première arête à celui sur
 /// la seconde) et se partage autour d'îles. Le fleuve s'élargit et se resserre peu à peu, sur
-/// une longueur plus grande que l'île (pas de renflement brusque), et chacun de ses bras garde
-/// au moins la moitié de sa largeur (il peut un peu déborder sur les cases voisines).
-/// - À cheval sur une arête : deux bras égaux, la même forme vue des deux cases (centrée sur le
-///   point de passage, où la ligne est perpendiculaire à l'arête des deux côtés).
+/// une longueur plus grande que les îles (pas de renflement brusque), et l'eau garde au total
+/// plus de la largeur du fleuve (il peut un peu déborder sur les cases voisines).
+/// - À cheval sur une arête : une à trois îles côte à côte, l'eau partagée également entre les
+///   bras ; la même forme vue des deux cases (centrée sur le point de passage, où la ligne est
+///   perpendiculaire à l'arête des deux côtés ; positions en travers et le long du cours dans un
+///   sens propre à l'arête).
 /// - Bras secondaire : la rive d'un côté s'écarte, un bras s'y détache derrière une île puis
 ///   rejoint le fleuve, qui se resserre un peu (l'eau couvre toujours le centre) ; plutôt vers
 ///   le centre de la case (plus de place), jamais vers un affluent ni sur l'eau d'à côté.
-fn add_isles(map: &WorldMap, hex: Hex, path: &[PathPoint], isles: &Isles, shape: &mut WaterShape) {
+///
+/// Chaque île est aussi rangée dans `shape.isles` (relief et arbres), avec ses lits d'île.
+fn add_isles(map: &WorldMap, hex: Hex, dirs: [usize; 2], path: &[PathPoint], isles: &Isles, shape: &mut WaterShape) {
     let last = path.len() - 1;
     let normal: Vec<Vec2> = (0..=last).map(|k| (path[(k + 1).min(last)].0 - path[k.saturating_sub(1)].0).perp().normalize_or_zero()).collect();
     let mut s = vec![0.0f32];
@@ -870,21 +1006,19 @@ fn add_isles(map: &WorldMap, hex: Hex, path: &[PathPoint], isles: &Isles, shape:
         s.push(s.last().unwrap() + w[0].0.distance(w[1].0));
     }
     let (s_in, s_out) = (s[1], s[last - 1]);
-    // En travers de chaque point : l'eau va de `lo` à `hi` (décalages le long de la normale),
-    // l'île est centrée en `at`, de demi-largeur `gap` (0 : pas d'île à cet endroit). Le fleuve
-    // s'élargit en douceur (rive en sinus carré, sans cassure) sur une longueur plus grande que
-    // l'île : il est déjà large quand elle apparaît
     let hw = |k: usize| path[k].1;
+    // En travers de chaque point : l'eau va de `lo` à `hi` (décalages le long de la normale),
+    // l'île `i` est centrée en `at[i]` ; rives en sinus carré (sans cassure)
     let mut lo: Vec<f32> = (0..=last).map(|k| -hw(k)).collect();
     let mut hi: Vec<f32> = (0..=last).map(hw).collect();
-    let mut at = vec![0.0f32; last + 1];
-    let mut gap = vec![0.0f32; last + 1];
+    let mut cuts: Vec<Cut> = Vec::new();
+    let mut at: Vec<Vec<f32>> = Vec::new();
     let side = isles.side.and_then(|(isle, side_arm)| {
         // Bras secondaire, sur le milieu de la traversée : la rive de son côté s'écarte (au plus
         // de l'île et du bras, moins un peu de la largeur du fleuve, qui se resserre), l'île
-        // apparaît sur sa moitié du milieu, le long de la rive écartée ; le bras garde sa largeur
+        // apparaît le long de la rive écartée ; le bras garde sa largeur
         let x = |k: usize| (s[k] - s_in) / (s_out - s_in);
-        let spread = |k: usize| (2.0 * isle + 2.0 * side_arm - ISLE_SIDE_NARROW * hw(k)) * lens((x(k) - 0.05) / 0.9, 2.0);
+        let spread = |k: usize| (2.0 * isle.g + 2.0 * side_arm - ISLE_SIDE_NARROW * hw(k)) * lens((x(k) - 0.05) / 0.9, 2.0);
         let mid = last / 2;
         let fits = |side: f32| {
             // Pas d'affluent de ce côté, pas d'eau voisine sous le bras
@@ -903,51 +1037,104 @@ fn add_isles(map: &WorldMap, hex: Hex, path: &[PathPoint], isles: &Isles, shape:
         };
         let toward_center = if (center(hex) - path[mid].0).dot(normal[mid]) >= 0.0 { 1.0 } else { -1.0 };
         let side = [toward_center, -toward_center].into_iter().find(|&side| fits(side))?;
-        Some((side, (0..=last).map(|k| {
-            let outer = hw(k) + spread(k);
-            // (le fleuve garde le centre de la case : son bord côté île reste à 60 % de sa
-            // demi-largeur au moins)
-            let g = (isle * lens((x(k) - 0.25) / 0.5, 0.8)).min(((outer - 2.0 * side_arm - 0.6 * hw(k)) / 2.0).max(0.0));
-            (outer, outer - 2.0 * side_arm - g, g)
-        }).collect::<Vec<_>>()))
-    });
-    if let Some((side, cuts)) = side {
-        for (k, &(outer, center, g)) in cuts.iter().enumerate() {
-            if side > 0.0 { hi[k] = outer } else { lo[k] = -outer }
-            at[k] = side * center;
-            gap[k] = g;
-        }
-    } else {
-        // Îles à cheval sur les arêtes : élargissement du fleuve (plus long que l'île), deux
-        // bras égaux, chacun d'au moins `ISLE_ARM_MIN` du fleuve
-        let around = |k: usize, isle: Option<(f32, f32)>, edge: f32, hw: f32| {
-            isle.map_or((0.0, 0.0), |(g, l)| {
-                let d = s[k] - edge;
-                (g * lens(0.5 + d / (2.0 * l), 0.6), (g + ISLE_ARM_EXTRA * hw) * lens(0.5 + d / (2.0 * ISLE_SPREAD), 2.0))
+        let cross: Vec<(f32, f32, f32)> = (0..=last)
+            .map(|k| {
+                let outer = hw(k) + spread(k);
+                // (le fleuve garde le centre de la case : son bord côté île reste à 60 % de sa
+                // demi-largeur au moins)
+                let g = (isle.g * lens((x(k) - isle.shift + isle.l) / (2.0 * isle.l), 0.8)).min(((outer - 2.0 * side_arm - 0.6 * hw(k)) / 2.0).max(0.0));
+                (outer, outer - 2.0 * side_arm - g, g)
             })
-        };
+            .collect();
+        Some((side, cross, isle))
+    });
+    if let Some((side, cross, isle)) = side {
+        let mut centers = Vec::new();
+        let mut gap = Vec::new();
+        for (k, &(outer, c, g)) in cross.iter().enumerate() {
+            if side > 0.0 { hi[k] = outer } else { lo[k] = -outer }
+            centers.push(side * c);
+            gap.push(g);
+        }
+        cuts.push(Cut { gap, nudge: 0.0, slot: (0, 1), top: isle.top });
+        at.push(centers);
+    } else {
+        // Groupes d'îles à cheval sur les arêtes : sens propres à chaque arête (le long du cours,
+        // en travers), élargissement du fleuve (plus long que les îles), îles dans l'ordre en
+        // travers de cette case
+        let mut envelope = vec![0.0f32; last + 1];
+        for (e, specs) in isles.edge.iter().enumerate() {
+            if specs.is_empty() {
+                continue;
+            }
+            let (k_e, s_e) = if e == 0 { (1, s_in) } else { (last - 1, s_out) };
+            let (owner, od) = edge_owner(hex, dirs[e]);
+            let (ca, cb) = owner.edge_corners(od);
+            let along_edge = v(cb) - v(ca);
+            let tangent = (path[k_e + 1].0 - path[k_e - 1].0).normalize_or_zero();
+            let forward = if tangent.dot(along_edge.perp()) >= 0.0 { 1.0 } else { -1.0 };
+            let across = if normal[k_e].dot(along_edge) >= 0.0 { 1.0 } else { -1.0 };
+            let reach = specs.iter().map(|i| i.shift.abs() + i.l).fold(ISLE_SPREAD, f32::max) * 1.2;
+            let widen: f32 = specs.iter().map(|i| i.g).sum::<f32>() + ISLE_ARM_EXTRA * path[k_e].1;
+            for k in 0..=last {
+                envelope[k] = envelope[k].max(widen * lens(0.5 + (s[k] - s_e) / (2.0 * reach), 2.0));
+            }
+            let mut group: Vec<Cut> = specs
+                .iter()
+                .map(|i| {
+                    let gap: Vec<f32> = (0..=last).map(|k| i.g * lens(0.5 + (forward * (s[k] - s_e) - i.shift) / (2.0 * i.l), 0.6)).collect();
+                    Cut { gap, nudge: i.nudge * across, slot: (0, specs.len()), top: i.top }
+                })
+                .collect();
+            if across < 0.0 {
+                group.reverse();
+            }
+            for (i, c) in group.iter_mut().enumerate() {
+                c.slot.0 = i;
+            }
+            cuts.extend(group);
+        }
+        // Rives ; chaque île garde sa place en travers du fleuve (une part fixe de sa largeur selon
+        // son rang dans son groupe, un peu décalée quand elles sont plusieurs : la même vue des
+        // deux cases), sans toucher sa voisine (un bras au moins entre deux îles)
+        at = cuts.iter().map(|_| vec![0.0; last + 1]).collect();
         for k in 0..=last {
-            let (g0, e0) = around(k, isles.edge[0], s_in, path[1].1);
-            let (g1, e1) = around(k, isles.edge[1], s_out, path[last - 1].1);
-            gap[k] = g0.max(g1);
-            hi[k] = (hw(k) + e0.max(e1)).max(gap[k] + 2.0 * ISLE_ARM_MIN * hw(k));
+            let gaps: f32 = cuts.iter().map(|c| c.gap[k]).sum();
+            hi[k] = (hw(k) + envelope[k]).max(gaps + ISLE_WATER_MIN * hw(k));
             lo[k] = -hi[k];
+            for (i, c) in cuts.iter_mut().enumerate() {
+                let n = c.slot.1 as f32;
+                let room = (hi[k] - lo[k]) / (n + 1.0) - ISLE_ARM_MIN * hw(k);
+                c.gap[k] = c.gap[k].min((room / 2.0).max(0.0));
+                at[i][k] = lo[k] + (hi[k] - lo[k]) * (c.slot.0 as f32 + 1.0 + c.nudge) / (n + 1.0);
+            }
         }
     }
-    // Morceaux : d'un seul tenant, ou deux bras de part et d'autre de l'île
-    let split = |k: usize| gap[k] > 0.0 || gap[(k + 1).min(last)] > 0.0;
+    // Morceaux : entre deux changements d'îles présentes, l'eau entre les îles
+    let active = |k: usize| -> Vec<bool> { cuts.iter().map(|c| c.gap[k] > 0.0 || c.gap[(k + 1).min(last)] > 0.0).collect() };
     let mut k = 0;
     while k < last {
         let start = k;
-        let parted = split(k);
-        while k < last && split(k) == parted {
+        let here = active(k);
+        while k < last && active(k) == here {
             k += 1;
         }
-        if parted {
-            shape.offset_strip(path, &normal, start..=k, |i| (lo[i], at[i] - gap[i]), WaterKind::Fleuve);
-            shape.offset_strip(path, &normal, start..=k, |i| (at[i] + gap[i], hi[i]), WaterKind::Fleuve);
-        } else {
-            shape.offset_strip(path, &normal, start..=k, |i| (lo[i], hi[i]), WaterKind::Fleuve);
+        let on: Vec<usize> = (0..cuts.len()).filter(|&i| here[i]).collect();
+        for piece in 0..=on.len() {
+            let left = |i: usize| if piece == 0 { lo[i] } else { at[on[piece - 1]][i] + cuts[on[piece - 1]].gap[i] };
+            let right = |i: usize| if piece == on.len() { hi[i] } else { at[on[piece]][i] - cuts[on[piece]].gap[i] };
+            shape.offset_strip(path, &normal, start..=k, |i| (left(i), right(i)), WaterKind::Fleuve);
+        }
+    }
+    // Îles pour le relief et les arbres : ligne de milieu (points où l'île existe, et un de part
+    // et d'autre pour ses pointes)
+    for (i, c) in cuts.iter().enumerate() {
+        let spine: Vec<(Vec2, f32)> = (0..=last)
+            .filter(|&k| c.gap[k] > 0.0 || c.gap[k.saturating_sub(1)] > 0.0 || c.gap[(k + 1).min(last)] > 0.0)
+            .map(|k| (path[k].0 + normal[k] * at[i][k], c.gap[k]))
+            .collect();
+        if spine.len() >= 2 {
+            shape.isle(spine, c.top);
         }
     }
 }
@@ -965,7 +1152,7 @@ fn rivers_at_corner(map: &WorldMap, hex: Hex, j: usize, d: usize) -> impl Iterat
 /// poser de décor dans l'eau.
 pub fn in_water(map: &WorldMap, hex: Hex, dir: usize, p: Vec2, margin: f32) -> bool {
     [hex, hex + DIRECTIONS[dir % 6]].into_iter().any(|h| {
-        hex_water(map, h).channels.iter().any(|c| {
+        hex_water(map, h).channels.iter().filter(|c| c.isle.is_none()).any(|c| {
             let ab = c.b - c.a;
             let t = if ab.length_squared() > 0.0 { ((p - c.a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
             p.distance(c.a + ab * t) < c.hw + (c.hw_end - c.hw) * t + margin
@@ -1073,7 +1260,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
         path.push((p1 + out1 * OVERLAP, h1, t1));
         follow(&path, if down_dir == Some(dirs[0]) { -1.0 } else { 1.0 });
         if isles.any() {
-            add_isles(map, hex, &path, &isles, shape);
+            add_isles(map, hex, [dirs[0], dirs[1]], &path, &isles, shape);
         } else {
             shape.strip(&path, WaterKind::Fleuve);
             shape.rapid(&path, down_dir != Some(dirs[0]));
@@ -1402,21 +1589,23 @@ mod tests {
     #[test]
     fn iles_dans_un_grand_fleuve_de_plaine() {
         let (map, row) = fleuve_en_plaine(24, 5.0, 30_000.0);
-        // Îles tirées : une par arête qui en porte une, une par bras secondaire
+        // Îles tirées : celles des arêtes, une par bras secondaire
         let mut edges = 0;
         let mut sides = 0;
         let mut plain = 0;
+        let mut groups = 0;
+        let mut sizes: Vec<f32> = Vec::new();
         for &h in &row {
             let Some(dirs) = crossed(&map, h) else { continue };
             let isles = Isles::of(&map, h, dirs);
-            for (k, isle) in isles.edge.iter().enumerate() {
-                // (comptée par la case qui porte l'arête)
-                if isle.is_some() && dirs[k] < 3 {
-                    edges += 1;
-                }
-                if isle.is_some() {
-                    // Le même tirage vu des deux cases
-                    assert_eq!(*isle, edge_isle(&map, h + DIRECTIONS[dirs[k]], (dirs[k] + 3) % 6));
+            for (k, group) in isles.edge.iter().enumerate() {
+                // Le même tirage vu des deux cases
+                assert_eq!(*group, edge_isles(&map, h + DIRECTIONS[dirs[k]], (dirs[k] + 3) % 6));
+                // (comptées par la case qui porte l'arête)
+                if dirs[k] < 3 {
+                    edges += group.len();
+                    groups += usize::from(group.len() > 1);
+                    sizes.extend(group.iter().map(|i| i.g));
                 }
             }
             sides += usize::from(isles.side.is_some());
@@ -1424,10 +1613,13 @@ mod tests {
         }
         assert!(edges + sides >= 3, "îles : {edges} à cheval sur une arête, {sides} bras secondaires");
         assert!(plain >= 6, "des îles par endroits seulement ({plain} cases sans île)");
+        assert!(groups >= 1, "plusieurs bras par endroits");
+        let (small, big) = sizes.iter().fold((f32::MAX, 0.0f32), |(lo, hi), &g| (lo.min(g), hi.max(g)));
+        assert!(big > 1.5 * small, "des îles de tailles variées ({small} à {big})");
         // Chacune est dessinée : une terre entourée d'eau, sans autre trou dans le fleuve
         let drawn = iles_dessinees(&map, &row);
         assert_eq!(drawn.len(), edges + sides, "{drawn:?}");
-        assert!(drawn.iter().all(|&s| s >= 15), "{drawn:?}");
+        assert!(drawn.iter().all(|&s| s >= 10), "{drawn:?}");
         // Le centre des cases reste dans l'eau (unités)
         let inside = |t: &WaterTri, p: Vec2| {
             let [a, b, c] = t.pts;
@@ -1437,10 +1629,13 @@ mod tests {
         for &h in &row {
             assert!(hex_water(&map, h).tris.iter().any(|t| inside(t, center(h))), "{:?}", h.to_offset());
         }
-        // Autour d'une île à cheval sur une arête, le fleuve s'élargit de la largeur de l'île
+        // Autour d'une île seule à cheval sur une arête, le fleuve s'élargit de la largeur de l'île
         for w in row.windows(2) {
             let d = DIRECTIONS.iter().position(|&dd| w[0] + dd == w[1]).unwrap();
-            let Some((g, _)) = edge_isle(&map, w[0], d) else { continue };
+            let [isle] = edge_isles(&map, w[0], d)[..] else { continue };
+            if isle.shift.abs() > 0.5 * isle.l {
+                continue;
+            }
             let x = fleuve_crossing(&map, w[0], d);
             let (a, b) = w[0].edge_corners(d);
             let along = (v(b) - v(a)).normalize();
@@ -1449,9 +1644,35 @@ mod tests {
             let wet = |p: Vec2| shapes.iter().any(|s| s.tris.iter().any(|t| inside(t, p)));
             assert!(!wet(x), "l'île est au point de passage");
             for side in [1.0, -1.0] {
-                assert!(wet(x + along * side * (g + hw)), "bras de part et d'autre, élargi");
+                assert!(wet(x + along * side * (isle.g + hw)), "bras de part et d'autre, élargi");
             }
         }
+        // Les îles sont rangées pour le relief (aucune dans l'eau dessinée) ; des arbres sur les
+        // îles de terre, à l'intérieur
+        let mut trees = 0;
+        for &h in &row {
+            let shape = hex_water(&map, h);
+            for isle in &shape.isles {
+                for &(p, g) in &isle.spine {
+                    if g > 1.0 {
+                        assert!(!shape.tris.iter().any(|t| inside(t, p)), "milieu d'une île sous l'eau en {p}");
+                    }
+                }
+            }
+            for (p, size) in isle_trees(&shape, h) {
+                assert!(shape.isles.iter().any(|i| i.top.soil >= ISLE_TREE_SOIL && i.depth(p) >= ISLE_TREE_ROOM * 0.8));
+                assert!(Hex::from_world(p.x, p.y) == h && (0.3..=1.0).contains(&size));
+                trees += 1;
+            }
+        }
+        assert!(trees > 0, "des arbres sur les grandes îles");
+    }
+
+    #[test]
+    fn petite_ile_sans_arbre_grande_ile_de_terre() {
+        let (small, big) = (isle_top(ISLE_MIN_HALF_WIDTH, 6.0, 0.5, 0.5), isle_top(7.0, 16.0, 0.5, 0.5));
+        assert!(small.soil < ISLE_TREE_SOIL && big.soil >= ISLE_TREE_SOIL);
+        assert!(small.lift >= ISLE_LIFT_MIN && big.lift > small.lift);
     }
 
     #[test]
@@ -1629,5 +1850,25 @@ mod diag {
         for h in f.iter().take(10) {
             println!("{:?} q {:.0} links {:06b} tris {} terrain {:?}", h.to_offset(), m.discharge(*h), m.fleuve_links(*h), hex_water(&m, *h).tris.len(), m.get(*h));
         }
+    }
+    #[test]
+    #[ignore]
+    fn diag_iles_arbres() {
+        use super::*;
+        let seed: u32 = std::env::var("WATER_SEED").map_or(3377500742, |s| s.parse().unwrap());
+        let m = crate::map::WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+        let (mut n, mut soil, mut trees) = (0, 0, 0);
+        for h in m.hexes().filter(|&h| m.is_fleuve(h)) {
+            let shape = hex_water(&m, h);
+            for i in &shape.isles {
+                n += 1;
+                if i.top.soil >= ISLE_TREE_SOIL { soil += 1; }
+                let g = i.spine.iter().map(|x| x.1).fold(0.0, f32::max);
+                let len: f32 = i.spine.windows(2).map(|w| w[0].0.distance(w[1].0)).sum();
+                println!("{:?} {:?} g {:.1} long {:.0} soil {:.2} lift {:.2}", h.to_offset(), m.get(h), g, len, i.top.soil, i.top.lift);
+            }
+            trees += isle_trees(&shape, h).len();
+        }
+        println!("demi-îles {n}, de terre {soil}, arbres {trees}");
     }
 }

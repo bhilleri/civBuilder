@@ -141,7 +141,8 @@ fn waters() -> Article {
             table_icons(&["Type", "Taille", "Sur la carte"], kinds),
             p("Sur la carte, un cours d'eau s'élargit avec son débit, et les plus grands sont d'un bleu plus \
                sombre. Les fleuves serpentent, d'autant plus en plaine, et s'y partagent par endroits en deux \
-               bras autour d'une île (plus souvent pour les grands fleuves). La couleur de l'eau suit les terres \
+               bras autour d'une île, parfois de plusieurs côte à côte (plus souvent pour les grands fleuves) ; \
+               les grandes îles ont des arbres, les petites sont des bancs de sable. La couleur de l'eau suit les terres \
                traversées : chargée de limon (olive) dans les déserts, les steppes et les savanes, claire dans la \
                taïga, la toundra et les hautes terres. Un lac garde le limon : l'eau en sort claire. Là où un cours \
                d'eau descend une forte pente, des rapides : eau vive, écume et rochers."),
