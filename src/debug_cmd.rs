@@ -94,6 +94,8 @@ pub enum Arg {
     /// Famille de zones de la carte géographique.
     Geo,
     Text,
+    /// « oui » ou « non ».
+    Switch,
 }
 
 /// Une commande : nom, arguments (nom affiché, nature, facultatif), effet, rubrique.
@@ -146,6 +148,8 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
     Spec { name: "camera", args: &[("distance", Arg::Number, false), ("angle", Arg::Number, true)], help: "Vue 3D : distance de la caméra (250 à 2 800 ; 300 : une case de près) et orientation en degrés (0 : vers le nord).", group: Group::Camera },
     Spec { name: "carte", args: &[("carte", Arg::Layer, false)], help: "Carte affichée (normale, altitude, relief, climat…).", group: Group::Camera },
+    Spec { name: "lignes-maree", args: &[("oui|non", Arg::Switch, false)], help: "Carte des marées : lignes d'égale heure de pleine mer et points amphidromiques, affichés ou non (comme le bouton de sa légende).", group: Group::Camera },
+    Spec { name: "fleches-maree", args: &[("oui|non", Arg::Switch, false)], help: "Carte des marées : flèches du sens de la marée, affichées ou non (comme le bouton de sa légende).", group: Group::Camera },
     Spec { name: "geographie", args: &[("famille", Arg::Geo, false)], help: "Carte géographique : famille de zones montrée (terres, mers, relief, regions) ; affiche la carte.", group: Group::Camera },
     Spec { name: "capture", args: &[("fichier", Arg::Text, false)], help: "Enregistre l'écran en PNG (sans la console). Chemin relatif : dossier du script, sinon dossier temporaire « civbuilder ».", group: Group::Camera },
     Spec { name: "attendre", args: &[("images", Arg::Number, false)], help: "Attend un nombre d'images avant la commande suivante (relief 3D à construire).", group: Group::Camera },
@@ -311,6 +315,10 @@ pub enum Command {
     Geo(crate::geography::GeoFamily),
     Capture(String),
     Wait(u32),
+    /// Lignes d'heure de pleine mer de la carte des marées.
+    TideLines(bool),
+    /// Flèches du sens de la marée de la carte des marées.
+    TideArrows(bool),
     /// Vue déplacée en douceur jusqu'à une case, zoom changé, sur un nombre d'images.
     Travel { to: Hex, distance: f32, frames: u32 },
     Help(Option<String>),
@@ -480,6 +488,14 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             yaw_deg: args.get(1).map(|a| number(a, "angle")).transpose()?,
         },
         "carte" => Command::Layer(pick(&args.join(" "), &layer_tokens(), "carte")?),
+        "lignes-maree" | "fleches-maree" => {
+            let on = match token(args[0]).as_str() {
+                "oui" => true,
+                "non" => false,
+                _ => return Err(format!("{} : oui ou non, pas « {} »", spec.name, args[0])),
+            };
+            if spec.name == "lignes-maree" { Command::TideLines(on) } else { Command::TideArrows(on) }
+        }
         "geographie" => Command::Geo(pick(&args.join(" "), &geo_tokens(), "famille")?),
         "capture" => Command::Capture(args[0].to_string()),
         "attendre" => Command::Wait(number(args[0], "images")?.clamp(0.0, 10_000.0) as u32),
@@ -510,6 +526,7 @@ fn values(arg: Arg) -> Vec<String> {
         Arg::Unit => unit_tokens().into_iter().map(|(n, _)| n).collect(),
         Arg::Regen => vec!["eau".into(), "climat".into()],
         Arg::Geo => geo_tokens().into_iter().map(|(n, _)| n).collect(),
+        Arg::Switch => vec!["oui".into(), "non".into()],
         _ => Vec::new(),
     }
 }
@@ -1074,6 +1091,8 @@ pub enum Effect {
     Geo(crate::geography::GeoFamily),
     Capture(String),
     Wait(u32),
+    TideLines(bool),
+    TideArrows(bool),
     Travel { to: Hex, distance: f32, frames: u32 },
     SaveJournal(String),
     Clear,
@@ -1325,6 +1344,8 @@ impl Session {
             Command::View(is_3d) => Reply::effect(format!("OK vue {}", if is_3d { "3d" } else { "2d" }), Effect::View(is_3d)),
             Command::Camera { distance, yaw_deg } => Reply::effect(format!("OK camera distance={distance:.0}{}", yaw_deg.map_or(String::new(), |y| format!(" angle={y:.0}"))), Effect::Camera { distance, yaw_deg }),
             Command::Layer(l) => Reply::effect(format!("OK carte={}", token(l.short_name())), Effect::Layer(l)),
+            Command::TideLines(on) => Reply::effect(format!("OK lignes d'heure de pleine mer {}", if on { "affichées" } else { "masquées" }), Effect::TideLines(on)),
+            Command::TideArrows(on) => Reply::effect(format!("OK sens de la marée {}", if on { "affiché" } else { "masqué" }), Effect::TideArrows(on)),
             Command::Geo(f) => Reply::effect(format!("OK carte geographie, {}", f.label().to_lowercase()), Effect::Geo(f)),
             Command::Capture(path) => Reply::effect(format!("OK capture demandée : {path}"), Effect::Capture(path)),
             Command::Wait(n) => Reply::effect(format!("OK attente de {n} image(s)"), Effect::Wait(n)),
@@ -1417,6 +1438,7 @@ mod tests {
                 Arg::Unit => "milice",
                 Arg::Regen => "eau",
                 Arg::Geo => "mers",
+                Arg::Switch => "oui",
                 Arg::Text => "x",
             }).collect();
             assert!(parse(&m, &format!("{} {}", s.name, args.join(" "))).is_ok(), "{}", s.name);

@@ -119,6 +119,7 @@ impl Plugin for UiPlugin {
                     animate_log.after(log_links),
                     update_basin_legend,
                     geography_legend_controls,
+                    tide_legend_controls,
                 ),
             );
     }
@@ -664,16 +665,87 @@ fn tides_legend() -> impl Bundle {
             ..default()
         }),
         Children::spawn((
-            Spawn(text("Marnage de vives-eaux", 14.0)),
+            Spawn(text("Marnage (écart entre pleine et basse mer)", 14.0)),
             Spawn(legend_row(TIDE_CLASSES[5].1, label(5))),
             Spawn(legend_row(TIDE_CLASSES[4].1, label(4))),
             Spawn(legend_row(TIDE_CLASSES[3].1, label(3))),
             Spawn(legend_row(TIDE_CLASSES[2].1, label(2))),
             Spawn(legend_row(TIDE_CLASSES[1].1, label(1))),
             Spawn(legend_row(TIDE_CLASSES[0].1, label(0))),
-            Spawn(text("Écart entre pleine et basse mer quand la Lune et le Soleil s'ajoutent. Faible en plein océan et dans les mers fermées, fort sur les plateaux continentaux et dans les bassins qui résonnent ; nul au centre des points amphidromiques, autour desquels la marée tourne.", 12.0)),
+            Spawn((
+                Node { flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(5.0), row_gap: Val::Px(5.0), ..default() },
+                children![
+                    (
+                        TideChip::Lines,
+                        Button,
+                        Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
+                        BackgroundColor(PRODUCE_BG),
+                        children![text("Lignes d'heure de pleine mer", 13.0)],
+                    ),
+                    (
+                        TideChip::Arrows,
+                        Button,
+                        Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
+                        BackgroundColor(PRODUCE_BG),
+                        children![text("Sens de la marée", 13.0)],
+                    ),
+                ],
+            )),
+            Spawn((TideLinesKey, Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), display: Display::None, ..default() }, Children::spawn((
+                Spawn((
+                    Node { column_gap: Val::Px(2.0), align_items: AlignItems::Center, ..default() },
+                    Children::spawn(SpawnIter((0..12u8).map(|h| {
+                        let c = crate::render::tide_hour_color(h).to_srgba();
+                        (Node { width: Val::Px(16.0), height: Val::Px(10.0), ..default() }, BackgroundColor(Color::srgb(c.red, c.green, c.blue)))
+                    }))),
+                )),
+                Spawn(text("Heure de la pleine mer, de 0 h à 11 h ; rond blanc : point sans marée", 12.0)),
+            )))),
         )),
     )
+}
+
+/// Boutons de la légende de la carte des marées : lignes d'heure de pleine mer, sens de la marée ;
+/// et la clé de couleurs des lignes.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum TideChip {
+    Lines,
+    Arrows,
+}
+#[derive(Component)]
+struct TideLinesKey;
+
+/// Légende de la carte des marées : boutons des lignes d'heure et des flèches (allumés en bleu),
+/// clé de couleurs montrée avec les lignes.
+fn tide_legend_controls(
+    mut shown: ResMut<crate::render::TideLines>,
+    mut chips: Query<(Ref<Interaction>, &TideChip, &mut BackgroundColor)>,
+    mut key: Query<&mut Node, With<TideLinesKey>>,
+) {
+    for (interaction, chip, _) in &chips {
+        if interaction.is_changed() && *interaction == Interaction::Pressed {
+            match chip {
+                TideChip::Lines => shown.lines = !shown.lines,
+                TideChip::Arrows => shown.arrows = !shown.arrows,
+            }
+        }
+    }
+    for (interaction, chip, mut bg) in &mut chips {
+        let on = match chip {
+            TideChip::Lines => shown.lines,
+            TideChip::Arrows => shown.arrows,
+        };
+        let color = if on { GEO_CHIP_ON } else if *interaction == Interaction::None { PRODUCE_BG } else { PRODUCE_HOVER };
+        if bg.0 != color {
+            bg.0 = color;
+        }
+    }
+    for mut node in &mut key {
+        let wanted = if shown.lines { Display::Flex } else { Display::None };
+        if node.display != wanted {
+            node.display = wanted;
+        }
+    }
 }
 
 /// Courant de marée (m/s) à partir duquel l'infobulle le donne (il gêne ou aide les bateaux).

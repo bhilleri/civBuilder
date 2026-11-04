@@ -324,6 +324,7 @@ struct ConsoleContext<'w, 's> {
     cam: ResMut<'w, Cam3d>,
     layer: ResMut<'w, MapLayer>,
     geo: ResMut<'w, crate::render::GeoView>,
+    tide_lines: ResMut<'w, crate::render::TideLines>,
     seed: Option<Res<'w, WorldSeed>>,
     edited: MessageWriter<'w, MapEdited>,
     renamed: MessageWriter<'w, NamesChanged>,
@@ -461,6 +462,16 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
         Some(Effect::Layer(l)) => {
             if *ctx.layer != *l {
                 *ctx.layer = *l;
+            }
+        }
+        Some(Effect::TideLines(on)) => {
+            if ctx.tide_lines.lines != *on {
+                ctx.tide_lines.lines = *on;
+            }
+        }
+        Some(Effect::TideArrows(on)) => {
+            if ctx.tide_lines.arrows != *on {
+                ctx.tide_lines.arrows = *on;
             }
         }
         Some(Effect::Geo(family)) => {

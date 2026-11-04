@@ -29,7 +29,8 @@
 //! Logique pure (aucun rendu), déterministe.
 
 use crate::climate::Region;
-use crate::hex::{COLUMN_WIDTH, Hex};
+use crate::hex::{COLUMN_WIDTH, DIRECTIONS, Hex};
+use bevy::math::Vec2;
 use rayon::prelude::*;
 
 /// Pesanteur (m/s²).
@@ -74,6 +75,120 @@ impl Tides {
         self.amplitude.get(i).map_or(0.0, |a| 2.0 * a * (1.0 + S2_RATIO))
     }
 }
+
+/// Période de l'onde M2 (h).
+pub const M2_PERIOD_H: f32 = 12.42;
+
+/// Lignes d'égale heure de pleine mer (lignes cotidales), toutes les heures : morceaux de ligne
+/// (heure, extrémités en coordonnées monde 2D) et points amphidromiques (où la marée est nulle,
+/// et autour desquels l'heure de la pleine mer fait le tour du cycle). Calculées sur les
+/// triangles formés par les centres de trois cases de mer voisines dont `keep` dit oui (cases
+/// explorées) : l'heure y varie linéairement, ramenée à moins d'une demi-période de celle du
+/// premier sommet (elle est cyclique) ; un triangle dont les écarts d'heure font le tour du cycle
+/// entoure un point amphidromique (pas de ligne dedans). La carte qui fait le tour de la planète :
+/// les triangles du raccord sont pris des deux côtés (positions non ramenées dans la carte).
+pub fn cotidal_lines(width: i32, height: i32, wraps: bool, high_water_h: &[f32], sea: &[bool], keep: impl Fn(usize) -> bool) -> (Vec<(u8, Vec2, Vec2)>, Vec<Vec2>) {
+    let index = |h: Hex| {
+        let (c, r) = h.to_offset();
+        let c = if wraps { c.rem_euclid(width) } else { c };
+        (c >= 0 && c < width && r >= 0 && r < height).then_some((r * width + c) as usize)
+    };
+    let wrap_diff = |d: f32| (d + M2_PERIOD_H / 2.0).rem_euclid(M2_PERIOD_H) - M2_PERIOD_H / 2.0;
+    let (mut lines, mut amphidromes) = (Vec::new(), Vec::new());
+    for row in 0..height {
+        for col in 0..width {
+            let h = Hex::from_offset(col, row);
+            // Deux coins par case (à −30° et 30°) : chaque coin de la grille une seule fois
+            for j in 0..2 {
+                let cells = [h, h + DIRECTIONS[(j + 5) % 6], h + DIRECTIONS[j]];
+                let Some(ids) = cells.iter().map(|&c| index(c)).collect::<Option<Vec<usize>>>() else { continue };
+                if !ids.iter().all(|&i| sea[i] && keep(i)) {
+                    continue;
+                }
+                let pts = cells.map(|c| {
+                    let (x, y) = c.to_world();
+                    Vec2::new(x, y)
+                });
+                let t = [high_water_h[ids[0]], high_water_h[ids[1]], high_water_h[ids[2]]];
+                let winding = wrap_diff(t[1] - t[0]) + wrap_diff(t[2] - t[1]) + wrap_diff(t[0] - t[2]);
+                if winding.abs() > M2_PERIOD_H / 2.0 {
+                    amphidromes.push((pts[0] + pts[1] + pts[2]) / 3.0);
+                    continue;
+                }
+                let v = [t[0], t[0] + wrap_diff(t[1] - t[0]), t[0] + wrap_diff(t[2] - t[0])];
+                let (lo, hi) = (v[0].min(v[1]).min(v[2]), v[0].max(v[1]).max(v[2]));
+                for hour in 0..=12u8 {
+                    for turn in [-1.0f32, 0.0, 1.0] {
+                        let level = hour as f32 + turn * M2_PERIOD_H;
+                        if level <= lo || level >= hi {
+                            continue;
+                        }
+                        let cut: Vec<Vec2> = [(0, 1), (1, 2), (2, 0)]
+                            .iter()
+                            .filter(|&&(a, b)| (v[a] - level) * (v[b] - level) < 0.0)
+                            .map(|&(a, b)| pts[a].lerp(pts[b], (level - v[a]) / (v[b] - v[a])))
+                            .collect();
+                        if let [a, b] = cut[..] {
+                            lines.push((hour, a, b));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (lines, amphidromes)
+}
+
+/// Sens dans lequel la marée avance (de la pleine mer la plus tôt vers la plus tard), sur une case
+/// de mer sur trois dans chaque sens (`keep` : cases explorées) : départ et arrivée de la flèche
+/// (coordonnées monde 2D, longueur fixe `length`). Pas de flèche là où la marée est presque nulle
+/// (près d'un point amphidromique, l'heure n'y veut plus rien dire) ni là où la pleine mer a lieu
+/// presque à la même heure sur les cases voisines.
+pub fn tide_arrows(width: i32, height: i32, wraps: bool, high_water_h: &[f32], amplitude: &[f32], sea: &[bool], length: f32, keep: impl Fn(usize) -> bool) -> Vec<(Vec2, Vec2)> {
+    let index = |h: Hex| {
+        let (c, r) = h.to_offset();
+        let c = if wraps { c.rem_euclid(width) } else { c };
+        (c >= 0 && c < width && r >= 0 && r < height).then_some((r * width + c) as usize)
+    };
+    let wrap_diff = |d: f32| (d + M2_PERIOD_H / 2.0).rem_euclid(M2_PERIOD_H) - M2_PERIOD_H / 2.0;
+    let mut arrows = Vec::new();
+    for row in (1..height - 1).step_by(3) {
+        // (en quinconce d'une rangée à l'autre)
+        for col in ((row / 3) % 2 * 2..width).step_by(3) {
+            let i = (row * width + col) as usize;
+            if !sea[i] || !keep(i) || amplitude[i] < ARROW_MIN_AMPLITUDE_M {
+                continue;
+            }
+            let h = Hex::from_offset(col, row);
+            let (x, y) = h.to_world();
+            let here = Vec2::new(x, y);
+            // Gradient de l'heure de la pleine mer (h par unité monde), sur les voisines de mer
+            let mut g = Vec2::ZERO;
+            for nb in h.neighbors() {
+                let Some(j) = index(nb) else { continue };
+                if !sea[j] {
+                    continue;
+                }
+                let (nx, ny) = nb.to_world();
+                let e = Vec2::new(nx, ny) - here;
+                g += e / e.length_squared() * wrap_diff(high_water_h[j] - high_water_h[i]);
+            }
+            // (une mer qui monte d'un bloc, toute à la même heure : pas de sens à montrer)
+            if g.length() * COLUMN_WIDTH < ARROW_MIN_SHIFT_H {
+                continue;
+            }
+            let d = g.normalize() * length / 2.0;
+            arrows.push((here - d, here + d));
+        }
+    }
+    arrows
+}
+
+/// Amplitude (m) au-dessous de laquelle le sens de la marée n'est pas montré, et écart d'heure de
+/// la pleine mer d'une case à la suivante (h) au-dessous duquel la marée n'avance pas assez pour
+/// avoir un sens (elle monte d'un bloc).
+const ARROW_MIN_AMPLITUDE_M: f32 = 0.05;
+const ARROW_MIN_SHIFT_H: f32 = 0.08;
 
 /// Arête entre deux cases de mer : de `a` vers `b`, direction (unité), profondeur.
 struct Edge {
@@ -273,6 +388,53 @@ mod tests {
         let coast = |c: i32| (5..55).map(|r| tides.amplitude[(r * w + c) as usize]).sum::<f32>() / 50.0;
         assert!(coast(100) > 1.5 * coast(10), "plateau {} m, côte à pic {} m", coast(100), coast(10));
         assert!(tides.current[(30 * w + 97) as usize] > tides.current[(30 * w + 50) as usize], "courant de marée plus fort sur le plateau");
+    }
+
+    #[test]
+    fn lignes_d_heure_autour_d_un_point_amphidromique() {
+        // Heure de la pleine mer qui tourne autour d'un point (angle) : les lignes en partent comme
+        // des rayons, un seul point amphidromique au centre
+        let (w, h) = (30, 30);
+        let center = Hex::from_offset(15, 15).to_world();
+        let center = Vec2::new(center.0, center.1) + Vec2::new(7.0, 5.0);
+        let mut hours = Vec::new();
+        for r in 0..h {
+            for c in 0..w {
+                let (x, y) = Hex::from_offset(c, r).to_world();
+                let a = (Vec2::new(x, y) - center).to_angle().rem_euclid(std::f32::consts::TAU);
+                hours.push(a / std::f32::consts::TAU * M2_PERIOD_H);
+            }
+        }
+        let sea = vec![true; (w * h) as usize];
+        let (lines, amphidromes) = cotidal_lines(w, h, false, &hours, &sea, |_| true);
+        assert_eq!(amphidromes.len(), 1, "{amphidromes:?}");
+        assert!(amphidromes[0].distance(center) < 40.0);
+        // Chaque heure a sa ligne, dans la bonne direction depuis le centre
+        for hour in 0..12u8 {
+            let mine: Vec<&(u8, Vec2, Vec2)> = lines.iter().filter(|l| l.0 == hour).collect();
+            assert!(mine.len() >= 5, "heure {hour} : {} morceaux", mine.len());
+            let expected = hour as f32 / M2_PERIOD_H * std::f32::consts::TAU;
+            for l in mine {
+                let a = (l.1 - center).to_angle().rem_euclid(std::f32::consts::TAU);
+                let gap = (a - expected).abs().min(std::f32::consts::TAU - (a - expected).abs());
+                assert!(gap < 0.35 || l.1.distance(center) < 60.0, "heure {hour} à {a} rad au lieu de {expected}");
+            }
+        }
+        // Rien sur la terre ni hors de l'exploré
+        let (none, _) = cotidal_lines(w, h, false, &hours, &sea, |_| false);
+        assert!(none.is_empty());
+        // Flèches : la marée tourne autour du point (dans le sens où l'heure augmente)
+        let amplitude = vec![1.0; (w * h) as usize];
+        let arrows = tide_arrows(w, h, false, &hours, &amplitude, &sea, 20.0, |_| true);
+        assert!(arrows.len() >= 20);
+        for (a, b) in &arrows {
+            let (mid, dir) = ((*a + *b) / 2.0, *b - *a);
+            if mid.distance(center) < 80.0 {
+                continue;
+            }
+            // (heure croissante avec l'angle : sens inverse des aiguilles d'une montre)
+            assert!((mid - center).perp().dot(dir) > 0.0, "flèche à contresens en {mid}");
+        }
     }
 
     #[test]
