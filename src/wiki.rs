@@ -289,7 +289,8 @@ fn climate() -> Article {
                Méditerranée ou la Baltique). Avec la rotation de la planète, la marée tourne autour de points où \
                elle est nulle. La carte des marées montre le marnage de vives-eaux (quand la Lune et le Soleil \
                s'ajoutent) ; l'infobulle d'une mer le donne, avec le courant de marée quand il est fort (détroits, \
-               plateaux)."),
+               plateaux). Deux boutons de sa légende ajoutent les lignes d'heure de pleine mer (la marée avance \
+               d'une ligne à la suivante, ronds blancs : points sans marée) et des flèches du sens de la marée."),
             h("Vents"),
             p("Le vent naît des différences de pression : ceintures alternées de hautes et basses pressions, effet des \
                continents (une terre chaude attire l'air, une terre froide le repousse), dépressions et anticyclones \

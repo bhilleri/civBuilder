@@ -690,6 +690,70 @@ pub const TIDE_CLASSES: [(f32, (f32, f32, f32)); 6] = [
     (8.0, (0.66, 0.16, 0.42)),
 ];
 
+/// Carte des marées : lignes d'égale heure de pleine mer et flèches du sens de la marée affichées
+/// (boutons de la légende de cette carte, éteints au départ).
+#[derive(Resource, Default)]
+pub struct TideLines {
+    pub lines: bool,
+    pub arrows: bool,
+}
+
+/// Couleur des flèches du sens de la marée.
+pub const TIDE_ARROW: Color = Color::srgb(0.98, 0.98, 1.0);
+
+/// Flèches du sens de la marée des cases explorées (voir `tides::tide_arrows`).
+pub fn tide_arrows(map: &crate::map::WorldMap, fog: &ShownFog) -> Vec<(Vec2, Vec2)> {
+    let sea: Vec<bool> = (0..(map.width * map.height) as usize).map(|i| map.get(map.hex_at(i)).is_some_and(|t| t.is_sea())).collect();
+    let t = map.tides();
+    crate::tides::tide_arrows(map.width, map.height, map.wrap().wraps(), &t.high_water_h, &t.amplitude, &sea, HEX_SIZE * 1.1, |i| fog.explored.contains(&map.hex_at(i)))
+}
+
+/// Couleur de la ligne d'une heure de pleine mer : les heures font le tour du cercle des teintes
+/// (le cycle de la marée).
+pub fn tide_hour_color(hour: u8) -> Color {
+    Color::hsl(hour as f32 / crate::tides::M2_PERIOD_H * 360.0, 0.85, 0.35)
+}
+
+/// Lignes d'heure de pleine mer et points amphidromiques des cases explorées (voir
+/// `tides::cotidal_lines`).
+pub fn tide_lines(map: &crate::map::WorldMap, fog: &ShownFog) -> (Vec<(u8, Vec2, Vec2)>, Vec<Vec2>) {
+    let sea: Vec<bool> = (0..(map.width * map.height) as usize).map(|i| map.get(map.hex_at(i)).is_some_and(|t| t.is_sea())).collect();
+    crate::tides::cotidal_lines(map.width, map.height, map.wrap().wraps(), &map.tides().high_water_h, &sea, |i| fog.explored.contains(&map.hex_at(i)))
+}
+
+/// Lignes d'heure et flèches gardées d'une image à l'autre (refaites quand l'exploration change).
+#[derive(Default)]
+struct TideLinesCache {
+    lines: Option<(Vec<(u8, Vec2, Vec2)>, Vec<Vec2>)>,
+    arrows: Option<Vec<(Vec2, Vec2)>>,
+}
+
+/// Carte des marées : lignes d'égale heure de pleine mer, points amphidromiques et sens de la
+/// marée (en 2D).
+fn draw_tide_lines_2d(layer: Res<MapLayer>, shown: Res<TideLines>, map: Res<GameMap>, fog: Res<ShownFog>, view: Res<crate::view3d::ViewMode>, mut cache: Local<TideLinesCache>, mut gizmos: Gizmos) {
+    if fog.is_changed() {
+        (cache.lines, cache.arrows) = (None, None);
+    }
+    if *layer != MapLayer::Tides || view.is_3d {
+        return;
+    }
+    if shown.lines {
+        let (lines, amphidromes) = cache.lines.get_or_insert_with(|| tide_lines(&map.0, &fog));
+        for &(hour, a, b) in lines.iter() {
+            gizmos.line_2d(a, b, tide_hour_color(hour));
+        }
+        for &p in amphidromes.iter() {
+            gizmos.circle_2d(p, 7.0, Color::WHITE);
+            gizmos.circle_2d(p, 3.0, Color::BLACK);
+        }
+    }
+    if shown.arrows {
+        for &(a, b) in cache.arrows.get_or_insert_with(|| tide_arrows(&map.0, &fog)).iter() {
+            gizmos.arrow_2d(a, b, TIDE_ARROW).with_tip_length(7.0);
+        }
+    }
+}
+
 /// Classe de marnage (indice dans `TIDE_CLASSES`) d'une case de mer.
 fn tide_class(range: f32) -> usize {
     TIDE_CLASSES.iter().rposition(|&(from, _)| range >= from).unwrap_or(0)
@@ -1139,6 +1203,7 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ReachArea>()
+            .init_resource::<TideLines>()
             .init_resource::<MapLayer>()
             .init_resource::<GeoView>()
             .init_resource::<GeoColors>()
@@ -1163,6 +1228,7 @@ impl Plugin for RenderPlugin {
                 draw_overlays,
                 draw_wind_2d,
                 draw_currents_2d,
+                draw_tide_lines_2d,
                 draw_plates_2d,
                 update_slope_overlay,
                 update_water_overlay,

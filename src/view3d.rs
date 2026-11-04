@@ -477,6 +477,7 @@ impl Plugin for View3dPlugin {
                     draw_overlays_3d,
                     draw_wind_3d,
                     draw_currents_3d,
+                    draw_tide_lines_3d,
                     draw_plates_3d,
                     sync_seam_copies,
                 )
@@ -2340,6 +2341,60 @@ fn draw_currents_3d(
         if let Some((from, to, color)) = current_arrow(&map.0, hex) {
             let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
             gizmos.arrow(lift(from), lift(to), color).with_tip_length(7.0);
+        }
+    }
+}
+
+/// Lignes d'heure de pleine mer posées sur la mer, gardées d'une image à l'autre (refaites quand
+/// l'exploration ou la forme du sol changent).
+#[derive(Default)]
+struct TideLines3d {
+    shape: Option<u32>,
+    lines: Vec<(Color, Vec3, Vec3)>,
+    amphidromes: Vec<Vec3>,
+    arrows: Vec<(Vec3, Vec3)>,
+}
+
+/// Carte des marées : lignes d'égale heure de pleine mer et points amphidromiques (en 3D).
+fn draw_tide_lines_3d(
+    mode: Res<ViewMode>,
+    layer: Res<MapLayer>,
+    shown: Res<crate::render::TideLines>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    relief: Option<Res<Relief>>,
+    mut cache: Local<TideLines3d>,
+    mut gizmos: Gizmos<Gizmos3d>,
+) {
+    if fog.is_changed() {
+        cache.shape = None;
+    }
+    let Some(relief) = relief else { return };
+    if !mode.is_3d || *layer != MapLayer::Tides || !(shown.lines || shown.arrows) {
+        return;
+    }
+    if cache.shape != Some(relief.shape) {
+        let (lines, amphidromes) = crate::render::tide_lines(&map.0, &fog);
+        let lift = |p: Vec2| relief.on_ground(p.x, p.y, 1.5);
+        *cache = TideLines3d {
+            shape: Some(relief.shape),
+            lines: lines.iter().map(|&(hour, a, b)| (crate::render::tide_hour_color(hour), lift(a), lift(b))).collect(),
+            amphidromes: amphidromes.iter().map(|&p| lift(p)).collect(),
+            arrows: crate::render::tide_arrows(&map.0, &fog).iter().map(|&(a, b)| (lift(a) + Vec3::Y, lift(b) + Vec3::Y)).collect(),
+        };
+    }
+    if shown.lines {
+        for &(color, a, b) in &cache.lines {
+            gizmos.line(a, b, color);
+        }
+        for &p in &cache.amphidromes {
+            gizmos.circle(Isometry3d::new(p, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)), 8.0, Color::WHITE);
+            gizmos.circle(Isometry3d::new(p, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)), 3.5, Color::BLACK);
+        }
+    }
+    if shown.arrows {
+        for &(a, b) in &cache.arrows {
+            gizmos.arrow(a, b, crate::render::TIDE_ARROW).with_tip_length(7.0);
         }
     }
 }
