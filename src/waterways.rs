@@ -448,6 +448,12 @@ impl WaterShape {
         }
     }
 
+    /// Bande d'un fleuve le long d'une ligne d'eau (en travers : `fleuve_normals`).
+    fn fleuve_strip(&mut self, path: &[PathPoint]) {
+        let normal = fleuve_normals(path);
+        self.offset_strip(path, &normal, 0..=path.len() - 1, |k| (-path[k].1, path[k].1), WaterKind::Fleuve);
+    }
+
     /// Élément de rapides (polygone convexe, en éventail depuis son centre), teinte `tone`
     /// (`rapids` : dosage de l'eau vive ou de l'eau lisse).
     fn mark(&mut self, pts: &[Vec2], kind: WaterKind, tone: Tone) {
@@ -969,6 +975,24 @@ impl Isles {
     }
 }
 
+/// Directions en travers d'une ligne d'eau de fleuve : la moyenne de ses deux tronçons en chaque
+/// point, mais exactement celle du premier et du dernier tronçon à ses deux bouts (le débord sur
+/// l'arête et le point de passage) : la ligne y est perpendiculaire à l'arête, et le bord de
+/// l'eau tombe au même endroit vu des deux cases, quel que soit leur découpage (sans quoi il fait
+/// une marche d'une case à l'autre).
+fn fleuve_normals(path: &[PathPoint]) -> Vec<Vec2> {
+    let last = path.len() - 1;
+    let chord = |a: usize, b: usize| (path[b].0 - path[a].0).perp().normalize_or_zero();
+    (0..=last)
+        .map(|k| match k {
+            _ if last < 2 => chord(0, last),
+            0 | 1 => chord(0, 1),
+            _ if k + 1 >= last => chord(last - 1, last),
+            _ => chord(k - 1, k + 1),
+        })
+        .collect()
+}
+
 /// Bosse (0 à 1, nulle aux bouts) d'une île ou d'un bras, à la position `x` (0 à 1) de sa
 /// longueur ; `round` : plus petit, plus la forme est pleine.
 fn lens(x: f32, round: f32) -> f32 {
@@ -1000,7 +1024,7 @@ struct Cut {
 /// Chaque île est aussi rangée dans `shape.isles` (relief et arbres), avec ses lits d'île.
 fn add_isles(map: &WorldMap, hex: Hex, dirs: [usize; 2], path: &[PathPoint], isles: &Isles, shape: &mut WaterShape) {
     let last = path.len() - 1;
-    let normal: Vec<Vec2> = (0..=last).map(|k| (path[(k + 1).min(last)].0 - path[k.saturating_sub(1)].0).perp().normalize_or_zero()).collect();
+    let normal = fleuve_normals(path);
     let mut s = vec![0.0f32];
     for w in path.windows(2) {
         s.push(s.last().unwrap() + w[0].0.distance(w[1].0));
@@ -1100,7 +1124,9 @@ fn add_isles(map: &WorldMap, hex: Hex, dirs: [usize; 2], path: &[PathPoint], isl
         at = cuts.iter().map(|_| vec![0.0; last + 1]).collect();
         for k in 0..=last {
             let gaps: f32 = cuts.iter().map(|c| c.gap[k]).sum();
-            hi[k] = (hw(k) + envelope[k]).max(gaps + ISLE_WATER_MIN * hw(k));
+            // (la marge d'eau en plus vient avec les îles : rien là où il n'y en a pas)
+            let needed = gaps + (ISLE_WATER_MIN - 1.0) * hw(k) * (gaps / 2.0).min(1.0);
+            hi[k] = hw(k) + envelope[k].max(needed);
             lo[k] = -hi[k];
             for (i, c) in cuts.iter_mut().enumerate() {
                 let n = c.slot.1 as f32;
@@ -1262,7 +1288,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
         if isles.any() {
             add_isles(map, hex, [dirs[0], dirs[1]], &path, &isles, shape);
         } else {
-            shape.strip(&path, WaterKind::Fleuve);
+            shape.fleuve_strip(&path);
             shape.rapid(&path, down_dir != Some(dirs[0]));
         }
     } else {
@@ -1274,7 +1300,7 @@ fn add_fleuve(map: &WorldMap, hex: Hex, shape: &mut WaterShape) {
             path.extend(hermite(mid, (p - mid).normalize_or_zero() * l, p, out * l, STEPS).map(|(s, x)| (x, hw + (h - hw) * s, own.lerp(t, s))));
             path.push((p + out * OVERLAP, h, t));
             follow(&path, if down_dir == Some(d) { 1.0 } else { -1.0 });
-            shape.strip(&path, WaterKind::Fleuve);
+            shape.fleuve_strip(&path);
             shape.rapid(&path, down_dir == Some(d));
         }
         // Deux arêtes ouvertes côte à côte, l'une sur toute sa largeur ou toutes deux sur l'eau
@@ -1666,6 +1692,27 @@ mod tests {
             }
         }
         assert!(trees > 0, "des arbres sur les grandes îles");
+    }
+
+    #[test]
+    fn bords_de_l_eau_raccordes_sur_les_aretes() {
+        // Cases avec et sans îles (découpées plus ou moins finement), débits variés
+        for (map, row) in [fleuve_en_plaine(24, 5.0, 30_000.0), fleuve_rangee(4)] {
+            for w in row.windows(2) {
+                let d = DIRECTIONS.iter().position(|&dd| w[0] + dd == w[1]).unwrap();
+                let (a, b) = w[0].edge_corners(d);
+                let (a, b) = (v(a), v(b));
+                let along = (b - a).normalize();
+                // Points de l'eau posés sur l'arête : position le long de l'arête, la plus basse
+                // et la plus haute (les deux bords)
+                let span = |h: Hex| {
+                    let on: Vec<f32> = hex_water(&map, h).tris.iter().flat_map(|t| t.pts).filter(|p| (*p - a).perp_dot(along).abs() < 1e-3).map(|p| (p - a).dot(along)).collect();
+                    on.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &x| (lo.min(x), hi.max(x)))
+                };
+                let (here, there) = (span(w[0]), span(w[1]));
+                assert!((here.0 - there.0).abs() < 1e-2 && (here.1 - there.1).abs() < 1e-2, "{:?} {here:?} / {:?} {there:?}", w[0].to_offset(), w[1].to_offset());
+            }
+        }
     }
 
     #[test]
