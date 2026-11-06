@@ -7,6 +7,7 @@
 - **Estuaires et deltas digités dessinés** : l'estuaire s'ouvre en entonnoir vers la mer, le delta digité se divise en 2 à 4 bras à travers sa case. Plus d'île de fleuve isolée à l'embouchure.
 - **Les deltas gagnent sur la mer** : une ou deux vraies cases de terre basse devant l'embouchure, que le fleuve traverse. Le monde généré change donc : pour une même graine, certaines côtes et certains noms ne sont plus les mêmes qu'avant.
 - **Correctif** : les cours d'eau étaient invisibles en vue 2D depuis une version récente ; ils sont de retour.
+- **Côtes plus naturelles en 3D** : le rivage ondule au lieu de suivre exactement le bord des cases, sans changer les cases ni les règles.
 - **Rivières plus naturelles** : elles ne font plus la même vague régulière d'une case à l'autre, ni en parallèle de leurs voisines.
 - **Rias, fjords et deltas arqués dessinés** : dans une ria ou un fjord, la mer remonte la vallée sur deux cases ; un delta arqué forme un lobe de terre sur la côte, avec une seule sortie.
 - **Embouchures en vue 2D** : l'eau s'arrête à la côte et se fond dans la couleur de la mer, sur toutes les cartes. Plus de griffes sur la mer.

@@ -497,6 +497,9 @@ pub struct HexTop {
     pub wall_bottoms: [f32; 6],
     /// Bande de sable le long de ses rivages (non dans le grand froid ni contre la banquise).
     pub beach: bool,
+    /// Forme du rivage : déplacement des coins et bombement des arêtes (`waterways::coast_warp`).
+    pub warp_corners: [Vec2; 6],
+    pub warp_edges: [f32; 6],
 }
 
 impl HexTop {
@@ -545,6 +548,8 @@ pub fn compute_top(
     let joined = |a: Hex, b: Hex| !matches!(link(a, b), Link::None | Link::Cliff);
     let mut top = HexTop {
         beach: true,
+        warp_corners: [Vec2::ZERO; 6],
+        warp_edges: [0.0; 6],
         center: h,
         corners: [h; 6],
         mids: [h; 6],
@@ -914,7 +919,22 @@ pub fn build_hex(
     let border = boundary_points(if fine { FINE_EDGE_STEPS } else { EDGE_STEPS });
     let rings: &[f32] = if fine { &FINE_RINGS } else { &RINGS };
     let n = border.len() as u32;
-    let vertex = |mesh: &mut MeshData, q: Vec2, edge: bool| {
+    // Déplacement du pourtour pour la forme du rivage : le long d'une arête, entre ses deux coins, avec
+    // un bombement en sinus par morceaux (mêmes points quel que soit le découpage de l'arête)
+    let warped = top.warp_corners.iter().any(|c| *c != Vec2::ZERO) || top.warp_edges.iter().any(|r| *r != 0.0);
+    let shift = |p: Vec2, d: usize| -> Vec2 {
+        if !warped {
+            return Vec2::ZERO;
+        }
+        let (a, b) = (corner(d), corner(d + 1));
+        let t = ((p - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
+        let x = t * 4.0;
+        let k = (x.floor() as usize).min(3);
+        const PROFILE: [f32; 5] = [0.0, 0.71, 1.0, 0.71, 0.0];
+        let bulge = PROFILE[k] + (PROFILE[k + 1] - PROFILE[k]) * (x - k as f32);
+        top.warp_corners[d].lerp(top.warp_corners[(d + 1) % 6], t) + Vec2::from_angle((60.0 * d as f32).to_radians()) * top.warp_edges[d] * bulge
+    };
+    let vertex = |mesh: &mut MeshData, q: Vec2, moved: Vec2, edge: bool| {
         let (y, bank) = dig(q);
         let up = lift(q);
         // Pente : profil de la case, plus la déformation du relief (mesurée de part et d'autre)
@@ -928,14 +948,16 @@ pub fn build_hex(
         };
         // Une crête enneigée reste blanche même sur une pente raide
         let slope = if up.0 > up.1 { 0.0 } else { g.length() };
-        mesh.vertex(world(q, y), normal(q, g, bank), shade(q, y, bank, slope, edge, up))
+        mesh.vertex(world(q + moved, y), normal(q, g, bank), shade(q, y, bank, slope, edge, up))
     };
-    let center = vertex(&mut mesh, Vec2::ZERO, false);
+    let center = vertex(&mut mesh, Vec2::ZERO, Vec2::ZERO, false);
     let mut ring_start = Vec::new();
     for &r in rings {
         ring_start.push(mesh.positions.len() as u32);
-        for &(p, _) in &border {
-            vertex(&mut mesh, p * r, r >= 1.0);
+        // (l'intérieur de la case bouge moins : son centre, où sont les unités, ne bouge pas)
+        let weight = smoothstep((r - 0.5) / 0.5);
+        for &(p, d) in &border {
+            vertex(&mut mesh, p * r, shift(p, d) * weight, r >= 1.0);
         }
     }
     // Plateau central en éventail, puis bandes entre anneaux (sens trigonométrique vu du dessus)
@@ -960,7 +982,8 @@ pub fn build_hex(
             continue;
         }
         let q = border[(i + 1) % border.len()].0;
-        let (ta, tb) = (world(p, height(p)), world(q, height(q)));
+        // (le coin de fin vu depuis cette arête : `border` suivant peut déjà être l'arête d'après)
+        let (ta, tb) = (world(p + shift(p, d), height(p)), world(q + shift(q, d), height(q)));
         if skirt && top.joined(d) {
             // Bord d'une étendue d'eau : vu dans l'entaille d'une embouchure, il doit avoir l'air
             // d'eau (même couleur, éclairé comme la surface)
@@ -1138,6 +1161,8 @@ mod tests {
     fn faces_tournees_vers_le_haut() {
         let top = HexTop {
             beach: true,
+            warp_corners: [Vec2::ZERO; 6],
+            warp_edges: [0.0; 6],
             center: 10.0,
             corners: [12.0; 6],
             mids: [11.0; 6],

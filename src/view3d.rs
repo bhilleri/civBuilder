@@ -1449,6 +1449,7 @@ fn update_relief_3d(
             // Pas de plage de sable dans le grand froid ni contre la banquise
             let cold = matches!(map.0.get(hex), Some(Terrain::Snow | Terrain::Tundra));
             top.beach = !cold && !map.0.neighbors(hex).iter().any(|&n| map.0.is_ice(n));
+            (top.warp_corners, top.warp_edges) = crate::waterways::coast_warp(&map.0, hex);
             jobs.push((hex, top, color, sides, near, water(hex)));
         }
         let bumps = &relief.bumps;

@@ -59,6 +59,9 @@ const FJORD_WIDTH: f32 = 0.7;
 /// la graine, et décalage de côté, pour que deux rivières voisines n'ondulent pas pareil.
 const NODE_PULL: (f32, f32) = (0.25, 0.5);
 const NODE_JITTER: f32 = 3.5;
+/// Rivage en 3D : déplacement le plus grand d'un coin et bombement le plus grand d'une arête.
+const COAST_CORNER: f32 = 6.0;
+const COAST_RIPPLE: f32 = 5.0;
 /// Demi-largeur d'un fleuve à sa source (sur l'arête de la voisine qui l'alimente).
 const SOURCE_HALF_WIDTH: f32 = 1.4;
 /// Intérieur d'un virage serré avant l'embouchure : l'eau va jusqu'à cette part du chemin vers les coins.
@@ -794,6 +797,42 @@ pub fn river_node(map: &WorldMap, p: Vec2) -> Vec2 {
     let along = (to.down - from.up).normalize_or_zero();
     let pull = NODE_PULL.0 + NODE_PULL.1 * corner_hash(map, p, 90);
     p + chord * pull + along.perp() * NODE_JITTER * (2.0 * corner_hash(map, p, 91) - 1.0)
+}
+
+/// Forme du rivage autour d'une case, en 3D : déplacement de ses six coins et bombement de ses six
+/// arêtes (vers l'extérieur de la case), selon la graine. Commun aux cases qui se touchent : aucune
+/// fente. Rien loin de la mer, ni là où un cours d'eau, un lac, une falaise ou la banquise demandent le
+/// coin exact (leurs formes s'y raccordent). Le rivage ondule, les cases se lisent toujours.
+pub fn coast_warp(map: &WorldMap, hex: Hex) -> ([Vec2; 6], [f32; 6]) {
+    let (mut corners, mut ripple) = ([Vec2::ZERO; 6], [0.0; 6]);
+    let sea = |h: Hex| map.get(h).is_some_and(|t| t.is_sea()) && !map.is_ice(h);
+    let land = |h: Hex| map.get(h).is_some_and(|t| !t.is_water());
+    let plain = |h: Hex| !map.is_fleuve(h) && !map.is_ice(h) && map.get(h).is_some_and(|t| t != Terrain::Lake);
+    if !std::iter::once(hex).chain(hex.neighbors()).any(sea) {
+        return (corners, ripple);
+    }
+    for (j, c) in corners.iter_mut().enumerate() {
+        let trio = [hex, hex + DIRECTIONS[(j + 5) % 6], hex + DIRECTIONS[j]];
+        if !trio.iter().all(|&h| plain(h)) || !trio.iter().any(|&h| sea(h)) || !trio.iter().any(|&h| land(h)) {
+            continue;
+        }
+        let steep = (0..3).any(|k| map.cliff_with_sea(trio[k], trio[(k + 1) % 3]));
+        if steep || tributary_at(map, hex, j) {
+            continue;
+        }
+        let p = corner(hex, j);
+        *c = Vec2::from_angle(corner_hash(map, p, 92) * std::f32::consts::TAU) * COAST_CORNER * corner_hash(map, p, 93);
+    }
+    for (d, r) in ripple.iter_mut().enumerate() {
+        let n = hex + DIRECTIONS[d];
+        if !plain(hex) || !plain(n) || !((sea(hex) && land(n)) || (land(hex) && sea(n))) || map.cliff_with_sea(hex, n) || edge_river(map, hex, d).is_some() {
+            continue;
+        }
+        // (compté vers la mer : la même forme vue des deux cases)
+        let bulge = COAST_RIPPLE * (2.0 * corner_hash(map, edge_mid(hex, d), 94) - 1.0);
+        *r = if sea(hex) { -bulge } else { bulge };
+    }
+    (corners, ripple)
 }
 
 /// Eau dans laquelle se fond un fleuve : celle sur laquelle sa case s'ouvre, ou (case en amont d'une
@@ -1949,6 +1988,40 @@ mod tests {
         assert_eq!(fleuve_openings(&map, h).open, 1 << 0 | 1 << 3);
         let out = (edge_mid(h, 0) - center(h)).normalize_or_zero();
         assert!(couvert(&hex_water(&map, h), edge_mid(h, 0) - out * 0.5), "pas de terre au milieu de la sortie");
+    }
+
+    #[test]
+    fn le_rivage_ondule_sans_fente_entre_deux_cases() {
+        // Côte droite : la colonne 6 et au-delà est en mer
+        let mut map = WorldMap::filled(14, 14, Terrain::Plains);
+        for h in map.hexes().collect::<Vec<_>>() {
+            if h.to_offset().0 >= 6 {
+                map.set(h, Terrain::Ocean);
+            }
+        }
+        let shore = (0..6).find_map(|d| {
+            let h = Hex::from_offset(5, 7);
+            map.get(h + DIRECTIONS[d]).is_some_and(|t| t.is_sea()).then_some((h, d))
+        });
+        let (land, d) = shore.expect("une arête de côte");
+        let sea = land + DIRECTIONS[d];
+        let ((cl, rl), (cs, rs)) = (coast_warp(&map, land), coast_warp(&map, sea));
+        assert!(rl[d] != 0.0, "l'arête de côte ondule");
+        assert_eq!(rl[d], -rs[(d + 3) % 6], "la même forme vue des deux cases");
+        // Les deux coins de cette arête bougent pareil vus des deux cases
+        for (j, k) in [(d, (d + 3 + 1) % 6), ((d + 1) % 6, (d + 3) % 6)] {
+            assert!(corner(land, j).distance(corner(sea, k)) < 1e-3, "même coin");
+            assert_eq!(cl[j], cs[k]);
+        }
+        assert!(cl.iter().any(|c| c.length() > 0.0));
+        // Loin de la mer : rien
+        let far = coast_warp(&map, Hex::from_offset(1, 7));
+        assert!(far.0.iter().all(|c| *c == Vec2::ZERO) && far.1.iter().all(|r| *r == 0.0));
+        // Un fleuve garde son rivage exact
+        map.set_fleuve_links(land, 1 << d);
+        let river = coast_warp(&map, land);
+        assert_eq!(river.1[d], 0.0);
+        assert_eq!(river.0[d], Vec2::ZERO);
     }
 
     #[test]
