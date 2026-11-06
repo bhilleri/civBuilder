@@ -25,7 +25,8 @@ pub struct Sites {
 /// Place villages et camps sur la terre ferme franchissable, de façon déterministe pour une graine.
 pub fn place_sites(map: &WorldMap, start: Hex, seed: u64) -> Sites {
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut land: Vec<Hex> = map.hexes().filter(|&h| map.move_cost(h).is_some() && !map.is_fleuve(h)).collect();
+    // (la banquise est franchissable, mais aucune structure n'y prend place)
+    let mut land: Vec<Hex> = map.hexes().filter(|&h| map.move_cost(h).is_some() && !map.is_fleuve(h) && !map.is_ice(h)).collect();
     land.shuffle(&mut rng);
 
     let camp_target = (land.len() / LAND_PER_CAMP).max(2);
@@ -106,6 +107,23 @@ mod tests {
             }
             assert!(sites.villages.iter().all(|v| v.distance(start) >= VILLAGE_MIN_FROM_START));
             assert!(sites.camps.iter().all(|c| c.distance(start) >= CAMP_MIN_FROM_START));
+        }
+    }
+
+    #[test]
+    fn aucun_site_sur_la_banquise() {
+        let mut map = WorldMap::filled(30, 30, crate::map::Terrain::Ocean);
+        for h in map.hexes().collect::<Vec<_>>() {
+            let (col, _) = h.to_offset();
+            if col < 15 {
+                map.set(h, crate::map::Terrain::Plains);
+            } else {
+                map.freeze(h);
+            }
+        }
+        let sites = place_sites(&map, Hex::from_offset(7, 15), 42);
+        for &at in sites.villages.iter().chain(&sites.camps) {
+            assert!(!map.is_ice(at), "site sur la banquise : {at:?}");
         }
     }
 

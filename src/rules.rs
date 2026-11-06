@@ -361,6 +361,9 @@ pub fn growth_threshold(population: i32) -> i32 {
 }
 
 pub fn can_found_city(map: &WorldMap, at: Hex, cities: &[Hex]) -> Result<(), &'static str> {
+    if map.is_ice(at) {
+        return Err("pas de ville sur la banquise");
+    }
     match map.get(at) {
         None => return Err("hors de la carte"),
         Some(t) if t.move_cost().is_none() => return Err("terrain inconstructible"),
@@ -907,6 +910,11 @@ mod tests {
         let map = WorldMap::filled(20, 20, Terrain::Plains);
         let a = Hex::from_offset(5, 5);
         assert!(can_found_city(&map, a, &[]).is_ok());
+        // Banquise : on y marche, mais pas de ville
+        let mut frozen = WorldMap::filled(8, 8, Terrain::Ocean);
+        let ice = Hex::from_offset(3, 3);
+        frozen.freeze(ice);
+        assert_eq!(can_found_city(&frozen, ice, &[]), Err("pas de ville sur la banquise"));
         assert!(can_found_city(&map, Hex::from_offset(7, 5), &[a]).is_err());
         assert!(can_found_city(&map, Hex::from_offset(10, 5), &[a]).is_ok());
     }

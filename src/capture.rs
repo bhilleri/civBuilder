@@ -239,6 +239,8 @@ fn run_capture(
                 add_on("courants", h, 700.0, 0.0, MapLayer::Currents);
                 add_on("courants_loin", h, 2_200.0, 0.0, MapLayer::Currents);
                 add_on("marees_loin", h, 2_200.0, 0.0, MapLayer::Tides);
+                add_on("houle", h, 700.0, 0.0, MapLayer::Waves);
+                add_on("houle_loin", h, 2_200.0, 0.0, MapLayer::Waves);
             }
             // Pages du menu Échap, par-dessus la vue de départ
             for (name, page) in [("menu", MenuPage::Main), ("menu_parametres", MenuPage::Settings), ("menu_nouveau_monde", MenuPage::NewWorld)] {

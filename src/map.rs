@@ -206,7 +206,8 @@ impl MoveCosts for WorldMap {
 
     fn step(&self, from: Hex, to: Hex) -> Option<StepCost> {
         let mut step = self.enter_cost(to)?;
-        if self.cliff_between(from, to) {
+        // (une côte escarpée barre aussi le passage entre la terre et la banquise)
+        if self.cliff_between(from, to) || ((self.is_ice(from) || self.is_ice(to)) && self.cliff_with_sea(from, to)) {
             return None;
         }
         if self.river_between(from, to) {
@@ -496,6 +497,37 @@ impl std::ops::AddAssign for Yields {
         self.production += o.production;
         self.gold += o.gold;
     }
+}
+
+/// Marcher sur la banquise : 2 PM, comme une forêt.
+pub const ICE_MOVE_COST: u32 = 2;
+/// Banquise : température de la mer du jeu (°C) en dessous de laquelle elle est gelée toute
+/// l'année. Cette température suit celle de l'air vers les pôles (voir
+/// `climate::sea_level_temperature` : −10 °C à 70°, −18 °C à 80°) : le seuil met la limite vers 76° en moyenne.
+pub const ICE_SEA_C: f32 = -15.0;
+/// Écart de ce seuil (°C, multiplié par un bruit de ± 0,7 environ) et taille des découpures du bord
+/// (cases) : la température varie trop peu le long d'une latitude pour dessiner un bord naturel.
+const ICE_EDGE_NOISE_C: f32 = 7.0;
+const ICE_EDGE_CELLS: f64 = 14.0;
+
+/// Écart du seuil de la banquise par case (°C) : bruit de la graine, raccordé d'est en ouest sur une
+/// carte qui boucle.
+fn ice_edge_noise(width: i32, height: i32, seed: u32, wraps: bool) -> Vec<f32> {
+    let noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(424_243)).set_octaves(3).set_frequency(1.0);
+    let f = 1.0 / ICE_EDGE_CELLS;
+    let radius = width as f64 / std::f64::consts::TAU;
+    (0..width * height)
+        .map(|i| {
+            let (col, row) = ((i % width) as f64, (i / width) as f64);
+            let value = if wraps {
+                let angle = col / width as f64 * std::f64::consts::TAU;
+                noise.get([angle.cos() * radius * f, angle.sin() * radius * f, row * f])
+            } else {
+                noise.get([col * f, row * f])
+            };
+            value as f32 * ICE_EDGE_NOISE_C
+        })
+        .collect()
 }
 
 impl Terrain {
@@ -800,6 +832,10 @@ pub struct WorldMap {
     currents: crate::currents::Currents,
     /// Marées des cases de mer (voir `tides.rs`).
     tides: crate::tides::Tides,
+    /// Houle des cases de mer (voir `waves.rs`).
+    waves: crate::waves::Waves,
+    /// Banquise : cases de mer gelées toute l'année (voir `is_ice`).
+    ice: Vec<bool>,
     /// Cours d'eau et lacs (vides pour une carte remplie à la main).
     hydro: Hydrology,
     /// Échelle et latitude de la carte.
@@ -859,6 +895,8 @@ impl WorldMap {
             climate: Climate::default(),
             currents: crate::currents::Currents::default(),
             tides: crate::tides::Tides::default(),
+            waves: crate::waves::Waves::default(),
+            ice: Vec::new(),
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
             basins: Basins::empty(n),
@@ -1552,6 +1590,9 @@ impl WorldMap {
     /// « Fleuve (rives de prairie) », « Plaine, petit lac »…
     pub fn describe(&self, hex: Hex) -> String {
         let Some(t) = self.get(hex) else { return String::new() };
+        if self.is_ice(hex) {
+            return "Banquise".to_string();
+        }
         if self.is_fleuve(hex) {
             return format!("Fleuve (rives : {})", t.name().to_lowercase());
         }
@@ -1628,6 +1669,9 @@ impl WorldMap {
     pub fn enter_cost(&self, hex: Hex) -> Option<StepCost> {
         if self.is_fleuve(hex) {
             return Some(StepCost { water: FLEUVE_MOVE_COST, ..StepCost::default() });
+        }
+        if self.is_ice(hex) {
+            return Some(StepCost::terrain(ICE_MOVE_COST));
         }
         let base = self.get(hex)?.move_cost()?;
         match self.relief(hex) {
@@ -1923,6 +1967,31 @@ impl WorldMap {
     /// Marées de toutes les cases (amplitude, heure de la pleine mer, courant).
     pub fn tides(&self) -> &crate::tides::Tides {
         &self.tides
+    }
+
+    /// Houle de toutes les cases (hauteur, période, direction, côtes).
+    pub fn waves(&self) -> &crate::waves::Waves {
+        &self.waves
+    }
+
+    /// Banquise : mer gelée toute l'année. Les unités y marchent (`enter_cost`), mais aucune ville ni
+    /// structure n'y prend place.
+    pub fn is_ice(&self, hex: Hex) -> bool {
+        self.index(hex).is_some_and(|i| self.tiles[i].is_sea() && self.ice.get(i).copied().unwrap_or(false))
+    }
+
+    /// Gèle une case de mer (tests).
+    #[cfg(test)]
+    pub fn freeze(&mut self, hex: Hex) {
+        let (n, i) = (self.tiles.len(), self.cell(hex));
+        self.ice.resize(n, false);
+        self.ice[i] = true;
+        self.step_cache = std::sync::OnceLock::new();
+    }
+
+    /// Case de mer qui a sa houle calculée (toutes les mers d'un monde généré), et son indice.
+    pub fn wave_cell(&self, hex: Hex) -> Option<usize> {
+        self.index(hex).filter(|&i| self.tiles[i].is_sea() && i < self.waves.height.len())
     }
 
     /// Marnage de vives-eaux d'une case de mer (m).
@@ -2388,6 +2457,13 @@ impl WorldMap {
         // 9) Marées (voir tides.rs), sur les mers définitives
         let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
         self.tides = crate::tides::simulate(width, height, &sea, &self.depth, &region);
+        // 10) Banquise, selon la température de la mer, avec un bord découpé
+        let edge = ice_edge_noise(width, height, seed, region.wraps);
+        self.ice = (0..n).map(|i| sea[i] && self.currents.temperature[i] <= ICE_SEA_C + edge[i]).collect();
+        self.step_cache = std::sync::OnceLock::new();
+        // 11) Houle (voir waves.rs), sous le vent des régimes du climat, qui ne sert plus ensuite
+        let regimes = std::mem::take(&mut self.climate.regime_wind);
+        self.waves = crate::waves::simulate(width, height, &sea, &self.ice, &self.depth, &regimes, &region);
     }
 
     /// Biome d'une case de terre selon son climat, l'aridité variée de `jitter` (sols, exposition).
@@ -3363,6 +3439,106 @@ mod tectonique {
 #[cfg(test)]
 mod fond_marin {
     use super::*;
+
+    #[test]
+    fn on_marche_sur_la_banquise_mais_pas_sur_la_mer() {
+        let mut m = WorldMap::filled(8, 8, Terrain::Ocean);
+        let (land, ice, sea) = (Hex::from_offset(3, 3), Hex::from_offset(4, 3), Hex::from_offset(5, 3));
+        m.set(land, Terrain::Plains);
+        m.freeze(ice);
+        assert_eq!(m.move_cost(ice), Some(ICE_MOVE_COST));
+        assert_eq!(m.move_cost(sea), None, "la mer libre reste infranchissable");
+        assert_eq!(m.step(land, ice).map(StepCost::total), Some(ICE_MOVE_COST));
+        assert_eq!(m.step(ice, sea), None);
+        // Une côte escarpée barre le passage, dans les deux sens
+        m.set_elevation(land, 1_200.0);
+        assert!(m.cliff_with_sea(land, ice));
+        assert_eq!(m.step(land, ice), None);
+        assert_eq!(m.step(ice, land), None);
+    }
+
+    #[test]
+    fn bord_de_la_banquise_varie_et_se_raccorde() {
+        let (w, h) = (192, 111);
+        let a = ice_edge_noise(w, h, 777, true);
+        assert_eq!(a, ice_edge_noise(w, h, 777, true), "même graine, même bord");
+        assert_ne!(a, ice_edge_noise(w, h, 2, true));
+        // Il varie vraiment, d'environ le seuil de température de plusieurs rangées de latitude
+        let (lo, hi) = a.iter().fold((f32::MAX, f32::MIN), |(l, u), &v| (l.min(v), u.max(v)));
+        assert!(hi - lo > 5.0, "de {lo} à {hi}");
+        // Pas de coupure entre le dernier et le premier bord de la carte
+        for row in 0..h {
+            let (east, west) = (a[(row * w + w - 1) as usize], a[(row * w) as usize]);
+            assert!((east - west).abs() < 2.0, "rangée {row} : {east} et {west}");
+        }
+    }
+
+    #[test]
+    fn la_banquise_ne_couvre_que_la_mer() {
+        let mut m = WorldMap::filled(6, 6, Terrain::Ocean);
+        m.ice = vec![true; 36];
+        let h = Hex::from_offset(2, 2);
+        assert!(m.is_ice(h));
+        // Une case devenue terre (console de debug) n'est plus de la banquise
+        m.set(h, Terrain::Plains);
+        assert!(!m.is_ice(h));
+        // Monde sans banquise calculée : aucune
+        assert!(!WorldMap::filled(6, 6, Terrain::Ocean).is_ice(h));
+    }
+
+    /// Bilan de la houle : hauteur par bande de latitude, part de houle venue d'ailleurs, période,
+    /// côtes, temps de calcul : `cargo test bilan_houle -- --ignored --nocapture` (`SEEDS=777,2`).
+    #[test]
+    #[ignore]
+    fn bilan_houle() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").map_or(vec![777, 2, 5], |s| s.split(',').map(|x| x.parse().unwrap()).collect());
+        for seed in seeds {
+            let t = std::time::Instant::now();
+            let m = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let total = t.elapsed().as_secs_f32();
+            let w = m.waves();
+            let sea: Vec<usize> = (0..m.tiles.len()).filter(|&i| m.tiles[i].is_sea() && !m.ice[i]).collect();
+            let ice: Vec<usize> = (0..m.tiles.len()).filter(|&i| m.ice[i]).collect();
+            let ice_lat = |north: bool| ice.iter().map(|&i| m.latitude(m.hex_at(i))).filter(|&l| (l > 0.0) == north).map(f32::abs).fold(f32::MAX, f32::min);
+            let in_rows = |lo: f32| {
+                let rows: Vec<usize> = (0..m.tiles.len()).filter(|&i| m.tiles[i].is_sea() && m.latitude(m.hex_at(i)).abs() >= lo).collect();
+                rows.iter().filter(|&&i| m.ice[i]).count() as f32 / rows.len().max(1) as f32 * 100.0
+            };
+            println!(
+                "  banquise : {} cases ({:.0} % des mers), jusqu'à {:.0}°N et {:.0}°S ; part gelée au-delà de 60° {:.0} %, de 70° {:.0} %, de 80° {:.0} % ; {} cases gelées dans un banc de poissons",
+                ice.len(), ice.len() as f32 / (ice.len() + sea.len()).max(1) as f32 * 100.0, ice_lat(true), ice_lat(false), in_rows(60.0), in_rows(70.0), in_rows(80.0), ice.iter().filter(|&&i| m.bank(m.hex_at(i)).is_some()).count(),
+            );
+            let lat = |i: usize| m.latitude(m.hex_at(i)).abs();
+            let pct = |mut v: Vec<f32>, p: f32| {
+                v.sort_by(f32::total_cmp);
+                if v.is_empty() { 0.0 } else { v[((v.len() - 1) as f32 * p) as usize] }
+            };
+            let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+            let heights: Vec<f32> = sea.iter().map(|&i| w.height[i]).collect();
+            println!(
+                "graine {seed} : génération {total:.1} s ; {} cases de mer, {} sous la banquise ; hauteur (m) médiane {:.2}, 10 % {:.2}, 90 % {:.2}, max {:.1} ; plus forte de l'année médiane {:.1}, max {:.1}",
+                sea.len(), ice.len(), pct(heights.clone(), 0.5), pct(heights.clone(), 0.1), pct(heights.clone(), 0.9), pct(heights, 1.0),
+                pct(sea.iter().map(|&i| w.storm[i]).collect(), 0.5), pct(sea.iter().map(|&i| w.storm[i]).collect(), 1.0),
+            );
+            for (lo, hi) in [(0.0, 15.0), (15.0, 30.0), (30.0, 45.0), (45.0, 60.0), (60.0, 90.0)] {
+                let band: Vec<usize> = sea.iter().copied().filter(|&i| lat(i) >= lo && lat(i) < hi).collect();
+                let of = |f: &dyn Fn(usize) -> f32| mean(&band.iter().map(|&i| f(i)).collect::<Vec<f32>>());
+                println!(
+                    "  {lo:>2.0}-{hi:<2.0}° : {:>5} cases, hauteur {:.2} m, tempête {:.1} m, période {:.1} s, houle venue d'ailleurs {:.0} %, direction nette {:.0} %",
+                    band.len(), of(&|i| w.height[i]), of(&|i| w.storm[i]), of(&|i| w.period[i]), of(&|i| w.swell_share[i]) * 100.0, of(&|i| w.focus[i]) * 100.0,
+                );
+            }
+            let shore: Vec<usize> = sea.iter().copied().filter(|&i| w.shore_power[i] > 0.0).collect();
+            let of = |f: &dyn Fn(usize) -> f32| shore.iter().map(|&i| f(i)).collect::<Vec<f32>>();
+            let classes = [0.6f32, 1.5].map(|h| shore.iter().filter(|&&i| w.shore_height[i] < h).count());
+            println!(
+                "  côtes : {} cases ; déferlement (m) médiane {:.2}, 90 % {:.2}, max {:.1} ; énergie (kW/m) médiane {:.1}, 90 % {:.1}, max {:.0} ; dérive (kW/m) médiane {:.1} ; moins de 0,6 m : {}, moins de 1,5 m : {}",
+                shore.len(), pct(of(&|i| w.shore_height[i]), 0.5), pct(of(&|i| w.shore_height[i]), 0.9), pct(of(&|i| w.shore_height[i]), 1.0),
+                pct(of(&|i| w.shore_power[i]), 0.5), pct(of(&|i| w.shore_power[i]), 0.9), pct(of(&|i| w.shore_power[i]), 1.0),
+                pct(of(&|i| w.shore_drift[i].0.hypot(w.shore_drift[i].1)), 0.5), classes[0], classes[1],
+            );
+        }
+    }
 
     /// Bilan des courants marins : vitesses, écarts de température de la mer, courant
     /// circumpolaire, rencontres de courants. `CURRENTS_DUMP=<dossier>` écrit pour chaque case

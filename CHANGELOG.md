@@ -1,5 +1,16 @@
 # Journal des versions
 
+## Prochaine version (en cours)
+
+### Banquise
+- **La banquise apparaît sur les cartes** (normale, climat, altitude, courants, marées, houle…, sauf les plaques et la géographie) et dans l'infobulle, près des pôles, au-delà de 72 à 80° selon l'endroit, avec un bord découpé. Elle arrête la houle.
+- **On peut marcher sur la banquise** (2 PM par case, sauf au pied d'une côte escarpée), ce qui ouvre des passages entre des terres. On ne peut pas y fonder de ville, et aucun village ni camp n'y prend place. Elle garde ses rendements de mer : on y pêche toujours.
+
+### Houle
+- **Modèle de houle** (module `waves.rs`) : un bilan d'énergie simplifié à la génération (12 directions, 3 périodes), sous le vent de chaque régime du climat : la houle naît du vent, voyage de case en case, traverse les océans, s'use sur les plateaux et s'arrête à la banquise. Moins d'une seconde de plus à la génération (0,8 s en profil de développement sur 16 fils). Un modèle complet, type WaveWatch III, prenait plus de 2 minutes dans notre comparatif.
+- **Carte de la houle** (menu des cartes, touche T, console `carte houle`), en 2D et en 3D : hauteur moyenne par classes et flèches vers où va la houle, plus longues pour une longue période. Infobulle d'une case de mer : hauteur, plus forte hauteur de l'année, période, origine, déferlement sur la côte.
+- La houle servira au type d'embouchure et aux flèches de sable ; ses effets en jeu restent à décider. Le reste du monde ne change pas : une même graine donne les mêmes terres, climats et cours d'eau.
+
 ## 0.3.1 — 6 novembre 2026
 
 Correctif de performances : la carte s'affiche bien plus vite en 3D, et les cartes les plus lourdes ne ralentissent plus le jeu.

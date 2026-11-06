@@ -49,6 +49,7 @@ mod ui;
 mod units;
 mod view3d;
 mod waterways;
+mod waves;
 mod wiki;
 
 use bevy::prelude::*;
