@@ -6,6 +6,7 @@
 - **Passage à Bevy 0.20.1** : champs de saisie avec `TextInput`, plus d'`Interaction` ni de `Button`, dépréciés : le module `pointer.rs` tient l'état du pointeur (`UiPointer`) à partir du picking de Bevy.
 - Textes d'aide du menu alignés à gauche : la mise en page du texte a changé avec Bevy.
 - Seuls les éléments cliquables, les panneaux et les champs réagissent au pointeur ; un élément recouvre maintenant ce qui est dessous (un nom de la carte sous un panneau n'est plus survolé).
+- **Cartes des plaques et du réseau plus fluides en 3D** : le relief s'y construit aussi vite que sur les autres cartes (plaques 16,2 → 10,8 s, réseau 13,7 → 10,8 s pour toute la carte, 60 images/s tenues). Pendant la construction, les tracés ne sont plus reposés sur le sol qu'au plus toutes les 0,5 s, et seuls les chevrons du courant à l'écran sont calculés (réseau 5,3 → 0,3 ms par image une fois la carte construite).
 - **Worktrees amorcés automatiquement** : un hook de Claude Code copie le `target` du checkout principal au démarrage d'une session en worktree (premier build en ≈ 1 min 15 au lieu de ≈ 6 min).
 
 ## 0.3.0 « Planet Update » — 4 novembre 2026

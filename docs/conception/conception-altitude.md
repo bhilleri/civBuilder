@@ -140,6 +140,31 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
   3. Surfaces d'eau : hauteur de chaque point calculée une fois par triangle (un sommet sert au découpage des chutes et au maillage) ; mers et lacs d'alentour cherchés **une fois par triangle** (piste 3 de l'analyse du 30/10, non retenue alors), la distance au plus proche à chaque sommet. Surfaces d'eau ≈ 2 à 3 ms.
 - **Résultat** (même scénario) : un seul à-coup (36 ms) au lieu de 18, pire image 36 ms au lieu de 43 ; paquet de relief ≈ 8 ms. Rendu identique en captures. Reste : la construction d'un paquet (32 cases) est indivisible et coûte encore plus que le budget de 6 ms quand beaucoup de cases à cours d'eau arrivent d'un coup.
 
+## Vitesse d'affichage des cases selon la carte (06/11/2026)
+- **Mesure** (demande de Benjamin) : CSV image par image (instrumentation temporaire, non gardée), nouveau processus à chaque essai pour tout recalculer, carte révélée, 192×111, graine 777 sauf mention contraire, profil de développement, écran à 59 Hz, Ryzen 7 7800X3D et RTX 5070, avec et sans défilement à la vitesse des touches.
+- **Avant** : toute la carte en ≈ 11 s (≈ 9,8 s en défilant) à 60 images/s, sauf plaques (16,2 s ; 17,0 s en défilant, 19-20 ms par image) et réseau (13,7 s ; 15,4 s, 18-20 ms par image). Un changement de carte à chaud (couleurs seules) prend ≈ 3 s, le réseau 4,4 s (6,6 s en défilant). Carte graphique peu sollicitée (utilisation ≤ 10 % sur 95 % des relevés) : le processeur limite.
+- **Causes** :
+  1. Pendant la construction, `Relief::shape` change à presque chaque image : les tracés gardés (`PlatesCache`, `NetworkCache`, voir plus haut) étaient donc reposés sur le sol à chaque image. L'image dépassait 17,5 ms et le budget adaptatif descendait au minimum (un paquet, 32 cases par image).
+  2. Une fois la carte construite, le réseau coûtait encore 5,3 ms par image : les chevrons animés en prenaient 5,26 (sans eux, 0,06 ms), à cause de trois `Relief::on_ground` pour chacun des ≈ 2 420 chevrons de la carte, y compris hors de l'écran.
+- **Corrections** :
+  1. **Recalcul limité pendant la construction** (`view3d::ground_lines_stale`) : au plus une fois par 0,5 s (`GROUND_LINES_REFRESH_S`) tant que le relief se construit ; aussitôt sans tracés ou dès que tout est fini. Pendant la construction, des tracés peuvent donc rester décalés du sol jusqu'à 0,5 s.
+  2. **Chevrons du réseau limités au champ de vision** (`highlight::in_view`) : champs des caméras 3D allumées, caméras du raccord est-ouest comprises, avec une marge (`CHEVRON_VIEW_MARGIN`) ; ceux qui sont à l'écran restent posés exactement sur le sol à chaque image. **Le plan lointain ne doit pas compter** (`intersects_sphere(…, false)`, comme Bevy pour les maillages) : il reste à 1 000 unités alors que la caméra peut être à 2 800, et le compter retirait les chevrons de la vue lointaine.
+- **Résultat** (même protocole, 2 à 3 essais) :
+
+  | Carte | Construction | Construction en défilant | Durée d'image | Réseau, carte construite |
+  |---|---|---|---|---|
+  | Plaques | 16,2 → 10,8 s | 17,0 → 9,8 s | 19-20 → 16,7 ms | — |
+  | Réseau | 13,7 → 10,8 s | 15,4 → 9,7 s | 18-20 → 16,7 ms | 5,3 → 0,3 ms (2800 : 0,5 ms ; en défilant 0,15 à 1,7 ms) |
+
+  Audit temporaire des chevrons contre leur projection à l'écran, sur 1 196 images (distances 900 et 2800, avec et sans défilement) : 0 chevron visible écarté. 16 à 528 chevrons à l'écran sur ≈ 2 420.
+- **Non traité** :
+  - Budget : le débit vaut ≈ 42 cases × images par seconde (sans synchronisation verticale : 6,7 s au lieu de 11). Un paquet coûte ≈ 4,1 ms, donc 78 % des images n'en traitent qu'un alors qu'il reste de la marge.
+  - 32 % de traitements en plus du nombre de cases (rivières voisines refaites).
+  - Flèches du climat et des courants, recalculées à chaque image (fil principal à 8 et 6 ms au lieu de 4 quand la carte est construite).
+  - `draw_tide_lines_3d` : même invalidation que les tracés corrigés, non mesurée avec ses options activées.
+  - À-coup de 60 à 100 ms vers x ≈ 8 260 en défilant à la distance 2800, côté extraction ou rendu, cause non identifiée.
+  - Version distribuée (release) non mesurée.
+
 ## Limites et suite
 - Le bruit d'élévation donne de larges hauts plateaux : le massif le plus haut reste une grande zone de montagnes (désormais franchissable). L'étape C (chaînes + érosion) doit le découper en crêtes et vallées.
 - Les pics ressemblent encore à des cônes arrondis enneigés ; collines discrètes sous les forêts denses.

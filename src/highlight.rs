@@ -20,6 +20,7 @@ use crate::input::HoveredHex;
 use crate::map::WorldMap;
 use crate::render::MapLayer;
 use crate::view3d::{Gizmos3d, Relief, ViewMode};
+use bevy::camera::primitives::{Frustum, Sphere};
 use bevy::prelude::*;
 use bevy::platform::collections::{HashMap, HashSet};
 
@@ -376,8 +377,21 @@ fn lift_runs(runs: &[Vec<Vec2>], relief: &Relief) -> Vec<Vec<Vec3>> {
         .collect()
 }
 
+/// Marge (unités du monde) autour d'un chevron pour décider s'il est à l'écran : sa taille et le
+/// déplacement de la vue depuis l'image précédente (les champs de vision datent de cette image).
+const CHEVRON_VIEW_MARGIN: f32 = 60.0;
+
+/// Une sphère est-elle dans le champ d'une des caméras ? (aucun champ donné : pas de tri) Le plan
+/// lointain ne compte pas : comme pour les maillages, seul le champ latéral limite la vue, et la
+/// caméra peut être bien plus loin du sol que ce plan.
+fn in_view(views: &[Frustum], center: Vec3, radius: f32) -> bool {
+    let sphere = Sphere { center: center.into(), radius };
+    views.is_empty() || views.iter().any(|v| v.intersects_sphere(&sphere, false))
+}
+
 /// Dessine les tracés d'un élément (2D, ou 3D avec les tracés posés sur le relief `lifted`) et,
-/// pour un cours d'eau, les chevrons du courant.
+/// pour un cours d'eau, les chevrons du courant (en 3D, ceux qui sont dans le champ `views` : les
+/// poser sur le sol à chaque image coûte cher quand tout le réseau est tracé).
 #[allow(clippy::too_many_arguments)]
 fn draw_feature<G: GizmoConfigGroup>(
     runs: &[Vec<Vec2>],
@@ -387,6 +401,7 @@ fn draw_feature<G: GizmoConfigGroup>(
     chevron: Color,
     is_3d: bool,
     relief: Option<&Relief>,
+    views: &[Frustum],
     time: f32,
     gizmos_2d: &mut Gizmos<G>,
     gizmos_3d: &mut Gizmos<Gizmos3d>,
@@ -399,7 +414,17 @@ fn draw_feature<G: GizmoConfigGroup>(
             if !river || run.len() == 1 {
                 continue;
             }
+            // Boîte du tracé : tout le tracé hors champ, sinon chevron par chevron (à mi-hauteur)
+            let (low, high) = lifted[i].iter().fold((Vec3::MAX, Vec3::MIN), |(l, h), &p| (l.min(p), h.max(p)));
+            let middle = (low + high) / 2.0;
+            if !in_view(views, middle, (high - middle).length() + CHEVRON_VIEW_MARGIN) {
+                continue;
+            }
+            let reach = high.y - middle.y + CHEVRON_VIEW_MARGIN;
             for (p, dir) in flow_marks(run, time) {
+                if !in_view(views, Vec3::new(p.x, middle.y, -p.y), reach) {
+                    continue;
+                }
                 let side = dir.perp() * 2.6;
                 let back = p - dir * 3.5;
                 let at = |q: Vec2| relief.on_ground(q.x, q.y, 2.2);
@@ -445,7 +470,7 @@ fn draw_highlight(
         let runs = feature_lines(&map.0, &fog, feature);
         let river = matches!(feature, Feature::River(_));
         let lifted = relief.as_deref().filter(|_| mode.is_3d).map(|r| lift_runs(&runs, r));
-        draw_feature(&runs, lifted.as_deref(), river, color, FLOW_COLOR, mode.is_3d, relief.as_deref(), time.elapsed_secs(), &mut gizmos_2d, &mut gizmos_3d);
+        draw_feature(&runs, lifted.as_deref(), river, color, FLOW_COLOR, mode.is_3d, relief.as_deref(), &[], time.elapsed_secs(), &mut gizmos_2d, &mut gizmos_3d);
     }
 }
 
@@ -456,6 +481,8 @@ struct NetworkCache {
     runs: Vec<(Feature, Vec<Vec<Vec2>>)>,
     lifted: Vec<Vec<Vec<Vec3>>>,
     shape: Option<u32>,
+    /// Instant du dernier recalcul des tracés posés sur le relief (s).
+    lifted_at: f32,
 }
 
 /// Carte du réseau hydrographique : tous les cours d'eau et lacs connus, colorés selon leur rang
@@ -468,7 +495,9 @@ fn draw_network_map(
     fog: Res<ShownFog>,
     mode: Res<ViewMode>,
     relief: Option<Res<Relief>>,
+    pending: Res<crate::view3d::ReliefPending>,
     time: Res<Time>,
+    cameras: Query<(&Camera, &Frustum), With<Camera3d>>,
     mut fleuves_2d: Gizmos<NetworkGizmos2d>,
     mut streams_2d: Gizmos<StreamGizmos2d>,
     mut gizmos_3d: Gizmos<Gizmos3d>,
@@ -493,19 +522,23 @@ fn draw_network_map(
     }
     // En 3D, posés sur le relief : recalculés quand la forme du sol change
     let relief = relief.as_deref();
+    let mut lifted_at = cache.lifted_at;
     if mode.is_3d
         && let Some(relief) = relief
-        && cache.shape != Some(relief.shape)
+        && crate::view3d::ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut lifted_at)
     {
         cache.lifted = cache.runs.iter().map(|(_, runs)| lift_runs(runs, relief)).collect();
         cache.shape = Some(relief.shape);
     }
+    cache.lifted_at = lifted_at;
     // Le réseau survolé est dessiné par la surbrillance, au-dessus
     let lit: HashSet<Feature> = hovered.0.map_or_else(HashSet::new, |main| {
         let net = network(basins, main);
         std::iter::once(main).chain(net.receiver).chain(net.downstream).chain(net.direct).chain(net.deeper).collect()
     });
     let t = time.elapsed_secs();
+    // Champs de vision en 3D, caméras du raccord est-ouest comprises quand elles sont allumées
+    let views: Vec<Frustum> = cameras.iter().filter(|(camera, _)| camera.is_active).map(|(_, frustum)| *frustum).collect();
     let dark = |c: Color| {
         let s = c.to_srgba();
         Color::srgb(s.red * 0.45, s.green * 0.45, s.blue * 0.45)
@@ -518,15 +551,15 @@ fn draw_network_map(
         match *feature {
             Feature::Lake(l) => {
                 let color = level_color(basins.lakes[l].level);
-                draw_feature(runs, lifted, false, color, color, mode.is_3d, relief, t, &mut streams_2d, &mut gizmos_3d);
+                draw_feature(runs, lifted, false, color, color, mode.is_3d, relief, &views, t, &mut streams_2d, &mut gizmos_3d);
             }
             Feature::River(r) => {
                 let river = &basins.rivers[r];
                 let color = level_color(river.level);
                 if river.fleuve {
-                    draw_feature(runs, lifted, true, color, dark(color), mode.is_3d, relief, t, &mut fleuves_2d, &mut gizmos_3d);
+                    draw_feature(runs, lifted, true, color, dark(color), mode.is_3d, relief, &views, t, &mut fleuves_2d, &mut gizmos_3d);
                 } else {
-                    draw_feature(runs, lifted, true, color, dark(color), mode.is_3d, relief, t, &mut streams_2d, &mut gizmos_3d);
+                    draw_feature(runs, lifted, true, color, dark(color), mode.is_3d, relief, &views, t, &mut streams_2d, &mut gizmos_3d);
                 }
             }
         }
@@ -568,6 +601,21 @@ mod tests {
 #[cfg(test)]
 mod flow_tests {
     use super::*;
+
+    #[test]
+    fn chevrons_gardes_seulement_dans_le_champ() {
+        // Caméra à l'origine, regardant vers −Z, plan lointain à 1 000 comme par défaut
+        use bevy::camera::{CameraProjection, PerspectiveProjection};
+        let views = [PerspectiveProjection::default().compute_frustum(&GlobalTransform::IDENTITY)];
+        assert!(in_view(&views, Vec3::new(0.0, 0.0, -100.0), 1.0), "devant la caméra");
+        assert!(in_view(&views, Vec3::new(0.0, 0.0, -3_000.0), 1.0), "au-delà du plan lointain");
+        assert!(!in_view(&views, Vec3::new(3_000.0, 0.0, -100.0), 1.0), "sur le côté");
+        assert!(!in_view(&views, Vec3::new(0.0, 0.0, 100.0), 1.0), "derrière la caméra");
+        // Tout juste hors champ : la marge le garde
+        assert!(in_view(&views, Vec3::new(0.0, 0.0, 10.0), 60.0));
+        // Sans champ (surbrillance) : pas de tri
+        assert!(in_view(&[], Vec3::new(0.0, 0.0, 100.0), 1.0));
+    }
 
     #[test]
     fn chevrons_vers_l_aval() {

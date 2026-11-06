@@ -1787,6 +1787,25 @@ const RELIEF_CHUNK_PER_THREAD: usize = 2;
 /// Déplacement du centre de la vue (en cases) au-delà duquel l'ordre de traitement est refait.
 const RELIEF_REFOCUS: i32 = 3;
 
+/// Intervalle minimal (s) entre deux recalculs des tracés posés sur le sol tant que le relief se
+/// construit (la forme du sol change alors à presque chaque image).
+const GROUND_LINES_REFRESH_S: f32 = 0.5;
+
+/// Faut-il reposer sur le sol des tracés gardés d'une image à l'autre ? Sans tracés ou dès que le
+/// relief est terminé : aussitôt. Pendant sa construction : pas plus d'une fois par intervalle.
+/// `last` (instant du dernier recalcul, s) est mis à jour quand la réponse est oui.
+pub fn ground_lines_stale(cached: Option<u32>, shape: u32, pending: usize, now: f32, last: &mut f32) -> bool {
+    let stale = match cached {
+        None => true,
+        Some(s) if s == shape => false,
+        Some(_) => pending == 0 || now - *last >= GROUND_LINES_REFRESH_S,
+    };
+    if stale {
+        *last = now;
+    }
+    stale
+}
+
 /// Décor visible sur les cases explorées, sauf sous une ville, un village ou un camp
 /// (il réapparaît quand le village ou le camp disparaît).
 fn update_decor_3d(
@@ -2477,14 +2496,17 @@ fn sync_seam_copies(
 
 /// Carte des plaques en 3D : frontières (traits épais posés sur le relief), mouvements des
 /// plaques et points chauds, comme en 2D. Les tracés posés sur le sol sont gardés d'une image à
-/// l'autre et recalculés seulement quand l'exploration ou la forme du sol changent.
+/// l'autre et recalculés seulement quand l'exploration ou la forme du sol changent (voir
+/// `ground_lines_stale`).
 fn draw_plates_3d(
     mode: Res<ViewMode>,
     layer: Res<MapLayer>,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
     mut cache: Local<PlatesCache>,
+    mut refreshed: Local<f32>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
     // (l'exploration peut changer pendant qu'une autre carte est affichée)
@@ -2495,7 +2517,7 @@ fn draw_plates_3d(
     if !mode.is_3d || *layer != MapLayer::Plates {
         return;
     }
-    if cache.shape != Some(relief.shape) {
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut refreshed) {
         *cache = plates_3d(&map.0, &fog, &relief);
     }
     for (points, color) in &cache.lines {
@@ -2541,4 +2563,26 @@ fn plates_3d(m: &crate::map::WorldMap, fog: &ShownFog, relief: &Relief) -> Plate
         }
     }
     PlatesCache { shape: Some(relief.shape), lines, arrows }
+}
+
+#[cfg(test)]
+mod ground_lines_tests {
+    use super::*;
+
+    #[test]
+    fn traces_recalcules_au_plus_une_fois_par_intervalle_pendant_la_construction() {
+        let mut last = 0.0;
+        // Pas encore de tracés : aussitôt, même en pleine construction
+        assert!(ground_lines_stale(None, 5, 100, 1.0, &mut last));
+        assert_eq!(last, 1.0);
+        // Même forme du sol : rien à faire
+        assert!(!ground_lines_stale(Some(5), 5, 0, 9.0, &mut last));
+        // Le sol change pendant la construction : on attend la fin de l'intervalle
+        assert!(!ground_lines_stale(Some(5), 6, 100, 1.2, &mut last));
+        assert_eq!(last, 1.0);
+        assert!(ground_lines_stale(Some(5), 7, 100, 1.0 + GROUND_LINES_REFRESH_S, &mut last));
+        // Relief terminé : le dernier recalcul part sans attendre, les tracés finissent à jour
+        last = 2.0;
+        assert!(ground_lines_stale(Some(7), 8, 0, 2.1, &mut last));
+    }
 }
