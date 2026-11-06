@@ -6,7 +6,7 @@
 
 Un petit jeu 4X (eXplore, eXpand, eXploit, eXterminate) au tour par tour, écrit en Rust avec [Bevy](https://bevy.org) 0.20, sur une planète générée et simulée : relief, climat, cours d'eau et lacs réalistes.
 
-Version actuelle : **0.3.0 « Planet Update »**. Nouveautés : voir le [journal des versions](CHANGELOG.md).
+Version actuelle : **0.3.1** (correctif de performances de la 0.3.0 « Planet Update »). Nouveautés : voir le [journal des versions](CHANGELOG.md).
 
 ## Jouer
 
