@@ -63,7 +63,7 @@ fn text(content: &str, size: f32, color: Color) -> impl Bundle {
 
 fn button(width: Option<f32>) -> impl Bundle {
     (
-        Button,
+        crate::ui::clickable(),
         Node {
             width: width.map_or(Val::Auto, Val::Px),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
@@ -165,7 +165,7 @@ fn setup_panel(mut commands: Commands) {
                 for layer in MapLayer::ALL {
                     r.spawn((
                         TooltipCell(layer, info),
-                        Button,
+                        crate::ui::clickable(),
                         Node {
                             width: Val::Px(COLUMN_WIDTH),
                             height: Val::Px(22.0),

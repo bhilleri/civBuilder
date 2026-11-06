@@ -5,6 +5,7 @@ use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, HexPos, I
 use crate::hex::Hex;
 use crate::hostile::{Camp, Hostile, Village};
 use crate::search::{FocusTarget, HoverColors, MapTarget, PointedTarget, TargetButton};
+use bevy::ui::FocusPolicy;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::platform::collections::{HashMap, HashSet};
@@ -125,6 +126,12 @@ impl Plugin for UiPlugin {
     }
 }
 
+/// Élément cliquable : ce qu'imposait l'ancien `Button` de Bevy (retiré du prelude en 0.20). Il garde
+/// `Interaction`, déprécié en 0.20, le temps de passer à `Hovered` et `Pressed`.
+pub fn clickable() -> impl Bundle + use<> {
+    (Interaction::default(), FocusPolicy::Block)
+}
+
 fn panel(node: Node) -> impl Bundle {
     let node = Node { border_radius: BorderRadius::all(Val::Px(6.0)), ..node };
     (node, BackgroundColor(PANEL_BG), Interaction::default())
@@ -198,7 +205,7 @@ fn setup_ui(mut commands: Commands) {
             for kind in UnitKind::ALL {
                 p.spawn((
                     ProduceButton(kind),
-                    Button,
+                    crate::ui::clickable(),
                     Node {
                         padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
                         border_radius: BorderRadius::all(Val::Px(4.0)),
@@ -276,7 +283,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::wiki::WikiButton,
-                Button,
+                crate::ui::clickable(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -287,7 +294,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::search::SearchButton,
-                Button,
+                crate::ui::clickable(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -298,7 +305,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 MapLayerButton,
-                Button,
+                crate::ui::clickable(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -309,7 +316,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::options::OptionsButton,
-                Button,
+                crate::ui::clickable(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -320,7 +327,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 ViewToggleButton,
-                Button,
+                crate::ui::clickable(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -331,7 +338,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 EndTurnButton,
-                Button,
+                crate::ui::clickable(),
                 Node {
                     padding: UiRect::axes(Val::Px(22.0), Val::Px(12.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -355,7 +362,7 @@ fn wiki_button_hover(mut buttons: Query<(&Interaction, &mut BackgroundColor), (C
 fn map_option(layer: MapLayer, label: &str) -> impl Bundle {
     (
         MapLayerOption(layer),
-        Button,
+        crate::ui::clickable(),
         Node {
             padding: UiRect::axes(Val::Px(14.0), Val::Px(6.0)),
             border_radius: BorderRadius::all(Val::Px(4.0)),
@@ -538,7 +545,7 @@ fn basin_row(basin: usize, (r, g, b): (f32, f32, f32), label: String) -> impl Bu
     use crate::search::{HoverColors, MapTarget, TargetButton};
     (
         TargetButton::new(MapTarget::Basin(basin)),
-        Button,
+        crate::ui::clickable(),
         HoverColors { normal: Color::NONE, hover: PRODUCE_HOVER },
         BackgroundColor(Color::NONE),
         Node {
@@ -677,14 +684,14 @@ fn tides_legend() -> impl Bundle {
                 children![
                     (
                         TideChip::Lines,
-                        Button,
+                        crate::ui::clickable(),
                         Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
                         BackgroundColor(PRODUCE_BG),
                         children![text("Lignes d'heure de pleine mer", 13.0)],
                     ),
                     (
                         TideChip::Arrows,
-                        Button,
+                        crate::ui::clickable(),
                         Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
                         BackgroundColor(PRODUCE_BG),
                         children![text("Sens de la marée", 13.0)],
@@ -797,7 +804,7 @@ fn geography_legend() -> impl Bundle {
     let chip = |family: GeoFamily| {
         (
             GeoChip(family),
-            Button,
+            crate::ui::clickable(),
             Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
             BackgroundColor(PRODUCE_BG),
             children![text(family.label(), 13.0)],

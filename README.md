@@ -4,7 +4,7 @@
 [![Dernière version](https://img.shields.io/github/v/release/bhilleri/civBuilder?label=version)](https://github.com/bhilleri/civBuilder/releases/latest)
 [![Téléchargements](https://img.shields.io/github/downloads/bhilleri/civBuilder/total?label=t%C3%A9l%C3%A9chargements)](https://github.com/bhilleri/civBuilder/releases)
 
-Un petit jeu 4X (eXplore, eXpand, eXploit, eXterminate) au tour par tour, écrit en Rust avec [Bevy](https://bevy.org) 0.19, sur une planète générée et simulée : relief, climat, cours d'eau et lacs réalistes.
+Un petit jeu 4X (eXplore, eXpand, eXploit, eXterminate) au tour par tour, écrit en Rust avec [Bevy](https://bevy.org) 0.20, sur une planète générée et simulée : relief, climat, cours d'eau et lacs réalistes.
 
 Version actuelle : **0.3.0 « Planet Update »**. Nouveautés : voir le [journal des versions](CHANGELOG.md).
 

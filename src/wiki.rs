@@ -945,7 +945,7 @@ fn setup_wiki(mut commands: Commands, articles: Res<WikiArticles>, assets: Res<A
                     bar.spawn(label("Wiki de CivBuilder", 22.0, TEXT));
                     bar.spawn((
                         WikiClose,
-                        Button,
+                        crate::ui::clickable(),
                         Node {
                             padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
                             border_radius: BorderRadius::all(Val::Px(5.0)),
@@ -969,7 +969,7 @@ fn setup_wiki(mut commands: Commands, articles: Res<WikiArticles>, assets: Res<A
                         for (i, title, icon) in tabs {
                             col.spawn((
                                 WikiTab(i),
-                                Button,
+                                crate::ui::clickable(),
                                 Node {
                                     padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
                                     border_radius: BorderRadius::all(Val::Px(5.0)),

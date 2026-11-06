@@ -29,6 +29,7 @@ use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy::text::{EditableText, TextCursorStyle, TextEdit};
+use bevy::ui_widgets::TextInput;
 use std::collections::VecDeque;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -199,6 +200,7 @@ fn setup_console(mut commands: Commands) {
                     text(">", 15.0, COMMAND_COLOR),
                     (
                         ConsoleInput,
+                        TextInput,
                         EditableText { max_characters: Some(200), ..default() },
                         TextFont::from_font_size(15.0),
                         TextColor(TEXT),

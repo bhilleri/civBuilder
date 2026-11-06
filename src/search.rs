@@ -28,6 +28,7 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextCursorStyle, TextEdit};
+use bevy::ui_widgets::TextInput;
 use bevy::window::PrimaryWindow;
 use bevy::platform::collections::{HashMap, HashSet};
 
@@ -836,7 +837,7 @@ fn text(s: &str, size: f32, color: Color) -> impl Bundle + use<> {
 fn chip(filter: Option<Category>) -> impl Bundle {
     (
         SearchChip(filter),
-        Button,
+        crate::ui::clickable(),
         Node {
             padding: UiRect::axes(Val::Px(9.0), Val::Px(3.0)),
             border_radius: BorderRadius::all(Val::Px(11.0)),
@@ -923,6 +924,7 @@ fn setup_search(mut commands: Commands) {
                             ),
                             (
                                 SearchInput,
+                                TextInput,
                                 EditableText { max_characters: Some(40), ..default() },
                                 TextFont::from_font_size(16.0),
                                 TextColor(TEXT),
@@ -934,7 +936,7 @@ fn setup_search(mut commands: Commands) {
                     ),
                     (
                         SearchClear,
-                        Button,
+                        crate::ui::clickable(),
                         Node { padding: UiRect::axes(Val::Px(6.0), Val::Px(0.0)), border_radius: BorderRadius::all(Val::Px(4.0)), ..default() },
                         BackgroundColor(Color::NONE),
                         HoverColors { normal: Color::NONE, hover: CHIP_HOVER },
@@ -1267,7 +1269,7 @@ fn refresh_results(
             p.spawn((
                 SearchRow(rank),
                 TargetButton::new(e.target),
-                Button,
+                crate::ui::clickable(),
                 Node {
                     align_items: AlignItems::Center,
                     column_gap: Val::Px(9.0),

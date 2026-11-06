@@ -17,6 +17,7 @@ use bevy::input::keyboard::Key;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::text::{EditableText, EditableTextFilter, TextCursorStyle, TextEdit};
+use bevy::ui_widgets::TextInput;
 
 /// Page du menu affichée.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -135,7 +136,7 @@ fn button(kind: MenuButton, text: &str, bg: Color) -> impl Bundle + use<> {
     let is_debug = matches!(kind, MenuButton::Debug);
     (
         kind,
-        Button,
+        crate::ui::clickable(),
         Node {
             width: Val::Px(WIDTH),
             padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
@@ -152,7 +153,7 @@ fn button(kind: MenuButton, text: &str, bg: Color) -> impl Bundle + use<> {
 fn small_button(kind: MenuButton, text: &str) -> impl Bundle + use<> {
     (
         kind,
-        Button,
+        crate::ui::clickable(),
         Node {
             padding: UiRect::axes(Val::Px(8.0), Val::Px(7.0)),
             justify_content: JustifyContent::Center,
@@ -169,7 +170,7 @@ fn small_button(kind: MenuButton, text: &str) -> impl Bundle + use<> {
 fn speed_choice(speed: AnimationSpeed) -> impl Bundle + use<> {
     (
         SpeedChoice(speed),
-        Button,
+        crate::ui::clickable(),
         Node {
             flex_grow: 1.0,
             flex_basis: Val::Px(0.0),
@@ -251,6 +252,7 @@ fn setup_menu(mut commands: Commands) {
                         BorderColor::all(Color::srgb(0.35, 0.38, 0.46)),
                         children![(
                             SeedField,
+                            TextInput,
                             EditableText { max_characters: Some(10), ..default() },
                             EditableTextFilter::new(|c| c.is_ascii_digit()),
                             TextFont::from_font_size(18.0),

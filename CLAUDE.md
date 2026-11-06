@@ -1,6 +1,6 @@
 # CivBuilder — consignes pour Claude
 
-Jeu 4X au tour par tour en Rust (édition 2024) avec Bevy 0.19, sur une planète en cases hexagonales
+Jeu 4X au tour par tour en Rust (édition 2024) avec Bevy 0.20, sur une planète en cases hexagonales
 de 40 km (192 × 111 par défaut). L'objectif est un 4X de **développement d'une civilisation**
 plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo (pas d'IA adverse).
 

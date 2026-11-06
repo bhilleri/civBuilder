@@ -1,5 +1,11 @@
 # Journal des versions
 
+## 0.4.0 (en cours)
+
+### Technique
+- **Passage à Bevy 0.20.1** : champs de saisie avec `TextInput`, éléments cliquables sans l'ancien `Button`. `Interaction`, déprécié, reste à remplacer par `Hovered` et `Pressed` avant Bevy 0.21.
+- Textes d'aide du menu alignés à gauche : la mise en page du texte a changé avec Bevy.
+
 ## 0.3.0 « Planet Update » — 4 novembre 2026
 
 Le monde devient une planète : une carte sans bord façonnée par la tectonique, des climats, des mers et des cours d'eau plus réalistes, des lieux nommés à toutes les échelles, une vue 3D plus vivante et des actions mises en scène. Les mondes changent, à graine égale.

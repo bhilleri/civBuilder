@@ -2,6 +2,8 @@
 
 // Lints courants avec Bevy (les systèmes ont naturellement beaucoup de paramètres)
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+// `Interaction` est déprécié en Bevy 0.20 (retrait annoncé ensuite) : à remplacer par `Hovered` et `Pressed`
+#![allow(deprecated)]
 
 mod fonts;
 mod basins;
