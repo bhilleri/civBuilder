@@ -1,0 +1,21 @@
+{
+  "worktree": {
+    "baseRef": "head"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PROJECT_DIR}/scripts/amorcer-target.ps1", "-Hook"],
+            "timeout": 300,
+            "statusMessage": "Amorçage du dossier target…"
+          }
+        ]
+      }
+    ]
+  }
+}

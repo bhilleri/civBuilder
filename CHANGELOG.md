@@ -6,6 +6,7 @@
 - **Passage à Bevy 0.20.1** : champs de saisie avec `TextInput`, plus d'`Interaction` ni de `Button`, dépréciés : le module `pointer.rs` tient l'état du pointeur (`UiPointer`) à partir du picking de Bevy.
 - Textes d'aide du menu alignés à gauche : la mise en page du texte a changé avec Bevy.
 - Seuls les éléments cliquables, les panneaux et les champs réagissent au pointeur ; un élément recouvre maintenant ce qui est dessous (un nom de la carte sous un panneau n'est plus survolé).
+- **Worktrees amorcés automatiquement** : un hook de Claude Code copie le `target` du checkout principal au démarrage d'une session en worktree (premier build en ≈ 1 min 15 au lieu de ≈ 6 min).
 
 ## 0.3.0 « Planet Update » — 4 novembre 2026
 
