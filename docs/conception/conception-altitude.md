@@ -175,9 +175,22 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
 
   Confirmation à 10 ms (à l'arrêt / en défilant) : carte normale, 2 essais, 11,0 / 9,8 → 6,9 / 6,9 s ; graine 4242, 8,4 / 7,5 → 4,6 / 4,7 s ; graine 2, 9,3 / 8,8 → 5,3 / 5,5 s ; 128×74, 3,3 / 3,5 → 1,9 / 1,7 s ; 256×148, 15,3 / 15,3 → 8,8 / 9,0 s ; plaques → 6,8 / 7,0 s ; réseau → 6,6 / 6,8 s ; climat, carte la plus lente, → 7,6 / 8,9 s. 60 images/s tenues, aucune image au-delà de 25 ms pendant la construction sauf 2 sur la carte du climat en défilant (max 25 ms, déjà au même niveau à 6 ms). Déplacements avec zoom (`travelling`, six trajets de 2 800 à 260, 2 essais) : à-coups et pire image comme à 6 ms.
 - **Limite du budget à 10 ms** : sur un écran plus rapide que 60 Hz (simulé sans synchronisation verticale), la construction passe de 6,7 à 5,5 s, mais la durée d'image moyenne de 10,2 à 12,8 ms pendant la construction (≈ 98 → 78 images/s). Le budget adaptatif ne réagit qu'au-delà de 17,5 ms, il ne protège donc pas ce cas. Machine plus lente et version distribuée non mesurées.
+- **Flèches du climat et des courants gardées d'une image à l'autre** (`view3d::ArrowsCache`, même règle `ground_lines_stale`) : elles étaient recalculées et reposées sur le sol à chaque image. Le cache est aussi vidé quand la carte change (`map.is_changed()`) : `regenerer climat` refait vents et courants en annonçant parfois 0 case changée, donc sans toucher au sol ni à l'exploration. Mesures sur 1 essai, budget de 10 ms (construction ; fil principal une fois la carte construite) :
+
+  | Carte | Cas | Construction | Fil principal |
+  |---|---|---|---|
+  | Climat | à l'arrêt | 7,8 → 7,3 s | 8,1 → 6,1 ms |
+  | Climat | en défilant | 9,2 → 7,6 s | 9,1 → 7,1 ms |
+  | Climat | dézoom 2800, à l'arrêt | 10,1 → 7,9 s | 9,5 → 7,4 ms |
+  | Climat | dézoom 2800, en défilant | 9,7 → 8,0 s | 9,5 → 7,5 ms |
+  | Courants | à l'arrêt | 7,4 → 7,2 s | 6,3 → 5,4 ms |
+  | Courants | en défilant | 7,8 → 7,4 s | 7,3 → 6,4 ms |
+  | Courants | dézoom 2800, à l'arrêt | 7,9 → 7,4 s | 7,6 → 6,6 ms |
+  | Courants | dézoom 2800, en défilant | 7,9 → 7,2 s | 7,6 → 6,7 ms |
+
+  Reste au-dessus des ≈ 4,4 ms de la carte normale : le dessin des flèches à chaque image (`gizmos.arrow`).
 - **Non traité** :
   - 32 % de traitements en plus du nombre de cases (rivières voisines refaites).
-  - Flèches du climat et des courants, recalculées à chaque image (fil principal à 8 et 6 ms au lieu de 4 quand la carte est construite).
   - À-coup de 60 à 100 ms vers x ≈ 8 260 en défilant à la distance 2800, côté extraction ou rendu, cause non identifiée.
   - Version distribuée (release) non mesurée.
 

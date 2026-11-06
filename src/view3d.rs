@@ -2323,6 +2323,15 @@ fn draw_overlays_3d(
     }
 }
 
+/// Flèches posées sur le sol, gardées d'une image à l'autre (forme du sol `shape`, voir
+/// `ground_lines_stale`) : départ, arrivée, couleur.
+#[derive(Default)]
+struct ArrowsCache {
+    shape: Option<u32>,
+    refreshed: f32,
+    arrows: Vec<(Vec3, Vec3, Color)>,
+}
+
 /// Carte du climat en 3D : flèches des vents dominants, posées au-dessus du relief.
 fn draw_wind_3d(
     mode: Res<ViewMode>,
@@ -2330,17 +2339,28 @@ fn draw_wind_3d(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
+    mut cache: Local<ArrowsCache>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
+    // (exploration ou carte changées pendant qu'une autre carte est affichée ; `regenerer` refait
+    // les vents sans toucher forcément au sol)
+    if fog.is_changed() || map.is_changed() {
+        cache.shape = None;
+    }
     let Some(relief) = relief else { return };
     if !mode.is_3d || *layer != MapLayer::Climate {
         return;
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
-        if let Some((from, to)) = wind_arrow(&map.0, hex) {
-            let lift = |p: Vec2| relief.on_ground(p.x, p.y, 6.0);
-            gizmos.arrow(lift(from), lift(to), Color::srgba(1.0, 1.0, 1.0, 0.85)).with_tip_length(8.0);
-        }
+    let cache = &mut *cache;
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
+        let lift = |p: Vec2| relief.on_ground(p.x, p.y, 6.0);
+        let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| wind_arrow(&map.0, hex));
+        cache.arrows = arrows.map(|(from, to)| (lift(from), lift(to), Color::srgba(1.0, 1.0, 1.0, 0.85))).collect();
+        cache.shape = Some(relief.shape);
+    }
+    for &(from, to, color) in &cache.arrows {
+        gizmos.arrow(from, to, color).with_tip_length(8.0);
     }
 }
 
@@ -2351,17 +2371,27 @@ fn draw_currents_3d(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
+    mut cache: Local<ArrowsCache>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
+    // (comme pour les vents : `regenerer` refait les courants sans toucher forcément au sol)
+    if fog.is_changed() || map.is_changed() {
+        cache.shape = None;
+    }
     let Some(relief) = relief else { return };
     if !mode.is_3d || *layer != MapLayer::Currents {
         return;
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
-        if let Some((from, to, color)) = current_arrow(&map.0, hex) {
-            let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
-            gizmos.arrow(lift(from), lift(to), color).with_tip_length(7.0);
-        }
+    let cache = &mut *cache;
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
+        let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
+        let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| current_arrow(&map.0, hex));
+        cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
+        cache.shape = Some(relief.shape);
+    }
+    for &(from, to, color) in &cache.arrows {
+        gizmos.arrow(from, to, color).with_tip_length(7.0);
     }
 }
 
