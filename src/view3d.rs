@@ -1775,7 +1775,7 @@ impl ReliefQueue {
 }
 
 /// Temps de calcul maximal du relief 3D par image (ms).
-const RELIEF_BUDGET_MS: f32 = 6.0;
+const RELIEF_BUDGET_MS: f32 = 10.0;
 /// Temps de préparation du relief 3D par image pendant qu'on joue en 2D (ms).
 const RELIEF_BUDGET_2D_MS: f32 = 3.0;
 /// Durée d'image au-delà de laquelle le budget du relief est réduit (un peu plus qu'une image à
@@ -1786,6 +1786,25 @@ const RELIEF_SLOWDOWN_MAX: f32 = 0.75;
 const RELIEF_CHUNK_PER_THREAD: usize = 2;
 /// Déplacement du centre de la vue (en cases) au-delà duquel l'ordre de traitement est refait.
 const RELIEF_REFOCUS: i32 = 3;
+
+/// Intervalle minimal (s) entre deux recalculs des tracés posés sur le sol tant que le relief se
+/// construit (la forme du sol change alors à presque chaque image).
+const GROUND_LINES_REFRESH_S: f32 = 0.5;
+
+/// Faut-il reposer sur le sol des tracés gardés d'une image à l'autre ? Sans tracés ou dès que le
+/// relief est terminé : aussitôt. Pendant sa construction : pas plus d'une fois par intervalle.
+/// `last` (instant du dernier recalcul, s) est mis à jour quand la réponse est oui.
+pub fn ground_lines_stale(cached: Option<u32>, shape: u32, pending: usize, now: f32, last: &mut f32) -> bool {
+    let stale = match cached {
+        None => true,
+        Some(s) if s == shape => false,
+        Some(_) => pending == 0 || now - *last >= GROUND_LINES_REFRESH_S,
+    };
+    if stale {
+        *last = now;
+    }
+    stale
+}
 
 /// Décor visible sur les cases explorées, sauf sous une ville, un village ou un camp
 /// (il réapparaît quand le village ou le camp disparaît).
@@ -2304,6 +2323,15 @@ fn draw_overlays_3d(
     }
 }
 
+/// Flèches posées sur le sol, gardées d'une image à l'autre (forme du sol `shape`, voir
+/// `ground_lines_stale`) : départ, arrivée, couleur.
+#[derive(Default)]
+struct ArrowsCache {
+    shape: Option<u32>,
+    refreshed: f32,
+    arrows: Vec<(Vec3, Vec3, Color)>,
+}
+
 /// Carte du climat en 3D : flèches des vents dominants, posées au-dessus du relief.
 fn draw_wind_3d(
     mode: Res<ViewMode>,
@@ -2311,17 +2339,28 @@ fn draw_wind_3d(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
+    mut cache: Local<ArrowsCache>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
+    // (exploration ou carte changées pendant qu'une autre carte est affichée ; `regenerer` refait
+    // les vents sans toucher forcément au sol)
+    if fog.is_changed() || map.is_changed() {
+        cache.shape = None;
+    }
     let Some(relief) = relief else { return };
     if !mode.is_3d || *layer != MapLayer::Climate {
         return;
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
-        if let Some((from, to)) = wind_arrow(&map.0, hex) {
-            let lift = |p: Vec2| relief.on_ground(p.x, p.y, 6.0);
-            gizmos.arrow(lift(from), lift(to), Color::srgba(1.0, 1.0, 1.0, 0.85)).with_tip_length(8.0);
-        }
+    let cache = &mut *cache;
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
+        let lift = |p: Vec2| relief.on_ground(p.x, p.y, 6.0);
+        let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| wind_arrow(&map.0, hex));
+        cache.arrows = arrows.map(|(from, to)| (lift(from), lift(to), Color::srgba(1.0, 1.0, 1.0, 0.85))).collect();
+        cache.shape = Some(relief.shape);
+    }
+    for &(from, to, color) in &cache.arrows {
+        gizmos.arrow(from, to, color).with_tip_length(8.0);
     }
 }
 
@@ -2332,22 +2371,32 @@ fn draw_currents_3d(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
+    mut cache: Local<ArrowsCache>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
+    // (comme pour les vents : `regenerer` refait les courants sans toucher forcément au sol)
+    if fog.is_changed() || map.is_changed() {
+        cache.shape = None;
+    }
     let Some(relief) = relief else { return };
     if !mode.is_3d || *layer != MapLayer::Currents {
         return;
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
-        if let Some((from, to, color)) = current_arrow(&map.0, hex) {
-            let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
-            gizmos.arrow(lift(from), lift(to), color).with_tip_length(7.0);
-        }
+    let cache = &mut *cache;
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
+        let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
+        let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| current_arrow(&map.0, hex));
+        cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
+        cache.shape = Some(relief.shape);
+    }
+    for &(from, to, color) in &cache.arrows {
+        gizmos.arrow(from, to, color).with_tip_length(7.0);
     }
 }
 
 /// Lignes d'heure de pleine mer posées sur la mer, gardées d'une image à l'autre (refaites quand
-/// l'exploration ou la forme du sol changent).
+/// l'exploration ou la forme du sol changent, voir `ground_lines_stale`).
 #[derive(Default)]
 struct TideLines3d {
     shape: Option<u32>,
@@ -2364,7 +2413,9 @@ fn draw_tide_lines_3d(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
     mut cache: Local<TideLines3d>,
+    mut refreshed: Local<f32>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
     if fog.is_changed() {
@@ -2374,7 +2425,7 @@ fn draw_tide_lines_3d(
     if !mode.is_3d || *layer != MapLayer::Tides || !(shown.lines || shown.arrows) {
         return;
     }
-    if cache.shape != Some(relief.shape) {
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut refreshed) {
         let (lines, amphidromes) = crate::render::tide_lines(&map.0, &fog);
         let lift = |p: Vec2| relief.on_ground(p.x, p.y, 1.5);
         *cache = TideLines3d {
@@ -2477,14 +2528,17 @@ fn sync_seam_copies(
 
 /// Carte des plaques en 3D : frontières (traits épais posés sur le relief), mouvements des
 /// plaques et points chauds, comme en 2D. Les tracés posés sur le sol sont gardés d'une image à
-/// l'autre et recalculés seulement quand l'exploration ou la forme du sol changent.
+/// l'autre et recalculés seulement quand l'exploration ou la forme du sol changent (voir
+/// `ground_lines_stale`).
 fn draw_plates_3d(
     mode: Res<ViewMode>,
     layer: Res<MapLayer>,
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
     mut cache: Local<PlatesCache>,
+    mut refreshed: Local<f32>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
     // (l'exploration peut changer pendant qu'une autre carte est affichée)
@@ -2495,7 +2549,7 @@ fn draw_plates_3d(
     if !mode.is_3d || *layer != MapLayer::Plates {
         return;
     }
-    if cache.shape != Some(relief.shape) {
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut refreshed) {
         *cache = plates_3d(&map.0, &fog, &relief);
     }
     for (points, color) in &cache.lines {
@@ -2541,4 +2595,26 @@ fn plates_3d(m: &crate::map::WorldMap, fog: &ShownFog, relief: &Relief) -> Plate
         }
     }
     PlatesCache { shape: Some(relief.shape), lines, arrows }
+}
+
+#[cfg(test)]
+mod ground_lines_tests {
+    use super::*;
+
+    #[test]
+    fn traces_recalcules_au_plus_une_fois_par_intervalle_pendant_la_construction() {
+        let mut last = 0.0;
+        // Pas encore de tracés : aussitôt, même en pleine construction
+        assert!(ground_lines_stale(None, 5, 100, 1.0, &mut last));
+        assert_eq!(last, 1.0);
+        // Même forme du sol : rien à faire
+        assert!(!ground_lines_stale(Some(5), 5, 0, 9.0, &mut last));
+        // Le sol change pendant la construction : on attend la fin de l'intervalle
+        assert!(!ground_lines_stale(Some(5), 6, 100, 1.2, &mut last));
+        assert_eq!(last, 1.0);
+        assert!(ground_lines_stale(Some(5), 7, 100, 1.0 + GROUND_LINES_REFRESH_S, &mut last));
+        // Relief terminé : le dernier recalcul part sans attendre, les tracés finissent à jour
+        last = 2.0;
+        assert!(ground_lines_stale(Some(7), 8, 0, 2.1, &mut last));
+    }
 }

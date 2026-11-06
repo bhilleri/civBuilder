@@ -140,6 +140,60 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
   3. Surfaces d'eau : hauteur de chaque point calculée une fois par triangle (un sommet sert au découpage des chutes et au maillage) ; mers et lacs d'alentour cherchés **une fois par triangle** (piste 3 de l'analyse du 30/10, non retenue alors), la distance au plus proche à chaque sommet. Surfaces d'eau ≈ 2 à 3 ms.
 - **Résultat** (même scénario) : un seul à-coup (36 ms) au lieu de 18, pire image 36 ms au lieu de 43 ; paquet de relief ≈ 8 ms. Rendu identique en captures. Reste : la construction d'un paquet (32 cases) est indivisible et coûte encore plus que le budget de 6 ms quand beaucoup de cases à cours d'eau arrivent d'un coup.
 
+## Vitesse d'affichage des cases selon la carte (06/11/2026)
+- **Mesure** (demande de Benjamin) : CSV image par image (instrumentation temporaire, non gardée), nouveau processus à chaque essai pour tout recalculer, carte révélée, 192×111, graine 777 sauf mention contraire, profil de développement, écran à 59 Hz, Ryzen 7 7800X3D et RTX 5070, avec et sans défilement à la vitesse des touches.
+- **Avant** : toute la carte en ≈ 11 s (≈ 9,8 s en défilant) à 60 images/s, sauf plaques (16,2 s ; 17,0 s en défilant, 19-20 ms par image) et réseau (13,7 s ; 15,4 s, 18-20 ms par image). Un changement de carte à chaud (couleurs seules) prend ≈ 3 s, le réseau 4,4 s (6,6 s en défilant). Carte graphique peu sollicitée (utilisation ≤ 10 % sur 95 % des relevés) : le processeur limite.
+- **Causes** :
+  1. Pendant la construction, `Relief::shape` change à presque chaque image : les tracés gardés (`PlatesCache`, `NetworkCache`, voir plus haut) étaient donc reposés sur le sol à chaque image. L'image dépassait 17,5 ms et le budget adaptatif descendait au minimum (un paquet, 32 cases par image).
+  2. Une fois la carte construite, le réseau coûtait encore 5,3 ms par image : les chevrons animés en prenaient 5,26 (sans eux, 0,06 ms), à cause de trois `Relief::on_ground` pour chacun des ≈ 2 420 chevrons de la carte, y compris hors de l'écran.
+- **Corrections** :
+  1. **Recalcul limité pendant la construction** (`view3d::ground_lines_stale`) : au plus une fois par 0,5 s (`GROUND_LINES_REFRESH_S`) tant que le relief se construit ; aussitôt sans tracés ou dès que tout est fini. Pendant la construction, des tracés peuvent donc rester décalés du sol jusqu'à 0,5 s.
+  2. **Chevrons du réseau limités au champ de vision** (`highlight::in_view`) : champs des caméras 3D allumées, caméras du raccord est-ouest comprises, avec une marge (`CHEVRON_VIEW_MARGIN`) ; ceux qui sont à l'écran restent posés exactement sur le sol à chaque image. **Le plan lointain ne doit pas compter** (`intersects_sphere(…, false)`, comme Bevy pour les maillages) : il reste à 1 000 unités alors que la caméra peut être à 2 800, et le compter retirait les chevrons de la vue lointaine.
+- **Résultat** (même protocole, 2 à 3 essais) :
+
+  | Carte | Construction | Construction en défilant | Durée d'image | Réseau, carte construite |
+  |---|---|---|---|---|
+  | Plaques | 16,2 → 10,8 s | 17,0 → 9,8 s | 19-20 → 16,7 ms | — |
+  | Réseau | 13,7 → 10,8 s | 15,4 → 9,7 s | 18-20 → 16,7 ms | 5,3 → 0,3 ms (2800 : 0,5 ms ; en défilant 0,15 à 1,7 ms) |
+
+  Audit temporaire des chevrons contre leur projection à l'écran, sur 1 196 images (distances 900 et 2800, avec et sans défilement) : 0 chevron visible écarté. 16 à 528 chevrons à l'écran sur ≈ 2 420.
+- **Carte des marées, lignes et flèches activées** : même cause, même correction (`draw_tide_lines_3d` utilise `ground_lines_stale`). Options désactivées, rien ne change (≈ 11 s). Mesures sur 2 essais :
+
+  | Distance | Construction | Construction en défilant | Durée d'image |
+  |---|---|---|---|
+  | 900 | 10,9 et 13,4 → 10,8 et 11,1 s | 15,1-15,5 → 10,0-10,4 s | 16,7-18,4 → 16,7 ms |
+  | 2800 | 15,9-16,0 → 11,2-11,3 s | 14,5-14,9 → 10,0-10,1 s | 18,6-19,0 → 16,7-16,8 ms |
+- **Budget du relief 3D porté de 6 à 10 ms** (`RELIEF_BUDGET_MS`, choix de Benjamin : traiter ce point ; valeur choisie d'après un balayage). À 6 ms, un paquet coûtant ≈ 4,1 ms, 78 % des images n'en traitaient qu'un, alors que le fil principal gardait ≈ 6,7 ms de marge à 60 images/s. Carte normale, sur 1 essai pour le balayage :
+
+  | Budget | À l'arrêt | En défilant | Dézoom 2800 en défilant | Images > 20 ms |
+  |---|---|---|---|---|
+  | 6 ms | 11,1 s | 9,7 s | 9,4 s | 0 / 0 / 4 |
+  | 8 ms | 8,9 s | 8,2 s | 8,0 s | 0 / 0 / 2 |
+  | **10 ms** | **6,9 s** | **7,0 s** | **7,0 s** | **0 / 1 / 4** |
+  | 12 ms | 5,5 s | 6,2 s | 6,7 s | 1 / 4 / 4 |
+  | 14 ms | 5,2 s | 5,8 s | 6,5 s | 5 / 9 / 5 |
+
+  Confirmation à 10 ms (à l'arrêt / en défilant) : carte normale, 2 essais, 11,0 / 9,8 → 6,9 / 6,9 s ; graine 4242, 8,4 / 7,5 → 4,6 / 4,7 s ; graine 2, 9,3 / 8,8 → 5,3 / 5,5 s ; 128×74, 3,3 / 3,5 → 1,9 / 1,7 s ; 256×148, 15,3 / 15,3 → 8,8 / 9,0 s ; plaques → 6,8 / 7,0 s ; réseau → 6,6 / 6,8 s ; climat, carte la plus lente, → 7,6 / 8,9 s. 60 images/s tenues, aucune image au-delà de 25 ms pendant la construction sauf 2 sur la carte du climat en défilant (max 25 ms, déjà au même niveau à 6 ms). Déplacements avec zoom (`travelling`, six trajets de 2 800 à 260, 2 essais) : à-coups et pire image comme à 6 ms.
+- **Limite du budget à 10 ms** : sur un écran plus rapide que 60 Hz (simulé sans synchronisation verticale), la construction passe de 6,7 à 5,5 s, mais la durée d'image moyenne de 10,2 à 12,8 ms pendant la construction (≈ 98 → 78 images/s). Le budget adaptatif ne réagit qu'au-delà de 17,5 ms, il ne protège donc pas ce cas. Machine plus lente et version distribuée non mesurées.
+- **Flèches du climat et des courants gardées d'une image à l'autre** (`view3d::ArrowsCache`, même règle `ground_lines_stale`) : elles étaient recalculées et reposées sur le sol à chaque image. Le cache est aussi vidé quand la carte change (`map.is_changed()`) : `regenerer climat` refait vents et courants en annonçant parfois 0 case changée, donc sans toucher au sol ni à l'exploration. Mesures sur 1 essai, budget de 10 ms (construction ; fil principal une fois la carte construite) :
+
+  | Carte | Cas | Construction | Fil principal |
+  |---|---|---|---|
+  | Climat | à l'arrêt | 7,8 → 7,3 s | 8,1 → 6,1 ms |
+  | Climat | en défilant | 9,2 → 7,6 s | 9,1 → 7,1 ms |
+  | Climat | dézoom 2800, à l'arrêt | 10,1 → 7,9 s | 9,5 → 7,4 ms |
+  | Climat | dézoom 2800, en défilant | 9,7 → 8,0 s | 9,5 → 7,5 ms |
+  | Courants | à l'arrêt | 7,4 → 7,2 s | 6,3 → 5,4 ms |
+  | Courants | en défilant | 7,8 → 7,4 s | 7,3 → 6,4 ms |
+  | Courants | dézoom 2800, à l'arrêt | 7,9 → 7,4 s | 7,6 → 6,6 ms |
+  | Courants | dézoom 2800, en défilant | 7,9 → 7,2 s | 7,6 → 6,7 ms |
+
+  Reste au-dessus des ≈ 4,4 ms de la carte normale : le dessin des flèches à chaque image (`gizmos.arrow`).
+- **Non traité** :
+  - 32 % de traitements en plus du nombre de cases (rivières voisines refaites).
+  - À-coup de 60 à 100 ms vers x ≈ 8 260 en défilant à la distance 2800, côté extraction ou rendu, cause non identifiée.
+  - Version distribuée (release) non mesurée.
+
 ## Limites et suite
 - Le bruit d'élévation donne de larges hauts plateaux : le massif le plus haut reste une grande zone de montagnes (désormais franchissable). L'étape C (chaînes + érosion) doit le découper en crêtes et vallées.
 - Les pics ressemblent encore à des cônes arrondis enneigés ; collines discrètes sous les forêts denses.
