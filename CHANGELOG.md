@@ -64,6 +64,7 @@ Le monde devient une planète : une carte sans bord façonnée par la tectonique
 - **Scripts de commandes** (`CIVBUILDER_SCRIPT`) pour rejouer un cas sans toucher au code ; `verifier` liste les incohérences d'une carte (aucune sur une carte générée).
 - **Modes capture** (`CIVBUILDER_CAPTURE`) : vues PNG du rendu, de la mise en scène et de l'exploration, sans jouer.
 - **Nouveaux bilans chiffrés** : `bilan_terres`, `bilan_relief`, `bilan_regions`, `bilan_courants`, `bilan_marees`, `bilan_aridite`, `bilan_montagnes`, `bilan_verifier`, `formes_des_terres`…
+- **Compilation plus rapide** : `scripts/amorcer-target.ps1` réutilise les dépendances déjà compilées dans un nouveau worktree.
 
 ## 0.2.0 « Biome Update » — 24 octobre 2026
 

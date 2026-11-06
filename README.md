@@ -62,6 +62,8 @@ Pour rejouer une carte précise, fixer sa graine (affichée dans la console au l
 
 Tests unitaires de la logique (hexagones, carte, climat, hydrologie, pathfinding, règles) : `cargo test`.
 
+**Compiler plus vite** : dans un nouveau worktree, `scripts/amorcer-target.ps1` copie le dossier `target` d'un worktree voisin pour ne pas recompiler Bevy. Pendant le développement, `cargo check` suffit le plus souvent.
+
 ### Livraison
 
 - **Intégration continue** (`.github/workflows/ci.yml`) : à chaque push sur `main` et à chaque pull request, GitHub vérifie clippy (sans avertissement) et lance les tests.

@@ -11,8 +11,16 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - En fin de tâche : un résumé court de ce qui a changé et une **proposition de message de commit**.
 
 ## Commandes
-- Lancer le jeu : `cargo run` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74`).
-- **Captures d'écran** (vérification visuelle sans jouer) : `CIVBUILDER_SEED=777 CIVBUILDER_CAPTURE=<dossier> cargo run`
+- **Compiler vite** :
+  - Nouveau worktree : avant la première compilation, lancer `powershell -ExecutionPolicy Bypass -File scripts/amorcer-target.ps1`
+    (copie le `target` d'un worktree voisin : ≈ 2 min au lieu de ≈ 6 min pour le premier build).
+  - Pendant le développement : `cargo check --no-default-features` (≈ 4 s après une modification, contre ≈ 20 s pour
+    un build) ; ne compiler que pour lancer le jeu ou des tests.
+  - Toujours passer `--no-default-features`, y compris à `cargo run` : l'alterner avec les options par défaut
+    recompile 15 crates (≈ 2 min).
+  - Ne pas définir `RUSTC_BOOTSTRAP` dans un `target` à garder : le changer recompile la plupart des dépendances.
+- Lancer le jeu : `cargo run --no-default-features` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74`).
+- **Captures d'écran** (vérification visuelle sans jouer) : `CIVBUILDER_SEED=777 CIVBUILDER_CAPTURE=<dossier> cargo run --no-default-features`
   → met en scène (deux villes dont une sur un relief accidenté, les douze types d'unités près d'une
   montagne, trois unités en barque sur un fleuve, carte révélée), passe en 3D, enregistre ~8 vues en PNG dans le dossier (ville, unités,
   vue lointaine, pic voisin d'une montagne, camp, village, carte des courants marins) puis se ferme (≈ 30 s après la génération). Lire les images pour
@@ -27,7 +35,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   `cargo test --no-default-features seas::`).
 - Avertissements : `cargo clippy --no-default-features --all-targets -- -D warnings` doit être propre.
 - **Ne pas lancer `cargo fmt`** : le code n'est pas formaté par rustfmt (lignes longues voulues).
-- `--no-default-features` retire seulement Wayland (Linux) ; sous Windows c'est équivalent.
+- `--no-default-features` retire seulement Wayland (Linux) ; sous Windows le jeu est le même, mais Cargo compile à part les crates concernées.
 - Bilans chiffrés (tests ignorés, à lancer à la main avec `-- --ignored --nocapture`) :
   `bilan_tectonique` (terres, montagnes, pics, lacs sur les graines 777 / 2 / 5),
   `bilan_fond_marin`, `vue_des_mers` (`SEAS_SEED`, `SEAS_DUMP` : vue des étendues marines),
@@ -35,7 +43,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   de deux cartes : à comparer avant et après un remaniement de la génération), `generation_planete`.
 - Mode debug (carte révélée) : menu Échap → Paramètres, bouton « Mode debug ». Wiki en jeu : F1.
 - **Scripts de commandes** (préparer un cas à tester sans toucher au code) :
-  `CIVBUILDER_SEED=777 CIVBUILDER_SCRIPT=<scratchpad>/cas.txt cargo run --release` exécute les commandes
+  `CIVBUILDER_SEED=777 CIVBUILDER_SCRIPT=<scratchpad>/cas.txt cargo run --release --no-default-features` exécute les commandes
   du fichier (console de debug, `debug_cmd.rs`), écrit les réponses dans `<scratchpad>/cas.reponses.txt`
   et les captures à côté du script. Commencer par `trouver …` (coordonnées colonne ligne), puis
   `aller`, `vue 3d`, `camera 300`, `carte <nom>`, `geographie terres|mers|relief|regions`, `capture nom`, modifications brutes (`terrain`, `relief`,
