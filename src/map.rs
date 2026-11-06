@@ -800,6 +800,8 @@ pub struct WorldMap {
     currents: crate::currents::Currents,
     /// Marées des cases de mer (voir `tides.rs`).
     tides: crate::tides::Tides,
+    /// Houle des cases de mer (voir `waves.rs`).
+    waves: crate::waves::Waves,
     /// Cours d'eau et lacs (vides pour une carte remplie à la main).
     hydro: Hydrology,
     /// Échelle et latitude de la carte.
@@ -859,6 +861,7 @@ impl WorldMap {
             climate: Climate::default(),
             currents: crate::currents::Currents::default(),
             tides: crate::tides::Tides::default(),
+            waves: crate::waves::Waves::default(),
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
             basins: Basins::empty(n),
@@ -1925,6 +1928,16 @@ impl WorldMap {
         &self.tides
     }
 
+    /// Houle de toutes les cases (hauteur, période, direction, côtes).
+    pub fn waves(&self) -> &crate::waves::Waves {
+        &self.waves
+    }
+
+    /// Case de mer qui a sa houle calculée (toutes les mers d'un monde généré), et son indice.
+    pub fn wave_cell(&self, hex: Hex) -> Option<usize> {
+        self.index(hex).filter(|&i| self.tiles[i].is_sea() && i < self.waves.height.len())
+    }
+
     /// Marnage de vives-eaux d'une case de mer (m).
     pub fn tidal_range(&self, hex: Hex) -> Option<f32> {
         self.index(hex).filter(|&i| self.tiles[i].is_sea()).map(|i| self.tides.spring_range(i))
@@ -2388,6 +2401,9 @@ impl WorldMap {
         // 9) Marées (voir tides.rs), sur les mers définitives
         let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
         self.tides = crate::tides::simulate(width, height, &sea, &self.depth, &region);
+        // 10) Houle (voir waves.rs), sous le vent des régimes du climat, qui ne sert plus ensuite
+        let regimes = std::mem::take(&mut self.climate.regime_wind);
+        self.waves = crate::waves::simulate(width, height, &sea, &self.currents.temperature, &self.depth, &regimes, &region);
     }
 
     /// Biome d'une case de terre selon son climat, l'aridité variée de `jitter` (sols, exposition).
@@ -3363,6 +3379,50 @@ mod tectonique {
 #[cfg(test)]
 mod fond_marin {
     use super::*;
+
+    /// Bilan de la houle : hauteur par bande de latitude, part de houle venue d'ailleurs, période,
+    /// côtes, temps de calcul : `cargo test bilan_houle -- --ignored --nocapture` (`SEEDS=777,2`).
+    #[test]
+    #[ignore]
+    fn bilan_houle() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").map_or(vec![777, 2, 5], |s| s.split(',').map(|x| x.parse().unwrap()).collect());
+        for seed in seeds {
+            let t = std::time::Instant::now();
+            let m = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let total = t.elapsed().as_secs_f32();
+            let w = m.waves();
+            let sea: Vec<usize> = (0..m.tiles.len()).filter(|&i| m.tiles[i].is_sea() && !w.ice[i]).collect();
+            let lat = |i: usize| m.latitude(m.hex_at(i)).abs();
+            let pct = |mut v: Vec<f32>, p: f32| {
+                v.sort_by(f32::total_cmp);
+                if v.is_empty() { 0.0 } else { v[((v.len() - 1) as f32 * p) as usize] }
+            };
+            let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+            let heights: Vec<f32> = sea.iter().map(|&i| w.height[i]).collect();
+            println!(
+                "graine {seed} : génération {total:.1} s ; {} cases de mer, {} sous la banquise ; hauteur (m) médiane {:.2}, 10 % {:.2}, 90 % {:.2}, max {:.1} ; plus forte de l'année médiane {:.1}, max {:.1}",
+                sea.len(), w.ice.iter().filter(|&&b| b).count(), pct(heights.clone(), 0.5), pct(heights.clone(), 0.1), pct(heights.clone(), 0.9), pct(heights, 1.0),
+                pct(sea.iter().map(|&i| w.storm[i]).collect(), 0.5), pct(sea.iter().map(|&i| w.storm[i]).collect(), 1.0),
+            );
+            for (lo, hi) in [(0.0, 15.0), (15.0, 30.0), (30.0, 45.0), (45.0, 60.0), (60.0, 90.0)] {
+                let band: Vec<usize> = sea.iter().copied().filter(|&i| lat(i) >= lo && lat(i) < hi).collect();
+                let of = |f: &dyn Fn(usize) -> f32| mean(&band.iter().map(|&i| f(i)).collect::<Vec<f32>>());
+                println!(
+                    "  {lo:>2.0}-{hi:<2.0}° : {:>5} cases, hauteur {:.2} m, tempête {:.1} m, période {:.1} s, houle venue d'ailleurs {:.0} %, direction nette {:.0} %",
+                    band.len(), of(&|i| w.height[i]), of(&|i| w.storm[i]), of(&|i| w.period[i]), of(&|i| w.swell_share[i]) * 100.0, of(&|i| w.focus[i]) * 100.0,
+                );
+            }
+            let shore: Vec<usize> = sea.iter().copied().filter(|&i| w.shore_power[i] > 0.0).collect();
+            let of = |f: &dyn Fn(usize) -> f32| shore.iter().map(|&i| f(i)).collect::<Vec<f32>>();
+            let classes = [0.6f32, 1.5].map(|h| shore.iter().filter(|&&i| w.shore_height[i] < h).count());
+            println!(
+                "  côtes : {} cases ; déferlement (m) médiane {:.2}, 90 % {:.2}, max {:.1} ; énergie (kW/m) médiane {:.1}, 90 % {:.1}, max {:.0} ; dérive (kW/m) médiane {:.1} ; moins de 0,6 m : {}, moins de 1,5 m : {}",
+                shore.len(), pct(of(&|i| w.shore_height[i]), 0.5), pct(of(&|i| w.shore_height[i]), 0.9), pct(of(&|i| w.shore_height[i]), 1.0),
+                pct(of(&|i| w.shore_power[i]), 0.5), pct(of(&|i| w.shore_power[i]), 0.9), pct(of(&|i| w.shore_power[i]), 1.0),
+                pct(of(&|i| w.shore_drift[i].0.hypot(w.shore_drift[i].1)), 0.5), classes[0], classes[1],
+            );
+        }
+    }
 
     /// Bilan des courants marins : vitesses, écarts de température de la mer, courant
     /// circumpolaire, rencontres de courants. `CURRENTS_DUMP=<dossier>` écrit pour chaque case

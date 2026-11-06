@@ -694,6 +694,13 @@ pub fn info(map: &WorldMap, hex: Hex) -> Vec<String> {
             let i = map.cell(hex);
             water += &format!(" maree={range:.1}m pleine-mer={:.1}h courant-maree={:.2}m/s", map.tides().high_water_h[i], map.tides().current[i]);
         }
+        if let Some(i) = map.wave_cell(hex) {
+            let w = map.waves();
+            water += &format!(
+                " houle={:.2}m tempete={:.1}m periode={:.1}s vers={:.0}deg nette={:.0}% seconde={:.0}deg/{:.0}% venue-d-ailleurs={:.0}% banquise={} cote={:.2}m/{:.1}kW/m derive=({:.1},{:.1})kW/m",
+                w.height[i], w.storm[i], w.period[i], w.direction[i].to_degrees(), w.focus[i] * 100.0, w.second_direction[i].to_degrees(), w.second_share[i] * 100.0, w.swell_share[i] * 100.0, w.ice[i], w.shore_height[i], w.shore_power[i], w.shore_drift[i].0, w.shore_drift[i].1,
+            );
+        }
     }
     lines.push(water);
     if let Some(name) = map.named_river(hex).map(|r| r.name.clone()) {

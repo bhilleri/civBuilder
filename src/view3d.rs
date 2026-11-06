@@ -477,6 +477,7 @@ impl Plugin for View3dPlugin {
                     draw_overlays_3d,
                     draw_wind_3d,
                     draw_currents_3d,
+                    draw_waves_3d,
                     draw_tide_lines_3d,
                     draw_plates_3d,
                     sync_seam_copies,
@@ -1350,6 +1351,7 @@ fn update_relief_3d(
                 MapLayer::Geography => geo.0.shade.get(map.0.cell(map.0.canonical(hex))).map_or(crate::render::GEO_LAND, |&s| crate::render::geo_color(s)),
                 MapLayer::Currents => currents_color(&map.0, hex),
                 MapLayer::Tides => crate::render::tides_color(&map.0, hex),
+                MapLayer::Waves => crate::render::waves_color(&map.0, hex),
                 _ => hydro_color(&map.0, hex, thematic),
             };
             let c = Color::srgb(r, g, b).to_linear();
@@ -2387,6 +2389,37 @@ fn draw_currents_3d(
     if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
         let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
         let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| current_arrow(&map.0, hex));
+        cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
+        cache.shape = Some(relief.shape);
+    }
+    for &(from, to, color) in &cache.arrows {
+        gizmos.arrow(from, to, color).with_tip_length(7.0);
+    }
+}
+
+/// Carte de la houle en 3D : flèches du sens de la houle, posées sur l'eau.
+fn draw_waves_3d(
+    mode: Res<ViewMode>,
+    layer: Res<MapLayer>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
+    mut cache: Local<ArrowsCache>,
+    mut gizmos: Gizmos<Gizmos3d>,
+) {
+    // (comme pour les courants : `regenerer` refait la houle sans toucher forcément au sol)
+    if fog.is_changed() || map.is_changed() {
+        cache.shape = None;
+    }
+    let Some(relief) = relief else { return };
+    if !mode.is_3d || *layer != MapLayer::Waves {
+        return;
+    }
+    let cache = &mut *cache;
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
+        let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
+        let arrows = fog.explored.iter().filter(|&&h| crate::render::wind_arrow_site(h)).filter_map(|&hex| crate::render::wave_arrow(&map.0, hex));
         cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
         cache.shape = Some(relief.shape);
     }

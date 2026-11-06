@@ -249,6 +249,7 @@ fn setup_ui(mut commands: Commands) {
             plates_legend(),
             currents_legend(),
             tides_legend(),
+            waves_legend(),
             resources_legend(),
             geography_legend(),
             (
@@ -271,6 +272,7 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Plates, "Carte des plaques tectoniques"),
                     map_option(MapLayer::Currents, "Carte des courants marins"),
                     map_option(MapLayer::Tides, "Carte des marées"),
+                    map_option(MapLayer::Waves, "Carte de la houle"),
                     map_option(MapLayer::Resources, "Carte des ressources"),
                     map_option(MapLayer::Geography, "Carte géographique (découpage)"),
                 ],
@@ -646,6 +648,58 @@ fn currents_legend() -> impl Bundle {
             Spawn(text("Les courants froids rafraîchissent et assèchent les côtes (déserts côtiers, brouillards) ; les courants chauds les adoucissent et les arrosent. Leur rencontre enrichit la pêche.", 12.0)),
         )),
     )
+}
+
+/// Légende de la carte de la houle : classes de hauteur, banquise, sens des flèches.
+fn waves_legend() -> impl Bundle {
+    use crate::render::{WAVE_CLASSES, WAVE_ICE};
+    let label = |k: usize| match WAVE_CLASSES.get(k + 1) {
+        Some(next) => format!("{} à {} m", tide_meters(WAVE_CLASSES[k].0), tide_meters(next.0)),
+        None => format!("{} m et plus", tide_meters(WAVE_CLASSES[k].0)),
+    };
+    (
+        Legend(MapLayer::Waves),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(330.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Hauteur moyenne de la houle", 14.0)),
+            Spawn(legend_row(WAVE_CLASSES[5].1, label(5))),
+            Spawn(legend_row(WAVE_CLASSES[4].1, label(4))),
+            Spawn(legend_row(WAVE_CLASSES[3].1, label(3))),
+            Spawn(legend_row(WAVE_CLASSES[2].1, label(2))),
+            Spawn(legend_row(WAVE_CLASSES[1].1, label(1))),
+            Spawn(legend_row(WAVE_CLASSES[0].1, label(0))),
+            Spawn(legend_row(WAVE_ICE, "banquise".to_string())),
+            Spawn(text("Flèches : vers où va la houle (longues : longue période)", 12.0)),
+        )),
+    )
+}
+
+/// Houle d'une case de mer pour l'infobulle : hauteur, plus forte hauteur, période, d'où elle
+/// vient, seconde houle, déferlement sur la côte.
+fn wave_text(m: &crate::map::WorldMap, h: Hex) -> Option<String> {
+    let i = m.wave_cell(h)?;
+    let w = m.waves();
+    if w.ice[i] {
+        return Some("banquise, pas de houle".to_string());
+    }
+    let meters = |v: f32| format!("{v:.1}").replace('.', ",");
+    let from = crate::waves::coming_from(w.direction[i]);
+    let mut text = format!("houle {} m (jusqu'à {:.0} m), {:.0} s", meters(w.height[i]), w.storm[i], w.period[i]);
+    text += &if w.focus[i] >= crate::waves::CLEAR_DIRECTION { format!(", venant {from}") } else { ", sans direction nette".to_string() };
+    if w.second_share[i] > 0.0 {
+        text += &format!(" et {}", crate::waves::coming_from(w.second_direction[i]));
+    }
+    if w.shore_height[i] > 0.0 {
+        text += &format!(", {} m à la côte", meters(w.shore_height[i]));
+    }
+    Some(text)
 }
 
 /// Légende de la carte des marées : classes de marnage de vives-eaux.
@@ -1384,6 +1438,11 @@ fn update_hover_text(
                 let current = m.tidal_current(h).unwrap_or(0.0);
                 let range = if range < 10.0 { format!("{range:.1}").replace('.', ",") } else { format!("{range:.0}") };
                 place.push(if current >= TIDAL_CURRENT_SHOWN { format!("marnage {range} m, courant de marée {} m/s", format!("{current:.1}").replace('.', ",")) } else { format!("marnage {range} m") });
+            }
+            if shows(Info::Wave)
+                && let Some(text) = wave_text(m, h)
+            {
+                place.push(text);
             }
             if shows(Info::Latitude) {
                 let lat = m.latitude(h);

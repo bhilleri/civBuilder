@@ -139,6 +139,8 @@ struct Palette {
     currents_dim: Vec<Handle<ColorMaterial>>,
     tides: Vec<Handle<ColorMaterial>>,
     tides_dim: Vec<Handle<ColorMaterial>>,
+    waves: Vec<Handle<ColorMaterial>>,
+    waves_dim: Vec<Handle<ColorMaterial>>,
     /// Carte géographique (voir `geo_index`).
     geo: Vec<Handle<ColorMaterial>>,
     geo_dim: Vec<Handle<ColorMaterial>>,
@@ -183,6 +185,8 @@ pub enum MapLayer {
     Currents,
     /// Marées : marnage de vives-eaux des mers.
     Tides,
+    /// Houle : hauteur moyenne des mers et sens de la houle.
+    Waves,
     /// Ressources : bancs de poissons (une icône par banc, la zone au survol).
     Resources,
     /// Géographie : le découpage du territoire en zones nommées (terres, mers, relief, régions
@@ -191,7 +195,7 @@ pub enum MapLayer {
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 12] = [
+    pub const ALL: [MapLayer; 13] = [
         MapLayer::Normal,
         MapLayer::Altitude,
         MapLayer::Relief,
@@ -202,6 +206,7 @@ impl MapLayer {
         MapLayer::Plates,
         MapLayer::Currents,
         MapLayer::Tides,
+        MapLayer::Waves,
         MapLayer::Resources,
         MapLayer::Geography,
     ];
@@ -219,6 +224,7 @@ impl MapLayer {
             MapLayer::Plates => "plaques tectoniques",
             MapLayer::Currents => "courants marins",
             MapLayer::Tides => "marées",
+            MapLayer::Waves => "houle",
             MapLayer::Resources => "ressources",
             MapLayer::Geography => "géographie",
         }
@@ -777,6 +783,66 @@ pub fn tides_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
     }
 }
 
+/// Carte de la houle : bornes des classes de hauteur moyenne (m) et leurs couleurs (sRGB), du calme
+/// aux mers les plus agitées.
+pub const WAVE_CLASSES: [(f32, (f32, f32, f32)); 6] = [
+    (0.0, (0.82, 0.91, 0.78)),
+    (0.5, (0.58, 0.82, 0.70)),
+    (1.0, (0.30, 0.69, 0.68)),
+    (1.5, (0.18, 0.50, 0.64)),
+    (2.5, (0.20, 0.30, 0.58)),
+    (4.0, (0.31, 0.13, 0.45)),
+];
+/// Couleur de la banquise sur la carte de la houle.
+pub const WAVE_ICE: (f32, f32, f32) = (0.93, 0.95, 0.97);
+/// Flèches de la houle : sombres sur les classes claires, blanches sur les foncées.
+const WAVE_ARROW_DARK: Color = Color::srgb(0.03, 0.10, 0.16);
+const WAVE_ARROW_LIGHT: Color = Color::srgb(0.98, 0.98, 1.0);
+/// Pas de flèche sous cette hauteur (m) ni sans direction nette (part de l'énergie à ± 45° de la
+/// direction dominante : 0,25 si elle arrive de partout).
+const WAVE_ARROW_MIN_HEIGHT: f32 = 0.3;
+const WAVE_ARROW_MIN_FOCUS: f32 = crate::waves::CLEAR_DIRECTION;
+
+/// Classe de hauteur (indice dans `WAVE_CLASSES`) d'une case de mer.
+fn wave_class(height: f32) -> usize {
+    WAVE_CLASSES.iter().rposition(|&(from, _)| height >= from).unwrap_or(0)
+}
+
+/// Teinte (indice) d'une case sur la carte de la houle : classes, terre, lac, banquise.
+fn waves_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
+    match (map.get(hex), map.wave_cell(hex)) {
+        (Some(Terrain::Lake), _) => WAVE_CLASSES.len() + 1,
+        (_, Some(i)) if map.waves().ice[i] => WAVE_CLASSES.len() + 2,
+        (_, Some(i)) => wave_class(map.waves().height[i]),
+        _ => WAVE_CLASSES.len(),
+    }
+}
+
+/// Couleur d'une case sur la carte de la houle (3D).
+pub fn waves_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
+    match (map.get(hex), map.wave_cell(hex)) {
+        (Some(Terrain::Lake), _) => CURRENTS_LAKE,
+        (_, Some(i)) if map.waves().ice[i] => WAVE_ICE,
+        (_, Some(i)) => WAVE_CLASSES[wave_class(map.waves().height[i])].1,
+        _ => CURRENTS_LAND,
+    }
+}
+
+/// Flèche de la houle d'une case de mer (cases en quinconce comme les vents), vers où elle va :
+/// départ, arrivée (monde 2D), plus longue pour une longue période, couleur lisible sur la classe.
+pub fn wave_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2, Color)> {
+    let i = map.wave_cell(hex)?;
+    let w = map.waves();
+    if w.ice[i] || w.height[i] < WAVE_ARROW_MIN_HEIGHT || w.focus[i] < WAVE_ARROW_MIN_FOCUS {
+        return None;
+    }
+    let (x, y) = hex.to_world();
+    let half = HEX_SIZE * (0.35 + 0.55 * ((w.period[i] - 8.0) / 6.0).clamp(0.0, 1.0)) / 2.0;
+    let d = Vec2::from_angle(w.direction[i]) * half;
+    let color = if wave_class(w.height[i]) <= 2 { WAVE_ARROW_DARK } else { WAVE_ARROW_LIGHT };
+    Some((Vec2::new(x, y) - d, Vec2::new(x, y) + d, color))
+}
+
 /// Couleur d'une case sur la carte des courants (3D).
 pub fn currents_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
     match (map.get(hex), map.sea_temperature(hex)) {
@@ -1236,7 +1302,7 @@ impl Plugin for RenderPlugin {
                 update_bank_overlay,
             ),
         )
-        .add_systems(Update, ((update_geo_depth, update_geo_colors).chain().before(update_tile_fog), draw_geo_borders.after(update_geo_colors)));
+        .add_systems(Update, ((update_geo_depth, update_geo_colors).chain().before(update_tile_fog), draw_geo_borders.after(update_geo_colors), draw_waves_2d));
     }
 }
 
@@ -1283,6 +1349,7 @@ fn setup_map_visuals(
     let sea_shades = (0..SEA_SHADES).map(|i| sea_temperature_color(sea_shade_degrees(i)));
     let (currents, currents_dim) = pair(sea_shades.chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
     let (tides, tides_dim) = pair(TIDE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
+    let (waves, waves_dim) = pair(WAVE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE, WAVE_ICE]).collect());
     let geo_shades = (0..GEO_PALETTE.len() as u8).flat_map(|color| (0..=crate::geography::MUTED).map(move |tone| crate::geography::GeoShade::Zone { color, tone }));
     let (geo, geo_dim) = pair(geo_shades.map(geo_color).chain([GEO_LAND, GEO_WATER]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
@@ -1307,6 +1374,8 @@ fn setup_map_visuals(
         currents_dim,
         tides,
         tides_dim,
+        waves,
+        waves_dim,
         geo,
         geo_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
@@ -1491,6 +1560,7 @@ fn update_tile_fog(
         MapLayer::Plates if !palette.plates.is_empty() => Some((&palette.plates, &palette.plates_dim)),
         MapLayer::Currents => Some((&palette.currents, &palette.currents_dim)),
         MapLayer::Tides => Some((&palette.tides, &palette.tides_dim)),
+        MapLayer::Waves => Some((&palette.waves, &palette.waves_dim)),
         MapLayer::Geography if geo.0.shade.len() == (map.0.width * map.0.height) as usize => Some((&palette.geo, &palette.geo_dim)),
         _ => None,
     };
@@ -1503,6 +1573,7 @@ fn update_tile_fog(
         (MapLayer::Plates, _) => plate_index(&map.0, hex),
         (MapLayer::Currents, _) => currents_index(&map.0, hex),
         (MapLayer::Tides, _) => tides_index(&map.0, hex),
+        (MapLayer::Waves, _) => waves_index(&map.0, hex),
         (MapLayer::Geography, _) => geo_index(geo.0.shade[map.0.cell(hex)]),
         _ => hydro_index(&map.0, hex, *layer),
     };
@@ -1955,6 +2026,18 @@ fn draw_currents_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>,
     }
     for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
         if let Some((from, to, color)) = current_arrow(&map.0, hex) {
+            gizmos.arrow_2d(from, to, color).with_tip_length(6.0);
+        }
+    }
+}
+
+/// Carte de la houle : flèches du sens de la houle sur les cases de mer explorées.
+fn draw_waves_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, mut gizmos: Gizmos) {
+    if *layer != MapLayer::Waves {
+        return;
+    }
+    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+        if let Some((from, to, color)) = wave_arrow(&map.0, hex) {
             gizmos.arrow_2d(from, to, color).with_tip_length(6.0);
         }
     }
