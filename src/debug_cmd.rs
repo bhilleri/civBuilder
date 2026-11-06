@@ -698,7 +698,7 @@ pub fn info(map: &WorldMap, hex: Hex) -> Vec<String> {
             let w = map.waves();
             water += &format!(
                 " houle={:.2}m tempete={:.1}m periode={:.1}s vers={:.0}deg nette={:.0}% seconde={:.0}deg/{:.0}% venue-d-ailleurs={:.0}% banquise={} cote={:.2}m/{:.1}kW/m derive=({:.1},{:.1})kW/m",
-                w.height[i], w.storm[i], w.period[i], w.direction[i].to_degrees(), w.focus[i] * 100.0, w.second_direction[i].to_degrees(), w.second_share[i] * 100.0, w.swell_share[i] * 100.0, w.ice[i], w.shore_height[i], w.shore_power[i], w.shore_drift[i].0, w.shore_drift[i].1,
+                w.height[i], w.storm[i], w.period[i], w.direction[i].to_degrees(), w.focus[i] * 100.0, w.second_direction[i].to_degrees(), w.second_share[i] * 100.0, w.swell_share[i] * 100.0, map.is_ice(hex), w.shore_height[i], w.shore_power[i], w.shore_drift[i].0, w.shore_drift[i].1,
             );
         }
     }
@@ -1327,7 +1327,7 @@ impl Session {
                 }
             }
             Command::Unit(kind, at, hostile) => {
-                if map.get(at).is_none_or(|t| t.move_cost().is_none()) {
+                if map.get(at).is_none_or(|t| t.move_cost().is_none()) && !map.is_ice(at) {
                     return Reply::error(format!("{} : case infranchissable", coords(map, at)));
                 }
                 Reply::effect(format!("OK {} {}en {}", token(kind.name()), if hostile { "hostile " } else { "" }, coords(map, at)), Effect::Unit(kind, at, hostile))

@@ -432,6 +432,7 @@ fn topo_legend() -> impl Bundle {
             Spawn(legend_row(TOPO_COAST, "Eaux peu profondes (moins de 200 m), lac".into())),
             Spawn(legend_row(TOPO_OCEAN, "Haute mer (200 à 3 000 m)".into())),
             Spawn(legend_row(crate::render::TOPO_ABYSS, "Abysses (plus de 3 000 m)".into())),
+            Spawn(legend_row(crate::render::ICE_COLOR, "Banquise".into())),
         )),
     )
 }
@@ -641,6 +642,7 @@ fn currents_legend() -> impl Bundle {
             Spawn(legend_row(sea_temperature_color(12.0), "12 °C".into())),
             Spawn(legend_row(sea_temperature_color(4.0), "4 °C".into())),
             Spawn(legend_row(sea_temperature_color(-2.0), "−2 °C".into())),
+            Spawn(legend_row(crate::render::ICE_COLOR, "banquise".into())),
             Spawn(text("Flèches : sens et vitesse des courants", 13.0)),
             Spawn(legend_row(swatch(WARM_CURRENT), "courant chaud (eau plus chaude que la latitude)".into())),
             Spawn(legend_row(swatch(COLD_CURRENT), "courant froid".into())),
@@ -652,7 +654,7 @@ fn currents_legend() -> impl Bundle {
 
 /// Légende de la carte de la houle : classes de hauteur, banquise, sens des flèches.
 fn waves_legend() -> impl Bundle {
-    use crate::render::{WAVE_CLASSES, WAVE_ICE};
+    use crate::render::{ICE_COLOR, WAVE_CLASSES};
     let label = |k: usize| match WAVE_CLASSES.get(k + 1) {
         Some(next) => format!("{} à {} m", tide_meters(WAVE_CLASSES[k].0), tide_meters(next.0)),
         None => format!("{} m et plus", tide_meters(WAVE_CLASSES[k].0)),
@@ -675,7 +677,7 @@ fn waves_legend() -> impl Bundle {
             Spawn(legend_row(WAVE_CLASSES[2].1, label(2))),
             Spawn(legend_row(WAVE_CLASSES[1].1, label(1))),
             Spawn(legend_row(WAVE_CLASSES[0].1, label(0))),
-            Spawn(legend_row(WAVE_ICE, "banquise".to_string())),
+            Spawn(legend_row(ICE_COLOR, "banquise".to_string())),
             Spawn(text("Flèches : vers où va la houle (longues : longue période)", 12.0)),
         )),
     )
@@ -686,7 +688,7 @@ fn waves_legend() -> impl Bundle {
 fn wave_text(m: &crate::map::WorldMap, h: Hex) -> Option<String> {
     let i = m.wave_cell(h)?;
     let w = m.waves();
-    if w.ice[i] {
+    if m.is_ice(h) {
         return Some("banquise, pas de houle".to_string());
     }
     let meters = |v: f32| format!("{v:.1}").replace('.', ",");
@@ -727,6 +729,7 @@ fn tides_legend() -> impl Bundle {
             Spawn(legend_row(TIDE_CLASSES[2].1, label(2))),
             Spawn(legend_row(TIDE_CLASSES[1].1, label(1))),
             Spawn(legend_row(TIDE_CLASSES[0].1, label(0))),
+            Spawn(legend_row(crate::render::ICE_COLOR, "banquise".to_string())),
             Spawn((
                 Node { flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(5.0), row_gap: Val::Px(5.0), ..default() },
                 children![

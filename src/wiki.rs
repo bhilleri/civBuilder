@@ -298,10 +298,16 @@ fn climate() -> Article {
                les plus longues voyagent le plus vite et traversent des océans en perdant peu d'énergie. La houle \
                des vents d'ouest, levée vers 40 à 60° de latitude, arrive ainsi jusque sous les tropiques. Une île \
                laisse une zone plus calme derrière elle, un plateau continental use la houle longue, une mer fermée \
-               reste plus calme que le large, et la banquise (vers 70° de latitude) l'arrête. La carte de la houle \
+               reste plus calme que le large, et la banquise l'arrête. La carte de la houle \
                montre la hauteur moyenne de l'année, et des flèches indiquent vers où elle va, plus longues pour \
                une longue période. L'infobulle d'une mer donne la hauteur, la plus forte de l'année, la période, \
                d'où vient la houle et sa hauteur quand elle déferle sur la côte."),
+            h("Banquise"),
+            p(format!("Près des pôles, au-delà de 72 à 80° de latitude selon l'endroit, la mer reste gelée toute l'année. Les courants \
+               chauds repoussent un peu sa limite, les courants froids la rapprochent. La banquise arrête la houle. \
+               Les unités peuvent y marcher ({ice} PM par case, sauf au pied d'une côte escarpée), ce qui ouvre un \
+               passage entre des terres que la mer sépare ailleurs. On ne peut pas y fonder de ville, et aucune \
+               structure n'y prend place, mais on y pêche comme en mer libre.", ice = crate::map::ICE_MOVE_COST)),
             h("Vents"),
             p("Le vent naît des différences de pression : ceintures alternées de hautes et basses pressions, effet des \
                continents (une terre chaude attire l'air, une terre froide le repousse), dépressions et anticyclones \

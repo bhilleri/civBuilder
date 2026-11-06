@@ -1335,6 +1335,11 @@ fn update_relief_3d(
     // Couleur du sol d'une case selon la carte affichée
     let hex_color = |hex: Hex| match (fog.explored.contains(&map.0.canonical(hex)), *layer) {
         (false, _) => Vec3::ONE,
+        (true, shown) if shown.shows_ice() && map.0.is_ice(hex) => {
+            let (r, g, b) = crate::render::ICE_COLOR;
+            let c = Color::srgb(r, g, b).to_linear();
+            Vec3::new(c.red, c.green, c.blue)
+        }
         // Lit d'un fleuve en forêt : prairie de berge (pas d'arbres dans le lit)
         (true, MapLayer::Normal | MapLayer::Resources) if map.0.is_fleuve(hex) && map.0.get(hex).is_some_and(|t| t.is_wooded()) => {
             terrain_color(Terrain::Grassland)

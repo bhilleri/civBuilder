@@ -145,6 +145,9 @@ struct Palette {
     geo: Vec<Handle<ColorMaterial>>,
     geo_dim: Vec<Handle<ColorMaterial>>,
     unexplored: Handle<ColorMaterial>,
+    /// Banquise, vive et assombrie (toutes les cartes qui la montrent).
+    ice: Handle<ColorMaterial>,
+    ice_dim: Handle<ColorMaterial>,
     unit: Handle<ColorMaterial>,
     hostile_unit: Handle<ColorMaterial>,
     hp_bg: Handle<ColorMaterial>,
@@ -228,6 +231,11 @@ impl MapLayer {
             MapLayer::Resources => "ressources",
             MapLayer::Geography => "géographie",
         }
+    }
+
+    /// La banquise y recouvre la mer : pas sur les plaques ni la géographie, qui montrent ce qu'elle cache.
+    pub fn shows_ice(self) -> bool {
+        !matches!(self, MapLayer::Plates | MapLayer::Geography)
     }
 
     /// Cartes de l'eau (bassins, débits, réseau).
@@ -793,8 +801,10 @@ pub const WAVE_CLASSES: [(f32, (f32, f32, f32)); 6] = [
     (2.5, (0.20, 0.30, 0.58)),
     (4.0, (0.31, 0.13, 0.45)),
 ];
-/// Couleur de la banquise sur la carte de la houle.
-pub const WAVE_ICE: (f32, f32, f32) = (0.93, 0.95, 0.97);
+/// Couleur de la banquise (bleutée : à ne pas confondre avec la neige, et les flèches blanches y
+/// restent lisibles), et assombrissement hors de vue.
+pub const ICE_COLOR: (f32, f32, f32) = (0.80, 0.87, 0.93);
+const ICE_DIM: f32 = 0.55;
 /// Flèches de la houle : sombres sur les classes claires, blanches sur les foncées.
 const WAVE_ARROW_DARK: Color = Color::srgb(0.03, 0.10, 0.16);
 const WAVE_ARROW_LIGHT: Color = Color::srgb(0.98, 0.98, 1.0);
@@ -808,11 +818,10 @@ fn wave_class(height: f32) -> usize {
     WAVE_CLASSES.iter().rposition(|&(from, _)| height >= from).unwrap_or(0)
 }
 
-/// Teinte (indice) d'une case sur la carte de la houle : classes, terre, lac, banquise.
+/// Teinte (indice) d'une case sur la carte de la houle : classes, terre, lac.
 fn waves_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
     match (map.get(hex), map.wave_cell(hex)) {
         (Some(Terrain::Lake), _) => WAVE_CLASSES.len() + 1,
-        (_, Some(i)) if map.waves().ice[i] => WAVE_CLASSES.len() + 2,
         (_, Some(i)) => wave_class(map.waves().height[i]),
         _ => WAVE_CLASSES.len(),
     }
@@ -822,7 +831,6 @@ fn waves_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
 pub fn waves_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
     match (map.get(hex), map.wave_cell(hex)) {
         (Some(Terrain::Lake), _) => CURRENTS_LAKE,
-        (_, Some(i)) if map.waves().ice[i] => WAVE_ICE,
         (_, Some(i)) => WAVE_CLASSES[wave_class(map.waves().height[i])].1,
         _ => CURRENTS_LAND,
     }
@@ -833,7 +841,7 @@ pub fn waves_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
 pub fn wave_arrow(map: &crate::map::WorldMap, hex: Hex) -> Option<(Vec2, Vec2, Color)> {
     let i = map.wave_cell(hex)?;
     let w = map.waves();
-    if w.ice[i] || w.height[i] < WAVE_ARROW_MIN_HEIGHT || w.focus[i] < WAVE_ARROW_MIN_FOCUS {
+    if map.is_ice(hex) || w.height[i] < WAVE_ARROW_MIN_HEIGHT || w.focus[i] < WAVE_ARROW_MIN_FOCUS {
         return None;
     }
     let (x, y) = hex.to_world();
@@ -1349,7 +1357,7 @@ fn setup_map_visuals(
     let sea_shades = (0..SEA_SHADES).map(|i| sea_temperature_color(sea_shade_degrees(i)));
     let (currents, currents_dim) = pair(sea_shades.chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
     let (tides, tides_dim) = pair(TIDE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
-    let (waves, waves_dim) = pair(WAVE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE, WAVE_ICE]).collect());
+    let (waves, waves_dim) = pair(WAVE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
     let geo_shades = (0..GEO_PALETTE.len() as u8).flat_map(|color| (0..=crate::geography::MUTED).map(move |tone| crate::geography::GeoShade::Zone { color, tone }));
     let (geo, geo_dim) = pair(geo_shades.map(geo_color).chain([GEO_LAND, GEO_WATER]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
@@ -1379,6 +1387,8 @@ fn setup_map_visuals(
         geo,
         geo_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
+        ice: mat(Color::srgb(ICE_COLOR.0, ICE_COLOR.1, ICE_COLOR.2)),
+        ice_dim: mat(Color::srgb(ICE_COLOR.0 * ICE_DIM, ICE_COLOR.1 * ICE_DIM, ICE_COLOR.2 * ICE_DIM)),
         unit: mat(PLAYER_COLOR),
         hostile_unit: mat(HOSTILE_COLOR),
         hp_bg: mat(Color::srgb(0.05, 0.05, 0.07)),
@@ -1585,10 +1595,23 @@ fn update_tile_fog(
     }
     for (tile, mut material) in &mut tiles {
         let key = (map.0.get(tile.0).unwrap(), map.0.level(tile.0).unwrap_or(0));
+        let ice = layer.shows_ice() && map.0.is_ice(tile.0);
         let wanted = if fog.visible.contains(&tile.0) {
-            if let Some((shades, _)) = indexed { &shades[shade_index(tile.0)] } else { &lit[&key] }
+            if ice {
+                &palette.ice
+            } else if let Some((shades, _)) = indexed {
+                &shades[shade_index(tile.0)]
+            } else {
+                &lit[&key]
+            }
         } else if fog.explored.contains(&tile.0) {
-            if let Some((_, shades)) = indexed { &shades[shade_index(tile.0)] } else { &dim[&key] }
+            if ice {
+                &palette.ice_dim
+            } else if let Some((_, shades)) = indexed {
+                &shades[shade_index(tile.0)]
+            } else {
+                &dim[&key]
+            }
         } else {
             &palette.unexplored
         };

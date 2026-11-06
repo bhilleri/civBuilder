@@ -56,10 +56,6 @@ const SEA_WIND_FACTOR: f32 = 1.2;
 /// Renfort sur le rail des dépressions, et en plus l'hiver.
 const STORM_BOOST: f32 = 1.0;
 const WINTER_BOOST: f32 = 0.5;
-/// Banquise : température de la mer du jeu (°C) en dessous de laquelle elle est gelée toute l'année.
-/// Cette température suit celle de l'air vers les pôles (voir `climate::sea_level_temperature` :
-/// −1,5 °C à 60°, −10 °C à 70°) : le seuil met la limite vers 70°, comme la banquise permanente.
-pub const ICE_SEA_C: f32 = -10.0;
 /// Masse volumique de l'eau de mer (kg/m³).
 const WATER_DENSITY: f32 = 1_025.0;
 /// Déferlement : hauteur / profondeur (McCowan).
@@ -85,8 +81,6 @@ pub struct Waves {
     pub second_share: Vec<f32>,
     /// Part de l'énergie qui ne vient pas du vent local (houle venue d'ailleurs).
     pub swell_share: Vec<f32>,
-    /// Banquise (mer gelée toute l'année) : pas de houle.
-    pub ice: Vec<bool>,
     /// Hauteur au déferlement sur la côte (m), 0 pour une case sans côte.
     pub shore_height: Vec<f32>,
     /// Énergie reçue par la côte (kW par mètre de rivage).
@@ -105,11 +99,10 @@ pub fn coming_from(angle: f32) -> &'static str {
     NAMES[sector]
 }
 
-/// Houle d'un monde : `sea` les cases de mer, `sea_temperature` (°C) et `depth` (m) par case,
+/// Houle d'un monde : `sea` les cases de mer, `ice` la banquise (pas de houle), `depth` (m) par case,
 /// `regimes` le vent de chaque régime du climat, dans l'ordre de l'année.
-pub fn simulate(width: i32, height: i32, sea: &[bool], sea_temperature: &[f32], depth: &[f32], regimes: &[RegimeWind], region: &Region) -> Waves {
+pub fn simulate(width: i32, height: i32, sea: &[bool], ice: &[bool], depth: &[f32], regimes: &[RegimeWind], region: &Region) -> Waves {
     let n = (width * height) as usize;
-    let ice: Vec<bool> = (0..n).map(|i| sea[i] && sea_temperature[i] <= ICE_SEA_C).collect();
     let lat: Vec<f32> = (0..n).map(|i| region.latitude_deg(i as i32 / width, height) / 90.0).collect();
     let winds: Vec<Vec<(f32, f32)>> = regimes
         .iter()
@@ -122,7 +115,7 @@ pub fn simulate(width: i32, height: i32, sea: &[bool], sea_temperature: &[f32], 
                 .collect()
         })
         .collect();
-    run(&Basin { width, height, wraps: region.wraps, cell_km: region.cell_km, sea, ice: &ice, depth }, &winds)
+    run(&Basin { width, height, wraps: region.wraps, cell_km: region.cell_km, sea, ice, depth }, &winds)
 }
 
 /// Rapport entre le vent de la mer et le vent de surface du climat, selon la latitude (−1 à 1) et
@@ -231,7 +224,6 @@ fn run(b: &Basin, winds: &[Vec<(f32, f32)>]) -> Waves {
         second_direction: vec![0.0; n],
         second_share: vec![0.0; n],
         swell_share: vec![0.0; n],
-        ice: b.ice.to_vec(),
         shore_height: vec![0.0; n],
         shore_power: vec![0.0; n],
         shore_drift: vec![(0.0, 0.0); n],
@@ -600,7 +592,6 @@ mod tests {
         let field: Vec<(f32, f32)> = (0..n).map(|i| if ((i as i32) % w) < 20 { (18.0, 0.0) } else { (0.0, 0.0) }).collect();
         let waves = run(&Basin { width: w, height: h, wraps: false, cell_km: 40.0, sea: &sea, ice: &ice, depth: &d }, &vec![field; 2]);
         assert_eq!(waves.height[at(w, 27, 15)], 0.0);
-        assert!(waves.ice[at(w, 27, 15)]);
         assert!(waves.height[at(w, 35, 15)] < 0.05, "derrière {}", waves.height[at(w, 35, 15)]);
     }
 

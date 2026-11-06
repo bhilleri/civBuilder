@@ -56,7 +56,7 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,
   `chemin` (voir `conception/conception-interface.md`).
-- [ ] Banquise jouable (eau gelée, selon la température de la mer).
+- [x] Banquise jouable (06/11) : calcul, affichage, marche, pas de ville ni de structure, pêche conservée (voir `conception/conception-fonds-marins.md`).
 - [x] Toponymie étape 3 (01/11) : continents, îles, îlots, archipels, péninsules, isthmes (`lands.rs`).
 - [x] Toponymie étape 4 (01/11) : chaînes, massifs, cols, plateaux, collines (`mountains.rs`).
 - [x] Toponymie étape 5 (01/11) : régions naturelles et sous-régions (`regions.rs`).
