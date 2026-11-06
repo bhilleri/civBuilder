@@ -1574,8 +1574,8 @@ fn update_relief_3d(
                     v
                 }
             };
-            let fleuve_open = map.0.is_fleuve(hex).then(|| crate::waterways::fleuve_openings(&map.0, hex).open);
-            (*e, water_mesh(hex, fleuve_open, relief, &near, shape, shape.visible(hex, explored), explored))
+            let fade = map.0.is_fleuve(hex).then(|| crate::waterways::fleuve_fade(&map.0, hex));
+            (*e, water_mesh(fade, relief, &near, shape, shape.visible(hex, explored), explored))
         })
         .collect();
     for (e, data) in built {
@@ -1600,8 +1600,7 @@ fn smooth(average: f32, sample: f32) -> f32 {
 /// Maillage des cours d'eau d'une case : surface plate en travers du lit, un peu sous le niveau
 /// du sol (prise sur l'axe du cours d'eau, lissée le long du cours), couleur selon le type.
 fn water_mesh<'a>(
-    hex: Hex,
-    fleuve_open: Option<u8>,
+    fade: Option<(Vec<Hex>, Option<f32>)>,
     relief: &Relief,
     near: &[Channel],
     shape: &WaterShape,
@@ -1656,18 +1655,18 @@ fn water_mesh<'a>(
         };
         // Un fleuve ne se fond que dans l'eau où il s'ouvre : il ne bleuit pas en longeant une mer
         let mut waters = relief.waters_around((a + b + c) / 3.0);
-        if let Some(open) = fleuve_open.filter(|_| shape.channels[t.channel].kind != WaterKind::River || shape.channels[t.channel].inflow.is_some()) {
-            let (hx, hy) = hex.to_world();
-            let opened = |w: Vec2| (0..6).filter(|d| open & (1 << d) != 0).any(|d| {
-                let (x, y) = (hex + crate::hex::DIRECTIONS[d]).to_world();
-                w.distance(Vec2::new(x, y)) < 1.0 || w.distance(Vec2::new(hx, hy)) < 1.0
-            });
-            waters.retain(|&(w, _)| opened(w));
+        let fleuve_bed = shape.channels[t.channel].kind != WaterKind::River || shape.channels[t.channel].inflow.is_some();
+        if let Some((open, _)) = fade.as_ref().filter(|_| fleuve_bed) {
+            waters.retain(|&(w, _)| open.iter().any(|h| w.distance(Vec2::from(h.to_world())) < 1.0));
         }
         // Même fondu pour tout ce qui est posé sur un fleuve (rapides, panache d'un affluent) que
         // pour le fleuve : sinon ils gardent leur couleur sur une eau déjà bleue (dalles claires)
         let bed = &shape.channels[t.channel];
-        let blend = if bed.kind == WaterKind::Fleuve || bed.inflow.is_some() { MOUTH_BLEND_FLEUVE } else { MOUTH_BLEND };
+        let blend = match fade.as_ref().and_then(|f| f.1) {
+            Some(inlet) if fleuve_bed => inlet,
+            _ if bed.kind == WaterKind::Fleuve || bed.inflow.is_some() => MOUTH_BLEND_FLEUVE,
+            _ => MOUTH_BLEND,
+        };
         // Affluent dans un fleuve : un rien au-dessus de l'eau du fleuve (sa couleur s'y fond
         // sans que les deux surfaces se chevauchent par endroits) ; éléments des rapides : posés
         // sur l'eau

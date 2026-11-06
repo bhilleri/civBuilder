@@ -502,7 +502,8 @@ impl std::ops::AddAssign for Yields {
 /// Terre gagnée sur la mer par un delta : altitude (m) à la côte, et un peu plus près du fleuve.
 const DELTA_LAND_M: [f32; 2] = [6.0, 3.0];
 /// Un delta avance sur le plateau (fond inférieur à `SHELF_DEPTH_M`), de une case, deux pour un
-/// fleuve qui apporte au moins ce flux de sédiments (kg/s) et domine (delta digité).
+/// fleuve qui apporte au moins ce flux de sédiments (kg/s) et domine (delta digité) ; un delta arqué
+/// s'étale aussi sur les deux cases de mer voisines de son embouchure.
 const DELTA_TWO_CELLS_KG_S: f32 = 800.0;
 /// Il ne ferme ni détroit ni baie : au plus ce nombre de voisines de terre pour une nouvelle case,
 /// sans compter celle d'où il vient.
@@ -2590,6 +2591,17 @@ impl WorldMap {
                 routes.push((self.cell(from), c));
                 from = p;
                 p = p + crate::hex::DIRECTIONS[d];
+            }
+            // Delta arqué : la houle étale ses sables de part et d'autre, un lobe bombé sur la côte
+            if m.kind == MouthKind::Arcuate && grown.iter().any(|g| g.1 == h + crate::hex::DIRECTIONS[d]) {
+                for side in [(d + 1) % 6, (d + 5) % 6] {
+                    let p = h + crate::hex::DIRECTIONS[side];
+                    let Some(c) = self.index(p) else { continue };
+                    let already = grown.iter().any(|g| g.0 == c);
+                    if self.tiles[c].is_sea() && !self.ice[c] && self.depth[c] < SHELF_DEPTH_M && !already {
+                        grown.push((c, p, DELTA_LAND_M[0].min(self.elevation[i].max(1.0) * 0.5), m.kind));
+                    }
+                }
             }
         }
         for &(c, p, meters, kind) in &grown {

@@ -1266,18 +1266,13 @@ fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<Wate
         let fleuve = map.0.is_fleuve(*hex);
         let open = if fleuve { crate::waterways::fleuve_openings(&map.0, *hex).open } else { 0 };
         let edges = (0..6u8).filter(|&d| open & (1 << d) != 0 && is_water(*hex + crate::hex::DIRECTIONS[d as usize])).fold(0u8, |bits, d| bits | (1 << d));
-        let targets: Vec<(Vec2, Hex)> = hex
-            .neighbors()
-            .into_iter()
-            .enumerate()
-            .filter(|&(d, n)| is_water(n) && explored(n) && (!fleuve || edges & (1 << d) != 0))
-            .map(|(_, n)| (Vec2::from(n.to_world()), n))
-            .collect();
+        let (waters, inlet) = if fleuve { crate::waterways::fleuve_fade(&map.0, *hex) } else { (hex.neighbors().into_iter().filter(|&n| is_water(n)).collect(), None) };
+        let targets: Vec<(Vec2, Hex)> = waters.into_iter().filter(|&n| explored(n)).map(|n| (Vec2::from(n.to_world()), n)).collect();
         for t in shape.visible(*hex, explored) {
             let lit = lit || t.also.is_some_and(|o| fog.visible.contains(&map.0.canonical(o)));
             let bed = &shape.channels[t.channel];
             let river = bed.kind == WaterKind::River && bed.inflow.is_none();
-            let blend = if river { crate::view3d::MOUTH_BLEND } else { crate::view3d::MOUTH_BLEND_FLEUVE };
+            let blend = if river { crate::view3d::MOUTH_BLEND } else { inlet.unwrap_or(crate::view3d::MOUTH_BLEND_FLEUVE) };
             let vertex = |p: Vec2| {
                 let own = color(t.kind, t.tone_at(p), lit);
                 // Fondu vers la couleur de l'eau, telle que la tuile l'affiche (comme en 3D)

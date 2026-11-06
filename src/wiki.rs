@@ -299,8 +299,9 @@ fn climate() -> Article {
                fleuve apporte peu ; si c'est la marée, un delta de marée en eau chargée, ou un estuaire en eau claire. \
                Une mer profonde tout de suite ne laisse pas de place à un delta : c'est aussi un estuaire. Une vallée \
                de relief envahie par la mer forme une ria, une vallée glaciaire dans le froid un fjord. Sur la carte, \
-               un estuaire s'ouvre en entonnoir et un delta digité se divise en plusieurs bras. Un delta gagne sur la \
-               mer quand le fond est peu profond : une ou deux cases de terre basse que le fleuve traverse. \
+               un estuaire s'ouvre en entonnoir, un delta digité se divise en plusieurs bras, un delta arqué forme un \
+               lobe de terre sur la côte, et dans une ria ou un fjord la mer remonte la vallée. Un delta gagne sur la \
+               mer quand le fond est peu profond : de la terre basse que le fleuve traverse. \
                L'infobulle d'une case d'embouchure donne son type."),
             h("Houle"),
             p("Le vent lève les vagues. Leur hauteur dépend de sa force, de la distance de mer sur laquelle il \
