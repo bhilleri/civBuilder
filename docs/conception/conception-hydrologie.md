@@ -120,6 +120,23 @@ Chiffres antérieurs aux mares de mer (à remesurer) : ruissellement 236 900 m³
 - **Limites** : les rivières ne sont pas classées (les lagunes, qui demandent peu de sédiments, leur reviendront surtout) ; delta de marée et lagune sont donc rares ou absents ; la terre gagnée va tout droit, en cases entières (une bande plutôt qu'un éventail), et de petits éclats de sable subsistent parfois au bout des bras ; 13 deltas sur 28 ne grandissent pas (mer profonde, banquise, baie à ne pas fermer).
 - **Suite** : formes du delta arqué, du delta de marée, de la ria et du fjord ; panache trouble en mer, flèche de sable selon la dérive littorale (`waves.shore_drift`), végétation, rivières.
 
+## Audit des formes des côtes et des cours d'eau (06/11/2026)
+
+- **Demande de Benjamin** : « des triangles bizarres » à plusieurs endroits sur les côtes ; observer des mondes, identifier les formes brutes ou coupées entre deux cases et leurs causes, sans se limiter aux régressions, avec une analyse comparée. Deux audits indépendants, l'un parti des images (environ 90 emplacements), l'autre du code (environ 45), graines 777, 4242, 2, 5, 3377500742, 4010581807.
+- **Lot 1, corrigé** :
+  - **Triangles de sable au bout d'un delta** : l'arête aval d'un delta a souvent une voisine de mer, que `fleuve_openings` ouvrait aussi ; le fleuve ne se divisait plus à l'entrée de sa case et un croissant de terre restait coupé par la mer. Un delta digité ne s'ouvre plus que par son arête aval (le choix 11, « se jette dans les deux », reste valable pour les autres types). Les deux audits divergeaient sur la cause (terre entre les bras, ou arête ouverte) : tranché par un essai.
+  - **Éclats de sable au coin de l'arête** : le bras extrême gardait 1,5 unité de terre ; 4 maintenant (`DELTA_EDGE_MARGIN`).
+  - **Dalles claires dans l'eau de l'embouchure** : le fondu vers la mer durait 30 unités pour le fleuve et 14 pour ce qui est posé dessus (panache d'affluent, rapides) ; il suit maintenant le lit.
+  - **Coupure droite à l'embouchure** : distance mesurée à l'hexagone au lieu d'un cercle (`view3d::hex_gap` : 4,3 unités d'écart aux coins), et fondu vers la couleur du bord de la case d'eau, assombri (`EDGE_SHADE`).
+  - **Fleuve côtier qui bleuit** (traité ici, car la distance exacte le rendait pire, en taches bleues aux coins de mer) : un fleuve ne se fond plus que dans l'eau sur laquelle sa case s'ouvre. Conforme au choix 13 (un fleuve côtier garde sa rive).
+  - **Fentes noires des falaises** : `rock_wall` n'écarte plus les sommets des coins de la case. **Réduites, pas toutes disparues** : il reste de petites marques noires sur certaines parois (graine 777, case 20,44), cause à chercher.
+  - **Rapides** : l'eau vive s'éteint avant les bouts de sa ligne d'eau, et plus de rapide dans une case d'embouchure (la chute vers la mer n'est pas la pente du fleuve : plus de dalle d'écume dans les rias). **Bandes atténuées, pas toutes disparues** : il reste de légères bandes sombres en travers (graine 4010581807, case 95,45).
+  - **Grand froid** : plus de plage de sable sur la neige, la toundra ni contre la banquise (`HexTop::beach`).
+  - **Cartes thématiques en 3D** : le fondu vise la couleur de l'eau affichée (et la banquise), plus le bleu de la carte normale.
+- **Lot 2, à faire** : embouchures propres en 2D, avec un fondu vers la mer (décision de Benjamin : oui, il n'existait qu'en 3D) ; sources de fleuve effilées au lieu de moignons ronds (deux réseaux séparés : débit par case et rivières d'arêtes) ; écume de chute décidée par sommet (éclats, barre blanche) ; embouchure dans un virage serré (eau coupée à angle droit, choix 12) ; bouche en un seul éventail au lieu de bandes vers les coins ; berges en dents sombres ; panache d'affluent qui finit net.
+- **Lot 3, à décider** : rivières parallèles en sinusoïde (tracé de coin en coin sur la grille), côtes en hexagones parfaits (peut-être un choix de jeu), vrais dessins du delta arqué, de la ria et du fjord.
+- **Hypothèses écartées par l'audit** : rupture au raccord est-ouest, fentes entre maillages fin et ordinaire, marches entre lacs voisins, eau passant sous le sol dans les bras étroits. **Pas regardés** : lagunes (aucune sur ces graines), bord de la zone explorée, chutes franches au droit d'une falaise.
+
 ## À faire ensuite
 
 - **Refonte du dénivelé** (relief géologique) : lissage le long des cours d'eau, unifier les deux écoulements.

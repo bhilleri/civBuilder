@@ -22,7 +22,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   - Toujours passer `--no-default-features`, y compris à `cargo run` : l'alterner avec les options par défaut
     recompile 15 crates (≈ 2 min).
   - Ne pas définir `RUSTC_BOOTSTRAP` dans un `target` à garder : le changer recompile la plupart des dépendances.
-- Lancer le jeu : `cargo run --no-default-features` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74`).
+- Lancer le jeu : `cargo run --no-default-features` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74` ; sur un autre écran : `CIVBUILDER_ECRAN=2`, à utiliser pour les captures et les scripts afin de ne pas gêner Benjamin).
 - **Captures d'écran** (vérification visuelle sans jouer) : `CIVBUILDER_SEED=777 CIVBUILDER_CAPTURE=<dossier> cargo run --no-default-features`
   → met en scène (deux villes dont une sur un relief accidenté, les douze types d'unités près d'une
   montagne, trois unités en barque sur un fleuve, carte révélée), passe en 3D, enregistre une vingtaine de vues en PNG dans le dossier (ville, unités,

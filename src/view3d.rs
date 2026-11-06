@@ -1363,6 +1363,12 @@ fn update_relief_3d(
             Vec3::new(c.red, c.green, c.blue)
         }
     };
+    // Le fondu d'une embouchure vise la couleur affichée de l'eau (carte, banquise), pas toujours la
+    // mer de la carte normale
+    if layer.is_changed() || fog.is_changed() {
+        let colors: Vec<(Hex, Vec3)> = relief.water_hexes.iter().filter(|h| fog.explored.contains(*h)).map(|&h| (h, hex_color(h))).collect();
+        relief.water_colors.extend(colors);
+    }
     // (case, numéro du paquet où elle a été refaite)
     let mut reshaped: Vec<(Hex, usize)> = Vec::new();
     let mut processed: Vec<(Hex, usize)> = Vec::new();
@@ -1431,7 +1437,11 @@ fn update_relief_3d(
                     if land && fog.explored.contains(&n) { hex_color(n) } else { color }
                 })
             });
-            jobs.push((hex, relief.tops[&hex], color, sides, near, water(hex)));
+            let mut top = relief.tops[&hex];
+            // Pas de plage de sable dans le grand froid ni contre la banquise
+            let cold = matches!(map.0.get(hex), Some(Terrain::Snow | Terrain::Tundra));
+            top.beach = !cold && !map.0.neighbors(hex).iter().any(|&n| map.0.is_ice(n));
+            jobs.push((hex, top, color, sides, near, water(hex)));
         }
         let bumps = &relief.bumps;
         let built: Vec<(Hex, MeshData)> = jobs
@@ -1556,7 +1566,8 @@ fn update_relief_3d(
                     v
                 }
             };
-            (*e, water_mesh(relief, &near, shape, shape.visible(hex, explored), explored))
+            let fleuve_open = map.0.is_fleuve(hex).then(|| crate::waterways::fleuve_openings(&map.0, hex).open);
+            (*e, water_mesh(hex, fleuve_open, relief, &near, shape, shape.visible(hex, explored), explored))
         })
         .collect();
     for (e, data) in built {
@@ -1578,9 +1589,19 @@ fn smooth(average: f32, sample: f32) -> f32 {
     if average == 0.0 { sample } else { average + (sample - average) * 0.2 }
 }
 
+/// Distance d'un point à la case de centre `c` (0 dedans ou sur son bord) : aux coins comme au
+/// milieu des arêtes, contrairement à un cercle.
+fn hex_gap(p: Vec2, c: Vec2) -> f32 {
+    let d = p - c;
+    let far = (0..6).map(|k| d.dot(Vec2::from_angle(k as f32 * std::f32::consts::FRAC_PI_3))).fold(f32::MIN, f32::max);
+    (far - HEX_SIZE * 0.866).max(0.0)
+}
+
 /// Maillage des cours d'eau d'une case : surface plate en travers du lit, un peu sous le niveau
 /// du sol (prise sur l'axe du cours d'eau, lissée le long du cours), couleur selon le type.
 fn water_mesh<'a>(
+    hex: Hex,
+    fleuve_open: Option<u8>,
     relief: &Relief,
     near: &[Channel],
     shape: &WaterShape,
@@ -1598,15 +1619,15 @@ fn water_mesh<'a>(
     let fresh = terrain_color(Terrain::Lake);
     // Mer ou lac le plus proche d'un point parmi ceux d'alentour (`waters_around`, cherchés une
     // fois par triangle) : distance (approchée) et couleur
-    let nearest_water = |waters: &[(Vec2, Vec3)], p: Vec2| waters.iter().map(|&(c, color)| ((p.distance(c) - HEX_SIZE * 0.866).max(0.0), color)).min_by(|a, b| a.0.total_cmp(&b.0));
-    let tint = |waters: &[(Vec2, Vec3)], p: Vec2, tone: crate::waterways::Tone, kind: WaterKind| {
+    let nearest_water = |waters: &[(Vec2, Vec3)], p: Vec2| waters.iter().map(|&(c, color)| (hex_gap(p, c), color)).min_by(|a, b| a.0.total_cmp(&b.0));
+    let tint = |waters: &[(Vec2, Vec3)], p: Vec2, tone: crate::waterways::Tone, kind: WaterKind, blend: f32| {
         // Teinte du cours d'eau (débit, limon), qui se fond dans la mer ou le lac où il se jette
         // (sur une plus longue distance pour un fleuve : pas de coupure de couleur à l'embouchure)
         let water = tone.apply(fresh);
         let own = kind.rapids_color(tone, water).unwrap_or(water);
-        let blend = if kind == WaterKind::Fleuve { MOUTH_BLEND_FLEUVE } else { MOUTH_BLEND };
+        // (vers la couleur du bord de la case d'eau, assombri : pas de ligne droite à l'arête)
         let c = match nearest_water(waters, p) {
-            Some((d, water)) => own.lerp(water, 1.0 - smoothstep01(d / blend)),
+            Some((d, water)) => own.lerp(water * crate::relief::EDGE_SHADE, 1.0 - smoothstep01(d / blend)),
             None => own,
         };
         [c.x, c.y, c.z, 1.0]
@@ -1633,7 +1654,20 @@ fn water_mesh<'a>(
             known.push((p, y));
             y
         };
-        let waters = relief.waters_around((a + b + c) / 3.0);
+        // Un fleuve ne se fond que dans l'eau où il s'ouvre : il ne bleuit pas en longeant une mer
+        let mut waters = relief.waters_around((a + b + c) / 3.0);
+        if let Some(open) = fleuve_open.filter(|_| shape.channels[t.channel].kind != WaterKind::River || shape.channels[t.channel].inflow.is_some()) {
+            let (hx, hy) = hex.to_world();
+            let opened = |w: Vec2| (0..6).filter(|d| open & (1 << d) != 0).any(|d| {
+                let (x, y) = (hex + crate::hex::DIRECTIONS[d]).to_world();
+                w.distance(Vec2::new(x, y)) < 1.0 || w.distance(Vec2::new(hx, hy)) < 1.0
+            });
+            waters.retain(|&(w, _)| opened(w));
+        }
+        // Même fondu pour tout ce qui est posé sur un fleuve (rapides, panache d'un affluent) que
+        // pour le fleuve : sinon ils gardent leur couleur sur une eau déjà bleue (dalles claires)
+        let bed = &shape.channels[t.channel];
+        let blend = if bed.kind == WaterKind::Fleuve || bed.inflow.is_some() { MOUTH_BLEND_FLEUVE } else { MOUTH_BLEND };
         // Affluent dans un fleuve : un rien au-dessus de l'eau du fleuve (sa couleur s'y fond
         // sans que les deux surfaces se chevauchent par endroits) ; éléments des rapides : posés
         // sur l'eau
@@ -1670,7 +1704,7 @@ fn water_mesh<'a>(
                         data.positions.push([p.x, level(p) + lift, -p.y]);
                         data.normals.push([0.0, 1.0, 0.0]);
                         // (écume mêlée à l'eau : un blanc plat se lisait comme une zone sans eau)
-                        let water = tint(&waters, p, t.tone_at(p), t.kind);
+                        let water = tint(&waters, p, t.tone_at(p), t.kind, blend);
                         let white = linear(Color::srgb(0.86, 0.93, 0.98));
                         data.colors.push(if foam { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM) } else { water });
                         data.indices.push(data.indices.len() as u32);

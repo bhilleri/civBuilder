@@ -7,6 +7,7 @@
 - **Estuaires et deltas digités dessinés** : l'estuaire s'ouvre en entonnoir vers la mer, le delta digité se divise en 2 à 4 bras à travers sa case. Plus d'île de fleuve isolée à l'embouchure.
 - **Les deltas gagnent sur la mer** : une ou deux vraies cases de terre basse devant l'embouchure, que le fleuve traverse. Le monde généré change donc : pour une même graine, certaines côtes et certains noms ne sont plus les mêmes qu'avant.
 - **Correctif** : les cours d'eau étaient invisibles en vue 2D depuis une version récente ; ils sont de retour.
+- **Côtes et embouchures plus propres** : plus de triangles ni d'éclats de sable au bout des deltas, plus de dalles claires ni de coupure droite entre le fleuve et la mer, plus de fleuve côtier qui bleuit le long de la mer, plus d'écume ni de rapides dans une embouchure, plus de plage de sable contre la banquise ni sur la neige, moins de fentes noires dans les falaises, rapides sans marche à l'arête. Sur les cartes thématiques en 3D, l'embouchure se fond dans la couleur de la carte.
 
 ### Banquise
 - **La banquise apparaît sur les cartes** (normale, climat, altitude, courants, marées, houle…, sauf les plaques et la géographie) et dans l'infobulle, près des pôles, au-delà de 72 à 80° selon l'endroit, avec un bord découpé. Elle arrête la houle.

@@ -42,6 +42,8 @@ const DELTA_ARMS_M3S: [f32; 2] = [3_500.0, 10_000.0];
 const DELTA_ARM_SHARE: f32 = 0.55;
 const DELTA_ARM_MIN_HALF_WIDTH: f32 = 2.4;
 const DELTA_LAND_GAP: f32 = 7.0;
+/// Terre gardée entre le bras extrême d'un delta et le coin de l'arête (moins : un éclat de sable).
+const DELTA_EDGE_MARGIN: f32 = 4.0;
 const DELTA_ARM_JITTER: f32 = 1.2;
 /// Delta digité : le fleuve se divise à cette part du chemin de l'arête d'amont au milieu de la case.
 const DELTA_FORK: f32 = 0.35;
@@ -536,9 +538,12 @@ impl WaterShape {
         let dosed = |amount: f32| Tone { rapids: amount, ..base };
         // Eau vive : sur toute la largeur, dosée par sommet (pas de bord net)
         let rows = ((site * 1.15 / MARK_STEP).ceil() as usize).max(8);
+        // (l'eau vive s'éteint avant les bouts de la ligne d'eau : pas de marche sur l'arête)
+        let ramp = (site * 0.12).max(1e-3);
+        let end_fade = |s: f32| (s.min(len - s) / ramp).clamp(0.0, 1.0);
         let bump = |f: f32| (f / 0.15).min(1.0).min((1.15 - f) / 0.35).clamp(0.0, 1.0) * w;
         let f_of = |i: usize| i as f32 / rows as f32 * 1.15;
-        self.grid(rows, 4, |i, j| reach.point(at(f_of(i) - 0.05), 0.97 * (j as f32 / 2.0 - 1.0)), |i, _| dosed(bump(f_of(i))), WaterKind::Light);
+        self.grid(rows, 4, |i, j| reach.point(at(f_of(i) - 0.05), 0.97 * (j as f32 / 2.0 - 1.0)), |i, _| dosed(bump(f_of(i)) * end_fade(at(f_of(i) - 0.05))), WaterKind::Light);
         // Tête, discrète : un peu d'écume le long des rives là où l'eau s'engage (une amorce, pas
         // de V qui traverse la rivière, ni de langue sombre : trop visibles)
         for side in [1.0, -1.0] {
@@ -713,8 +718,12 @@ pub fn fleuve_openings(map: &WorldMap, hex: Hex) -> Openings {
             full |= 1 << d;
         }
     }
+    // (un delta digité sort seulement par son arête aval, en plusieurs bras : ouvrir aussi une arête
+    // de mer voisine l'empêcherait de se diviser à l'entrée de sa case et laisserait un croissant de
+    // terre coupé par la mer)
+    let delta = map.mouth(hex).is_some_and(|m| m.kind == MouthKind::BirdFoot);
     for d in 0..6 {
-        if links & (1 << d) == 0 || !water_side(d) {
+        if delta || links & (1 << d) == 0 || !water_side(d) {
             continue;
         }
         full |= 1 << d;
@@ -813,7 +822,7 @@ fn mouth_kind(map: &WorldMap, hex: Hex) -> Option<MouthKind> {
 fn delta_arms(map: &WorldMap, hex: Hex, hw: f32) -> Vec<(f32, f32)> {
     let q = map.discharge(hex);
     let wanted = 2 + DELTA_ARMS_M3S.iter().filter(|&&s| q >= s).count();
-    let half_edge = HEX_SIZE * 0.5 - EDGE_MARGIN;
+    let half_edge = HEX_SIZE * 0.5 - DELTA_EDGE_MARGIN;
     let width = |n: usize| (hw * DELTA_ARM_SHARE / (n as f32).sqrt()).max(DELTA_ARM_MIN_HALF_WIDTH);
     let fits = |n: usize| 2.0 * n as f32 * width(n) + (n - 1) as f32 * DELTA_LAND_GAP <= 2.0 * half_edge;
     let n = (2..=wanted).rev().find(|&n| fits(n)).unwrap_or(2);
@@ -895,6 +904,10 @@ fn corner_elevation(map: &WorldMap, hex: Hex, j: usize) -> f32 {
 
 /// Rapides d'un fleuve : pente vers sa case aval (m/km).
 fn fleuve_rapids(map: &WorldMap, hex: Hex) -> f32 {
+    // (pas de rapide dans une embouchure : la chute vers la mer n'est pas la pente du fleuve)
+    if map.mouth(hex).is_some() {
+        return 0.0;
+    }
     map.downstream(hex).map_or(0.0, |d| {
         let drop = map.elevation(hex).unwrap_or(0.0) - map.elevation(hex + DIRECTIONS[d]).unwrap_or(0.0);
         rapids(drop / crate::climate::CELL_KM)
@@ -1641,6 +1654,25 @@ mod tests {
     }
 
     #[test]
+    fn un_delta_ne_s_ouvre_que_par_son_arete_aval() {
+        let (mut map, h) = embouchure(Some(MouthKind::BirdFoot), 5_000.0);
+        // Mer aussi sur l'arête voisine : elle ne s'ouvre pas, le fleuve se divise à l'entrée
+        map.set(h + DIRECTIONS[1], Terrain::Ocean);
+        assert_eq!(fleuve_openings(&map, h).open, 1 << 0 | 1 << 3);
+        map.set_mouth(h, MouthKind::Estuary);
+        assert_eq!(fleuve_openings(&map, h).open, 1 << 0 | 1 << 1 | 1 << 3, "un estuaire, si");
+    }
+
+    #[test]
+    fn pas_de_rapide_dans_une_embouchure() {
+        let (mut map, h) = embouchure(None, 5_000.0);
+        map.set_elevation(h, 900.0);
+        assert!(fleuve_rapids(&map, h) > 0.0, "sans type : la chute vers la mer compte");
+        map.set_mouth(h, MouthKind::Ria);
+        assert_eq!(fleuve_rapids(&map, h), 0.0);
+    }
+
+    #[test]
     fn delta_digite_en_plusieurs_bras() {
         for (q, wanted) in [(2_500.0, 2), (5_000.0, 3), (20_000.0, 4)] {
             let (map, h) = embouchure(Some(MouthKind::BirdFoot), q);
@@ -1652,7 +1684,7 @@ mod tests {
             let near = |at: f32| edge_mid(h, 0) - out * 0.5 + out.perp() * at;
             for &(at, w) in &arms {
                 assert!(couvert(&shape, near(at)), "{q} m³/s : bras en {at}");
-                assert!(at.abs() + w <= HEX_SIZE * 0.5, "{q} m³/s : bras en {at}, demi-largeur {w} : hors de l'arête");
+                assert!(at.abs() + w <= HEX_SIZE * 0.5 - 3.0, "{q} m³/s : bras en {at}, demi-largeur {w} : trop près du coin");
             }
             for pair in arms.windows(2) {
                 let (a, b) = (pair[0], pair[1]);
