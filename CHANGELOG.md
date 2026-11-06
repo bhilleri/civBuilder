@@ -1,14 +1,22 @@
 # Journal des versions
 
-## 0.4.0 (en cours)
+## 0.3.1 — 6 novembre 2026
+
+Correctif de performances : la carte s'affiche bien plus vite en 3D, et les cartes les plus lourdes ne ralentissent plus le jeu.
+
+### Performances de la vue 3D
+- **Cases construites plus vite** : toute la carte en 6,9 s au lieu de 11 (8,8 s au lieu de 15,3 en 256×148), 60 images/s tenues sur un écran 60 Hz. Le temps de calcul du relief passe de 6 à 10 ms par image.
+- **Cartes des plaques et du réseau hydrographique** : elles se construisent maintenant aussi vite que les autres (plaques 16,2 → 6,8 s, réseau 13,7 → 6,6 s), sans descendre sous 60 images/s. Leurs tracés ne sont plus reposés sur le sol qu'au plus toutes les 0,5 s pendant la construction ; ils peuvent donc rester décalés du sol pendant ce court moment.
+- **Carte des marées, lignes et flèches activées** : même correction (jusqu'à 16 → 11 s, mesuré avant le passage à 10 ms).
+- **Réseau hydrographique** : seuls les chevrons du courant visibles à l'écran sont calculés (5,3 → 0,3 ms par image une fois la carte construite).
+- **Cartes du climat et des courants** : flèches gardées d'une image à l'autre (climat 10,7 → 7,3 s pour toute la carte ; 8,1 → 6,1 ms par image une fois construite).
+
+Mesures sur toute la carte révélée, graine 777, carte 192×111 sauf mention contraire, sans défilement, en profil de développement (Ryzen 7 7800X3D, RTX 5070). Sur un écran plus rapide que 60 Hz, le jeu affiche moins d'images pendant la construction (simulé sans synchronisation verticale : environ 98 → 78 images/s).
 
 ### Technique
 - **Passage à Bevy 0.20.1** : champs de saisie avec `TextInput`, plus d'`Interaction` ni de `Button`, dépréciés : le module `pointer.rs` tient l'état du pointeur (`UiPointer`) à partir du picking de Bevy.
 - Textes d'aide du menu alignés à gauche : la mise en page du texte a changé avec Bevy.
 - Seuls les éléments cliquables, les panneaux et les champs réagissent au pointeur ; un élément recouvre maintenant ce qui est dessous (un nom de la carte sous un panneau n'est plus survolé).
-- **Cartes des plaques et du réseau plus fluides en 3D** : le relief s'y construit aussi vite que sur les autres cartes (plaques 16,2 → 10,8 s, réseau 13,7 → 10,8 s pour toute la carte, 60 images/s tenues). Pendant la construction, les tracés ne sont plus reposés sur le sol qu'au plus toutes les 0,5 s, et seuls les chevrons du courant à l'écran sont calculés (réseau 5,3 → 0,3 ms par image une fois la carte construite). Même règle pour les lignes et les flèches de la carte des marées (jusqu'à 16 → 11 s).
-- **Relief 3D construit plus vite** : budget de 10 ms par image au lieu de 6, toute la carte en 6,9 s au lieu de 11 (8,8 s au lieu de 15,3 en 256×148), 60 images/s tenues.
-- **Flèches du climat et des courants gardées d'une image à l'autre en 3D** : carte du climat 8,1 → 6,1 ms par image une fois construite, construction en défilant 9,2 → 7,6 s.
 - **Worktrees amorcés automatiquement** : un hook de Claude Code copie le `target` du checkout principal au démarrage d'une session en worktree (premier build en ≈ 1 min 15 au lieu de ≈ 6 min).
 
 ## 0.3.0 « Planet Update » — 4 novembre 2026
