@@ -2366,7 +2366,7 @@ fn draw_currents_3d(
 }
 
 /// Lignes d'heure de pleine mer posées sur la mer, gardées d'une image à l'autre (refaites quand
-/// l'exploration ou la forme du sol changent).
+/// l'exploration ou la forme du sol changent, voir `ground_lines_stale`).
 #[derive(Default)]
 struct TideLines3d {
     shape: Option<u32>,
@@ -2383,7 +2383,9 @@ fn draw_tide_lines_3d(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
     mut cache: Local<TideLines3d>,
+    mut refreshed: Local<f32>,
     mut gizmos: Gizmos<Gizmos3d>,
 ) {
     if fog.is_changed() {
@@ -2393,7 +2395,7 @@ fn draw_tide_lines_3d(
     if !mode.is_3d || *layer != MapLayer::Tides || !(shown.lines || shown.arrows) {
         return;
     }
-    if cache.shape != Some(relief.shape) {
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut refreshed) {
         let (lines, amphidromes) = crate::render::tide_lines(&map.0, &fog);
         let lift = |p: Vec2| relief.on_ground(p.x, p.y, 1.5);
         *cache = TideLines3d {

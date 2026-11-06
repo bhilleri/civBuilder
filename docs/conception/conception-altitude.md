@@ -157,11 +157,16 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
   | Réseau | 13,7 → 10,8 s | 15,4 → 9,7 s | 18-20 → 16,7 ms | 5,3 → 0,3 ms (2800 : 0,5 ms ; en défilant 0,15 à 1,7 ms) |
 
   Audit temporaire des chevrons contre leur projection à l'écran, sur 1 196 images (distances 900 et 2800, avec et sans défilement) : 0 chevron visible écarté. 16 à 528 chevrons à l'écran sur ≈ 2 420.
+- **Carte des marées, lignes et flèches activées** : même cause, même correction (`draw_tide_lines_3d` utilise `ground_lines_stale`). Options désactivées, rien ne change (≈ 11 s). Mesures sur 2 essais :
+
+  | Distance | Construction | Construction en défilant | Durée d'image |
+  |---|---|---|---|
+  | 900 | 10,9 et 13,4 → 10,8 et 11,1 s | 15,1-15,5 → 10,0-10,4 s | 16,7-18,4 → 16,7 ms |
+  | 2800 | 15,9-16,0 → 11,2-11,3 s | 14,5-14,9 → 10,0-10,1 s | 18,6-19,0 → 16,7-16,8 ms |
 - **Non traité** :
   - Budget : le débit vaut ≈ 42 cases × images par seconde (sans synchronisation verticale : 6,7 s au lieu de 11). Un paquet coûte ≈ 4,1 ms, donc 78 % des images n'en traitent qu'un alors qu'il reste de la marge.
   - 32 % de traitements en plus du nombre de cases (rivières voisines refaites).
   - Flèches du climat et des courants, recalculées à chaque image (fil principal à 8 et 6 ms au lieu de 4 quand la carte est construite).
-  - `draw_tide_lines_3d` : même invalidation que les tracés corrigés, non mesurée avec ses options activées.
   - À-coup de 60 à 100 ms vers x ≈ 8 260 en défilant à la distance 2800, côté extraction ou rendu, cause non identifiée.
   - Version distribuée (release) non mesurée.
 
