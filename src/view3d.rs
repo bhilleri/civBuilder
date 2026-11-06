@@ -25,7 +25,7 @@ use crate::relief::{
 };
 use bevy::mesh::Indices;
 use rayon::prelude::*;
-use crate::waterways::{WaterAxis, WaterKind, WaterShape, hex_water};
+use crate::waterways::{WaterAxis, WaterKind, WaterShape, hex_gap, hex_water};
 
 /// Couche de rendu du monde 3D (la 2D reste sur la couche 0).
 pub const LAYER_3D: usize = 1;
@@ -252,6 +252,8 @@ impl Relief {
             None => land,
             Some((_, surface)) if land == f32::MAX => surface - MOUTH_BELOW,
             Some((d, surface)) => {
+                // (près de la mer, le lit ne descend pas sous son niveau : pas de tranchée dans la plage)
+                let land = if surface <= SEA_LEVEL { land.max(surface - MOUTH_BELOW) } else { land };
                 let f = 1.0 - smoothstep01(d / bed.far);
                 land + (surface - MOUTH_BELOW - land) * f
             }
@@ -503,10 +505,14 @@ const LEVEL_TOWARD_MEAN: f32 = 0.3;
 /// Un cours d'eau qui se jette dans la mer ou un lac arrive juste sous leur surface.
 const MOUTH_BELOW: f32 = 0.06;
 /// Distance sur laquelle l'eau d'une embouchure prend la couleur de la mer ou du lac (rivière, fleuve).
-const MOUTH_BLEND: f32 = 14.0;
-const MOUTH_BLEND_FLEUVE: f32 = 30.0;
+pub const MOUTH_BLEND: f32 = 14.0;
+pub const MOUTH_BLEND_FLEUVE: f32 = 30.0;
 /// Dénivelé minimal d'une chute d'eau.
 const CASCADE_MIN_DROP: f32 = 4.0;
+/// Écume d'une chute : pente de la surface (hauteur par unité) où elle commence et où elle est
+/// entière, et pas de mesure de cette pente.
+const CASCADE_SLOPE: (f32, f32) = (0.7, 1.3);
+const CASCADE_SLOPE_STEP: f32 = 1.5;
 /// Part de l'écume dans la couleur d'une chute d'eau (le reste : la couleur de l'eau).
 const CASCADE_FOAM: f32 = 0.55;
 /// Redécoupage des triangles d'eau là où la surface se courbe : écart toléré entre la surface et
@@ -517,9 +523,11 @@ const WATER_SPLIT_MIN: f32 = 0.5;
 /// Surélévation de l'eau d'un affluent qui entre dans un fleuve, et des éléments des rapides (eau
 /// vive, eau lisse, écume, rochers : dans cet ordre, du dessous au dessus).
 const INFLOW_LIFT: f32 = 0.04;
-const LIGHT_LIFT: f32 = 0.02;
-const SHADE_LIFT: f32 = 0.03;
-const FOAM_LIFT: f32 = 0.08;
+// (au moins la tolérance de la surface de l'eau, `WATER_SPLIT_TOLERANCE` : sinon ces couches passent
+// par endroits sous de grands triangles d'eau, et l'eau vive se lit en bandes et en éclats)
+const LIGHT_LIFT: f32 = 0.14;
+const SHADE_LIFT: f32 = 0.15;
+const FOAM_LIFT: f32 = 0.18;
 const ROCK_LIFT: f32 = 0.25;
 
 /// Hauteur 3D d'une altitude réelle (m) : 150 m ≈ 16, 2 400 m ≈ 56, 4 800 m ≈ 98 (les anciennes
@@ -1589,14 +1597,6 @@ fn smooth(average: f32, sample: f32) -> f32 {
     if average == 0.0 { sample } else { average + (sample - average) * 0.2 }
 }
 
-/// Distance d'un point à la case de centre `c` (0 dedans ou sur son bord) : aux coins comme au
-/// milieu des arêtes, contrairement à un cercle.
-fn hex_gap(p: Vec2, c: Vec2) -> f32 {
-    let d = p - c;
-    let far = (0..6).map(|k| d.dot(Vec2::from_angle(k as f32 * std::f32::consts::FRAC_PI_3))).fold(f32::MIN, f32::max);
-    (far - HEX_SIZE * 0.866).max(0.0)
-}
-
 /// Maillage des cours d'eau d'une case : surface plate en travers du lit, un peu sous le niveau
 /// du sol (prise sur l'axe du cours d'eau, lissée le long du cours), couleur selon le type.
 fn water_mesh<'a>(
@@ -1684,7 +1684,7 @@ fn water_mesh<'a>(
         let hi = (0..3).max_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
         let lo = (0..3).min_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
         let rise = ys[hi] - ys[lo];
-        let foam = rise > CASCADE_MIN_DROP && rise > 1.2 * pts[hi].distance(pts[lo]);
+        let foam = rise > CASCADE_MIN_DROP * 0.5;
         // Là où la surface se courbe (bord d'une chute : plate puis plongeante), le triangle est
         // redécoupé : tendu en ligne droite, il passait sous la surface, donc sous le sol taillé
         // pour elle (zone sans eau). Décision arête par arête (milieu de l'arête comparé à la
@@ -1706,7 +1706,17 @@ fn water_mesh<'a>(
                         // (écume mêlée à l'eau : un blanc plat se lisait comme une zone sans eau)
                         let water = tint(&waters, p, t.tone_at(p), t.kind, blend);
                         let white = linear(Color::srgb(0.86, 0.93, 0.98));
-                        data.colors.push(if foam { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM) } else { water });
+                        // Écume selon la pente de la surface à ce sommet (pas triangle par triangle :
+                        // des éclats), et aucune en arrivant à la mer ou au lac
+                        let froth = if foam {
+                            let e = CASCADE_SLOPE_STEP;
+                            let (dx, dy) = (level(p + Vec2::X * e) - level(p - Vec2::X * e), level(p + Vec2::Y * e) - level(p - Vec2::Y * e));
+                            let steep = smoothstep01((dx.hypot(dy) / (2.0 * e) - CASCADE_SLOPE.0) / (CASCADE_SLOPE.1 - CASCADE_SLOPE.0));
+                            steep * nearest_water(&waters, p).map_or(1.0, |(d, _)| smoothstep01(d / MOUTH_BLEND))
+                        } else {
+                            0.0
+                        };
+                        data.colors.push(if froth > 0.0 { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM * froth) } else { water });
                         data.indices.push(data.indices.len() as u32);
                     }
                     continue;

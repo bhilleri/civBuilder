@@ -1236,8 +1236,9 @@ fn setup_water_overlay(
     commands.insert_resource(WaterOverlay { shapes, mesh });
 }
 
-fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<WaterOverlay>, mut meshes: ResMut<Assets<Mesh>>) {
-    if !fog.is_changed() {
+fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<WaterOverlay>, layer: Res<MapLayer>, geo: Res<GeoColors>, mut meshes: ResMut<Assets<Mesh>>) {
+    // (le fondu vers la mer dépend de la couleur de la mer sur la carte affichée)
+    if !fog.is_changed() && !layer.is_changed() && !(geo.is_changed() && *layer == MapLayer::Geography) {
         return;
     }
     let color = |kind: WaterKind, tone: crate::waterways::Tone, lit: bool| {
@@ -1258,18 +1259,73 @@ fn update_water_overlay(fog: Res<ShownFog>, map: Res<GameMap>, overlay: Res<Wate
     let mut builder = SlopeMeshBuilder::default();
     // (une case vue au-delà du raccord est celle de la carte)
     let explored = |h: Hex| fog.explored.contains(&map.0.canonical(h));
+    let is_water = |h: Hex| map.0.get(h).is_some_and(|t| t.is_water());
     for (hex, shape) in &overlay.shapes {
         let lit = fog.visible.contains(hex);
+        // Eau où cette case se jette : un fleuve, par ses ouvertures ; une rivière, toute eau voisine
+        let fleuve = map.0.is_fleuve(*hex);
+        let open = if fleuve { crate::waterways::fleuve_openings(&map.0, *hex).open } else { 0 };
+        let edges = (0..6u8).filter(|&d| open & (1 << d) != 0 && is_water(*hex + crate::hex::DIRECTIONS[d as usize])).fold(0u8, |bits, d| bits | (1 << d));
+        let targets: Vec<(Vec2, Hex)> = hex
+            .neighbors()
+            .into_iter()
+            .enumerate()
+            .filter(|&(d, n)| is_water(n) && explored(n) && (!fleuve || edges & (1 << d) != 0))
+            .map(|(_, n)| (Vec2::from(n.to_world()), n))
+            .collect();
         for t in shape.visible(*hex, explored) {
             let lit = lit || t.also.is_some_and(|o| fog.visible.contains(&map.0.canonical(o)));
-            // L'eau s'arrête au bord de la zone explorée
+            let bed = &shape.channels[t.channel];
+            let river = bed.kind == WaterKind::River && bed.inflow.is_none();
+            let blend = if river { crate::view3d::MOUTH_BLEND } else { crate::view3d::MOUTH_BLEND_FLEUVE };
+            let vertex = |p: Vec2| {
+                let own = color(t.kind, t.tone_at(p), lit);
+                // Fondu vers la couleur de l'eau, telle que la tuile l'affiche (comme en 3D)
+                let near = targets.iter().map(|&(c, n)| (crate::waterways::hex_gap(p, c), n)).min_by(|a, b| a.0.total_cmp(&b.0));
+                let Some((d, n)) = near else { return (p, own) };
+                let f = 1.0 - (d / blend).clamp(0.0, 1.0);
+                if f <= 0.0 {
+                    return (p, own);
+                }
+                let f = f * f * (3.0 - 2.0 * f);
+                let (r, g, b) = shown_water_color(&map.0, *layer, &geo, n);
+                let tile = if fog.visible.contains(&map.0.canonical(n)) { Color::srgb(r, g, b) } else { Color::srgb(r * 0.5, g * 0.5, b * 0.55) }.to_linear();
+                (p, [own[0] + (tile.red - own[0]) * f, own[1] + (tile.green - own[1]) * f, own[2] + (tile.blue - own[2]) * f, 1.0])
+            };
+            // L'eau s'arrête au bord de la zone explorée, et à celui de la mer où elle se jette
             for pts in crate::waterways::clip_to_explored(t.pts, &explored) {
-                builder.tri(pts.map(|p| (p, color(t.kind, t.tone_at(p), lit))));
+                for pts in crate::waterways::clip_to_edges(pts, *hex, edges) {
+                    // (rivière : son dernier bout ne déborde pas sur la mer)
+                    let middle = (pts[0] + pts[1] + pts[2]) / 3.0;
+                    if !fleuve && map.0.get(Hex::from_world(middle.x, middle.y)).is_some_and(|t| t.is_sea()) {
+                        continue;
+                    }
+                    builder.tri(pts.map(vertex));
+                }
             }
         }
     }
     if let Some(mut mesh) = meshes.get_mut(&overlay.mesh) {
         *mesh = builder.build();
+    }
+}
+
+/// Couleur (sRGB) d'une case d'eau telle que la tuile 2D l'affiche sur cette carte.
+fn shown_water_color(map: &crate::map::WorldMap, layer: MapLayer, geo: &GeoColors, hex: Hex) -> (f32, f32, f32) {
+    if layer.shows_ice() && map.is_ice(hex) {
+        return ICE_COLOR;
+    }
+    let t = map.get(hex).unwrap_or(Terrain::Ocean);
+    match layer {
+        MapLayer::Normal | MapLayer::Resources => level_tint(t.color(), 0),
+        MapLayer::Altitude | MapLayer::Relief => elevation_layer_color(map, hex, layer),
+        MapLayer::Climate => climate_color(t, map.rain(hex).unwrap_or(500.0)),
+        MapLayer::Plates => plate_color(map, hex),
+        MapLayer::Currents => currents_color(map, hex),
+        MapLayer::Tides => tides_color(map, hex),
+        MapLayer::Waves => waves_color(map, hex),
+        MapLayer::Geography => geo.0.shade.get(map.cell(map.canonical(hex))).map_or(GEO_LAND, |&s| geo_color(s)),
+        MapLayer::Basins | MapLayer::Flow | MapLayer::Network => hydro_color(map, hex, layer),
     }
 }
 

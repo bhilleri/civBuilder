@@ -710,6 +710,9 @@ impl MeshData {
         const ROWS: usize = 4;
         let outward = (Vec3::new(top_b.x, 0.0, top_b.z) - top_a).cross(top_b - top_a).normalize_or_zero();
         let bottom = bottom.min(top_a.y.min(top_b.y));
+        // Fond plein derrière la roche : une facette très penchée par la saillie se voit de dos, donc
+        // pas du tout, et on verrait le vide à travers (fentes noires)
+        self.wall(top_a, top_b, rock_color(bottom) * 0.6);
         let point = |top: Vec3, row: usize, pin: bool| {
             let f = row as f32 / ROWS as f32;
             let mut p = Vec3::new(top.x, top.y + (bottom - top.y) * f, top.z);
@@ -842,8 +845,9 @@ pub fn build_hex(
     // là où le sol est entaillé
     let normal = |q: Vec2, g: Vec2, bank: f32| {
         let g = if bank > 0.0 {
-            // (écart assez large pour lisser les angles du profil du lit)
-            let e = 1.0;
+            // (écart assez large pour lisser les angles du profil du lit, et les stries sombres d'un
+            // maillage coupé en biais par la berge)
+            let e = 2.0;
             let cut = |v: Vec2| terrain(v) - dig(v).0;
             let dd = |v: Vec2| cut(q + v) - cut(q - v);
             g - Vec2::new(dd(Vec2::X * e), dd(Vec2::Y * e)) / (2.0 * e)
