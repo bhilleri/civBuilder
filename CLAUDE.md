@@ -15,7 +15,8 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   - Nouveau worktree : au démarrage de la session, un hook (`.claude/settings.json`) lance `scripts/amorcer-target.ps1`,
     qui copie le `target` du checkout principal (≈ 1 min 15 au lieu de ≈ 6 min pour le premier build). Il doit donc être
     compilé (`cargo build --no-default-features`) après un changement de dépendances. Si `target` manque, lancer le script à la main.
-    Les worktrees partent de la branche du checkout principal (`worktree.baseRef: "head"`), pas de `main`.
+    Dans l'application, un worktree ne part pas forcément de `develop` (`worktree.baseRef` ne vaut que pour le terminal et
+    les sous-agents) : vérifier le commit de départ si la tâche porte sur `develop`.
   - Pendant le développement : `cargo check --no-default-features` (≈ 4 s après une modification, contre ≈ 20 s pour
     un build) ; ne compiler que pour lancer le jeu ou des tests.
   - Toujours passer `--no-default-features`, y compris à `cargo run` : l'alterner avec les options par défaut
