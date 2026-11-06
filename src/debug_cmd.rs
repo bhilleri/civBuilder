@@ -143,6 +143,8 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "unite dette", args: &[AT[0], AT[1], ("pm dus", Arg::Number, false)], help: "Dette de PM de l'unité de la case : retirée des tours suivants, comme après une montagne (immobilisée tant qu'elle prend tous ses PM).", group: Group::Game },
     Spec { name: "unite soigner", args: &AT, help: "Rend à l'unité de la case tous ses PV et ses PM, et efface sa dette.", group: Group::Game },
     Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
+    Spec { name: "ville fortifier", args: &[AT[0], AT[1], ("oui|non", Arg::Switch, false)], help: "Pose ou retire la fortification de la ville de la case : sa muraille, ses portes.", group: Group::Game },
+    Spec { name: "ville population", args: &[AT[0], AT[1], ("habitants", Arg::Number, false)], help: "Population de la ville de la case (1 à 99) : son stade (hameau, bourg, ville) suit. Le territoire n'est pas recalculé.", group: Group::Game },
     Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
@@ -298,6 +300,7 @@ pub enum Command {
     Unit(UnitKind, Hex, bool),
     UnitSet(Hex, UnitChange),
     City(Hex),
+    CitySet(Hex, CityChange),
     Remove(Hex),
     Turns(u32),
     Info(Option<Hex>),
@@ -325,6 +328,13 @@ pub enum Command {
     Journal(Option<String>),
     Clear,
     Quit,
+}
+
+/// Changement de l'état d'une ville (`ville fortifier`, `ville population`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CityChange {
+    Fortified(bool),
+    Population(i32),
 }
 
 /// Changement de l'état d'une unité (`unite pv`, `unite pm`, `unite dette`, `unite soigner`).
@@ -474,6 +484,8 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
         "unite dette" => Command::UnitSet(at()?, UnitChange::Debt(number(args[2], "pm dus")?.round().clamp(0.0, 99.0) as u32)),
         "unite soigner" => Command::UnitSet(at()?, UnitChange::Heal),
         "ville" => Command::City(at()?),
+        "ville fortifier" => Command::CitySet(at()?, CityChange::Fortified(yes_no(args[2])?)),
+        "ville population" => Command::CitySet(at()?, CityChange::Population(number(args[2], "habitants")?.round().clamp(1.0, 99.0) as i32)),
         "tour" => Command::Turns(args.first().map(|n| number(n, "nombre")).transpose()?.map_or(1, |n| n.round().clamp(1.0, 100.0) as u32)),
         "pinceau" => Command::Brush((number(args[0], "rayon")?.round() as i32).clamp(0, BRUSH_MAX)),
         "annuler" => Command::Undo,
@@ -1082,6 +1094,7 @@ pub enum Effect {
     /// Unités de la case à décrire (fin de la réponse de `info`).
     UnitsAt(Hex),
     City(Hex),
+    CitySet(Hex, CityChange),
     Remove(Hex),
     Turns(u32),
     Goto(Hex),
@@ -1326,6 +1339,7 @@ impl Session {
                 Reply::effect(format!("OK {} {}en {}", token(kind.name()), if hostile { "hostile " } else { "" }, coords(map, at)), Effect::Unit(kind, at, hostile))
             }
             Command::City(at) => Reply::effect(format!("OK ville demandée en {}", coords(map, at)), Effect::City(at)),
+            Command::CitySet(at, change) => Reply::effect(format!("OK ville de {} à modifier", coords(map, at)), Effect::CitySet(at, change)),
             Command::UnitSet(at, change) => Reply::effect(format!("OK unité de {} à modifier", coords(map, at)), Effect::UnitSet(at, change)),
             Command::Remove(at) => Reply::effect(format!("OK unités retirées de {}", coords(map, at)), Effect::Remove(at)),
             Command::Turns(n) => Reply::effect(format!("OK {n} tour(s) à jouer"), Effect::Turns(n)),

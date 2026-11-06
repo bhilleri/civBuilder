@@ -56,6 +56,12 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,
   `chemin` (voir `conception/conception-interface.md`).
+- [x] Villes et villages par stades, muraille, matériaux du lieu, adaptation à la case (`conception/conception-structures.md`).
+- [x] Camps : trois types selon la case, silhouette hérissée, nom lié au type, fumée d'alerte.
+- [x] Marais : pilotis au-dessus des mares, galeries, passerelles, drainage.
+- [x] Structures : ponts et tête de pont d'une ville fortifiée (décor pour l'instant).
+- [ ] Effet de jeu d'un pont (traversée d'une rivière) : à décider avec Benjamin.
+- [ ] Règle de la fortification (production d'un bâtiment, effet en combat) : la muraille ne se pose encore qu'à la console.
 - [ ] Banquise jouable (eau gelée, selon la température de la mer).
 - [x] Toponymie étape 3 (01/11) : continents, îles, îlots, archipels, péninsules, isthmes (`lands.rs`).
 - [x] Toponymie étape 4 (01/11) : chaînes, massifs, cols, plateaux, collines (`mountains.rs`).

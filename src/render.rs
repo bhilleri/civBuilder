@@ -74,7 +74,11 @@ pub const HOTSPOT: Color = Color::srgb(1.0, 0.55, 0.1);
 #[derive(Component)]
 struct TurnLabel;
 
-/// Pièces du symbole d'une ville : remparts hexagonaux, tours d'angle, toits et donjon.
+/// Stade et fortification affichés par le symbole d'une ville.
+#[derive(Component)]
+struct CitySymbol(u8);
+
+/// Pièces du symbole d'une ville : enceinte, tours, toits et grand toit.
 struct CityKit2d {
     outer: Handle<Mesh>,
     wall: Handle<Mesh>,
@@ -105,6 +109,7 @@ struct SiteKit2d {
     straw: Handle<ColorMaterial>,
     straw_dark: Handle<ColorMaterial>,
     camp_ground: Handle<ColorMaterial>,
+    rock: Handle<ColorMaterial>,
     wood: Handle<ColorMaterial>,
     tent_red: Handle<ColorMaterial>,
     fire_color: Handle<ColorMaterial>,
@@ -1332,6 +1337,7 @@ fn setup_map_visuals(
             straw: mat(Color::srgb(0.86, 0.72, 0.40)),
             straw_dark: mat(Color::srgb(0.52, 0.40, 0.20)),
             camp_ground: mat(Color::srgb(0.24, 0.18, 0.13)),
+            rock: mat(Color::srgb(0.48, 0.46, 0.44)),
             wood: mat(Color::srgb(0.50, 0.34, 0.19)),
             tent_red: mat(Color::srgb(0.72, 0.16, 0.12)),
             fire_color: mat(Color::srgb(1.0, 0.50, 0.10)),
@@ -1619,11 +1625,12 @@ fn update_hp_bars(
 }
 
 /// Villages et camps vus de dessus, cachés tant que la case n'est pas explorée :
-/// village = huttes de paille autour d'un feu ; camp hostile = tentes rouges dans une palissade.
+/// village = huttes de paille autour d'un feu ; camp hostile = tentes rouges, avec une défense
+/// selon son type (fort : palissade pleine ; campement : arc de pieux ; repaire : rochers et pieux).
 fn add_site_visuals(
     mut commands: Commands,
     palette: Res<Palette>,
-    sites: Query<(Entity, &HexPos, Has<Camp>), Or<(Added<Village>, Added<Camp>)>>,
+    sites: Query<(Entity, &HexPos, Option<&Camp>), Or<(Added<Village>, Added<Camp>)>>,
 ) {
     let k = &palette.sites;
     let part = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, x: f32, y: f32, z: f32| {
@@ -1633,7 +1640,9 @@ fn add_site_visuals(
         let (sin, cos) = deg.to_radians().sin_cos();
         (cos * r, sin * r)
     };
-    for (entity, pos, is_camp) in &sites {
+    for (entity, pos, camp) in &sites {
+        let is_camp = camp.is_some();
+        let kind = camp.map(|c| c.kind);
         let mut site = commands.entity(entity);
         site.insert((Transform::from_translation(hex_translation(pos.0, Z_SITE)), Visibility::Hidden));
         // Le village est posé directement sur le terrain de la case ; le camp a son sol de terre battue
@@ -1643,9 +1652,20 @@ fn add_site_visuals(
         site.with_children(|p| {
             if is_camp {
                 p.spawn(part(&k.ground, &k.camp_ground, 0.0, 0.0, 0.01));
-                for i in 0..16 {
-                    let (x, y) = polar(22.5 * i as f32, 20.5);
+                let (from, span, count) = match kind {
+                    Some(crate::settlements::CampKind::Fort) => (0.0, 360.0, 22),
+                    Some(crate::settlements::CampKind::Lair) => (-60.0, 140.0, 7),
+                    _ => (-40.0, 260.0, 11),
+                };
+                for i in 0..count {
+                    let (x, y) = polar(from + span * i as f32 / count as f32, 20.5);
                     p.spawn(part(&k.stake, &k.wood, x, y, 0.02));
+                }
+                if kind == Some(crate::settlements::CampKind::Lair) {
+                    for (a, r) in [(150.0, 17.0), (195.0, 18.5), (240.0, 16.5)] {
+                        let (x, y) = polar(a, r);
+                        p.spawn(part(&k.tent, &k.rock, x, y, 0.025));
+                    }
                 }
                 for i in 0..3 {
                     let (x, y) = polar(90.0 + 120.0 * i as f32, 12.0);
@@ -1688,36 +1708,47 @@ fn update_entity_visibility(
     }
 }
 
-/// Symbole de ville vu de dessus : remparts hexagonaux, tours d'angle, toits rouges et donjon
-/// aux couleurs du joueur (le nom et la population sont dans la bannière, voir labels.rs).
-fn add_city_visuals(mut commands: Commands, palette: Res<Palette>, cities: Query<(Entity, &HexPos), Added<City>>) {
+/// Symbole de ville vu de dessus, refait quand son stade ou sa fortification change : sol de terre,
+/// toits de plus en plus nombreux, grand toit au centre aux couleurs du joueur ; une enceinte et
+/// ses tours si la ville est fortifiée (le nom et la population sont dans la bannière, voir labels.rs).
+fn add_city_visuals(mut commands: Commands, palette: Res<Palette>, cities: Query<(Entity, &HexPos, &City, Option<&CitySymbol>)>) {
     let k = &palette.city;
-    for (entity, pos) in &cities {
-        let part = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, x: f32, y: f32, z: f32| {
-            (Mesh2d(mesh.clone()), MeshMaterial2d(material.clone()), Transform::from_xyz(x, y, z))
+    for (entity, pos, city, symbol) in &cities {
+        let stage = crate::settlements::stage_of_population(city.state.population);
+        let code = stage as u8 * 2 + u8::from(city.state.fortified);
+        if symbol.is_some_and(|s| s.0 == code) {
+            continue;
+        }
+        let part = |mesh: &Handle<Mesh>, material: &Handle<ColorMaterial>, x: f32, y: f32, z: f32, scale: f32| {
+            (Mesh2d(mesh.clone()), MeshMaterial2d(material.clone()), Transform::from_xyz(x, y, z).with_scale(Vec3::splat(scale)))
         };
-        commands
-            .entity(entity)
-            .insert((
-                Mesh2d(k.outer.clone()),
-                MeshMaterial2d(palette.outline.clone()),
-                Transform::from_translation(hex_translation(pos.0, Z_CITY)),
-            ))
-            .with_children(|p| {
-                p.spawn(part(&k.wall, &k.stone, 0.0, 0.0, 0.01));
-                p.spawn(part(&k.inner, &k.paving, 0.0, 0.0, 0.02));
+        let size = [0.55, 0.72, 0.9][stage];
+        let fortified = city.state.fortified;
+        let mut root = commands.entity(entity);
+        root.despawn_related::<Children>();
+        root.insert((CitySymbol(code), Transform::from_translation(hex_translation(pos.0, Z_CITY)))).with_children(|p| {
+            if fortified {
+                p.spawn(part(&k.outer, &palette.outline, 0.0, 0.0, 0.0, size * 1.14));
+                p.spawn(part(&k.wall, &k.stone, 0.0, 0.0, 0.01, size * 1.14));
+            }
+            p.spawn(part(&k.inner, &k.paving, 0.0, 0.0, 0.02, size * 1.14));
+            let roofs = [3, 6, 10][stage];
+            let reach = [7.5, 11.0, 15.0][stage];
+            for i in 0..roofs {
+                let (sin, cos) = (20.0 + 360.0 * i as f32 / roofs as f32).to_radians().sin_cos();
+                p.spawn(part(&k.roof, &k.tiles, cos * reach, sin * reach, 0.03, 1.0));
+            }
+            if fortified {
                 for i in 0..6 {
-                    // Sommets des hexagones à 30°, 90°, 150°… : tours aux sommets, toits vers les sommets intérieurs
                     let (sin, cos) = (30.0 + 60.0 * i as f32).to_radians().sin_cos();
-                    let (tx, ty) = (cos * HEX_SIZE * 0.84, sin * HEX_SIZE * 0.84);
-                    p.spawn(part(&k.tower_outline, &palette.outline, tx, ty, 0.03));
-                    p.spawn(part(&k.tower, &palette.unit, tx, ty, 0.04));
-                    let (rx, ry) = (cos * 18.5, sin * 18.5);
-                    p.spawn(part(&k.roof, &k.tiles, rx, ry, 0.03));
+                    let (tx, ty) = (cos * HEX_SIZE * 0.92 * size, sin * HEX_SIZE * 0.92 * size);
+                    p.spawn(part(&k.tower_outline, &palette.outline, tx, ty, 0.03, 0.7));
+                    p.spawn(part(&k.tower, &palette.unit, tx, ty, 0.04, 0.7));
                 }
-                p.spawn(part(&k.keep_outline, &palette.outline, 0.0, 0.0, 0.05));
-                p.spawn(part(&k.keep, &k.stone, 0.0, 0.0, 0.06));
-            });
+            }
+            p.spawn(part(&k.keep_outline, &palette.outline, 0.0, 0.0, 0.05, 0.62));
+            p.spawn(part(&k.keep, &palette.unit, 0.0, 0.0, 0.06, 0.62));
+        });
     }
 }
 

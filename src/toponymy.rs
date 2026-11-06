@@ -678,8 +678,9 @@ pub fn village_name(info: &CellInfo, namer: &mut Namer) -> String {
 }
 
 /// Nom d'un camp barbare : souvent une bête du pays (« Repaire des Loups », « Camp des Hyènes »),
-/// sinon un nom de la langue du lieu (« Camp de Kaldvik »).
-pub fn camp_name(info: &CellInfo, namer: &mut Namer) -> String {
+/// sinon un nom de la langue du lieu (« Camp de Kaldvik »). `words` : début possible du nom, d'après
+/// le type du camp, pour lire dans son nom ce qu'on voit sur la carte.
+pub fn camp_name(info: &CellInfo, words: &[&str], namer: &mut Namer) -> String {
     let beasts: &[&str] = match character(info) {
         Character::Cold => &["des Loups", "des Ours", "du Loup Blanc", "des Corbeaux"],
         Character::High => &["des Aigles", "des Vautours", "du Bouquetin", "des Corbeaux"],
@@ -689,7 +690,7 @@ pub fn camp_name(info: &CellInfo, namer: &mut Namer) -> String {
         Character::Marsh => &["du Crocodile", "des Crapauds", "du Serpent", "des Sangsues"],
         Character::Plain => &["des Chacals", "du Taureau", "des Lions", "des Crânes"],
     };
-    let generic = namer.choose(&["Camp", "Repaire", "Antre", "Fort"]);
+    let generic = namer.choose(words);
     if namer.chance(0.65) {
         let name = format!("{generic} {}", namer.choose(beasts));
         if namer.claim(&name) {
@@ -697,7 +698,7 @@ pub fn camp_name(info: &CellInfo, namer: &mut Namer) -> String {
         }
     }
     let (w, _) = namer.proper(info.language, None);
-    let generic = namer.choose(&["Camp", "Repaire", "Fort"]);
+    let generic = namer.choose(words);
     format!("{generic} {}", de(&w, false, false))
 }
 
@@ -1174,7 +1175,7 @@ mod tests {
         }
         println!("Plaques : {}", m.plates().plates.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "));
         let mut namer = Namer::with_taken(9, m.names_taken());
-        let camps: Vec<String> = m.hexes().filter(|&h| m.get(h).is_some_and(|t| !t.is_water())).step_by(997).map(|h| camp_name(&m.cell_info(h).unwrap(), &mut namer)).collect();
+        let camps: Vec<String> = m.hexes().filter(|&h| m.get(h).is_some_and(|t| !t.is_water())).step_by(997).map(|h| camp_name(&m.cell_info(h).unwrap(), &["Camp", "Repaire", "Fort"], &mut namer)).collect();
         println!("Camps : {}", camps.join(", "));
         let villages: Vec<String> = m.hexes().filter(|&h| m.get(h).is_some_and(|t| !t.is_water())).step_by(1499).map(|h| village_name(&m.cell_info(h).unwrap(), &mut namer)).collect();
         println!("Villages : {}", villages.join(", "));

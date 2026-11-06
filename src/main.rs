@@ -41,6 +41,8 @@ mod seam;
 mod search;
 mod seas;
 mod settings;
+mod settlement_mesh;
+mod settlements;
 mod sites;
 mod tides;
 mod tooltip;

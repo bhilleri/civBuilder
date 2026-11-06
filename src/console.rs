@@ -338,6 +338,7 @@ struct ConsoleContext<'w, 's> {
     commands: Commands<'w, 's>,
     game: (ResMut<'w, GameState>, ResMut<'w, Territory>, ResMut<'w, Selection>),
     cities: Query<'w, 's, &'static HexPos, With<City>>,
+    city_states: Query<'w, 's, (&'static HexPos, &'static mut City)>,
     units: Query<'w, 's, (Entity, &'static mut Unit, &'static HexPos, Has<Hostile>)>,
     /// Cours d'eau ou lac survolés : leurs numéros changent quand l'eau est refaite.
     pointed: (ResMut<'w, crate::highlight::HoveredLabel>, ResMut<'w, crate::highlight::PointedFeature>),
@@ -391,6 +392,24 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
                 Err(e) => {
                     ctx.commands.entity(settler).despawn();
                     refuse(&mut lines, format!("ville impossible en {} : {e}", debug_cmd::coords(&ctx.map.0, *at)));
+                }
+            }
+        }
+        Some(Effect::CitySet(at, change)) => {
+            let place = debug_cmd::coords(&ctx.map.0, *at);
+            match ctx.city_states.iter_mut().find(|(p, _)| p.0 == *at) {
+                None => refuse(&mut lines, format!("aucune ville en {place}")),
+                Some((_, mut city)) => {
+                    lines = vec![match change {
+                        debug_cmd::CityChange::Fortified(yes) => {
+                            city.state.fortified = *yes;
+                            format!("OK {} {} ({place})", city.state.name, if *yes { "fortifiée" } else { "sans fortification" })
+                        }
+                        debug_cmd::CityChange::Population(n) => {
+                            city.state.population = *n;
+                            format!("OK {} : {n} habitant(s) ({place})", city.state.name)
+                        }
+                    }];
                 }
             }
         }

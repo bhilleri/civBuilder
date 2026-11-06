@@ -933,7 +933,8 @@ fn spawn_site_labels(mut commands: Commands, sites: Query<(Entity, &crate::hosti
         commands.spawn((
             SiteLabel(entity),
             (TargetButton::new(MapTarget::Site(entity)), UiPointer::default()),
-            Anchor { explored_only: true, min_px: SITE_LABEL_PX, ..Anchor::new(pos.0, -17.0, 6.0, false) },
+            // (en 3D, le nom passe sous le site : il ne masque ni le feu ni les bâtiments)
+            Anchor { explored_only: true, min_px: SITE_LABEL_PX, ..Anchor::new(pos.0, -17.0, -20.0, false) },
             Node {
                 position_type: PositionType::Absolute,
                 padding: UiRect::axes(Val::Px(6.0), Val::Px(1.0)),
@@ -1127,7 +1128,6 @@ fn update_stuck_badges(
     mut commands: Commands,
     time: Res<Time>,
     units: Query<(&Unit, &HexPos, Has<Hostile>, Option<&Motion>)>,
-    cities: Query<&HexPos, With<City>>,
     fog: Res<ShownFog>,
     mut badges: Query<(Entity, &StuckBadge, &mut Anchor, &Children)>,
     mut texts: Query<&mut Text, With<StuckText>>,
@@ -1141,9 +1141,8 @@ fn update_stuck_badges(
         let turns = unit.0.stuck_turns();
         let glide = motion.and_then(|m| m.sample(now)).map(|p| p.at);
         let hidden = turns == 0 || (hostile && motion.is_none() && !fog.visible.contains(&pos.0));
-        let on_roof = if glide.is_none() && cities.iter().any(|c| c.0 == pos.0) { CITY_HEIGHT } else { 0.0 };
         // En 3D, à hauteur des têtes des figurines
-        let up_3d = TOKEN_LIFT + STUCK_LIFT + on_roof;
+        let up_3d = TOKEN_LIFT + STUCK_LIFT;
         if anchor.hex != pos.0 || anchor.hidden != hidden || anchor.up_3d != up_3d || anchor.glide != glide {
             anchor.hex = pos.0;
             anchor.hidden = hidden;
@@ -1188,7 +1187,6 @@ fn update_hp_bars_3d(
     mut commands: Commands,
     time: Res<Time>,
     units: Query<(&Unit, &HexPos, Has<Hostile>, Option<&Motion>, Option<&HeldHp>)>,
-    cities: Query<&HexPos, With<City>>,
     fog: Res<ShownFog>,
     mut bars: Query<(Entity, &HpBar3d, &mut Anchor, &Children)>,
     mut fills: Query<(&mut Node, &mut BackgroundColor), With<HpFill3d>>,
@@ -1202,8 +1200,7 @@ fn update_hp_bars_3d(
         let hp = HeldHp::shown(held, unit.0.hp, now).clamp(0, MAX_HP);
         let glide = motion.and_then(|m| m.sample(now)).map(|p| p.at);
         let hidden = hp >= MAX_HP || (hostile && motion.is_none() && !fog.visible.contains(&pos.0));
-        let on_roof = if glide.is_none() && cities.iter().any(|c| c.0 == pos.0) { CITY_HEIGHT } else { 0.0 };
-        let up_3d = TOKEN_LIFT + on_roof;
+        let up_3d = TOKEN_LIFT;
         if anchor.hex != pos.0 || anchor.hidden != hidden || anchor.up_3d != up_3d || anchor.glide != glide {
             anchor.hex = pos.0;
             anchor.hidden = hidden;

@@ -41,7 +41,11 @@ pub struct SiteName(pub String);
 #[derive(Component)]
 pub struct Camp {
     pub cooldown: u32,
+    pub kind: crate::settlements::CampKind,
 }
+
+/// Dans les derniers tours avant la sortie d'un guerrier, la fumée du camp s'épaissit.
+pub const CAMP_WARNING_TURNS: u32 = 2;
 
 /// Marqueur des unités de la faction hostile (ni contrôlables, ni source de vision pour le joueur).
 #[derive(Component)]
@@ -115,8 +119,9 @@ fn spawn_sites(mut commands: Commands, map: Res<GameMap>, seed: Res<WorldSeed>) 
         commands.spawn((Village, SiteName(name), HexPos(v)));
     }
     for &c in &placed.camps {
-        let name = crate::toponymy::camp_name(&info(c), &mut namer);
-        commands.spawn((Camp { cooldown: CAMP_SPAWN_INTERVAL }, SiteName(name), HexPos(c)));
+        let kind = map.0.get(c).map_or(crate::settlements::CampKind::Encampment, |t| crate::settlements::CampKind::of(t, map.0.relief(c)));
+        let name = crate::toponymy::camp_name(&info(c), kind.name_words(), &mut namer);
+        commands.spawn((Camp { cooldown: CAMP_SPAWN_INTERVAL, kind }, SiteName(name), HexPos(c)));
         // Un premier guerrier sur une case voisine
         if let Some(&at) = map.0.neighbors(c).iter().find(|&&h| map.0.move_cost(h).is_some()) {
             spawn_hostile(&mut commands, at, c);

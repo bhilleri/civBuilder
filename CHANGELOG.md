@@ -1,5 +1,37 @@
 # Journal des versions
 
+## À venir
+
+### Villes et villages
+- **Une ville naît en hameau** : quelques maisons, un grand toit et un mât à la couleur du joueur, sans enceinte. Elle devient bourg à 3 habitants, puis ville à 6 (seuils provisoires), en ajoutant des bâtiments sans déplacer les autres.
+- **Muraille** : elle n'existe que si la ville a une fortification, et s'agrandit avec elle. La règle de jeu reste à concevoir : pour l'instant, seule la console la pose (`ville fortifier`, `ville population`). Elle suit le terrain, longe l'eau, et s'ouvre par plusieurs portes : un bâtiment à cheval sur le mur, en arc avec herse pour la pierre et la terre, à linteau pour le bois, à deux tours pour la porte principale.
+- **Matériaux du lieu** : dix familles (forêt, prairie, taïga, désert, froid, tropiques, broussailles, savane, steppe, marais) habillent villes et villages.
+- **Adaptation à la case** : plus de remparts sur les rivières ni de bâtiments superposés. Rien ne se construit sur une rive ou juste derrière ; en pente, les maisons suivent le terrain et le bas des murs épouse le sol, sans remblai.
+- **Ponton et barque** quand l'eau est proche ; avec une muraille, le ponton part de la porte d'eau.
+- **Chemins discrets** : un axe passe devant le grand toit et relie les sorties et les grandes zones.
+- **La garnison se tient sur la place**, et non plus sur un donjon. Les arbres restent autour de la ville, qui occupe une clairière.
+- **Technique** : un maillage par site au lieu d'une entité par pièce (modules `settlements.rs` et `settlement_mesh.rs`).
+
+### Camps hostiles
+- **Trois types, selon la case** : le Fort (case plate et dégagée, palissade pleine et tour de guet), le Repaire (relief, adossé à des rochers) et le Campement (ailleurs, tentes et pieux inclinés). Le nom du camp annonce son type : les noms changent, à graine égale.
+- **Une menace qui se lit à la forme** : des pointes partout, et un rouge réservé à l'étendard, à la tente du chef et à la tour de guet. Les autres tentes prennent les matériaux du lieu.
+- **Fumée d'alerte** : elle s'épaissit dans les deux tours qui précèdent la sortie d'un guerrier (essai).
+- **Les noms des villages et des camps passent sous le site** en 3D.
+
+### Marais
+- **Maisons sur pilotis au-dessus des mares**, chacune entourée d'une galerie, reliées à la terre par des passerelles alignées qui ne traversent aucun bâtiment.
+- **Une ville draine son sol** : les mares rétrécissent quand elle grandit, sans que les maisons bougent.
+
+- **Plus lisible** : chaque stade ajoute des maisons (3, 5 puis 7), les passerelles restent à angle droit, le grand toit se place derrière la place et un escalier descend vers la caméra.
+
+### Ponts
+- **Une ville sur un cours d'eau jette un pont au stade Ville**, en travers du courant et jusqu'à la terre ferme de l'autre rive, même chez le voisin quand la rivière suit le bord de la case. Il est en pierre sous une muraille de pierre, en bois sinon. C'est pour l'instant du décor : il ne change ni les déplacements ni les combats.
+- **Une ville fortifiée le garde** : une porte dans l'axe du pont, et une tour de tête de pont sur l'autre rive.
+
+### Détails
+- **La barque** se pose là où l'eau est assez large pour elle, le long du ponton ou un peu au-delà, et il n'y en a pas si l'eau manque.
+- **Les pieux du Campement** sont plus épais et plus hauts, pour se lire de loin.
+
 ## 0.3.1 — 6 novembre 2026
 
 Correctif de performances : la carte s'affiche bien plus vite en 3D, et les cartes les plus lourdes ne ralentissent plus le jeu.

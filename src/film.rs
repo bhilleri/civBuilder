@@ -537,7 +537,7 @@ fn run_film(
                 next_village.0 = Some(event);
             }
             if let Some(h) = scene.camp {
-                spawned.push(commands.spawn((Camp { cooldown: crate::hostile::CAMP_SPAWN_INTERVAL }, SiteName("Camp des Loups".into()), HexPos(at(h)))).id());
+                spawned.push(commands.spawn((Camp { cooldown: crate::hostile::CAMP_SPAWN_INTERVAL, kind: crate::settlements::CampKind::Encampment }, SiteName("Camp des Loups".into()), HexPos(at(h)))).id());
             }
             film.spawned = spawned;
             selection.0 = None;

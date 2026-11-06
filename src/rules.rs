@@ -426,6 +426,9 @@ pub struct CityState {
     pub food_stock: i32,
     pub production_stock: i32,
     pub producing: Option<UnitKind>,
+    /// Présence d'une fortification : la muraille n'existe que si elle est vraie. La règle de jeu
+    /// reste à concevoir ; pour l'instant, seule la console de debug la pose.
+    pub fortified: bool,
 }
 
 /// Ce qui s'est passé dans une ville pendant la fin de tour.
@@ -439,7 +442,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, population: 1, food_stock: 0, production_stock: 0, producing: Some(UnitKind::Militia) }
+        Self { name, population: 1, food_stock: 0, production_stock: 0, producing: Some(UnitKind::Militia), fortified: false }
     }
 
     /// Consommation : 2 nourriture par habitant.

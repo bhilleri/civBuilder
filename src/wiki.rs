@@ -735,7 +735,11 @@ fn cities() -> Article {
             h("Fonder une ville"),
             p(format!(
                 "Un colon fonde une ville sur sa case (touche B), sur n'importe quel terrain franchissable, à {MIN_CITY_DISTANCE} \
-                 cases au moins d'une autre ville. En 3D, elle suit le terrain : remparts, tours et maisons posés sur le sol, le donjon au centre."
+                 cases au moins d'une autre ville. Elle naît en hameau : quelques maisons, un grand toit et un mât à vos couleurs, sans \
+                 enceinte. Elle devient bourg à 3 habitants, puis ville à 6, en ajoutant des bâtiments. Ses matériaux viennent du lieu, et \
+                 elle s'adapte à la case : rien sur les rives, maisons dans le sens de la pente, ponton si l'eau est proche. Une ville \
+                 fortifiée a une muraille et plusieurs portes, qui suivent le terrain. La garnison se tient sur la place. Dans un marais, les \
+                 maisons sont sur pilotis, reliées par des passerelles, et les mares se réduisent quand la ville grandit. Au stade Ville, une                  ville sur un cours d'eau jette un pont vers l'autre rive, gardé par une tour si elle est fortifiée (décor pour l'instant :                  il ne change pas les déplacements)."
             )),
             h("Rendements"),
             p("La case centrale rapporte au moins 2 nourriture, 2 production et 1 or. Chaque habitant exploite en \
@@ -791,7 +795,10 @@ fn barbarians() -> Article {
             p(format!(
                 "Les camps (environ un pour {LAND_PER_CAMP} cases de terre, à {CAMP_MIN_FROM_START} cases au moins du \
                  départ) recrutent une milice tous les {CAMP_SPAWN_INTERVAL} tours, dans la limite de {CAMP_MAX_UNITS} \
-                 guerriers par camp. Un camp vide est dispersé quand une de vos unités y entre : +{CAMP_CAPTURE_GOLD} or."
+                 guerriers par camp. Un camp vide est dispersé quand une de vos unités y entre : +{CAMP_CAPTURE_GOLD} or. \
+                 Son nom annonce sa forme : un Fort (palissade et tour de guet) sur une case plate et dégagée, un Repaire ou un \
+                 Antre adossé aux rochers sur un relief, un Camp ailleurs. Sa fumée s'épaissit dans les deux tours qui précèdent \
+                 un recrutement."
             )),
             h("Comportement"),
             p(format!(

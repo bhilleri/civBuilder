@@ -16,4 +16,4 @@ export CIVBUILDER_CAPTURE_GIF="${SCENES:-1}"
 if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xvfb-run >/dev/null; then
     exec xvfb-run -a -s "-screen 0 1600x1000x24" cargo run --release --no-default-features
 fi
-exec cargo run --release
+exec cargo run --release --no-default-features

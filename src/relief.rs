@@ -278,6 +278,25 @@ impl Channel {
         self.a + (self.b - self.a) * self.param(p)
     }
 
+    /// Distance de `p` à l'eau de ce lit (négative dans l'eau). Un lit d'île ne compte pas.
+    pub fn water_gap(&self, p: Vec2) -> f32 {
+        if self.isle.is_some() {
+            return f32::MAX;
+        }
+        let t = self.param(p);
+        p.distance(self.a + (self.b - self.a) * t) - self.half_width(t)
+    }
+
+    /// Tronçon près de `p` : point de l'axe, sens du courant, demi-largeur de l'eau. Ni une île ni un
+    /// disque (coin, petit lac) : rien sur quoi jeter un pont.
+    pub fn span_near(&self, p: Vec2) -> Option<(Vec2, Vec2, f32)> {
+        if self.isle.is_some() || self.is_disc() {
+            return None;
+        }
+        let t = self.param(p);
+        Some((self.a + (self.b - self.a) * t, (self.b - self.a).normalize_or_zero(), self.half_width(t)))
+    }
+
     /// Le même lit déplacé de `by` (copie de l'autre côté du raccord d'une planète).
     pub fn shifted(mut self, by: Vec2) -> Self {
         self.a += by;

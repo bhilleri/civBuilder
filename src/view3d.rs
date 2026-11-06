@@ -289,41 +289,109 @@ impl Relief {
 #[derive(Component)]
 struct Mirror3d {
     source: Entity,
-    /// Figurine d'unité : posée sur le toit du donjon s'il y a une ville sur la case.
+    /// Figurine d'unité (dans une ville, elle se tient sur la place, laissée libre).
     is_unit: bool,
-    /// Dernier placement (case, reconstruction de son sol, sur un donjon) : replacée quand il change.
-    placed: Option<(Hex, u32, bool)>,
+    /// Dernier placement (case, reconstruction de son sol, stade et fortification d'une ville) :
+    /// replacée quand il change.
+    placed: Option<(Hex, u32, u8)>,
     /// Déplacée par une animation (`feedback`) : replacée sur sa case quand elle se termine.
     animated: bool,
 }
 
-/// Élément d'une ville, d'un camp ou d'un village posé sur le sol à sa place (repère 2D par
-/// rapport au centre de la case), d'après le sol sous son emprise (rayon `reach`).
-#[derive(Component)]
-struct Grounded {
-    at: Vec2,
-    reach: f32,
-    rest: Rest,
-}
-
-/// Façon de poser un élément sur un sol en pente.
-#[derive(Clone, Copy)]
-enum Rest {
-    /// Bâti (mur, tour, maison, hutte, pieu) : sa base descend jusqu'au point le plus bas du sol
-    /// sous lui (fondations) et son sommet est à `height` au-dessus du point le plus haut ; pièce
-    /// centrée, de hauteur `height` (étirée).
-    Stand { height: f32 },
-    /// Posé sur le point le plus haut (toit, plus `lift` jusqu'au centre de la pièce).
-    Top { lift: f32 },
-    /// Posé sur le point le plus bas, enfoncé côté haut (tente, feu, pierres).
-    Low { lift: f32 },
-}
-
-/// Sol drapé sur le relief (pavés d'une ville, terre battue d'un camp) : contour (repère 2D),
-/// refait quand le site est replacé.
+/// Sol drapé sur le relief (terre battue d'une ville, d'un village ou d'un camp) : contour (repère
+/// 2D), refait quand le site est replacé.
 #[derive(Component)]
 struct Patch3d {
     outline: Vec<Vec2>,
+}
+
+/// Pose d'un site, calculée par `settlements`.
+enum SitePose {
+    Town(crate::settlements::Layout),
+    Camp(crate::settlements::CampLayout),
+}
+
+/// Ville, village ou camp posé par `settlements` : la pose est gardée et ne change qu'avec le stade
+/// ou la fortification (les bâtiments ne bougent pas quand le sol alentour est refait).
+#[derive(Component, Default)]
+struct SiteModel {
+    pose: Option<SitePose>,
+    code: u8,
+}
+
+/// Maillage unique du bâti d'un site.
+#[derive(Component)]
+struct SiteBody;
+
+/// Bouffée de fumée d'un camp : elle s'élève en boucle, plus épaisse avant la sortie d'un guerrier.
+#[derive(Component)]
+struct CampSmoke {
+    source: Entity,
+    index: usize,
+}
+
+/// Terrain d'une case vu par `settlements`, relatif au centre de la case.
+struct ReliefSite<'a> {
+    relief: &'a Relief,
+    center: Vec2,
+    hex: Hex,
+}
+
+impl crate::settlements::Site for ReliefSite<'_> {
+    fn height(&self, p: Vec2) -> f32 {
+        let q = self.center + p;
+        self.relief.ground(q.x, q.y)
+    }
+
+    fn water_gap(&self, p: Vec2) -> f32 {
+        let q = self.center + p;
+        let river = self.relief.channels.get(&self.hex).map_or(f32::MAX, |near| near.iter().map(|c| c.water_gap(q)).fold(f32::MAX, f32::min));
+        let sea = Hex::from_world(q.x, q.y)
+            .range(2)
+            .filter(|&h| self.relief.water_hexes.contains(&self.relief.wrap.hex(h)))
+            .map(|h| {
+                let (cx, cy) = h.to_world();
+                q.distance(Vec2::new(cx, cy)) - HEX_SIZE * 0.866
+            })
+            .fold(f32::MAX, f32::min);
+        river.min(sea)
+    }
+
+    fn river_near(&self, p: Vec2) -> Option<crate::settlements::RiverAxis> {
+        let q = self.center + p;
+        let near = self.relief.channels.get(&self.hex)?;
+        let (point, dir, half_width) = near.iter().filter_map(|c| c.span_near(q)).min_by(|a, b| a.0.distance(q).total_cmp(&b.0.distance(q)))?;
+        (point.distance(q) <= half_width + 2.0).then_some(crate::settlements::RiverAxis { point: point - self.center, dir, half_width })
+    }
+}
+
+/// Niveau de l'eau près d'un point : celle d'un cours d'eau, sinon d'une mer ou d'un lac voisin.
+fn water_near(relief: &Relief, hex: Hex, p: Vec2) -> f32 {
+    if let Some(near) = relief.channels.get(&hex)
+        && let Some(level) = crate::relief::water_surface(near, p)
+    {
+        return level;
+    }
+    Hex::from_world(p.x, p.y)
+        .range(2)
+        // (l'eau la plus proche : près d'un lac, le niveau de la mer voisine serait sous sa surface)
+        .filter_map(|h| {
+            let wrapped = relief.wrap.hex(h);
+            let (cx, cy) = h.to_world();
+            relief.water_hexes.contains(&wrapped).then(|| relief.tops.get(&wrapped).map(|t| (p.distance(Vec2::new(cx, cy)), t.center))).flatten()
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map_or_else(|| relief.ground(p.x, p.y) - 2.0, |w| w.1)
+}
+
+/// Contour irrégulier d'un sol de terre battue.
+fn earth_outline(radius: f32) -> Vec<Vec2> {
+    (0..48)
+        .map(|i| {
+            let a = i as f32 / 48.0 * std::f32::consts::TAU;
+            Vec2::from_angle(a) * radius * (1.0 + 0.13 * (3.0 * a + 1.0).sin() + 0.07 * (7.0 * a).sin() + 0.05 * (13.0 * a + 2.0).sin())
+        })
+        .collect()
 }
 
 /// Anneau au sol autour d'une figurine (couleur du camp) : incliné comme le sol.
@@ -347,47 +415,11 @@ struct Member {
 #[derive(Component)]
 struct FarIcon;
 
-/// Hauteur du donjon d'une ville (une unité en garnison est posée dessus).
+/// Hauteur d'une ville pour la bannière de son nom.
 pub const CITY_HEIGHT: f32 = 12.0;
 
 #[derive(Default, Reflect, GizmoConfigGroup)]
 pub struct Gizmos3d;
-
-/// Pièces d'une ville 3D : socle, remparts, tours d'angle, maisons et donjon central.
-struct CityKit {
-    wall: Handle<Mesh>,
-    tower: Handle<Mesh>,
-    tower_roof: Handle<Mesh>,
-    house: Handle<Mesh>,
-    house_roof: Handle<Mesh>,
-    keep: Handle<Mesh>,
-    keep_roof: Handle<Mesh>,
-    stone: Handle<StandardMaterial>,
-    paving: Handle<StandardMaterial>,
-    plaster: Handle<StandardMaterial>,
-    tiles: Handle<StandardMaterial>,
-}
-
-/// Pièces des villages (huttes de paille autour d'un feu) et des camps hostiles
-/// (tentes rouges et étendard dans une palissade de pieux).
-struct SiteKit {
-    hut: Handle<Mesh>,
-    hut_roof: Handle<Mesh>,
-    stake: Handle<Mesh>,
-    stake_tip: Handle<Mesh>,
-    tent: Handle<Mesh>,
-    pole: Handle<Mesh>,
-    flag: Handle<Mesh>,
-    fire: Handle<Mesh>,
-    fire_stone: Handle<Mesh>,
-    camp_ground: Handle<StandardMaterial>,
-    mud: Handle<StandardMaterial>,
-    straw: Handle<StandardMaterial>,
-    wood: Handle<StandardMaterial>,
-    tent_red: Handle<StandardMaterial>,
-    flame: Handle<StandardMaterial>,
-    stone: Handle<StandardMaterial>,
-}
 
 /// Anneau aux couleurs du camp autour du groupe de figurines (rayon, épaisseur) et emprise des
 /// pieds d'une figurine.
@@ -413,13 +445,6 @@ const FAR_ICON_LIFT: f32 = 20.0;
 const FAR_ICON_PULL: f32 = 0.25;
 /// Taille de l'icône (fois le carré de 26) à la distance d'apparition.
 const FAR_ICON_SCALE: f32 = 0.9;
-/// Dimensions d'une ville 3D (repère local : origine sur le sol au centre de la case ; chaque
-/// élément est posé sur le sol à sa place, voir `Grounded`).
-const CITY_WALL_RADIUS: f32 = 26.0;
-const CITY_WALL_HEIGHT: f32 = 7.0;
-const CITY_TOWER_HEIGHT: f32 = 12.0;
-const CITY_KEEP_ROOF: f32 = 1.5;
-const CITY_KEEP_RADIUS: f32 = 10.0;
 
 #[derive(Resource)]
 struct Assets3d {
@@ -442,8 +467,12 @@ struct Assets3d {
     figures: crate::figures::FigureKit,
     player: Handle<StandardMaterial>,
     hostile: Handle<StandardMaterial>,
-    city: CityKit,
-    sites: SiteKit,
+    /// Villes, villages et camps : matière blanche (couleur portée par les sommets) et sol de terre
+    /// battue et chemins, transparents sur leur bord ; fumée des camps.
+    site_body: Handle<StandardMaterial>,
+    site_ground: Handle<StandardMaterial>,
+    smoke_mesh: Handle<Mesh>,
+    smoke: Handle<StandardMaterial>,
     icons: HashMap<&'static str, Handle<StandardMaterial>>,
 }
 
@@ -472,6 +501,7 @@ impl Plugin for View3dPlugin {
                     spawn_mirrors,
                     sync_mirrors,
                     animate_mirrors,
+                    animate_camp_smoke,
                     far_icons,
                     scale_units,
                     draw_overlays_3d,
@@ -624,13 +654,6 @@ fn setup_3d(
         unlit: true,
         ..default()
     });
-    // Flammes des feux de camp : non éclairées, toujours vives
-    let flame = materials.add(StandardMaterial {
-        base_color: Color::srgb(1.0, 0.55, 0.12),
-        emissive: LinearRgba::rgb(6.0, 2.2, 0.3),
-        unlit: true,
-        ..default()
-    });
     let mut mat = |color: Color, roughness: f32| {
         materials.add(StandardMaterial { base_color: color, perceptual_roughness: roughness, ..default() })
     };
@@ -640,15 +663,7 @@ fn setup_3d(
     let ground_dim = [mat(dim, 0.9), mat(dim, 0.25)];
     let player = mat(Color::srgb(0.20, 0.45, 0.95), 0.6);
     let hostile = mat(Color::srgb(0.78, 0.17, 0.15), 0.6);
-    let city_stone = mat(Color::srgb(0.62, 0.59, 0.54), 0.9);
-    let city_paving = mat(Color::srgb(0.36, 0.34, 0.31), 0.95);
-    let city_plaster = mat(Color::srgb(0.80, 0.74, 0.62), 0.9);
-    let city_tiles = mat(Color::srgb(0.62, 0.29, 0.19), 0.8);
-    let camp_ground = mat(Color::srgb(0.22, 0.17, 0.12), 0.95);
-    let mud = mat(Color::srgb(0.55, 0.42, 0.28), 0.95);
-    let straw = mat(Color::srgb(0.80, 0.66, 0.36), 0.9);
-    let wood = mat(Color::srgb(0.42, 0.28, 0.15), 0.9);
-    let tent_red = mat(Color::srgb(0.66, 0.14, 0.10), 0.85);
+    let site_body = mat(Color::WHITE, 0.9);
     let rock = mat(Color::srgb(0.50, 0.48, 0.47), 0.95);
     let boulder = mat(Color::srgb(0.46, 0.42, 0.38), 1.0);
 
@@ -803,37 +818,10 @@ fn setup_3d(
         figures: crate::figures::FigureKit::new(&mut meshes, &mut materials),
         player,
         hostile,
-        city: CityKit {
-            wall: meshes.add(Cuboid::new(CITY_WALL_RADIUS, CITY_WALL_HEIGHT, 3.0)),
-            tower: meshes.add(Cylinder::new(4.0, CITY_TOWER_HEIGHT)),
-            tower_roof: meshes.add(Cone { radius: 5.2, height: 6.0 }),
-            house: meshes.add(Cuboid::new(5.0, 5.0, 5.0)),
-            house_roof: meshes.add(Cone { radius: 4.4, height: 4.0 }.mesh().resolution(4)),
-            keep: meshes.add(Cylinder::new(CITY_KEEP_RADIUS, CITY_HEIGHT - CITY_KEEP_ROOF)),
-            keep_roof: meshes.add(Cylinder::new(11.5, CITY_KEEP_ROOF)),
-            stone: city_stone,
-            paving: city_paving,
-            plaster: city_plaster,
-            tiles: city_tiles,
-        },
-        sites: SiteKit {
-            hut: meshes.add(Cylinder::new(4.8, 5.0)),
-            hut_roof: meshes.add(Cone { radius: 7.0, height: 7.5 }),
-            stake: meshes.add(Cylinder::new(1.3, 8.0)),
-            stake_tip: meshes.add(Cone { radius: 1.3, height: 2.5 }),
-            tent: meshes.add(Cone { radius: 7.5, height: 10.0 }.mesh().resolution(3)),
-            pole: meshes.add(Cylinder::new(0.6, 20.0)),
-            flag: meshes.add(Cuboid::new(8.0, 5.0, 0.5)),
-            fire: meshes.add(Cone { radius: 2.4, height: 5.0 }),
-            fire_stone: meshes.add(Sphere::new(1.2)),
-            camp_ground,
-            mud,
-            straw,
-            wood,
-            tent_red,
-            flame,
-            stone: rock.clone(),
-        },
+        site_body,
+        site_ground: materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.95, alpha_mode: AlphaMode::Blend, ..default() }),
+        smoke_mesh: meshes.add(Sphere::new(1.0).mesh().ico(1).unwrap()),
+        smoke: materials.add(StandardMaterial { base_color: Color::srgba(0.17, 0.15, 0.14, 0.34), unlit: true, alpha_mode: AlphaMode::Blend, ..default() }),
         icons,
     });
 }
@@ -1806,28 +1794,56 @@ pub fn ground_lines_stale(cached: Option<u32>, shape: u32, pending: usize, now: 
     stale
 }
 
-/// Décor visible sur les cases explorées, sauf sous une ville, un village ou un camp
-/// (il réapparaît quand le village ou le camp disparaît).
+/// Décor visible sur les cases explorées, sauf dans la clairière d'une ville, d'un village ou d'un
+/// camp (il réapparaît quand le village ou le camp disparaît).
+#[allow(clippy::too_many_arguments)]
 fn update_decor_3d(
     fog: Res<ShownFog>,
-    structures: Query<&HexPos, Or<(With<City>, With<Village>, With<Camp>)>>,
+    cities: Query<(&HexPos, &City)>,
+    villages: Query<&HexPos, With<Village>>,
+    camps: Query<(&HexPos, &Camp)>,
     added: Query<(), Or<(Added<City>, Added<Village>, Added<Camp>)>>,
     mut removed_villages: RemovedComponents<Village>,
     mut removed_camps: RemovedComponents<Camp>,
     mut decor: Query<(&Decor3d, &mut Visibility)>,
     layer: Res<MapLayer>,
+    mut shown_codes: Local<HashMap<Hex, u8>>,
+    map: Res<GameMap>,
 ) {
     let removed = removed_villages.read().count() + removed_camps.read().count() > 0;
-    if !fog.is_changed() && added.is_empty() && !removed && !layer.is_changed() {
+    // Clairière de chaque ville : elle grandit avec le stade et va jusqu'à la muraille
+    let mut clearing: HashMap<Hex, f32> = HashMap::new();
+    let mut city_changed = false;
+    for (pos, city) in &cities {
+        let stage = crate::settlements::stage_of_population(city.state.population);
+        let code = stage as u8 * 2 + u8::from(city.state.fortified);
+        if shown_codes.insert(pos.0, code) != Some(code) {
+            city_changed = true;
+        }
+        clearing.insert(pos.0, if city.state.fortified { [26.0, 28.0, 99.0][stage] } else { [20.5, 24.0, 99.0][stage] });
+    }
+    if !fog.is_changed() && added.is_empty() && !removed && !layer.is_changed() && !city_changed {
         return;
     }
+    for pos in &villages {
+        clearing.insert(pos.0, 23.0);
+    }
+    // (en marais, le site a ses propres mares et roseaux : ils remplacent les flaques du décor)
+    for pos in cities.iter().map(|(p, _)| p).chain(&villages) {
+        if map.0.get(map.0.canonical(pos.0)) == Some(Terrain::Marsh) {
+            clearing.insert(pos.0, 99.0);
+        }
+    }
+    for (pos, camp) in &camps {
+        // (un fort dégage tout le terrain ; un camp reste dans les arbres)
+        clearing.insert(pos.0, if camp.kind == crate::settlements::CampKind::Fort { 99.0 } else { 22.5 });
+    }
     let topo = layer.thematic();
-    let occupied: bevy::platform::collections::HashSet<Hex> = structures.iter().map(|p| p.0).collect();
     for (d, mut vis) in &mut decor {
         let shown = fog.explored.contains(&d.hex)
             && d.requires.is_none_or(|r| fog.explored.contains(&r))
             && !(topo && d.vegetation)
-            && !occupied.contains(&d.hex);
+            && clearing.get(&d.hex).is_none_or(|&r| d.offset.length() > r);
         let wanted = if shown { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != wanted {
             *vis = wanted;
@@ -1878,14 +1894,11 @@ fn spawn_mirrors(
                 .with_child((Mesh3d(a.icon_disc.clone()), MeshMaterial3d(a.icon_backs[usize::from(hostile)].clone()), Transform::from_xyz(0.0, 0.0, -0.2), layer()));
             });
     }
-    for source in &cities {
-        spawn_city_model(&mut commands, &a, &mut meshes, source);
-    }
-    for source in &villages {
-        spawn_site_model(&mut commands, &a, &mut meshes, source, false);
+    for source in cities.iter().chain(&villages) {
+        spawn_settlement_model(&mut commands, &a, &mut meshes, source, false);
     }
     for source in &camps {
-        spawn_site_model(&mut commands, &a, &mut meshes, source, true);
+        spawn_settlement_model(&mut commands, &a, &mut meshes, source, true);
     }
 }
 
@@ -1899,89 +1912,48 @@ fn local3(at: Vec2) -> Vec3 {
     Vec3::new(at.x, 0.0, -at.y)
 }
 
-/// Élément posé sur le sol : maillage, matière, position 2D, emprise, façon de le poser, rotation.
-fn grounded(mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, at: Vec2, reach: f32, rest: Rest, turn: Quat) -> (Grounded, Mesh3d, MeshMaterial3d<StandardMaterial>, Transform, RenderLayers) {
-    (Grounded { at, reach, rest }, Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::from_translation(local3(at)).with_rotation(turn), layer())
-}
-
 /// Sol drapé sur le relief (maillage propre au site, refait quand il est replacé).
 fn patch(meshes: &mut Assets<Mesh>, material: &Handle<StandardMaterial>, outline: Vec<Vec2>) -> impl Bundle {
     (Patch3d { outline }, Mesh3d(meshes.add(to_mesh(MeshData::default()))), MeshMaterial3d(material.clone()), Transform::default(), layer())
 }
 
-/// Contour d'un polygone régulier (rayon, nombre de côtés, angle du premier sommet), chaque côté
-/// découpé en `steps` segments.
-fn outline(radius: f32, sides: usize, start: f32, steps: usize) -> Vec<Vec2> {
-    let corner = |k: usize| dir2(start + 360.0 * k as f32 / sides as f32) * radius;
-    (0..sides).flat_map(|k| (0..steps).map(move |s| corner(k).lerp(corner(k + 1), s as f32 / steps as f32))).collect()
-}
-
-/// Village : huttes rondes au toit de chaume autour d'un feu.
-/// Camp hostile : palissade de pieux, trois tentes rouges, un feu et un étendard, sur un sol de
-/// terre battue. Chaque élément est posé sur le sol à sa place.
-fn spawn_site_model(commands: &mut Commands, a: &Assets3d, meshes: &mut Assets<Mesh>, source: Entity, is_camp: bool) {
-    let k = &a.sites;
-    let none = Quat::IDENTITY;
+/// Ville, village ou camp 3D : un maillage pour le bâti, un pour le sol et les chemins. Leur contenu
+/// est calculé dans `sync_mirrors`, d'après la case, le stade et la fortification. Un camp a sa fumée.
+fn spawn_settlement_model(commands: &mut Commands, a: &Assets3d, meshes: &mut Assets<Mesh>, source: Entity, camp: bool) {
     commands
-        .spawn((Mirror3d { source, is_unit: false, placed: None, animated: false }, Transform::default(), Visibility::Hidden, layer()))
+        .spawn((Mirror3d { source, is_unit: false, placed: None, animated: false }, SiteModel::default(), Transform::default(), Visibility::Hidden, layer()))
         .with_children(|p| {
-            if is_camp {
-                p.spawn(patch(meshes, &k.camp_ground, outline(25.0, 24, 0.0, 1)));
-                for i in 0..18 {
-                    let at = dir2(20.0 * i as f32) * 22.5;
-                    p.spawn(grounded(&k.stake, &k.wood, at, 1.3, Rest::Stand { height: 8.0 }, none));
-                    p.spawn(grounded(&k.stake_tip, &k.wood, at, 1.3, Rest::Top { lift: 9.25 }, none));
+            p.spawn(patch(meshes, &a.site_ground, earth_outline(12.0)));
+            p.spawn((SiteBody, Mesh3d(meshes.add(to_mesh(MeshData::default()))), MeshMaterial3d(a.site_body.clone()), Transform::default(), layer()));
+            if camp {
+                for index in 0..CAMP_SMOKE_PUFFS {
+                    p.spawn((CampSmoke { source, index }, Mesh3d(a.smoke_mesh.clone()), MeshMaterial3d(a.smoke.clone()), Transform::default(), Visibility::Hidden, layer()));
                 }
-                for i in 0..3 {
-                    let angle = 90.0 + 120.0 * i as f32;
-                    p.spawn(grounded(&k.tent, &k.tent_red, dir2(angle) * 11.5, 7.0, Rest::Low { lift: 5.0 }, Quat::from_rotation_y(angle.to_radians())));
-                }
-                // Étendard planté près du feu (le drapeau suit le mât)
-                let pole = dir2(30.0) * 6.0;
-                p.spawn(grounded(&k.pole, &k.wood, pole, 0.6, Rest::Stand { height: 20.0 }, none));
-                let mut flag = grounded(&k.flag, &k.tent_red, pole, 0.6, Rest::Top { lift: 17.0 }, none);
-                flag.3.translation.x += 4.0;
-                p.spawn(flag);
-            } else {
-                for i in 0..5 {
-                    let at = dir2(90.0 + 72.0 * i as f32) * 14.0;
-                    p.spawn(grounded(&k.hut, &k.mud, at, 4.8, Rest::Stand { height: 5.0 }, none));
-                    p.spawn(grounded(&k.hut_roof, &k.straw, at, 4.8, Rest::Top { lift: 8.75 }, none));
-                }
-            }
-            p.spawn(grounded(&k.fire, &k.flame, Vec2::ZERO, 2.4, Rest::Low { lift: 2.5 }, none));
-            for i in 0..6 {
-                p.spawn(grounded(&k.fire_stone, &k.stone, dir2(60.0 * i as f32) * 3.4, 1.2, Rest::Low { lift: 0.6 }, none));
             }
         });
 }
 
-/// Ville 3D : sol pavé, remparts hexagonaux avec tours d'angle aux toits bleus, maisons entre les
-/// remparts et le donjon central, sur lequel se tient la garnison. Elle suit le terrain : chaque
-/// pan de rempart, tour, maison est posé sur le sol à sa place, le donjon au centre.
-fn spawn_city_model(commands: &mut Commands, a: &Assets3d, meshes: &mut Assets<Mesh>, source: Entity) {
-    let k = &a.city;
-    let none = Quat::IDENTITY;
-    commands
-        .spawn((Mirror3d { source, is_unit: false, placed: None, animated: false }, Transform::default(), Visibility::Hidden, layer()))
-        .with_children(|p| {
-            p.spawn(patch(meshes, &k.paving, outline(HEX_SIZE * 0.9, 6, 90.0, 4)));
-            for i in 0..6 {
-                // Remparts au milieu des côtés, tours aux sommets (comme les cases)
-                let side = 60.0 * i as f32;
-                let wall = dir2(side) * CITY_WALL_RADIUS * 0.866;
-                p.spawn(grounded(&k.wall, &k.stone, wall, CITY_WALL_RADIUS / 2.0, Rest::Stand { height: CITY_WALL_HEIGHT }, Quat::from_rotation_y((side + 90.0).to_radians())));
-                let corner = dir2(side + 30.0) * CITY_WALL_RADIUS;
-                p.spawn(grounded(&k.tower, &k.stone, corner, 4.0, Rest::Stand { height: CITY_TOWER_HEIGHT }, none));
-                p.spawn(grounded(&k.tower_roof, &a.player, corner, 4.0, Rest::Top { lift: CITY_TOWER_HEIGHT + 3.0 }, none));
-                let house = dir2(side) * 16.5;
-                let turn = Quat::from_rotation_y((side + 45.0).to_radians());
-                p.spawn(grounded(&k.house, &k.plaster, house, 3.5, Rest::Stand { height: 5.0 }, turn));
-                p.spawn(grounded(&k.house_roof, &k.tiles, house, 3.5, Rest::Top { lift: 7.0 }, turn));
-            }
-            p.spawn(grounded(&k.keep, &k.stone, Vec2::ZERO, CITY_KEEP_RADIUS, Rest::Stand { height: CITY_HEIGHT - CITY_KEEP_ROOF }, none));
-            p.spawn(grounded(&k.keep_roof, &a.player, Vec2::ZERO, CITY_KEEP_RADIUS, Rest::Top { lift: CITY_HEIGHT - CITY_KEEP_ROOF / 2.0 }, none));
-        });
+/// Bouffées de fumée d'un camp, dont une partie seulement hors de la période d'alerte.
+const CAMP_SMOKE_PUFFS: usize = 6;
+
+/// Fumée des camps : elle monte et s'élargit en boucle ; plus dense et plus large dans les derniers
+/// tours avant la sortie d'un guerrier.
+fn animate_camp_smoke(time: Res<Time>, camps: Query<&Camp>, mut puffs: Query<(&CampSmoke, &mut Transform, &mut Visibility)>) {
+    let now = time.elapsed_secs();
+    for (puff, mut t, mut vis) in &mut puffs {
+        let Ok(camp) = camps.get(puff.source) else { continue };
+        let alert = camp.cooldown <= crate::hostile::CAMP_WARNING_TURNS;
+        let count = if alert { CAMP_SMOKE_PUFFS } else { 3 };
+        let wanted = if puff.index < count { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != wanted {
+            *vis = wanted;
+        }
+        let phase = (now * 0.11 + puff.index as f32 / count as f32).fract();
+        let size = (0.9 + 2.2 * phase) * if alert { 1.55 } else { 1.0 };
+        t.translation = Vec3::new(0.7 * (phase * 7.0 + puff.index as f32).sin(), 3.0 + phase * if alert { 19.0 } else { 13.0 }, 0.0);
+        // (elle se dissipe en haut)
+        t.scale = Vec3::splat(size * (1.0 - phase * phase * phase));
+    }
 }
 
 /// Points le plus bas et le plus haut du sol sous une emprise (centre et six points à `reach`).
@@ -2001,21 +1973,23 @@ fn ground_normal(relief: &Relief, c: Vec2, reach: f32) -> Vec3 {
 
 /// Sol drapé sur le relief à l'intérieur d'un contour (anneaux concentriques), en repère local
 /// (origine `origin`, point 3D du centre du site).
-fn patch_mesh(relief: &Relief, center: Vec2, origin: Vec3, outline: &[Vec2]) -> MeshData {
+fn patch_mesh(relief: &Relief, center: Vec2, origin: Vec3, outline: &[Vec2], tint: Vec3) -> MeshData {
     const RINGS: usize = 5;
     let mut data = MeshData::default();
-    let push = |p: Vec2, data: &mut MeshData| {
+    // (le bord se fond dans le terrain)
+    let color = move |ring: usize| [tint.x, tint.y, tint.z, [0.55, 0.55, 0.55, 0.55, 0.38, 0.0][ring]];
+    let push = |p: Vec2, ring: usize, data: &mut MeshData| {
         let q = relief.on_ground(center.x + p.x, center.y + p.y, 0.35) - origin;
         data.positions.push(q.to_array());
         data.normals.push([0.0, 1.0, 0.0]);
-        data.colors.push([1.0; 4]);
+        data.colors.push(color(ring));
     };
-    push(Vec2::ZERO, &mut data);
+    push(Vec2::ZERO, 0, &mut data);
     let n = outline.len() as u32;
     for r in 1..=RINGS {
         let t = r as f32 / RINGS as f32;
         for &o in outline {
-            push(o * t, &mut data);
+            push(o * t, r, &mut data);
         }
     }
     // Sens trigonométrique vu du dessus (repère 2D)
@@ -2042,18 +2016,18 @@ fn sync_mirrors(
     relief: Option<Res<Relief>>,
     sources: Query<(&HexPos, Has<Hostile>, Has<Village>, Has<Camp>, Has<crate::feedback::Motion>)>,
     retired: Query<(), With<crate::feedback::Retired>>,
-    cities: Query<&HexPos, With<City>>,
-    mut mirrors: Query<(Entity, &mut Mirror3d, &mut Transform, &mut Visibility, Option<&Children>)>,
-    mut parts: Query<(&Grounded, &mut Transform), Without<Mirror3d>>,
-    mut socles: Query<(&mut Transform, &mut Visibility), (With<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
-    mut boats: Query<(&mut Transform, &mut Visibility), (With<Boat3d>, Without<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
-    mut members: Query<(&mut Member, &mut Transform), (Without<Boat3d>, Without<Socle3d>, Without<Mirror3d>, Without<Grounded>)>,
-    patches: Query<(&Patch3d, &Mesh3d)>,
+    cities: Query<&City>,
+    camp_states: Query<&Camp>,
+    mut mirrors: Query<(Entity, &mut Mirror3d, &mut Transform, &mut Visibility, Option<&Children>, Option<&mut SiteModel>)>,
+    mut socles: Query<(&mut Transform, &mut Visibility), (With<Socle3d>, Without<Mirror3d>)>,
+    mut boats: Query<(&mut Transform, &mut Visibility), (With<Boat3d>, Without<Socle3d>, Without<Mirror3d>)>,
+    mut members: Query<(&mut Member, &mut Transform), (Without<Boat3d>, Without<Socle3d>, Without<Mirror3d>)>,
+    mut patches: Query<(&mut Patch3d, &Mesh3d)>,
+    bodies: Query<&Mesh3d, With<SiteBody>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let Some(relief) = relief else { return };
-    let city_tiles: HashSet<Hex> = cities.iter().map(|p| map.0.canonical(p.0)).collect();
-    for (entity, mut mirror, mut transform, mut vis, children) in &mut mirrors {
+    for (entity, mut mirror, mut transform, mut vis, children, mut model) in &mut mirrors {
         let Ok((pos, hostile, village, camp, moving)) = sources.get(mirror.source) else {
             // (une unité dispersée reste montrée le temps de son effacement)
             if !retired.contains(mirror.source) {
@@ -2062,8 +2036,17 @@ fn sync_mirrors(
             continue;
         };
         let hex = map.0.canonical(pos.0);
-        let on_roof = mirror.is_unit && city_tiles.contains(&hex);
-        let key = (hex, relief.generation.get(&hex).copied().unwrap_or(0), on_roof);
+        // Une ville ou un village se pose quand sa case est explorée : avant, son terrain n'est pas connu
+        if model.is_some() && !fog.explored.contains(&pos.0) {
+            if *vis != Visibility::Hidden {
+                *vis = Visibility::Hidden;
+            }
+            continue;
+        }
+        // Stade et fortification d'une ville : ils changent sa pose
+        let city = cities.get(mirror.source).ok();
+        let code = city.map_or(0, |c| crate::settlements::stage_of_population(c.state.population) as u8 * 2 + u8::from(c.state.fortified));
+        let key = (hex, relief.generation.get(&hex).copied().unwrap_or(0), code);
         if mirror.placed != Some(key) {
             mirror.placed = Some(key);
             let (cx, cy) = pos.0.to_world();
@@ -2072,7 +2055,7 @@ fn sync_mirrors(
             let children: Vec<Entity> = children.map(|c| c.iter().collect()).unwrap_or_default();
             if mirror.is_unit {
                 // Sur un fleuve : dans une barque, à la surface de l'eau, dans le sens du courant
-                let river = relief.channels.get(&hex).filter(|_| !on_roof && map.0.is_fleuve(hex));
+                let river = relief.channels.get(&hex).filter(|_| map.0.is_fleuve(hex));
                 let afloat = river.and_then(|near| {
                     let water = crate::relief::water_surface(near, c)?;
                     let axis = near.iter().filter(|ch| !ch.is_disc() && ch.isle.is_none()).min_by(|a, b| c.distance(a.nearest(c)).total_cmp(&c.distance(b.nearest(c))))?;
@@ -2080,19 +2063,18 @@ fn sync_mirrors(
                     Some((water, Quat::from_rotation_y(d.x.atan2(-d.y))))
                 });
                 // Groupe : chaque figurine a ses pieds au plus haut du sol sous elle (jamais
-                // enfoncée), ou toutes sur le toit du donjon, ou sur le pont de leur barque (le
-                // groupe resserré) ; anneau au sol incliné comme le sol
-                let root = match (on_roof, afloat) {
-                    (true, _) => footprint(&relief, c, CITY_KEEP_RADIUS).1 + CITY_HEIGHT,
-                    (false, Some((water, _))) => water + BOAT_DECK,
-                    (false, None) => footprint(&relief, c, FIGURE_REACH).1,
+                // enfoncée), ou sur le pont de sa barque (le groupe resserré) ; anneau au sol
+                // incliné comme le sol
+                let root = match afloat {
+                    Some((water, _)) => water + BOAT_DECK,
+                    None => footprint(&relief, c, FIGURE_REACH).1,
                 };
                 transform.translation = Vec3::new(cx, root, -cy);
                 let ring = (center - root + 0.3, Quat::from_rotation_arc(Vec3::Y, ground_normal(&relief, c, SOCLE_RADIUS)));
                 for &child in &children {
                     if let Ok((mut t, mut v)) = socles.get_mut(child) {
-                        // (pas d'anneau sur un toit ni sur l'eau)
-                        *v = if on_roof || afloat.is_some() { Visibility::Hidden } else { Visibility::Inherited };
+                        // (pas d'anneau sur l'eau)
+                        *v = if afloat.is_some() { Visibility::Hidden } else { Visibility::Inherited };
                         (t.translation.y, t.rotation) = ring;
                     } else if let Ok((mut t, mut v)) = boats.get_mut(child) {
                         *v = if afloat.is_some() { Visibility::Inherited } else { Visibility::Hidden };
@@ -2103,7 +2085,6 @@ fn sync_mirrors(
                     } else if let Ok((mut m, mut t)) = members.get_mut(child) {
                         m.base = match afloat {
                             Some((_, turn)) => turn * local3(m.at * BOAT_SQUEEZE),
-                            None if on_roof => local3(m.at),
                             None => local3(m.at) + Vec3::Y * (footprint(&relief, c + m.at, FIGURE_REACH).1 - root),
                         };
                         let k = t.scale.x;
@@ -2112,22 +2093,61 @@ fn sync_mirrors(
                 }
             } else {
                 transform.translation = Vec3::new(cx, center, -cy);
-                for &child in &children {
-                    if let Ok((g, mut t)) = parts.get_mut(child) {
-                        let (lo, hi) = footprint(&relief, c + g.at, g.reach);
-                        match g.rest {
-                            Rest::Stand { height } => {
-                                let (bottom, top) = (lo, hi + height);
-                                t.translation.y = (bottom + top) / 2.0 - center;
-                                t.scale.y = (top - bottom) / height;
+                // Pose gardée tant que le stade et la fortification ne changent pas
+                if let Some(model) = model.as_mut() {
+                    if model.pose.is_none() || model.code != code {
+                        let site = ReliefSite { relief: &relief, center: c, hex };
+                        let family = map.0.get(hex).map_or(crate::settlements::Family::Prairie, crate::settlements::Family::of);
+                        let seed = (hex.q as i64 as u64).wrapping_mul(73_856_093) ^ (hex.r as i64 as u64).wrapping_mul(19_349_663);
+                        model.pose = Some(if let Ok(state) = camp_states.get(mirror.source) {
+                            SitePose::Camp(crate::settlements::camp_layout(&site, family, state.kind, seed))
+                        } else {
+                            SitePose::Town(match city {
+                                Some(city) => crate::settlements::city_layout(&site, family, crate::settlements::stage_of_population(city.state.population), city.state.fortified, seed),
+                                None => crate::settlements::village_layout(&site, family, seed),
+                            })
+                        });
+                        model.code = code;
+                    }
+                    if let Some(pose) = &model.pose {
+                        let ground = |p: Vec2| relief.ground(cx + p.x, cy + p.y) - center;
+                        let tint = |color: Color| Vec3::from_array(color.to_linear().to_vec3().to_array());
+                        // (bâti, puis ce qui se pose sur le sol : terre battue et chemins)
+                        let ponds = if let SitePose::Town(layout) = pose { layout.ponds.as_slice() } else { &[][..] };
+                        let (body, paths, earth_radius, earth, trail) = match pose {
+                            SitePose::Town(layout) => {
+                                let water = layout.pier.map_or(0.0, |p| water_near(&relief, hex, c + p.to) - center);
+                                let (earth, trail) = crate::settlement_mesh::earth_color(layout.family);
+                                (crate::settlement_mesh::bake(layout, &ground, water, tint(Color::srgb(0.20, 0.45, 0.95))), layout.paths.as_slice(), layout.ground_radius, earth, trail)
                             }
-                            Rest::Top { lift } => t.translation.y = hi + lift - center,
-                            Rest::Low { lift } => t.translation.y = lo + lift - center,
+                            SitePose::Camp(camp) => {
+                                let earth = crate::settlement_mesh::camp_earth();
+                                (crate::settlement_mesh::bake_camp(camp, &ground), &[][..], camp.ground_radius, earth, earth)
+                            }
+                        };
+                        let mut body = Some(body);
+                        for &child in &children {
+                            if let Ok(mesh) = bodies.get(child)
+                                && let Some(mut m) = meshes.get_mut(&mesh.0)
+                                && let Some(body) = body.take()
+                            {
+                                *m = to_mesh(body);
+                            } else if let Ok((mut p, mesh)) = patches.get_mut(child)
+                                && let Some(mut m) = meshes.get_mut(&mesh.0)
+                            {
+                                p.outline = earth_outline(earth_radius);
+                                let mut data = patch_mesh(&relief, c, Vec3::new(cx, center, -cy), &p.outline, earth);
+                                // (dans l'ordre : la terre, puis les mares, puis les chemins)
+                                for extra in [crate::settlement_mesh::bake_ponds(ponds, &ground, earth), crate::settlement_mesh::bake_paths(paths, &ground, trail)] {
+                                    let base = data.positions.len() as u32;
+                                    data.positions.extend(extra.positions);
+                                    data.normals.extend(extra.normals);
+                                    data.colors.extend(extra.colors);
+                                    data.indices.extend(extra.indices.iter().map(|i| i + base));
+                                }
+                                *m = to_mesh(data);
+                            }
                         }
-                    } else if let Ok((p, mesh)) = patches.get(child)
-                        && let Some(mut m) = meshes.get_mut(&mesh.0)
-                    {
-                        *m = to_mesh(patch_mesh(&relief, c, Vec3::new(cx, center, -cy), &p.outline));
                     }
                 }
             }
