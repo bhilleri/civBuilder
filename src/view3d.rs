@@ -600,6 +600,7 @@ fn setup_3d(
     let cam = Cam3d { target: to_3d(start, 0.0), distance: 900.0, yaw: 0.0 };
     commands.spawn((
         Camera3d::default(),
+        bevy::ui::picking_backend::UiPickingCamera,
         Camera { is_active: false, order: 1, ..default() },
         camera_transform(&cam),
         layer(),

@@ -1,11 +1,11 @@
 //! Interface : barre du haut, panneau de sélection, infos de case, journal, bouton de fin de tour.
 
+use crate::pointer::UiPointer;
 use crate::feedback::TurnReplay;
 use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, HexPos, Importance, LogLink, LogText, Selection, ShownFog, Unit};
 use crate::hex::Hex;
 use crate::hostile::{Camp, Hostile, Village};
 use crate::search::{FocusTarget, HoverColors, MapTarget, PointedTarget, TargetButton};
-use bevy::ui::FocusPolicy;
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::platform::collections::{HashMap, HashSet};
@@ -126,15 +126,9 @@ impl Plugin for UiPlugin {
     }
 }
 
-/// Élément cliquable : ce qu'imposait l'ancien `Button` de Bevy (retiré du prelude en 0.20). Il garde
-/// `Interaction`, déprécié en 0.20, le temps de passer à `Hovered` et `Pressed`.
-pub fn clickable() -> impl Bundle + use<> {
-    (Interaction::default(), FocusPolicy::Block)
-}
-
 fn panel(node: Node) -> impl Bundle {
     let node = Node { border_radius: BorderRadius::all(Val::Px(6.0)), ..node };
-    (node, BackgroundColor(PANEL_BG), Interaction::default())
+    (node, BackgroundColor(PANEL_BG), UiPointer::default())
 }
 
 fn text(content: &str, size: f32) -> impl Bundle {
@@ -205,7 +199,7 @@ fn setup_ui(mut commands: Commands) {
             for kind in UnitKind::ALL {
                 p.spawn((
                     ProduceButton(kind),
-                    crate::ui::clickable(),
+                    UiPointer::default(),
                     Node {
                         padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
                         border_radius: BorderRadius::all(Val::Px(4.0)),
@@ -283,7 +277,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::wiki::WikiButton,
-                crate::ui::clickable(),
+                UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -294,7 +288,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::search::SearchButton,
-                crate::ui::clickable(),
+                UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -305,7 +299,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 MapLayerButton,
-                crate::ui::clickable(),
+                UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -316,7 +310,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::options::OptionsButton,
-                crate::ui::clickable(),
+                UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -327,7 +321,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 ViewToggleButton,
-                crate::ui::clickable(),
+                UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -338,7 +332,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 EndTurnButton,
-                crate::ui::clickable(),
+                UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(22.0), Val::Px(12.0)),
                     border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -352,9 +346,9 @@ fn setup_ui(mut commands: Commands) {
 }
 
 /// Survol du bouton Wiki.
-fn wiki_button_hover(mut buttons: Query<(&Interaction, &mut BackgroundColor), (Changed<Interaction>, With<crate::wiki::WikiButton>)>) {
+fn wiki_button_hover(mut buttons: Query<(&UiPointer, &mut BackgroundColor), (Changed<UiPointer>, With<crate::wiki::WikiButton>)>) {
     for (interaction, mut bg) in &mut buttons {
-        bg.0 = if *interaction == Interaction::None { PRODUCE_BG } else { PRODUCE_HOVER };
+        bg.0 = if *interaction == UiPointer::None { PRODUCE_BG } else { PRODUCE_HOVER };
     }
 }
 
@@ -362,7 +356,7 @@ fn wiki_button_hover(mut buttons: Query<(&Interaction, &mut BackgroundColor), (C
 fn map_option(layer: MapLayer, label: &str) -> impl Bundle {
     (
         MapLayerOption(layer),
-        crate::ui::clickable(),
+        UiPointer::default(),
         Node {
             padding: UiRect::axes(Val::Px(14.0), Val::Px(6.0)),
             border_radius: BorderRadius::all(Val::Px(4.0)),
@@ -545,7 +539,7 @@ fn basin_row(basin: usize, (r, g, b): (f32, f32, f32), label: String) -> impl Bu
     use crate::search::{HoverColors, MapTarget, TargetButton};
     (
         TargetButton::new(MapTarget::Basin(basin)),
-        crate::ui::clickable(),
+        UiPointer::default(),
         HoverColors { normal: Color::NONE, hover: PRODUCE_HOVER },
         BackgroundColor(Color::NONE),
         Node {
@@ -684,14 +678,14 @@ fn tides_legend() -> impl Bundle {
                 children![
                     (
                         TideChip::Lines,
-                        crate::ui::clickable(),
+                        UiPointer::default(),
                         Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
                         BackgroundColor(PRODUCE_BG),
                         children![text("Lignes d'heure de pleine mer", 13.0)],
                     ),
                     (
                         TideChip::Arrows,
-                        crate::ui::clickable(),
+                        UiPointer::default(),
                         Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
                         BackgroundColor(PRODUCE_BG),
                         children![text("Sens de la marée", 13.0)],
@@ -726,11 +720,11 @@ struct TideLinesKey;
 /// clé de couleurs montrée avec les lignes.
 fn tide_legend_controls(
     mut shown: ResMut<crate::render::TideLines>,
-    mut chips: Query<(Ref<Interaction>, &TideChip, &mut BackgroundColor)>,
+    mut chips: Query<(Ref<UiPointer>, &TideChip, &mut BackgroundColor)>,
     mut key: Query<&mut Node, With<TideLinesKey>>,
 ) {
     for (interaction, chip, _) in &chips {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             match chip {
                 TideChip::Lines => shown.lines = !shown.lines,
                 TideChip::Arrows => shown.arrows = !shown.arrows,
@@ -742,7 +736,7 @@ fn tide_legend_controls(
             TideChip::Lines => shown.lines,
             TideChip::Arrows => shown.arrows,
         };
-        let color = if on { GEO_CHIP_ON } else if *interaction == Interaction::None { PRODUCE_BG } else { PRODUCE_HOVER };
+        let color = if on { GEO_CHIP_ON } else if *interaction == UiPointer::None { PRODUCE_BG } else { PRODUCE_HOVER };
         if bg.0 != color {
             bg.0 = color;
         }
@@ -804,7 +798,7 @@ fn geography_legend() -> impl Bundle {
     let chip = |family: GeoFamily| {
         (
             GeoChip(family),
-            crate::ui::clickable(),
+            UiPointer::default(),
             Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
             BackgroundColor(PRODUCE_BG),
             children![text(family.label(), 13.0)],
@@ -837,19 +831,19 @@ fn geography_legend() -> impl Bundle {
 /// Légende de la carte géographique : choix de la famille (puces), niveau montré.
 fn geography_legend_controls(
     mut view: ResMut<crate::render::GeoView>,
-    mut chips: Query<(Ref<Interaction>, &GeoChip, &mut BackgroundColor)>,
+    mut chips: Query<(Ref<UiPointer>, &GeoChip, &mut BackgroundColor)>,
     mut level: Single<&mut Text, With<GeoLevelText>>,
 ) {
     use crate::geography::GeoFamily;
     for (interaction, chip, _) in &chips {
-        if interaction.is_changed() && *interaction == Interaction::Pressed && view.family != chip.0 {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed && view.family != chip.0 {
             view.family = chip.0;
         }
     }
     for (interaction, chip, mut bg) in &mut chips {
         let color = if view.family == chip.0 {
             GEO_CHIP_ON
-        } else if *interaction == Interaction::None {
+        } else if *interaction == UiPointer::None {
             PRODUCE_BG
         } else {
             PRODUCE_HOVER
@@ -914,8 +908,8 @@ fn plates_legend() -> impl Bundle {
 fn map_layer_controls(
     keys: Res<ButtonInput<KeyCode>>,
     mut layer: ResMut<MapLayer>,
-    mut button: Query<(Ref<Interaction>, &mut BackgroundColor, &Children), (With<MapLayerButton>, Without<MapLayerOption>)>,
-    mut options: Query<(Ref<Interaction>, &MapLayerOption, &mut BackgroundColor), Without<MapLayerButton>>,
+    mut button: Query<(Ref<UiPointer>, &mut BackgroundColor, &Children), (With<MapLayerButton>, Without<MapLayerOption>)>,
+    mut options: Query<(Ref<UiPointer>, &MapLayerOption, &mut BackgroundColor), Without<MapLayerButton>>,
     mut menu: Single<&mut Node, (With<MapLayerMenu>, Without<Legend>)>,
     mut legends: Query<(&Legend, &mut Node), Without<MapLayerMenu>>,
     mut texts: Query<&mut Text>,
@@ -925,10 +919,10 @@ fn map_layer_controls(
     }
     let mut open = menu.display == Display::Flex;
     for (interaction, mut bg, children) in &mut button {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             open = !open;
         }
-        let color = if *interaction == Interaction::None { PRODUCE_BG } else { PRODUCE_HOVER };
+        let color = if *interaction == UiPointer::None { PRODUCE_BG } else { PRODUCE_HOVER };
         if bg.0 != color {
             bg.0 = color;
         }
@@ -940,7 +934,7 @@ fn map_layer_controls(
         }
     }
     for (interaction, option, mut bg) in &mut options {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             if *layer != option.0 {
                 *layer = option.0;
             }
@@ -948,7 +942,7 @@ fn map_layer_controls(
         }
         let color = if *layer == option.0 {
             PRODUCE_ACTIVE
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiPointer::Hovered {
             PRODUCE_HOVER
         } else {
             PRODUCE_BG
@@ -972,7 +966,7 @@ fn map_layer_controls(
 /// Bouton de fin de tour : grisé, et sans effet, tant que le passage de tour se joue.
 fn end_turn_button(
     replay: Res<TurnReplay>,
-    mut buttons: Query<(Ref<Interaction>, &mut BackgroundColor, &Children), With<EndTurnButton>>,
+    mut buttons: Query<(Ref<UiPointer>, &mut BackgroundColor, &Children), With<EndTurnButton>>,
     mut texts: Query<&mut Text>,
     mut end_turn: ResMut<EndTurnRequested>,
 ) {
@@ -980,12 +974,12 @@ fn end_turn_button(
         if !interaction.is_changed() && !replay.is_changed() {
             continue;
         }
-        if interaction.is_changed() && *interaction == Interaction::Pressed && !replay.playing {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed && !replay.playing {
             end_turn.0 = true;
         }
         bg.0 = match *interaction {
             _ if replay.playing => BUTTON_WAIT,
-            Interaction::None => BUTTON_BG,
+            UiPointer::None => BUTTON_BG,
             _ => BUTTON_HOVER,
         };
         let label = if replay.playing { "Le tour se joue…" } else { "Fin du tour (Entrée)" };
@@ -999,7 +993,7 @@ fn end_turn_button(
 
 /// Clic sur un bouton de production : change la production de la ville sélectionnée.
 fn production_buttons(
-    buttons: Query<(&Interaction, &ProduceButton), Changed<Interaction>>,
+    buttons: Query<(&UiPointer, &ProduceButton), Changed<UiPointer>>,
     selection: Res<Selection>,
     replay: Res<TurnReplay>,
     mut cities: Query<(Entity, &mut City, &HexPos)>,
@@ -1008,7 +1002,7 @@ fn production_buttons(
     // (pas d'ordre tant que le passage de tour se joue)
     let Some((entity, mut city, center)) = selection.0.filter(|_| !replay.playing).and_then(|e| cities.get_mut(e).ok()) else { return };
     for (interaction, button) in &buttons {
-        if *interaction == Interaction::Pressed && city.state.producing != Some(button.0) {
+        if *interaction == UiPointer::Pressed && city.state.producing != Some(button.0) {
             city.state.producing = Some(button.0);
             log.push(LogText::new().city(&city.state.name, entity, center.0).text(format!(" produit désormais : {}.", button.0.name())));
         }
@@ -1021,7 +1015,7 @@ fn update_production_panel(
     map: Res<GameMap>,
     cities: Query<(&City, &crate::game::HexPos)>,
     mut panel: Single<&mut Node, With<ProductionPanel>>,
-    mut buttons: Query<(&ProduceButton, &Interaction, &mut BackgroundColor, &Children)>,
+    mut buttons: Query<(&ProduceButton, &UiPointer, &mut BackgroundColor, &Children)>,
     mut texts: Query<&mut Text>,
 ) {
     let city = selection.0.and_then(|e| cities.get(e).ok());
@@ -1055,7 +1049,7 @@ fn update_production_panel(
         }
         let color = if city.state.producing == Some(kind) {
             PRODUCE_ACTIVE
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiPointer::Hovered {
             PRODUCE_HOVER
         } else {
             PRODUCE_BG
@@ -1068,15 +1062,15 @@ fn update_production_panel(
 
 /// Bouton de vue : un clic bascule entre 2D et 3D ; le libellé indique la vue proposée.
 fn view_toggle_button(
-    mut buttons: Query<(Ref<Interaction>, &mut BackgroundColor, &Children), With<ViewToggleButton>>,
+    mut buttons: Query<(Ref<UiPointer>, &mut BackgroundColor, &Children), With<ViewToggleButton>>,
     mut mode: ResMut<crate::view3d::ViewMode>,
     mut texts: Query<&mut Text>,
 ) {
     for (interaction, mut bg, children) in &mut buttons {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             mode.is_3d = !mode.is_3d;
         }
-        let color = if *interaction == Interaction::None { PRODUCE_BG } else { PRODUCE_HOVER };
+        let color = if *interaction == UiPointer::None { PRODUCE_BG } else { PRODUCE_HOVER };
         if bg.0 != color {
             bg.0 = color;
         }
@@ -1165,7 +1159,7 @@ fn update_place_bar(
             };
             p.spawn((
                 TargetButton::new(target),
-                Interaction::default(),
+                UiPointer::default(),
                 Node { padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(4.0)), ..default() },
                 BackgroundColor(Color::NONE),
                 HoverColors { normal: Color::NONE, hover: PLACE_HOVER },
@@ -1589,7 +1583,7 @@ fn update_log(
         for span in &entry.text.0 {
             let mut child = commands.spawn((TextSpan::new(span.text.clone()), TextFont::from_font_size(size), TextColor(style.text), ChildOf(line)));
             if let Some(link) = span.link {
-                child.insert((LogLinkSpan(link), Underline, UnderlineColor(style.text.with_alpha(LINK_UNDERLINE))));
+                child.insert((LogLinkSpan(link), Pickable::default(), Underline, UnderlineColor(style.text.with_alpha(LINK_UNDERLINE))));
             }
         }
         let row = commands.spawn((

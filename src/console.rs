@@ -13,6 +13,7 @@
 //! Après une modification de la carte, `MapEdited` porte les cases dont le rendu est à refaire
 //! (cases modifiées et voisines) : le rendu 2D (`render.rs`) et 3D (`view3d.rs`) les reconstruit.
 
+use crate::pointer::UiPointer;
 use crate::debug_cmd::{self, Effect, Reply, Session, UnitChange};
 use crate::rules::MAX_HP;
 use crate::feedback::TurnReplay;
@@ -188,7 +189,7 @@ fn setup_console(mut commands: Commands) {
         UiTransform::from_translation(Val2::percent(-50.0, 0.0)),
         BackgroundColor(PANEL_BG),
         // Bloque les clics vers la carte
-        Interaction::default(),
+        UiPointer::default(),
         GlobalZIndex(70),
         children![
             (ConsoleOutput, Node { flex_direction: FlexDirection::Column, ..default() }),
@@ -201,6 +202,8 @@ fn setup_console(mut commands: Commands) {
                     (
                         ConsoleInput,
                         TextInput,
+                        UiPointer::default(),
+                        bevy::input_focus::tab_navigation::TabIndex::default(),
                         EditableText { max_characters: Some(200), ..default() },
                         TextFont::from_font_size(15.0),
                         TextColor(TEXT),

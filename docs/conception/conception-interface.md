@@ -26,6 +26,7 @@ Inspirée des bonnes pratiques d'autocomplétion (Baymard, Smart Interface Desig
 
 ## Saisie de texte
 - Widget Bevy 0.20 `TextInput` avec `EditableText` (curseur, sélection, Ctrl+A/C/X/V), feature Bevy `system_clipboard` pour le presse-papiers du système.
+- État du pointeur : composant `UiPointer` (`pointer.rs`, depuis Bevy 0.20, où `Interaction` est déprécié). Picking limité aux éléments marqués (`UiPickingSettings::require_markers`, `UiPickingCamera` sur les caméras) : tout élément décoratif laisse passer le pointeur, sans `Pickable::IGNORE` à poser. Survol direct (`DirectlyHovered`) : un bouton masque son panneau. Un clic hors d'un champ lui retire le focus (`PointerFocusPlugin`) : un champ prend le focus au clic grâce à `TabIndex`, la recherche et la graine le reprennent tant qu'elles sont ouvertes.
 - Pendant qu'un champ a le focus (`InputFocus`), `ButtonInput<KeyCode>` est vidé en PreUpdate (sauf Échap) : les raccourcis du jeu ne se déclenchent pas. Les touches propres aux champs se lisent avec `ButtonInput<Key>`.
 - Graine du monde (menu Échap) : champ chiffres seulement (filtre), 10 caractères max, graine actuelle sélectionnée à l'ouverture ; boutons Copier / Coller ; Entrée regénère.
 

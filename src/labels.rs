@@ -5,6 +5,7 @@
 //! caméra active : ils restent lisibles quel que soit le zoom ou l'inclinaison.
 //! Les barres de PV des unités en 3D suivent le même principe (la 2D dessine les siennes).
 
+use crate::pointer::UiPointer;
 use crate::feedback::{HeldHp, Motion};
 use crate::game::{City, GameMap, ShownFog, HexPos, Unit};
 use crate::hostile::Hostile;
@@ -191,7 +192,7 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
             .spawn((
                 CityBanner(entity),
                 // Survol : le territoire de la ville ressort ; clic : la caméra y va
-                (TargetButton::new(MapTarget::City(entity)), Interaction::default()),
+                (TargetButton::new(MapTarget::City(entity)), UiPointer::default()),
                 // Au-dessus du jeton d'une unité en garnison
                 Anchor::new(pos.0, 24.0, CITY_HEIGHT + 14.0, false),
                 Node {
@@ -474,7 +475,7 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
                         commands
                             .spawn((
                                 CurvedLetter,
-                                (TargetButton::new(target), Interaction::default()),
+                                (TargetButton::new(target), UiPointer::default()),
                                 Node { position_type: PositionType::Absolute, ..default() },
                                 UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
                                 Text::new(ch.to_string()),
@@ -491,7 +492,7 @@ fn spawn_sea_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity,
             });
             commands.spawn((
                 SeaName { zone: area, copy, min_px, max_px, rank, family, tint, fit, weight: cells.len(), part, curve },
-                (TargetButton::new(target), Interaction::default()),
+                (TargetButton::new(target), UiPointer::default()),
                 Node { position_type: PositionType::Absolute, ..default() },
                 UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
                 Text::new(text.clone()),
@@ -819,7 +820,7 @@ fn spawn_bank_icons(mut commands: Commands, map: Res<GameMap>, old: Query<Entity
     for (b, bank) in map.0.banks().iter().enumerate() {
         commands.spawn((
             BankIcon { bank: b },
-            (TargetButton::new(MapTarget::Bank(b)), Interaction::default()),
+            (TargetButton::new(MapTarget::Bank(b)), UiPointer::default()),
             Node { position_type: PositionType::Absolute, flex_direction: FlexDirection::Column, align_items: AlignItems::Center, ..default() },
             UiTransform::from_translation(Val2::percent(-50.0, -30.0)),
             GlobalZIndex(-3),
@@ -849,7 +850,7 @@ fn place_bank_icons(
     fog: Res<ShownFog>,
     pointed: Res<crate::search::PointedTarget>,
     cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
-    mut icons: Query<(&BankIcon, &Interaction, &mut Node, &mut Visibility, &Children), (Without<RiverName>, Without<SeaName>, Without<Anchor>)>,
+    mut icons: Query<(&BankIcon, &UiPointer, &mut Node, &mut Visibility, &Children), (Without<RiverName>, Without<SeaName>, Without<Anchor>)>,
     mut images: Query<&mut ImageNode>,
     mut names: Query<&mut Node, (With<BankName>, Without<BankIcon>)>,
     mut spots: Local<Vec<Option<Hex>>>,
@@ -908,7 +909,7 @@ fn place_bank_icons(
         if *vis != Visibility::Inherited {
             *vis = Visibility::Inherited;
         }
-        let alpha = if lit || *interaction != Interaction::None { 1.0 } else { 0.55 };
+        let alpha = if lit || *interaction != UiPointer::None { 1.0 } else { 0.55 };
         for &child in children {
             if let Ok(mut image) = images.get_mut(child) {
                 let c = Color::srgba(1.0, 0.95, 0.80, alpha);
@@ -931,7 +932,7 @@ fn spawn_site_labels(mut commands: Commands, sites: Query<(Entity, &crate::hosti
     for (entity, name, pos, camp) in &sites {
         commands.spawn((
             SiteLabel(entity),
-            (TargetButton::new(MapTarget::Site(entity)), Interaction::default()),
+            (TargetButton::new(MapTarget::Site(entity)), UiPointer::default()),
             Anchor { explored_only: true, min_px: SITE_LABEL_PX, ..Anchor::new(pos.0, -17.0, 6.0, false) },
             Node {
                 position_type: PositionType::Absolute,
@@ -976,7 +977,7 @@ fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entit
         commands.spawn((
             RiverName { rank: rank(lake.tier, true, i), tier: lake.tier, spots, ordered: true, feature: Feature::Lake(i) },
             // Clic : la caméra va au lac (le survol passe par `HoveredLabel`, selon l'option)
-            (TargetButton::click_only(MapTarget::Lake(i)), Interaction::default()),
+            (TargetButton::click_only(MapTarget::Lake(i)), UiPointer::default()),
             Node {
                 position_type: PositionType::Absolute,
                 padding: UiRect::axes(Val::Px(7.0), Val::Px(1.0)),
@@ -995,7 +996,7 @@ fn spawn_river_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entit
         let spots = river.spots.iter().map(|&(a, b)| (map.0.hex_at(a), map.0.hex_at(b))).collect();
         commands.spawn((
             RiverName { rank: rank(river.tier, false, i), tier: river.tier, spots, ordered: false, feature: Feature::River(i) },
-            (TargetButton::click_only(MapTarget::River(i)), Interaction::default()),
+            (TargetButton::click_only(MapTarget::River(i)), UiPointer::default()),
             Node {
                 position_type: PositionType::Absolute,
                 padding: UiRect::axes(Val::Px(6.0), Val::Px(1.0)),
@@ -1446,10 +1447,10 @@ fn place_river_names(
 /// Cours d'eau ou lac dont l'étiquette est sous la souris (les étiquettes réagissent toujours à
 /// la souris : un clic y amène la caméra ; leur survol ne met en surbrillance que si l'option le
 /// permet).
-fn update_hovered_label(mode: Res<HighlightMode>, names: Query<(&RiverName, &Interaction, &Visibility)>, mut hovered: ResMut<HoveredLabel>) {
+fn update_hovered_label(mode: Res<HighlightMode>, names: Query<(&RiverName, &UiPointer, &Visibility)>, mut hovered: ResMut<HoveredLabel>) {
     let wanted = names
         .iter()
-        .find(|(_, i, v)| **i != Interaction::None && **v != Visibility::Hidden)
+        .find(|(_, i, v)| **i != UiPointer::None && **v != Visibility::Hidden)
         .map(|(n, _, _)| n.feature)
         .filter(|_| *mode != HighlightMode::Off);
     if hovered.0 != wanted {

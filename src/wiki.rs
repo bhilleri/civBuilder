@@ -1,6 +1,7 @@
 //! Wiki du jeu : contenu (construit à partir des données et des règles, il reste donc à jour
 //! quand on change un chiffre) et fenêtre d'affichage (bouton « Wiki » ou touche F1).
 
+use crate::pointer::UiPointer;
 use crate::combat::{self, CHARGE_BONUS, FLANK_BONUS, HIGHER_GROUND_DEFENSE, HIGH_GROUND_PERCENT, TERRAIN_DEFENSE};
 use crate::hostile::{CAMP_CAPTURE_GOLD, CAMP_MAX_UNITS, CAMP_SPAWN_INTERVAL, HUNT_RANGE, WANDER_RADIUS, WOUNDED_HP};
 use crate::map::{
@@ -936,7 +937,7 @@ fn setup_wiki(mut commands: Commands, articles: Res<WikiArticles>, assets: Res<A
             GlobalZIndex(100),
             ZIndex(100),
             // Bloque les clics et la molette vers la carte
-            Interaction::default(),
+            UiPointer::default(),
         ))
         .with_children(|w| {
             // Barre de titre
@@ -945,7 +946,7 @@ fn setup_wiki(mut commands: Commands, articles: Res<WikiArticles>, assets: Res<A
                     bar.spawn(label("Wiki de CivBuilder", 22.0, TEXT));
                     bar.spawn((
                         WikiClose,
-                        crate::ui::clickable(),
+                        UiPointer::default(),
                         Node {
                             padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
                             border_radius: BorderRadius::all(Val::Px(5.0)),
@@ -969,7 +970,7 @@ fn setup_wiki(mut commands: Commands, articles: Res<WikiArticles>, assets: Res<A
                         for (i, title, icon) in tabs {
                             col.spawn((
                                 WikiTab(i),
-                                crate::ui::clickable(),
+                                UiPointer::default(),
                                 Node {
                                     padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
                                     border_radius: BorderRadius::all(Val::Px(5.0)),
@@ -1005,13 +1006,13 @@ fn wiki_controls(
     menu: Res<crate::menu::GameMenu>,
     mut state: ResMut<WikiState>,
     mut window: Single<&mut Node, With<WikiWindow>>,
-    open_button: Query<Ref<Interaction>, With<WikiButton>>,
-    close_button: Query<Ref<Interaction>, With<WikiClose>>,
-    mut tabs: Query<(Ref<Interaction>, &WikiTab, &mut BackgroundColor, &mut Node), (Without<WikiClose>, Without<WikiWindow>)>,
+    open_button: Query<Ref<UiPointer>, With<WikiButton>>,
+    close_button: Query<Ref<UiPointer>, With<WikiClose>>,
+    mut tabs: Query<(Ref<UiPointer>, &WikiTab, &mut BackgroundColor, &mut Node), (Without<WikiClose>, Without<WikiWindow>)>,
     mut close_bg: Query<&mut BackgroundColor, (With<WikiClose>, Without<WikiTab>)>,
     (debug, articles): (Res<crate::game::DebugMode>, Res<WikiArticles>),
 ) {
-    let pressed = |i: &Ref<Interaction>| i.is_changed() && **i == Interaction::Pressed;
+    let pressed = |i: &Ref<UiPointer>| i.is_changed() && **i == UiPointer::Pressed;
     // Rubriques du mode debug : onglets cachés hors du mode debug
     if !debug.0 && state.article >= articles.public {
         state.article = 0;
@@ -1033,7 +1034,7 @@ fn wiki_controls(
         }
         let color = if state.article == tab.0 {
             TAB_ACTIVE
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiPointer::Hovered {
             TAB_HOVER
         } else {
             TAB_BG
@@ -1044,7 +1045,7 @@ fn wiki_controls(
     }
     for i in &close_button {
         for mut bg in &mut close_bg {
-            let color = if *i == Interaction::None { TAB_BG } else { TAB_HOVER };
+            let color = if *i == UiPointer::None { TAB_BG } else { TAB_HOVER };
             if bg.0 != color {
                 bg.0 = color;
             }

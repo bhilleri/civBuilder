@@ -15,6 +15,7 @@
 //! Pendant la saisie dans un champ (recherche, graine du menu), les raccourcis du jeu sont
 //! coupés : les touches vont au champ.
 
+use crate::pointer::UiPointer;
 use crate::basins::Basins;
 use crate::game::{City, DebugMode, GameMap, HexPos, Selection, ShownFog, Territory};
 use crate::hex::{DIRECTIONS, HEX_SIZE, Hex};
@@ -689,18 +690,18 @@ fn target_buttons(
     mut pointed: ResMut<PointedTarget>,
     mut selection: ResMut<Selection>,
     mut focus: MessageWriter<FocusTarget>,
-    buttons: Query<(Ref<Interaction>, &TargetButton, Option<&InheritedVisibility>)>,
-    mut colored: Query<(&Interaction, &HoverColors, &mut BackgroundColor), Without<SearchRow>>,
+    buttons: Query<(Ref<UiPointer>, &TargetButton, Option<&InheritedVisibility>)>,
+    mut colored: Query<(&UiPointer, &HoverColors, &mut BackgroundColor), Without<SearchRow>>,
 ) {
     let mut hover = None;
     for (interaction, button, visible) in &buttons {
         if visible.is_some_and(|v| !v.get()) {
             continue;
         }
-        if button.hover && *interaction != Interaction::None {
+        if button.hover && *interaction != UiPointer::None {
             hover = Some(button.target);
         }
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             focus.write(FocusTarget(button.target));
             if let MapTarget::City(e) = button.target {
                 selection.0 = Some(e);
@@ -717,7 +718,7 @@ fn target_buttons(
         }
     }
     for (interaction, colors, mut bg) in &mut colored {
-        let c = if *interaction == Interaction::None { colors.normal } else { colors.hover };
+        let c = if *interaction == UiPointer::None { colors.normal } else { colors.hover };
         if bg.0 != c {
             bg.0 = c;
         }
@@ -837,7 +838,7 @@ fn text(s: &str, size: f32, color: Color) -> impl Bundle + use<> {
 fn chip(filter: Option<Category>) -> impl Bundle {
     (
         SearchChip(filter),
-        crate::ui::clickable(),
+        UiPointer::default(),
         Node {
             padding: UiRect::axes(Val::Px(9.0), Val::Px(3.0)),
             border_radius: BorderRadius::all(Val::Px(11.0)),
@@ -897,7 +898,7 @@ fn setup_search(mut commands: Commands) {
         UiTransform::from_translation(Val2::percent(-50.0, 0.0)),
         BackgroundColor(PANEL_BG),
         BorderColor::all(Color::srgb(0.20, 0.23, 0.30)),
-        Interaction::default(),
+        UiPointer::default(),
         GlobalZIndex(60),
         children![
             // Champ : loupe, saisie (et texte d'aide quand elle est vide), bouton pour effacer
@@ -925,6 +926,8 @@ fn setup_search(mut commands: Commands) {
                             (
                                 SearchInput,
                                 TextInput,
+                                UiPointer::default(),
+                                bevy::input_focus::tab_navigation::TabIndex::default(),
                                 EditableText { max_characters: Some(40), ..default() },
                                 TextFont::from_font_size(16.0),
                                 TextColor(TEXT),
@@ -936,7 +939,7 @@ fn setup_search(mut commands: Commands) {
                     ),
                     (
                         SearchClear,
-                        crate::ui::clickable(),
+                        UiPointer::default(),
                         Node { padding: UiRect::axes(Val::Px(6.0), Val::Px(0.0)), border_radius: BorderRadius::all(Val::Px(4.0)), ..default() },
                         BackgroundColor(Color::NONE),
                         HoverColors { normal: Color::NONE, hover: CHIP_HOVER },
@@ -980,20 +983,20 @@ fn open_search(
     menu: Res<crate::menu::GameMenu>,
     mut search: ResMut<SearchState>,
     mut focus: ResMut<InputFocus>,
-    mut button: Query<(Ref<Interaction>, &mut BackgroundColor), With<SearchButton>>,
+    mut button: Query<(Ref<UiPointer>, &mut BackgroundColor), With<SearchButton>>,
     mut input: Single<(Entity, &mut EditableText), With<SearchInput>>,
     mut root: Single<&mut Node, With<SearchRoot>>,
 ) {
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
     let mut open = ctrl && keys.just_pressed(KeyCode::KeyF);
     for (interaction, mut bg) in &mut button {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             open = !search.open;
             if !open {
                 search.open = false;
             }
         }
-        let c = if *interaction == Interaction::None { Color::srgba(0.16, 0.18, 0.24, 0.95) } else { Color::srgb(0.24, 0.28, 0.38) };
+        let c = if *interaction == UiPointer::None { Color::srgba(0.16, 0.18, 0.24, 0.95) } else { Color::srgb(0.24, 0.28, 0.38) };
         if bg.0 != c {
             bg.0 = c;
         }
@@ -1026,6 +1029,10 @@ fn close_search(
 ) {
     if search.open && ((mouse.just_pressed(MouseButton::Left) && !over_ui.0) || menu.open) {
         search.open = false;
+    }
+    // Un clic ailleurs dans le panneau retire le focus (Bevy) : le champ le reprend
+    if search.open && focus.get().is_none() {
+        focus.set(*input, FocusCause::Navigated);
     }
     if !search.open {
         if focus.get() == Some(*input) {
@@ -1104,13 +1111,13 @@ fn search_keys(
     mut selection: ResMut<Selection>,
     mut focus: ResMut<InputFocus>,
     mut input: Single<(Entity, &mut EditableText), With<SearchInput>>,
-    clear: Query<&Interaction, (Changed<Interaction>, With<SearchClear>)>,
+    clear: Query<&UiPointer, (Changed<UiPointer>, With<SearchClear>)>,
 ) {
     if !search.open {
         return;
     }
     let (entity, ref mut editable) = *input;
-    if clear.iter().any(|i| *i == Interaction::Pressed) {
+    if clear.iter().any(|i| *i == UiPointer::Pressed) {
         editable.queue_edit(TextEdit::SelectAll);
         editable.queue_edit(TextEdit::Backspace);
         focus.set(entity, FocusCause::Navigated);
@@ -1162,14 +1169,14 @@ fn chip_buttons(
     mut search: ResMut<SearchState>,
     mut focus: ResMut<InputFocus>,
     input: Single<Entity, With<SearchInput>>,
-    mut chips: Query<(Ref<Interaction>, &SearchChip, &mut BackgroundColor, &Children)>,
+    mut chips: Query<(Ref<UiPointer>, &SearchChip, &mut BackgroundColor, &Children)>,
     mut texts: Query<(&mut Text, &mut TextColor)>,
 ) {
     if !search.open {
         return;
     }
     for (interaction, chip, _, _) in &chips {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             set_filter(&mut search, chip.0);
             focus.set(*input, FocusCause::Navigated);
         }
@@ -1182,7 +1189,7 @@ fn chip_buttons(
         let active = search.filter == chip.0;
         let color = if active {
             CHIP_ACTIVE
-        } else if *interaction != Interaction::None {
+        } else if *interaction != UiPointer::None {
             CHIP_HOVER
         } else {
             CHIP_BG
@@ -1210,18 +1217,18 @@ fn refresh_results(
     mut search: ResMut<SearchState>,
     mut pointed: ResMut<PointedTarget>,
     list: Single<(Entity, Option<&Children>), With<SearchResults>>,
-    mut rows: Query<(Ref<Interaction>, &SearchRow, &mut BackgroundColor)>,
+    mut rows: Query<(Ref<UiPointer>, &SearchRow, &mut BackgroundColor)>,
 ) {
     if !search.open {
         return;
     }
     // Clic sur une ligne : la caméra y va (`target_buttons`), la recherche se ferme
-    if rows.iter().any(|(i, ..)| i.is_changed() && *i == Interaction::Pressed) {
+    if rows.iter().any(|(i, ..)| i.is_changed() && *i == UiPointer::Pressed) {
         search.open = false;
         return;
     }
     // Survol d'une ligne : elle devient la ligne choisie
-    if let Some((_, row, _)) = rows.iter().find(|(i, ..)| **i != Interaction::None)
+    if let Some((_, row, _)) = rows.iter().find(|(i, ..)| **i != UiPointer::None)
         && search.selected != row.0
     {
         search.selected = row.0;
@@ -1269,7 +1276,7 @@ fn refresh_results(
             p.spawn((
                 SearchRow(rank),
                 TargetButton::new(e.target),
-                crate::ui::clickable(),
+                UiPointer::default(),
                 Node {
                     align_items: AlignItems::Center,
                     column_gap: Val::Px(9.0),

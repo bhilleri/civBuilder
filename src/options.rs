@@ -1,6 +1,7 @@
 //! Options de la carte (bouton « Options de carte » ou touche O) : étiquettes affichées,
 //! comportement de la surbrillance des cours d'eau et contenu de l'infobulle pour chaque carte.
 
+use crate::pointer::UiPointer;
 use crate::highlight::HighlightMode;
 use crate::labels::LabelFilter;
 use crate::render::MapLayer;
@@ -63,7 +64,7 @@ fn text(content: &str, size: f32, color: Color) -> impl Bundle {
 
 fn button(width: Option<f32>) -> impl Bundle {
     (
-        crate::ui::clickable(),
+        UiPointer::default(),
         Node {
             width: width.map_or(Val::Auto, Val::Px),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
@@ -101,7 +102,7 @@ fn setup_panel(mut commands: Commands) {
             },
             BackgroundColor(PANEL_BG),
             // Le panneau bloque le survol de la carte
-            Interaction::default(),
+            UiPointer::default(),
             GlobalZIndex(10),
         ))
         .id();
@@ -165,7 +166,7 @@ fn setup_panel(mut commands: Commands) {
                 for layer in MapLayer::ALL {
                     r.spawn((
                         TooltipCell(layer, info),
-                        crate::ui::clickable(),
+                        UiPointer::default(),
                         Node {
                             width: Val::Px(COLUMN_WIDTH),
                             height: Val::Px(22.0),
@@ -192,27 +193,27 @@ fn setup_panel(mut commands: Commands) {
 fn open_close(
     keys: Res<ButtonInput<KeyCode>>,
     mut panel: Single<&mut Node, With<OptionsPanel>>,
-    mut open_button: Query<(Ref<Interaction>, &mut BackgroundColor), (With<OptionsButton>, Without<CloseButton>)>,
-    mut close_button: Query<(Ref<Interaction>, &mut BackgroundColor), (With<CloseButton>, Without<OptionsButton>)>,
+    mut open_button: Query<(Ref<UiPointer>, &mut BackgroundColor), (With<OptionsButton>, Without<CloseButton>)>,
+    mut close_button: Query<(Ref<UiPointer>, &mut BackgroundColor), (With<CloseButton>, Without<OptionsButton>)>,
 ) {
     let mut open = panel.display == Display::Flex;
     if keys.just_pressed(KeyCode::KeyO) {
         open = !open;
     }
     for (interaction, mut bg) in &mut open_button {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             open = !open;
         }
-        let c = if *interaction == Interaction::None { IDLE } else { HOVER };
+        let c = if *interaction == UiPointer::None { IDLE } else { HOVER };
         if bg.0 != c {
             bg.0 = c;
         }
     }
     for (interaction, mut bg) in &mut close_button {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             open = false;
         }
-        let c = if *interaction == Interaction::None { IDLE } else { HOVER };
+        let c = if *interaction == UiPointer::None { IDLE } else { HOVER };
         if bg.0 != c {
             bg.0 = c;
         }
@@ -226,14 +227,14 @@ fn open_close(
 fn label_toggles(
     keys: Res<ButtonInput<KeyCode>>,
     mut filter: ResMut<LabelFilter>,
-    mut buttons: Query<(Ref<Interaction>, &LabelToggle, &mut BackgroundColor)>,
+    mut buttons: Query<(Ref<UiPointer>, &LabelToggle, &mut BackgroundColor)>,
 ) {
     if keys.just_pressed(KeyCode::KeyN) {
         let any = filter.rivers || filter.lakes || filter.seas || filter.lands || filter.reliefs || filter.regions || filter.cities || filter.sites;
         *filter = LabelFilter { rivers: !any, lakes: !any, seas: !any, lands: !any, reliefs: !any, regions: !any, cities: !any, sites: !any };
     }
     for (interaction, toggle, mut bg) in &mut buttons {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             match toggle {
                 LabelToggle::Rivers => filter.rivers = !filter.rivers,
                 LabelToggle::Lakes => filter.lakes = !filter.lakes,
@@ -255,19 +256,19 @@ fn label_toggles(
             LabelToggle::Cities => filter.cities,
             LabelToggle::Sites => filter.sites,
         };
-        let c = if *interaction == Interaction::Hovered { HOVER } else if on { ACTIVE } else { IDLE };
+        let c = if *interaction == UiPointer::Hovered { HOVER } else if on { ACTIVE } else { IDLE };
         if bg.0 != c {
             bg.0 = c;
         }
     }
 }
 
-fn mode_choices(mut mode: ResMut<HighlightMode>, mut buttons: Query<(Ref<Interaction>, &ModeChoice, &mut BackgroundColor)>) {
+fn mode_choices(mut mode: ResMut<HighlightMode>, mut buttons: Query<(Ref<UiPointer>, &ModeChoice, &mut BackgroundColor)>) {
     for (interaction, choice, mut bg) in &mut buttons {
-        if interaction.is_changed() && *interaction == Interaction::Pressed && *mode != choice.0 {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed && *mode != choice.0 {
             *mode = choice.0;
         }
-        let c = if *interaction == Interaction::Hovered { HOVER } else if *mode == choice.0 { ACTIVE } else { IDLE };
+        let c = if *interaction == UiPointer::Hovered { HOVER } else if *mode == choice.0 { ACTIVE } else { IDLE };
         if bg.0 != c {
             bg.0 = c;
         }
@@ -277,15 +278,15 @@ fn mode_choices(mut mode: ResMut<HighlightMode>, mut buttons: Query<(Ref<Interac
 fn tooltip_cells(
     mut config: ResMut<TooltipConfig>,
     layer: Res<MapLayer>,
-    mut cells: Query<(Ref<Interaction>, &TooltipCell, &mut BackgroundColor, &Children)>,
+    mut cells: Query<(Ref<UiPointer>, &TooltipCell, &mut BackgroundColor, &Children)>,
     mut dots: Query<&mut BackgroundColor, (With<CellDot>, Without<TooltipCell>)>,
 ) {
     for (interaction, cell, mut bg, children) in &mut cells {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             config.toggle(cell.0, cell.1);
         }
         // Colonne de la carte affichée légèrement éclairée
-        let c = if *interaction == Interaction::Hovered {
+        let c = if *interaction == UiPointer::Hovered {
             HOVER
         } else if *layer == cell.0 {
             Color::srgb(0.10, 0.12, 0.17)

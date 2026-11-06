@@ -2,8 +2,6 @@
 
 // Lints courants avec Bevy (les systèmes ont naturellement beaucoup de paramètres)
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
-// `Interaction` est déprécié en Bevy 0.20 (retrait annoncé ensuite) : à remplacer par `Hovered` et `Pressed`
-#![allow(deprecated)]
 
 mod fonts;
 mod basins;
@@ -34,6 +32,7 @@ mod menu;
 mod mountains;
 mod pathfinding;
 mod plates;
+mod pointer;
 mod render;
 mod regions;
 mod relief;
@@ -68,5 +67,6 @@ fn main() {
         .add_plugins(console::ConsolePlugin)
         .add_plugins(feedback::FeedbackPlugin)
         .add_plugins(film::FilmPlugin)
+        .add_plugins(pointer::PointerPlugin)
         .run();
 }

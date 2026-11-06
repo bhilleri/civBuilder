@@ -9,6 +9,7 @@
 //! Le mode debug révèle toute la carte à l'affichage (brouillard de guerre levé). Il ne change
 //! pas ce que le joueur sait : en le désactivant, on revoit uniquement ce qui a été exploré.
 
+use crate::pointer::UiPointer;
 use crate::game::{DebugMode, GameLog};
 use crate::hostile::WorldSeed;
 use crate::settings::{AnimationSpeed, Settings};
@@ -136,7 +137,7 @@ fn button(kind: MenuButton, text: &str, bg: Color) -> impl Bundle + use<> {
     let is_debug = matches!(kind, MenuButton::Debug);
     (
         kind,
-        crate::ui::clickable(),
+        UiPointer::default(),
         Node {
             width: Val::Px(WIDTH),
             padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
@@ -153,7 +154,7 @@ fn button(kind: MenuButton, text: &str, bg: Color) -> impl Bundle + use<> {
 fn small_button(kind: MenuButton, text: &str) -> impl Bundle + use<> {
     (
         kind,
-        crate::ui::clickable(),
+        UiPointer::default(),
         Node {
             padding: UiRect::axes(Val::Px(8.0), Val::Px(7.0)),
             justify_content: JustifyContent::Center,
@@ -170,7 +171,7 @@ fn small_button(kind: MenuButton, text: &str) -> impl Bundle + use<> {
 fn speed_choice(speed: AnimationSpeed) -> impl Bundle + use<> {
     (
         SpeedChoice(speed),
-        crate::ui::clickable(),
+        UiPointer::default(),
         Node {
             flex_grow: 1.0,
             flex_basis: Val::Px(0.0),
@@ -253,6 +254,8 @@ fn setup_menu(mut commands: Commands) {
                         children![(
                             SeedField,
                             TextInput,
+                            UiPointer::default(),
+                            bevy::input_focus::tab_navigation::TabIndex::default(),
                             EditableText { max_characters: Some(10), ..default() },
                             EditableTextFilter::new(|c| c.is_ascii_digit()),
                             TextFont::from_font_size(18.0),
@@ -286,7 +289,7 @@ fn setup_menu(mut commands: Commands) {
         },
         // Fond assombri qui capte les clics : la carte et les boutons dessous sont inactifs
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
-        Interaction::default(),
+        UiPointer::default(),
         GlobalZIndex(200),
         children![(
             Node {
@@ -354,6 +357,10 @@ fn seed_field(
         editable.queue_edit(TextEdit::SelectAll);
         focus.set(entity, FocusCause::Navigated);
     }
+    // Un clic ailleurs dans le menu retire le focus (Bevy) : le champ le reprend
+    if shown && focus.get().is_none() {
+        focus.set(entity, FocusCause::Navigated);
+    }
     if !shown && *was_shown && focus.get() == Some(entity) {
         focus.clear();
     }
@@ -398,11 +405,11 @@ fn menu_buttons(
     mut focus: ResMut<InputFocus>,
     mut clipboard: ResMut<bevy::clipboard::Clipboard>,
     mut log: ResMut<GameLog>,
-    mut buttons: Query<(Ref<Interaction>, &MenuButton, &mut BackgroundColor)>,
+    mut buttons: Query<(Ref<UiPointer>, &MenuButton, &mut BackgroundColor)>,
     mut exit: MessageWriter<AppExit>,
 ) {
     for (interaction, kind, mut bg) in &mut buttons {
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed {
             match kind {
                 MenuButton::Resume => menu.open = false,
                 MenuButton::Open(page) => menu.page = *page,
@@ -429,7 +436,7 @@ fn menu_buttons(
                 }
             }
         }
-        let hovered = *interaction != Interaction::None;
+        let hovered = *interaction != UiPointer::None;
         let color = match kind {
             MenuButton::Quit if hovered => QUIT_HOVER,
             MenuButton::Quit => QUIT_BG,
@@ -447,18 +454,18 @@ fn menu_buttons(
 /// qu'elle fait.
 fn speed_choices(
     mut settings: ResMut<Settings>,
-    mut choices: Query<(Ref<Interaction>, &SpeedChoice, &mut BackgroundColor)>,
+    mut choices: Query<(Ref<UiPointer>, &SpeedChoice, &mut BackgroundColor)>,
     mut hint: Single<&mut Text, With<SpeedHint>>,
 ) {
     for (interaction, choice, _) in &choices {
-        if interaction.is_changed() && *interaction == Interaction::Pressed && settings.animation != choice.0 {
+        if interaction.is_changed() && *interaction == UiPointer::Pressed && settings.animation != choice.0 {
             settings.animation = choice.0;
         }
     }
     for (interaction, choice, mut bg) in &mut choices {
         let color = if settings.animation == choice.0 {
             CHOICE_ON
-        } else if *interaction != Interaction::None {
+        } else if *interaction != UiPointer::None {
             BUTTON_HOVER
         } else {
             BUTTON_BG

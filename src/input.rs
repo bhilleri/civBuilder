@@ -1,5 +1,6 @@
 //! Caméra et commandes du joueur (souris + clavier).
 
+use crate::pointer::UiPointer;
 use crate::game::{
     City, EndTurnRequested, Fog, GameLog, GameMap, GameState, HexPos, LogText, Selection, Territory, Unit, explore_unit, found_city,
     move_unit, movement_blocked, reserved_by_others,
@@ -105,7 +106,7 @@ fn spawn_camera(mut commands: Commands, map: Res<GameMap>) {
     let start = map.0.find_start().unwrap_or_default();
     let (x, y) = start.to_world();
     // L'interface s'affiche sur la caméra 2D au démarrage (la caméra 3D, inactive, a un ordre plus élevé)
-    commands.spawn((Camera2d, IsDefaultUiCamera, Transform::from_xyz(x, y, 100.0)));
+    commands.spawn((Camera2d, IsDefaultUiCamera, bevy::ui::picking_backend::UiPickingCamera, Transform::from_xyz(x, y, 100.0)));
 }
 
 fn camera_controls(
@@ -157,8 +158,8 @@ fn camera_controls(
     }
 }
 
-fn track_pointer_over_ui(mut over: ResMut<PointerOverUi>, nodes: Query<&Interaction>) {
-    let value = nodes.iter().any(|i| *i != Interaction::None);
+fn track_pointer_over_ui(mut over: ResMut<PointerOverUi>, nodes: Query<&UiPointer>) {
+    let value = nodes.iter().any(|i| *i != UiPointer::None);
     if over.0 != value {
         over.0 = value;
     }

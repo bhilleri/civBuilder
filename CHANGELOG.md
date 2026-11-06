@@ -3,8 +3,9 @@
 ## 0.4.0 (en cours)
 
 ### Technique
-- **Passage à Bevy 0.20.1** : champs de saisie avec `TextInput`, éléments cliquables sans l'ancien `Button`. `Interaction`, déprécié, reste à remplacer par `Hovered` et `Pressed` avant Bevy 0.21.
+- **Passage à Bevy 0.20.1** : champs de saisie avec `TextInput`, plus d'`Interaction` ni de `Button`, dépréciés : le module `pointer.rs` tient l'état du pointeur (`UiPointer`) à partir du picking de Bevy.
 - Textes d'aide du menu alignés à gauche : la mise en page du texte a changé avec Bevy.
+- Seuls les éléments cliquables, les panneaux et les champs réagissent au pointeur ; un élément recouvre maintenant ce qui est dessous (un nom de la carte sous un panneau n'est plus survolé).
 
 ## 0.3.0 « Planet Update » — 4 novembre 2026
 
