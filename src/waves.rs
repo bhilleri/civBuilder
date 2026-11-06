@@ -87,6 +87,9 @@ pub struct Waves {
     pub shore_power: Vec<f32>,
     /// Dérive littorale : puissance le long du rivage (kW/m), avec son sens (x vers l'est, y vers le nord).
     pub shore_drift: Vec<(f32, f32)>,
+    /// Hauteur (m) et période (s) au large de la houle qui arrive vers le rivage (pour le type d'embouchure).
+    pub shore_deep_height: Vec<f32>,
+    pub shore_period: Vec<f32>,
 }
 
 /// Part de l'énergie autour de la direction dominante à partir de laquelle on la dit nette.
@@ -227,6 +230,8 @@ fn run(b: &Basin, winds: &[Vec<(f32, f32)>]) -> Waves {
         shore_height: vec![0.0; n],
         shore_power: vec![0.0; n],
         shore_drift: vec![(0.0, 0.0); n],
+        shore_deep_height: vec![0.0; n],
+        shore_period: vec![0.0; n],
     };
     let open = |i: usize| b.sea[i] && !b.ice[i];
     let cells: Vec<usize> = (0..n).filter(|&i| open(i)).collect();
@@ -306,6 +311,8 @@ fn run(b: &Basin, winds: &[Vec<(f32, f32)>]) -> Waves {
         out.shore_height[i] = r.shore.height;
         out.shore_power[i] = r.shore.power;
         out.shore_drift[i] = r.shore.drift;
+        out.shore_deep_height[i] = r.shore.deep_height;
+        out.shore_period[i] = r.shore.period;
     }
     out
 }
@@ -364,6 +371,8 @@ struct Shore {
     height: f32,
     power: f32,
     drift: (f32, f32),
+    deep_height: f32,
+    period: f32,
 }
 
 /// Résultats d'une case.
@@ -479,7 +488,7 @@ fn shore_of(mean: &[f32; BINS], land: &[bool; 6], spectrum: &Spectrum) -> Shore 
             along += flux * sin_b / cos_b.max(0.1);
         }
     }
-    Shore { height, power: power / 1_000.0, drift: (tx * along / 1_000.0, ty * along / 1_000.0) }
+    Shore { height, power: power / 1_000.0, drift: (tx * along / 1_000.0, ty * along / 1_000.0), deep_height: deep_height_sq.sqrt(), period }
 }
 
 #[cfg(test)]

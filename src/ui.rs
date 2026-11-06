@@ -1508,6 +1508,11 @@ fn update_hover_text(
             if shows(Info::Basin) {
                 line += &basin_note(m, h);
             }
+            if shows(Info::Terrain)
+                && let Some(mouth) = m.mouth(h)
+            {
+                line += &format!("\nEmbouchure : {}", mouth.kind.name());
+            }
             if shows(Info::Network) {
                 line += &network_note(m, &fog, feature.0);
             }

@@ -499,6 +499,15 @@ impl std::ops::AddAssign for Yields {
     }
 }
 
+/// Terre gagnée sur la mer par un delta : altitude (m) à la côte, et un peu plus près du fleuve.
+const DELTA_LAND_M: [f32; 2] = [6.0, 3.0];
+/// Un delta avance sur le plateau (fond inférieur à `SHELF_DEPTH_M`), de une case, deux pour un
+/// fleuve qui apporte au moins ce flux de sédiments (kg/s) et domine (delta digité).
+const DELTA_TWO_CELLS_KG_S: f32 = 800.0;
+/// Il ne ferme ni détroit ni baie : au plus ce nombre de voisines de terre pour une nouvelle case,
+/// sans compter celle d'où il vient.
+const DELTA_MAX_LAND_AROUND: usize = 2;
+
 /// Marcher sur la banquise : 2 PM, comme une forêt.
 pub const ICE_MOVE_COST: u32 = 2;
 /// Banquise : température de la mer du jeu (°C) en dessous de laquelle elle est gelée toute
@@ -836,6 +845,13 @@ pub struct WorldMap {
     waves: crate::waves::Waves,
     /// Banquise : cases de mer gelées toute l'année (voir `is_ice`).
     ice: Vec<bool>,
+    /// Embouchures de fleuve (case, forme), triées par case (voir `mouths.rs`).
+    mouths: Vec<(usize, crate::mouths::Mouth)>,
+    /// Cases de mer devenues terre devant un delta, avec la forme de ce delta (une seule fois :
+    /// refaire le climat ne les fait pas grandir encore).
+    delta_cells: Vec<(usize, crate::mouths::MouthKind)>,
+    /// Écoulements imposés à travers cette terre (case, case réceptrice).
+    delta_routes: Vec<(usize, usize)>,
     /// Cours d'eau et lacs (vides pour une carte remplie à la main).
     hydro: Hydrology,
     /// Échelle et latitude de la carte.
@@ -897,6 +913,9 @@ impl WorldMap {
             tides: crate::tides::Tides::default(),
             waves: crate::waves::Waves::default(),
             ice: Vec::new(),
+            mouths: Vec::new(),
+            delta_cells: Vec::new(),
+            delta_routes: Vec::new(),
             hydro: Hydrology::empty(n),
             region: Region::for_seed(0),
             basins: Basins::empty(n),
@@ -1980,6 +1999,71 @@ impl WorldMap {
         self.index(hex).is_some_and(|i| self.tiles[i].is_sea() && self.ice.get(i).copied().unwrap_or(false))
     }
 
+    /// Embouchure de fleuve de la case (fleuve qui se jette dans la mer), avec sa forme.
+    pub fn mouth(&self, hex: Hex) -> Option<&crate::mouths::Mouth> {
+        let i = self.index(hex)?;
+        self.mouths.binary_search_by_key(&i, |m| m.0).ok().map(|k| &self.mouths[k].1)
+    }
+
+    /// Toutes les embouchures de fleuve : (case, forme) (bilan).
+    #[cfg(test)]
+    pub fn mouths(&self) -> &[(usize, crate::mouths::Mouth)] {
+        &self.mouths
+    }
+
+    /// Forme de chaque embouchure de fleuve, d'après le fleuve, la mer devant et le relief autour.
+    fn classify_mouths(&self) -> Vec<(usize, crate::mouths::Mouth)> {
+        let mut out = Vec::new();
+        for i in 0..self.tiles.len() {
+            let h = self.hex_at(i);
+            if !self.is_fleuve(h) {
+                continue;
+            }
+            let Some(front) = self.downstream(h).map(|d| h + crate::hex::DIRECTIONS[d]) else { continue };
+            let Some(f) = self.index(front).filter(|&f| self.tiles[f].is_sea()) else { continue };
+            // Fond trois cases plus loin, tant que la mer continue dans la même direction
+            let step = front - h;
+            let far = (1..=3).map(|k| (0..k).fold(front, |p, _| p + step)).take_while(|&p| self.depth(p).is_some()).last().and_then(|p| self.depth(p));
+            let relief = self.range(h, 2).filter(|&p| self.get(p).is_some_and(|t| !t.is_water())).filter_map(|p| self.elevation(p)).fold(0.0, f32::max);
+            let w = &self.waves;
+            let (wave_height, wave_period) = if f < w.height.len() { (w.shore_deep_height[f], w.shore_period[f]) } else { (0.0, 8.0) };
+            let input = crate::mouths::MouthInput {
+                discharge: self.discharge(h),
+                murk: self.water_murk(h),
+                tidal_range: self.tides.spring_range(f),
+                wave_height,
+                wave_period,
+                front_depth: self.depth[f],
+                far_depth: far.unwrap_or(self.depth[f]),
+                relief,
+                temperature: self.temperature(h).unwrap_or(15.0),
+            };
+            let mut mouth = crate::mouths::classify(&input);
+            // (la terre gagnée ne change pas la nature de son delta : le fond est différent devant)
+            if let Some(&(_, kind)) = self.delta_cells.iter().find(|c| c.0 == i) {
+                mouth.kind = kind;
+            }
+            out.push((i, mouth));
+        }
+        out
+    }
+
+    /// Fixe la direction aval d'une case (tests).
+    #[cfg(test)]
+    pub fn set_downstream(&mut self, hex: Hex, dir: usize) {
+        let i = self.cell(hex);
+        self.hydro.downstream[i] = Some(dir as u8);
+    }
+
+    /// Donne une forme à l'embouchure d'une case (tests).
+    #[cfg(test)]
+    pub fn set_mouth(&mut self, hex: Hex, kind: crate::mouths::MouthKind) {
+        let i = self.cell(hex);
+        self.mouths.retain(|m| m.0 != i);
+        self.mouths.push((i, crate::mouths::Mouth { kind, river: 0.0, wave: 0.0, tide: 0.0 }));
+        self.mouths.sort_by_key(|m| m.0);
+    }
+
     /// Gèle une case de mer (tests).
     #[cfg(test)]
     pub fn freeze(&mut self, hex: Hex) {
@@ -2464,6 +2548,65 @@ impl WorldMap {
         // 11) Houle (voir waves.rs), sous le vent des régimes du climat, qui ne sert plus ensuite
         let regimes = std::mem::take(&mut self.climate.regime_wind);
         self.waves = crate::waves::simulate(width, height, &sea, &self.ice, &self.depth, &regimes, &region);
+        // 12) Forme des embouchures de fleuve (voir mouths.rs)
+        self.mouths = self.classify_mouths();
+        // 13) Les deltas gagnent sur la mer : l'eau, les noms et la houle sont refaits ; les marées
+        //     ne changent guère pour si peu de cases
+        if self.delta_cells.is_empty() && self.grow_deltas() {
+            self.regenerate_water();
+            self.add_marine_life(seed);
+            let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
+            self.ice = (0..n).map(|i| self.ice[i] && sea[i]).collect();
+            self.waves = crate::waves::simulate(width, height, &sea, &self.ice, &self.depth, &regimes, &region);
+            self.mouths = self.classify_mouths();
+        }
+    }
+
+    /// Fait avancer les deltas : les cases de mer peu profonde devant leur embouchure deviennent
+    /// de la terre basse. `true` si au moins une a changé.
+    fn grow_deltas(&mut self) -> bool {
+        use crate::mouths::MouthKind;
+        let mut grown: Vec<(usize, Hex, f32, MouthKind)> = Vec::new();
+        let mut routes: Vec<(usize, usize)> = Vec::new();
+        for &(i, m) in &self.mouths {
+            if !matches!(m.kind, MouthKind::BirdFoot | MouthKind::Arcuate | MouthKind::TidalDelta) {
+                continue;
+            }
+            let h = self.hex_at(i);
+            let Some(d) = self.downstream(h) else { continue };
+            let cells = if m.kind == MouthKind::BirdFoot && m.river >= DELTA_TWO_CELLS_KG_S { 2 } else { 1 };
+            let (mut from, mut p) = (h, h + crate::hex::DIRECTIONS[d]);
+            for k in 0..cells {
+                let Some(c) = self.index(p) else { break };
+                let taken = |g: &[(usize, Hex, f32, MouthKind)], j: usize| g.iter().any(|x| x.0 == j);
+                let around = self.neighbors(p).iter().filter(|&&nb| self.canonical(nb) != self.canonical(from)).filter(|&&nb| self.index(nb).is_some_and(|j| !self.tiles[j].is_sea() || taken(&grown, j))).count();
+                if !self.tiles[c].is_sea() || self.ice[c] || self.depth[c] >= SHELF_DEPTH_M || taken(&grown, c) || around > DELTA_MAX_LAND_AROUND {
+                    break;
+                }
+                // (plus bas que la case d'où il vient : l'eau descend)
+                let ground = self.elevation[self.cell(from)].max(1.0) * 0.5;
+                let ground = grown.iter().find(|g| g.1 == from).map_or(ground, |g| g.2 * 0.5);
+                grown.push((c, p, DELTA_LAND_M[k.min(1)].min(ground), m.kind));
+                routes.push((self.cell(from), c));
+                from = p;
+                p = p + crate::hex::DIRECTIONS[d];
+            }
+        }
+        for &(c, p, meters, kind) in &grown {
+            // (le biome de son propre climat : `verifier` et `regenerer climat` le retrouvent)
+            let terrain = self.climate_biome(c, self.climate_base.as_ref().map_or(1.0, |b| b.jitter[c]));
+            self.set(p, terrain);
+            self.elevation[c] = meters;
+            self.delta_cells.push((c, kind));
+        }
+        self.delta_routes = routes;
+        !grown.is_empty()
+    }
+
+    /// Cases gagnées sur la mer par les deltas.
+    #[cfg(test)]
+    pub fn delta_cells(&self) -> &[(usize, crate::mouths::MouthKind)] {
+        &self.delta_cells
     }
 
     /// Biome d'une case de terre selon son climat, l'aridité variée de `jitter` (sols, exposition).
@@ -2524,6 +2667,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
+        self.mouths = self.classify_mouths();
         true
     }
 
@@ -2540,6 +2684,7 @@ impl WorldMap {
             width: self.width,
             height: self.height,
             cell_km: self.region.cell_km,
+            routes: &self.delta_routes,
             elevation: &self.elevation,
             sea: &sea,
             runoff: &self.climate.runoff,
@@ -3441,6 +3586,30 @@ mod fond_marin {
     use super::*;
 
     #[test]
+    fn un_delta_gagne_sur_la_mer_et_le_fleuve_le_traverse() {
+        let mut m = WorldMap::generate_in(128, 74, 5, crate::climate::Region::planet(crate::climate::CELL_KM, 74));
+        let grown = m.delta_cells().to_vec();
+        assert!(!grown.is_empty(), "au moins un delta gagne sur la mer");
+        for &(c, _) in &grown {
+            let h = m.hex_at(c);
+            assert!(!m.get(h).unwrap().is_sea(), "case gagnée : de la terre");
+            assert!(m.elevation(h).unwrap() > 0.0 && m.elevation(h).unwrap() <= DELTA_LAND_M[0]);
+        }
+        // Le fleuve traverse la terre gagnée : chaque écoulement imposé est bien suivi
+        for &(from, to) in &m.delta_routes {
+            let h = m.hex_at(from);
+            let down = m.downstream(h).map(|d| m.cell(h + crate::hex::DIRECTIONS[d]));
+            assert_eq!(down, Some(to), "écoulement imposé depuis {:?}", h.to_offset());
+        }
+        // Aucune incohérence, et refaire le climat ne fait pas grandir les deltas
+        assert!(crate::debug_cmd::verify(&m, None).is_empty());
+        let before = m.tiles.iter().filter(|t| t.is_sea()).count();
+        m.regenerate_climate();
+        assert_eq!(m.delta_cells().len(), grown.len());
+        assert_eq!(m.tiles.iter().filter(|t| t.is_sea()).count(), before);
+    }
+
+    #[test]
     fn on_marche_sur_la_banquise_mais_pas_sur_la_mer() {
         let mut m = WorldMap::filled(8, 8, Terrain::Ocean);
         let (land, ice, sea) = (Hex::from_offset(3, 3), Hex::from_offset(4, 3), Hex::from_offset(5, 3));
@@ -3484,6 +3653,46 @@ mod fond_marin {
         assert!(!m.is_ice(h));
         // Monde sans banquise calculée : aucune
         assert!(!WorldMap::filled(6, 6, Terrain::Ocean).is_ice(h));
+    }
+
+    /// Bilan des embouchures de fleuve : formes, flux de sédiments et marnage, par graine :
+    /// `cargo test bilan_embouchures -- --ignored --nocapture` (`SEEDS=777,2` ; `MOUTHS_LIST=1` : chacune).
+    #[test]
+    #[ignore]
+    fn bilan_embouchures() {
+        use crate::mouths::MouthKind;
+        let seeds: Vec<u32> = std::env::var("SEEDS").map_or(vec![777, 2, 5, 4242], |s| s.split(',').map(|x| x.parse().unwrap()).collect());
+        let mut totals = vec![0usize; MouthKind::ALL.len()];
+        for seed in seeds {
+            let t = std::time::Instant::now();
+            let m = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            println!("génération {:.1} s", t.elapsed().as_secs_f32());
+            let med = |f: &dyn Fn(&crate::mouths::Mouth) -> f32| {
+                let mut v: Vec<f32> = m.mouths().iter().map(|(_, q)| f(q)).collect();
+                v.sort_by(f32::total_cmp);
+                v.get(v.len() / 2).copied().unwrap_or(0.0)
+            };
+            let dominant = |pick: &dyn Fn(&crate::mouths::Mouth) -> bool| m.mouths().iter().filter(|(_, q)| pick(q)).count();
+            print!("graine {seed} : {} embouchures ;", m.mouths().len());
+            for (k, kind) in MouthKind::ALL.iter().enumerate() {
+                let n = m.mouths().iter().filter(|(_, q)| q.kind == *kind).count();
+                totals[k] += n;
+                print!(" {} {n},", kind.name());
+            }
+            let on_delta = m.mouths().iter().filter(|(i, _)| m.delta_cells().iter().any(|c| c.0 == *i)).count();
+            println!("\n  cases gagnées sur la mer {}, embouchures sur une de ces cases {on_delta}", m.delta_cells().len());
+            println!(
+                "  flux médians (kg/s) : fleuve {:.0}, houle {:.0}, marée {:.0} ; plus fort : fleuve {}, houle {}, marée {}",
+                med(&|q| q.river), med(&|q| q.wave), med(&|q| q.tide),
+                dominant(&|q| q.river >= q.wave && q.river >= q.tide), dominant(&|q| q.wave > q.river && q.wave >= q.tide), dominant(&|q| q.tide > q.river && q.tide > q.wave),
+            );
+            if std::env::var("MOUTHS_LIST").is_ok() {
+                for (i, q) in m.mouths() {
+                    println!("   {:?} {} : débit {:.0}, flux {:.0} / {:.0} / {:.0}", m.hex_at(*i).to_offset(), q.kind.name(), m.discharge(m.hex_at(*i)), q.river, q.wave, q.tide);
+                }
+            }
+        }
+        println!("total : {:?}", MouthKind::ALL.iter().map(|k| k.name()).zip(&totals).collect::<Vec<_>>());
     }
 
     /// Bilan de la houle : hauteur par bande de latitude, part de houle venue d'ailleurs, période,

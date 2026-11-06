@@ -1231,7 +1231,8 @@ fn setup_water_overlay(
         map.0.hexes().map(|h| (h, hex_water(&map.0, h))).filter(|(_, s)| !s.is_empty()).collect();
     let mesh = meshes.add(SlopeMeshBuilder::default().build());
     let material = materials.add(ColorMaterial::from_color(Color::WHITE));
-    commands.spawn((Mesh2d(mesh.clone()), MeshMaterial2d(material), Transform::from_xyz(0.0, 0.0, Z_WATER)));
+    // (maillage créé vide puis rempli : sa boîte englobante ne suit pas, il serait jugé hors de l'écran)
+    commands.spawn((Mesh2d(mesh.clone()), MeshMaterial2d(material), Transform::from_xyz(0.0, 0.0, Z_WATER), bevy::camera::visibility::NoFrustumCulling));
     commands.insert_resource(WaterOverlay { shapes, mesh });
 }
 

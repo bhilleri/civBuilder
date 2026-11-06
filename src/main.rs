@@ -30,6 +30,7 @@ mod map;
 mod options;
 mod menu;
 mod mountains;
+mod mouths;
 mod pathfinding;
 mod plates;
 mod pointer;

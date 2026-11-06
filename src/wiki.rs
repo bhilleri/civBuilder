@@ -292,6 +292,16 @@ fn climate() -> Article {
                s'ajoutent) ; l'infobulle d'une mer le donne, avec le courant de marée quand il est fort (détroits, \
                plateaux). Deux boutons de sa légende ajoutent les lignes d'heure de pleine mer (la marée avance \
                d'une ligne à la suivante, ronds blancs : points sans marée) et des flèches du sens de la marée."),
+            h("Embouchures"),
+            p("Un fleuve apporte des sédiments, la houle et la marée les reprennent, et la forme de l'embouchure dépend \
+               de celui qui l'emporte. Si le fleuve domine, il bâtit un delta digité dont les bras s'avancent en mer ; \
+               si c'est la houle, un delta arqué bordé de plages, ou une lagune derrière un cordon de sable quand le \
+               fleuve apporte peu ; si c'est la marée, un delta de marée en eau chargée, ou un estuaire en eau claire. \
+               Une mer profonde tout de suite ne laisse pas de place à un delta : c'est aussi un estuaire. Une vallée \
+               de relief envahie par la mer forme une ria, une vallée glaciaire dans le froid un fjord. Sur la carte, \
+               un estuaire s'ouvre en entonnoir et un delta digité se divise en plusieurs bras. Un delta gagne sur la \
+               mer quand le fond est peu profond : une ou deux cases de terre basse que le fleuve traverse. \
+               L'infobulle d'une case d'embouchure donne son type."),
             h("Houle"),
             p("Le vent lève les vagues. Leur hauteur dépend de sa force, de la distance de mer sur laquelle il \
                souffle et de sa durée. Quand elles quittent le vent qui les a formées, elles deviennent de la houle : \

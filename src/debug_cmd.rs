@@ -703,6 +703,9 @@ pub fn info(map: &WorldMap, hex: Hex) -> Vec<String> {
         }
     }
     lines.push(water);
+    if let Some(mouth) = map.mouth(hex) {
+        lines.push(format!("embouchure={} flux-sediments(kg/s) fleuve={:.0} houle={:.0} maree={:.0}", token(mouth.kind.name()), mouth.river, mouth.wave, mouth.tide));
+    }
     if let Some(name) = map.named_river(hex).map(|r| r.name.clone()) {
         lines.push(format!("cours-d-eau={name}"));
     }
