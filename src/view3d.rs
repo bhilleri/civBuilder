@@ -1775,7 +1775,7 @@ impl ReliefQueue {
 }
 
 /// Temps de calcul maximal du relief 3D par image (ms).
-const RELIEF_BUDGET_MS: f32 = 6.0;
+const RELIEF_BUDGET_MS: f32 = 10.0;
 /// Temps de préparation du relief 3D par image pendant qu'on joue en 2D (ms).
 const RELIEF_BUDGET_2D_MS: f32 = 3.0;
 /// Durée d'image au-delà de laquelle le budget du relief est réduit (un peu plus qu'une image à

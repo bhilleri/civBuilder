@@ -163,8 +163,19 @@ Implémenté dans `src/map.rs` (`Relief`, génération, déplacements, rendement
   |---|---|---|---|
   | 900 | 10,9 et 13,4 → 10,8 et 11,1 s | 15,1-15,5 → 10,0-10,4 s | 16,7-18,4 → 16,7 ms |
   | 2800 | 15,9-16,0 → 11,2-11,3 s | 14,5-14,9 → 10,0-10,1 s | 18,6-19,0 → 16,7-16,8 ms |
+- **Budget du relief 3D porté de 6 à 10 ms** (`RELIEF_BUDGET_MS`, choix de Benjamin : traiter ce point ; valeur choisie d'après un balayage). À 6 ms, un paquet coûtant ≈ 4,1 ms, 78 % des images n'en traitaient qu'un, alors que le fil principal gardait ≈ 6,7 ms de marge à 60 images/s. Carte normale, sur 1 essai pour le balayage :
+
+  | Budget | À l'arrêt | En défilant | Dézoom 2800 en défilant | Images > 20 ms |
+  |---|---|---|---|---|
+  | 6 ms | 11,1 s | 9,7 s | 9,4 s | 0 / 0 / 4 |
+  | 8 ms | 8,9 s | 8,2 s | 8,0 s | 0 / 0 / 2 |
+  | **10 ms** | **6,9 s** | **7,0 s** | **7,0 s** | **0 / 1 / 4** |
+  | 12 ms | 5,5 s | 6,2 s | 6,7 s | 1 / 4 / 4 |
+  | 14 ms | 5,2 s | 5,8 s | 6,5 s | 5 / 9 / 5 |
+
+  Confirmation à 10 ms (à l'arrêt / en défilant) : carte normale, 2 essais, 11,0 / 9,8 → 6,9 / 6,9 s ; graine 4242, 8,4 / 7,5 → 4,6 / 4,7 s ; graine 2, 9,3 / 8,8 → 5,3 / 5,5 s ; 128×74, 3,3 / 3,5 → 1,9 / 1,7 s ; 256×148, 15,3 / 15,3 → 8,8 / 9,0 s ; plaques → 6,8 / 7,0 s ; réseau → 6,6 / 6,8 s ; climat, carte la plus lente, → 7,6 / 8,9 s. 60 images/s tenues, aucune image au-delà de 25 ms pendant la construction sauf 2 sur la carte du climat en défilant (max 25 ms, déjà au même niveau à 6 ms). Déplacements avec zoom (`travelling`, six trajets de 2 800 à 260, 2 essais) : à-coups et pire image comme à 6 ms.
+- **Limite du budget à 10 ms** : sur un écran plus rapide que 60 Hz (simulé sans synchronisation verticale), la construction passe de 6,7 à 5,5 s, mais la durée d'image moyenne de 10,2 à 12,8 ms pendant la construction (≈ 98 → 78 images/s). Le budget adaptatif ne réagit qu'au-delà de 17,5 ms, il ne protège donc pas ce cas. Machine plus lente et version distribuée non mesurées.
 - **Non traité** :
-  - Budget : le débit vaut ≈ 42 cases × images par seconde (sans synchronisation verticale : 6,7 s au lieu de 11). Un paquet coûte ≈ 4,1 ms, donc 78 % des images n'en traitent qu'un alors qu'il reste de la marge.
   - 32 % de traitements en plus du nombre de cases (rivières voisines refaites).
   - Flèches du climat et des courants, recalculées à chaque image (fil principal à 8 et 6 ms au lieu de 4 quand la carte est construite).
   - À-coup de 60 à 100 ms vers x ≈ 8 260 en défilant à la distance 2800, côté extraction ou rendu, cause non identifiée.
