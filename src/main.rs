@@ -30,6 +30,7 @@ mod map;
 mod options;
 mod menu;
 mod mountains;
+mod mouths;
 mod pathfinding;
 mod plates;
 mod pointer;
@@ -51,6 +52,7 @@ mod ui;
 mod units;
 mod view3d;
 mod waterways;
+mod waves;
 mod wiki;
 
 use bevy::prelude::*;
@@ -61,6 +63,10 @@ fn main() {
             primary_window: Some(Window {
                 title: "CivBuilder".into(),
                 resolution: (1400, 860).into(),
+                // `CIVBUILDER_ECRAN=2` : ouvre la fenêtre sur cet écran (tests sans gêner le bureau)
+                position: std::env::var("CIVBUILDER_ECRAN").ok().and_then(|e| e.parse::<usize>().ok()).filter(|&e| e >= 1).map_or(WindowPosition::Automatic, |e| {
+                    WindowPosition::Centered(MonitorSelection::Index(e - 1))
+                }),
                 ..default()
             }),
             ..default()

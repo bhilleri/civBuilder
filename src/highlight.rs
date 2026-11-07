@@ -240,7 +240,8 @@ fn course_point(map: &WorldMap, fog: &ShownFog, p: CoursePoint) -> (Vec2, bool) 
         return ((Vec2::new(ax, ay) + Vec2::new(bx, by)) / 2.0, known);
     }
     let j = p.corner as usize;
-    let at = center + Vec2::from_angle((-30.0 + 60.0 * j as f32).to_radians()) * HEX_SIZE;
+    // (là où passent vraiment les rivières : voir `waterways::river_node`)
+    let at = crate::waterways::river_node(map, center + Vec2::from_angle((-30.0 + 60.0 * j as f32).to_radians()) * HEX_SIZE);
     let known = [hex, hex + DIRECTIONS[(j + 5) % 6], hex + DIRECTIONS[j]].iter().any(|&h| fog.explored.contains(&map.canonical(h)));
     (at, known)
 }

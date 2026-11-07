@@ -62,7 +62,7 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [x] Structures : ponts et tête de pont d'une ville fortifiée (décor pour l'instant).
 - [ ] Effet de jeu d'un pont (traversée d'une rivière) : à décider avec Benjamin.
 - [ ] Règle de la fortification (production d'un bâtiment, effet en combat) : la muraille ne se pose encore qu'à la console.
-- [ ] Banquise jouable (eau gelée, selon la température de la mer).
+- [x] Banquise jouable (06/11) : calcul, affichage, marche, pas de ville ni de structure, pêche conservée (voir `conception/conception-fonds-marins.md`).
 - [x] Toponymie étape 3 (01/11) : continents, îles, îlots, archipels, péninsules, isthmes (`lands.rs`).
 - [x] Toponymie étape 4 (01/11) : chaînes, massifs, cols, plateaux, collines (`mountains.rs`).
 - [x] Toponymie étape 5 (01/11) : régions naturelles et sous-régions (`regions.rs`).

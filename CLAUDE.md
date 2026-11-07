@@ -22,11 +22,11 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
   - Toujours passer `--no-default-features`, y compris à `cargo run` : l'alterner avec les options par défaut
     recompile 15 crates (≈ 2 min).
   - Ne pas définir `RUSTC_BOOTSTRAP` dans un `target` à garder : le changer recompile la plupart des dépendances.
-- Lancer le jeu : `cargo run --no-default-features` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74`).
+- Lancer le jeu : `cargo run --no-default-features` (graine fixe : `CIVBUILDER_SEED=777` ; autre taille : `CIVBUILDER_MAP=128x74` ; sur un autre écran : `CIVBUILDER_ECRAN=2`, à utiliser pour les captures et les scripts afin de ne pas gêner Benjamin).
 - **Captures d'écran** (vérification visuelle sans jouer) : `CIVBUILDER_SEED=777 CIVBUILDER_CAPTURE=<dossier> cargo run --no-default-features`
   → met en scène (deux villes dont une sur un relief accidenté, les douze types d'unités près d'une
-  montagne, trois unités en barque sur un fleuve, carte révélée), passe en 3D, enregistre ~8 vues en PNG dans le dossier (ville, unités,
-  vue lointaine, pic voisin d'une montagne, camp, village, carte des courants marins) puis se ferme (≈ 30 s après la génération). Lire les images pour
+  montagne, trois unités en barque sur un fleuve, carte révélée), passe en 3D, enregistre une vingtaine de vues en PNG dans le dossier (ville, unités,
+  vue lointaine, pic voisin d'une montagne, camp, village, cartes des courants marins, des marées et de la houle) puis se ferme (≈ 30 s après la génération). Lire les images pour
   vérifier un rendu ; ajouter des vues dans `src/capture.rs` si besoin. Le dossier de captures
   va dans le scratchpad, pas dans le dépôt. Avec `CIVBUILDER_CAPTURE_FEEDBACK=1` en plus : animations
   des combats et d'une visite de village (`feedback.rs`), vues à huit instants (la dernière, bouton de fin de tour rendu), en 2D puis en 3D.
@@ -42,7 +42,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - Bilans chiffrés (tests ignorés, à lancer à la main avec `-- --ignored --nocapture`) :
   `bilan_tectonique` (terres, montagnes, pics, lacs sur les graines 777 / 2 / 5),
   `bilan_fond_marin`, `vue_des_mers` (`SEAS_SEED`, `SEAS_DUMP` : vue des étendues marines),
-  `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_terres` (continents, îles, archipels, péninsules, isthmes), `bilan_relief` (chaînes, massifs, cols, plateaux, collines), `bilan_regions` (régions naturelles et sous-régions), `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `bilan_marees` (marnage en pleine mer, sur le plateau et aux côtes, courants de marée, plus forts marnages ; `SEEDS=777,2`), `bilan_montagnes` (montagnes par coût, traversées de massif), `bilan_verifier` (incohérences de cartes générées, doit être 0), `bilan_aridite` (pluie, ETP, humidité de l'air, biomes et altitude par bande de latitude, côtes est et ouest par saison, bilan d'eau de la planète ; `SEEDS=777,2`), `empreinte_generation` (empreinte
+  `formes_des_terres` (`FORMES_ASCII` : carte en caractères), `bilan_noms`, `bilan_terres` (continents, îles, archipels, péninsules, isthmes), `bilan_relief` (chaînes, massifs, cols, plateaux, collines), `bilan_regions` (régions naturelles et sous-régions), `bilan_eau`, `bilan_courants` (`CURRENTS_DUMP` : courants exportés), `bilan_marees` (marnage en pleine mer, sur le plateau et aux côtes, courants de marée, plus forts marnages ; `SEEDS=777,2`), `bilan_embouchures` (formes et flux de sédiments ; `SEEDS=777,2`, `MOUTHS_LIST=1`), `bilan_houle` (hauteur par bande de latitude, houle venue d'ailleurs, côtes ; `SEEDS=777,2`), `bilan_montagnes` (montagnes par coût, traversées de massif), `bilan_verifier` (incohérences de cartes générées, doit être 0), `bilan_aridite` (pluie, ETP, humidité de l'air, biomes et altitude par bande de latitude, côtes est et ouest par saison, bilan d'eau de la planète ; `SEEDS=777,2`), `empreinte_generation` (empreinte
   de deux cartes : à comparer avant et après un remaniement de la génération), `generation_planete`.
 - Mode debug (carte révélée) : menu Échap → Paramètres, bouton « Mode debug ». Wiki en jeu : F1.
 - **Scripts de commandes** (préparer un cas à tester sans toucher au code) :

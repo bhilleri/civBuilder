@@ -266,6 +266,17 @@ pub struct Climate {
     pub season_temp: Vec<[f32; 4]>,
     pub season_rain: Vec<[f32; 4]>,
     pub season_pet: Vec<[f32; 4]>,
+    /// Vent de surface de chaque régime de l'année : la houle en a besoin à la génération
+    /// (`WorldMap` le reprend ensuite pour ne pas le garder en mémoire).
+    pub regime_wind: Vec<RegimeWind>,
+}
+
+/// Vent de surface d'un régime météo (m/s par case, x vers l'est, y vers le nord).
+#[derive(Clone, Debug)]
+pub struct RegimeWind {
+    /// Position du soleil (voir `Period::sun_lat`).
+    pub sun_lat: f32,
+    pub surface: Vec<(f32, f32)>,
 }
 
 impl Climate {
@@ -404,7 +415,7 @@ fn band_pressure(lat: f32) -> f32 {
 }
 
 /// Bosse douce valant 1 entre `a` et `b`, 0 au-delà de la marge `m`.
-fn bump(x: f32, a: f32, b: f32, m: f32) -> f32 {
+pub(crate) fn bump(x: f32, a: f32, b: f32, m: f32) -> f32 {
     let rise = ((x - (a - m)) / m).clamp(0.0, 1.0);
     let fall = (((b + m) - x) / m).clamp(0.0, 1.0);
     rise.min(fall)
@@ -894,6 +905,7 @@ pub fn simulate_periods(
     // Sommes au début de chaque période : les valeurs par saison sont les écarts
     let mut season_sums: Vec<Vec<(f32, f32, f32)>> = Vec::with_capacity(periods.len());
     let mut season_samples: Vec<f32> = Vec::with_capacity(periods.len());
+    let mut regime_wind: Vec<RegimeWind> = Vec::new();
     for (p, &period) in periods.iter().enumerate() {
         let before: Vec<(f32, f32, f32)> = sums.iter().map(|s| (s.temperature, s.rain, s.pet)).collect();
         let samples_before = samples;
@@ -971,6 +983,7 @@ pub fn simulate_periods(
             .into_par_iter()
             .map(|k| regime(&grid, period, seed.wrapping_add(p as u32 * 101), k, &land_heat, &ground, &continental))
             .collect();
+        regime_wind.extend(regimes.iter().map(|r| RegimeWind { sun_lat: period.sun_lat, surface: r.surface.clone() }));
         let warm_up = steps(if p == 0 { SPIN_UP_DAYS } else { TRANSITION_DAYS });
         let per_regime = steps(REGIME_DAYS);
         let total = warm_up + REGIMES as usize * per_regime;
@@ -1066,6 +1079,7 @@ pub fn simulate_periods(
         season_temp: seasonal(0, &|s: &Sums| s.temperature / samples),
         season_rain: seasonal(1, &|s: &Sums| s.rain * per_year),
         season_pet: seasonal(2, &|s: &Sums| s.pet * per_year),
+        regime_wind,
     }
 }
 

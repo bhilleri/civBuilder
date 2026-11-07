@@ -25,7 +25,7 @@ use crate::relief::{
 };
 use bevy::mesh::Indices;
 use rayon::prelude::*;
-use crate::waterways::{WaterAxis, WaterKind, WaterShape, hex_water};
+use crate::waterways::{WaterAxis, WaterKind, WaterShape, hex_gap, hex_water};
 
 /// Couche de rendu du monde 3D (la 2D reste sur la couche 0).
 pub const LAYER_3D: usize = 1;
@@ -252,6 +252,8 @@ impl Relief {
             None => land,
             Some((_, surface)) if land == f32::MAX => surface - MOUTH_BELOW,
             Some((d, surface)) => {
+                // (près de la mer, le lit ne descend pas sous son niveau : pas de tranchée dans la plage)
+                let land = if surface <= SEA_LEVEL { land.max(surface - MOUTH_BELOW) } else { land };
                 let f = 1.0 - smoothstep01(d / bed.far);
                 land + (surface - MOUTH_BELOW - land) * f
             }
@@ -507,6 +509,7 @@ impl Plugin for View3dPlugin {
                     draw_overlays_3d,
                     draw_wind_3d,
                     draw_currents_3d,
+                    draw_waves_3d,
                     draw_tide_lines_3d,
                     draw_plates_3d,
                     sync_seam_copies,
@@ -532,10 +535,14 @@ const LEVEL_TOWARD_MEAN: f32 = 0.3;
 /// Un cours d'eau qui se jette dans la mer ou un lac arrive juste sous leur surface.
 const MOUTH_BELOW: f32 = 0.06;
 /// Distance sur laquelle l'eau d'une embouchure prend la couleur de la mer ou du lac (rivière, fleuve).
-const MOUTH_BLEND: f32 = 14.0;
-const MOUTH_BLEND_FLEUVE: f32 = 30.0;
+pub const MOUTH_BLEND: f32 = 14.0;
+pub const MOUTH_BLEND_FLEUVE: f32 = 30.0;
 /// Dénivelé minimal d'une chute d'eau.
 const CASCADE_MIN_DROP: f32 = 4.0;
+/// Écume d'une chute : pente de la surface (hauteur par unité) où elle commence et où elle est
+/// entière, et pas de mesure de cette pente.
+const CASCADE_SLOPE: (f32, f32) = (0.7, 1.3);
+const CASCADE_SLOPE_STEP: f32 = 1.5;
 /// Part de l'écume dans la couleur d'une chute d'eau (le reste : la couleur de l'eau).
 const CASCADE_FOAM: f32 = 0.55;
 /// Redécoupage des triangles d'eau là où la surface se courbe : écart toléré entre la surface et
@@ -546,9 +553,11 @@ const WATER_SPLIT_MIN: f32 = 0.5;
 /// Surélévation de l'eau d'un affluent qui entre dans un fleuve, et des éléments des rapides (eau
 /// vive, eau lisse, écume, rochers : dans cet ordre, du dessous au dessus).
 const INFLOW_LIFT: f32 = 0.04;
-const LIGHT_LIFT: f32 = 0.02;
-const SHADE_LIFT: f32 = 0.03;
-const FOAM_LIFT: f32 = 0.08;
+// (au moins la tolérance de la surface de l'eau, `WATER_SPLIT_TOLERANCE` : sinon ces couches passent
+// par endroits sous de grands triangles d'eau, et l'eau vive se lit en bandes et en éclats)
+const LIGHT_LIFT: f32 = 0.14;
+const SHADE_LIFT: f32 = 0.15;
+const FOAM_LIFT: f32 = 0.18;
 const ROCK_LIFT: f32 = 0.25;
 
 /// Hauteur 3D d'une altitude réelle (m) : 150 m ≈ 16, 2 400 m ≈ 56, 4 800 m ≈ 98 (les anciennes
@@ -1322,6 +1331,11 @@ fn update_relief_3d(
     // Couleur du sol d'une case selon la carte affichée
     let hex_color = |hex: Hex| match (fog.explored.contains(&map.0.canonical(hex)), *layer) {
         (false, _) => Vec3::ONE,
+        (true, shown) if shown.shows_ice() && map.0.is_ice(hex) => {
+            let (r, g, b) = crate::render::ICE_COLOR;
+            let c = Color::srgb(r, g, b).to_linear();
+            Vec3::new(c.red, c.green, c.blue)
+        }
         // Lit d'un fleuve en forêt : prairie de berge (pas d'arbres dans le lit)
         (true, MapLayer::Normal | MapLayer::Resources) if map.0.is_fleuve(hex) && map.0.get(hex).is_some_and(|t| t.is_wooded()) => {
             terrain_color(Terrain::Grassland)
@@ -1338,12 +1352,19 @@ fn update_relief_3d(
                 MapLayer::Geography => geo.0.shade.get(map.0.cell(map.0.canonical(hex))).map_or(crate::render::GEO_LAND, |&s| crate::render::geo_color(s)),
                 MapLayer::Currents => currents_color(&map.0, hex),
                 MapLayer::Tides => crate::render::tides_color(&map.0, hex),
+                MapLayer::Waves => crate::render::waves_color(&map.0, hex),
                 _ => hydro_color(&map.0, hex, thematic),
             };
             let c = Color::srgb(r, g, b).to_linear();
             Vec3::new(c.red, c.green, c.blue)
         }
     };
+    // Le fondu d'une embouchure vise la couleur affichée de l'eau (carte, banquise), pas toujours la
+    // mer de la carte normale
+    if layer.is_changed() || fog.is_changed() {
+        let colors: Vec<(Hex, Vec3)> = relief.water_hexes.iter().filter(|h| fog.explored.contains(*h)).map(|&h| (h, hex_color(h))).collect();
+        relief.water_colors.extend(colors);
+    }
     // (case, numéro du paquet où elle a été refaite)
     let mut reshaped: Vec<(Hex, usize)> = Vec::new();
     let mut processed: Vec<(Hex, usize)> = Vec::new();
@@ -1412,7 +1433,12 @@ fn update_relief_3d(
                     if land && fog.explored.contains(&n) { hex_color(n) } else { color }
                 })
             });
-            jobs.push((hex, relief.tops[&hex], color, sides, near, water(hex)));
+            let mut top = relief.tops[&hex];
+            // Pas de plage de sable dans le grand froid ni contre la banquise
+            let cold = matches!(map.0.get(hex), Some(Terrain::Snow | Terrain::Tundra));
+            top.beach = !cold && !map.0.neighbors(hex).iter().any(|&n| map.0.is_ice(n));
+            (top.warp_corners, top.warp_edges) = crate::waterways::coast_warp(&map.0, hex);
+            jobs.push((hex, top, color, sides, near, water(hex)));
         }
         let bumps = &relief.bumps;
         let built: Vec<(Hex, MeshData)> = jobs
@@ -1537,7 +1563,8 @@ fn update_relief_3d(
                     v
                 }
             };
-            (*e, water_mesh(relief, &near, shape, shape.visible(hex, explored), explored))
+            let fade = map.0.is_fleuve(hex).then(|| crate::waterways::fleuve_fade(&map.0, hex));
+            (*e, water_mesh(fade, relief, &near, shape, shape.visible(hex, explored), explored))
         })
         .collect();
     for (e, data) in built {
@@ -1562,6 +1589,7 @@ fn smooth(average: f32, sample: f32) -> f32 {
 /// Maillage des cours d'eau d'une case : surface plate en travers du lit, un peu sous le niveau
 /// du sol (prise sur l'axe du cours d'eau, lissée le long du cours), couleur selon le type.
 fn water_mesh<'a>(
+    fade: Option<(Vec<Hex>, Option<f32>)>,
     relief: &Relief,
     near: &[Channel],
     shape: &WaterShape,
@@ -1579,15 +1607,15 @@ fn water_mesh<'a>(
     let fresh = terrain_color(Terrain::Lake);
     // Mer ou lac le plus proche d'un point parmi ceux d'alentour (`waters_around`, cherchés une
     // fois par triangle) : distance (approchée) et couleur
-    let nearest_water = |waters: &[(Vec2, Vec3)], p: Vec2| waters.iter().map(|&(c, color)| ((p.distance(c) - HEX_SIZE * 0.866).max(0.0), color)).min_by(|a, b| a.0.total_cmp(&b.0));
-    let tint = |waters: &[(Vec2, Vec3)], p: Vec2, tone: crate::waterways::Tone, kind: WaterKind| {
+    let nearest_water = |waters: &[(Vec2, Vec3)], p: Vec2| waters.iter().map(|&(c, color)| (hex_gap(p, c), color)).min_by(|a, b| a.0.total_cmp(&b.0));
+    let tint = |waters: &[(Vec2, Vec3)], p: Vec2, tone: crate::waterways::Tone, kind: WaterKind, blend: f32| {
         // Teinte du cours d'eau (débit, limon), qui se fond dans la mer ou le lac où il se jette
         // (sur une plus longue distance pour un fleuve : pas de coupure de couleur à l'embouchure)
         let water = tone.apply(fresh);
         let own = kind.rapids_color(tone, water).unwrap_or(water);
-        let blend = if kind == WaterKind::Fleuve { MOUTH_BLEND_FLEUVE } else { MOUTH_BLEND };
+        // (vers la couleur du bord de la case d'eau, assombri : pas de ligne droite à l'arête)
         let c = match nearest_water(waters, p) {
-            Some((d, water)) => own.lerp(water, 1.0 - smoothstep01(d / blend)),
+            Some((d, water)) => own.lerp(water * crate::relief::EDGE_SHADE, 1.0 - smoothstep01(d / blend)),
             None => own,
         };
         [c.x, c.y, c.z, 1.0]
@@ -1614,7 +1642,20 @@ fn water_mesh<'a>(
             known.push((p, y));
             y
         };
-        let waters = relief.waters_around((a + b + c) / 3.0);
+        // Un fleuve ne se fond que dans l'eau où il s'ouvre : il ne bleuit pas en longeant une mer
+        let mut waters = relief.waters_around((a + b + c) / 3.0);
+        let fleuve_bed = shape.channels[t.channel].kind != WaterKind::River || shape.channels[t.channel].inflow.is_some();
+        if let Some((open, _)) = fade.as_ref().filter(|_| fleuve_bed) {
+            waters.retain(|&(w, _)| open.iter().any(|h| w.distance(Vec2::from(h.to_world())) < 1.0));
+        }
+        // Même fondu pour tout ce qui est posé sur un fleuve (rapides, panache d'un affluent) que
+        // pour le fleuve : sinon ils gardent leur couleur sur une eau déjà bleue (dalles claires)
+        let bed = &shape.channels[t.channel];
+        let blend = match fade.as_ref().and_then(|f| f.1) {
+            Some(inlet) if fleuve_bed => inlet,
+            _ if bed.kind == WaterKind::Fleuve || bed.inflow.is_some() => MOUTH_BLEND_FLEUVE,
+            _ => MOUTH_BLEND,
+        };
         // Affluent dans un fleuve : un rien au-dessus de l'eau du fleuve (sa couleur s'y fond
         // sans que les deux surfaces se chevauchent par endroits) ; éléments des rapides : posés
         // sur l'eau
@@ -1631,7 +1672,7 @@ fn water_mesh<'a>(
         let hi = (0..3).max_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
         let lo = (0..3).min_by(|&i, &j| ys[i].total_cmp(&ys[j])).unwrap();
         let rise = ys[hi] - ys[lo];
-        let foam = rise > CASCADE_MIN_DROP && rise > 1.2 * pts[hi].distance(pts[lo]);
+        let foam = rise > CASCADE_MIN_DROP * 0.5;
         // Là où la surface se courbe (bord d'une chute : plate puis plongeante), le triangle est
         // redécoupé : tendu en ligne droite, il passait sous la surface, donc sous le sol taillé
         // pour elle (zone sans eau). Décision arête par arête (milieu de l'arête comparé à la
@@ -1651,9 +1692,19 @@ fn water_mesh<'a>(
                         data.positions.push([p.x, level(p) + lift, -p.y]);
                         data.normals.push([0.0, 1.0, 0.0]);
                         // (écume mêlée à l'eau : un blanc plat se lisait comme une zone sans eau)
-                        let water = tint(&waters, p, t.tone_at(p), t.kind);
+                        let water = tint(&waters, p, t.tone_at(p), t.kind, blend);
                         let white = linear(Color::srgb(0.86, 0.93, 0.98));
-                        data.colors.push(if foam { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM) } else { water });
+                        // Écume selon la pente de la surface à ce sommet (pas triangle par triangle :
+                        // des éclats), et aucune en arrivant à la mer ou au lac
+                        let froth = if foam {
+                            let e = CASCADE_SLOPE_STEP;
+                            let (dx, dy) = (level(p + Vec2::X * e) - level(p - Vec2::X * e), level(p + Vec2::Y * e) - level(p - Vec2::Y * e));
+                            let steep = smoothstep01((dx.hypot(dy) / (2.0 * e) - CASCADE_SLOPE.0) / (CASCADE_SLOPE.1 - CASCADE_SLOPE.0));
+                            steep * nearest_water(&waters, p).map_or(1.0, |(d, _)| smoothstep01(d / MOUTH_BLEND))
+                        } else {
+                            0.0
+                        };
+                        data.colors.push(if froth > 0.0 { std::array::from_fn(|k| water[k] + (white[k] - water[k]) * CASCADE_FOAM * froth) } else { water });
                         data.indices.push(data.indices.len() as u32);
                     }
                     continue;
@@ -2407,6 +2458,37 @@ fn draw_currents_3d(
     if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
         let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
         let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| current_arrow(&map.0, hex));
+        cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
+        cache.shape = Some(relief.shape);
+    }
+    for &(from, to, color) in &cache.arrows {
+        gizmos.arrow(from, to, color).with_tip_length(7.0);
+    }
+}
+
+/// Carte de la houle en 3D : flèches du sens de la houle, posées sur l'eau.
+fn draw_waves_3d(
+    mode: Res<ViewMode>,
+    layer: Res<MapLayer>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    relief: Option<Res<Relief>>,
+    (pending, time): (Res<ReliefPending>, Res<Time>),
+    mut cache: Local<ArrowsCache>,
+    mut gizmos: Gizmos<Gizmos3d>,
+) {
+    // (comme pour les courants : `regenerer` refait la houle sans toucher forcément au sol)
+    if fog.is_changed() || map.is_changed() {
+        cache.shape = None;
+    }
+    let Some(relief) = relief else { return };
+    if !mode.is_3d || *layer != MapLayer::Waves {
+        return;
+    }
+    let cache = &mut *cache;
+    if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
+        let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
+        let arrows = fog.explored.iter().filter(|&&h| crate::render::wind_arrow_site(h)).filter_map(|&hex| crate::render::wave_arrow(&map.0, hex));
         cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
         cache.shape = Some(relief.shape);
     }

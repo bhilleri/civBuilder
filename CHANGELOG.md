@@ -1,6 +1,27 @@
 # Journal des versions
 
-## À venir
+## Prochaine version (en cours)
+
+### Embouchures
+- **Chaque embouchure de fleuve a maintenant un type** : delta digité, delta arqué, delta de marée, estuaire, lagune, ria ou fjord, selon ce que le fleuve apporte, ce que la houle et la marée reprennent, le fond devant elle, le relief et le froid. Il apparaît dans l'infobulle.
+- **Estuaires et deltas digités dessinés** : l'estuaire s'ouvre en entonnoir vers la mer, le delta digité se divise en 2 à 4 bras à travers sa case. Plus d'île de fleuve isolée à l'embouchure.
+- **Les deltas gagnent sur la mer** : une ou deux vraies cases de terre basse devant l'embouchure, que le fleuve traverse. Le monde généré change donc : pour une même graine, certaines côtes et certains noms ne sont plus les mêmes qu'avant.
+- **Correctif** : les cours d'eau étaient invisibles en vue 2D depuis une version récente ; ils sont de retour.
+- **Côtes plus naturelles en 3D** : le rivage ondule et ses angles s'arrondissent au lieu de suivre exactement le bord des cases, sans changer les cases ni les règles. Les bords des lacs et de la banquise en profitent aussi.
+- **Rivières plus naturelles** : elles ne font plus la même vague régulière d'une case à l'autre, ni en parallèle de leurs voisines.
+- **Rias, fjords et deltas arqués dessinés** : dans une ria ou un fjord, la mer remonte la vallée sur deux cases ; un delta arqué forme un lobe de terre sur la côte, avec une seule sortie.
+- **Embouchures en vue 2D** : l'eau s'arrête à la côte et se fond dans la couleur de la mer, sur toutes les cartes. Plus de griffes sur la mer.
+- **Fleuves plus naturels** : sources effilées au lieu de bouts ronds, bouches sans barres droites, écume de chute progressive au lieu d'éclats et de barres blanches, plus d'eau coupée à angle droit dans un virage avant l'embouchure.
+- **Côtes et embouchures plus propres** : plus de triangles ni d'éclats de sable au bout des deltas, plus de dalles claires ni de coupure droite entre le fleuve et la mer, plus de fleuve côtier qui bleuit le long de la mer, plus d'écume ni de rapides dans une embouchure, plus de plage de sable contre la banquise ni sur la neige, plus de fentes noires dans les falaises, rapides sans bandes. Sur les cartes thématiques en 3D, l'embouchure se fond dans la couleur de la carte.
+
+### Banquise
+- **La banquise apparaît sur les cartes** (normale, climat, altitude, courants, marées, houle…, sauf les plaques et la géographie) et dans l'infobulle, près des pôles, au-delà de 72 à 80° selon l'endroit, avec un bord découpé. Elle arrête la houle.
+- **On peut marcher sur la banquise** (2 PM par case, sauf au pied d'une côte escarpée), ce qui ouvre des passages entre des terres. On ne peut pas y fonder de ville, et aucun village ni camp n'y prend place. Elle garde ses rendements de mer : on y pêche toujours.
+
+### Houle
+- **Modèle de houle** (module `waves.rs`) : un bilan d'énergie simplifié à la génération (12 directions, 3 périodes), sous le vent de chaque régime du climat : la houle naît du vent, voyage de case en case, traverse les océans, s'use sur les plateaux et s'arrête à la banquise. Moins d'une seconde de plus à la génération (0,8 s en profil de développement sur 16 fils). Un modèle complet, type WaveWatch III, prenait plus de 2 minutes dans notre comparatif.
+- **Carte de la houle** (menu des cartes, touche T, console `carte houle`), en 2D et en 3D : hauteur moyenne par classes et flèches vers où va la houle, plus longues pour une longue période. Infobulle d'une case de mer : hauteur, plus forte hauteur de l'année, période, origine, déferlement sur la côte.
+- La houle servira au type d'embouchure et aux flèches de sable ; ses effets en jeu restent à décider. Le reste du monde ne change pas : une même graine donne les mêmes terres, climats et cours d'eau.
 
 ### Villes et villages
 - **Une ville naît en hameau** : quelques maisons, un grand toit et un mât à la couleur du joueur, sans enceinte. Elle devient bourg à 3 habitants, puis ville à 6 (seuils provisoires), en ajoutant des bâtiments sans déplacer les autres.
@@ -21,7 +42,6 @@
 ### Marais
 - **Maisons sur pilotis au-dessus des mares**, chacune entourée d'une galerie, reliées à la terre par des passerelles alignées qui ne traversent aucun bâtiment.
 - **Une ville draine son sol** : les mares rétrécissent quand elle grandit, sans que les maisons bougent.
-
 - **Plus lisible** : chaque stade ajoute des maisons (3, 5 puis 7), les passerelles restent à angle droit, le grand toit se place derrière la place et un escalier descend vers la caméra.
 
 ### Ponts

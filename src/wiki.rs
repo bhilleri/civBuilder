@@ -292,6 +292,36 @@ fn climate() -> Article {
                s'ajoutent) ; l'infobulle d'une mer le donne, avec le courant de marée quand il est fort (détroits, \
                plateaux). Deux boutons de sa légende ajoutent les lignes d'heure de pleine mer (la marée avance \
                d'une ligne à la suivante, ronds blancs : points sans marée) et des flèches du sens de la marée."),
+            h("Rivage"),
+            p("En vue 3D, le rivage ondule et ses angles s'arrondissent, sur les côtes, les lacs et la banquise, pour ne pas suivre exactement le bord des cases. Ce n'est que du dessin : \
+               une case reste de la terre ou de la mer tout entière, pour les déplacements comme pour les rendements."),
+            h("Embouchures"),
+            p("Un fleuve apporte des sédiments, la houle et la marée les reprennent, et la forme de l'embouchure dépend \
+               de celui qui l'emporte. Si le fleuve domine, il bâtit un delta digité dont les bras s'avancent en mer ; \
+               si c'est la houle, un delta arqué bordé de plages, ou une lagune derrière un cordon de sable quand le \
+               fleuve apporte peu ; si c'est la marée, un delta de marée en eau chargée, ou un estuaire en eau claire. \
+               Une mer profonde tout de suite ne laisse pas de place à un delta : c'est aussi un estuaire. Une vallée \
+               de relief envahie par la mer forme une ria, une vallée glaciaire dans le froid un fjord. Sur la carte, \
+               un estuaire s'ouvre en entonnoir, un delta digité se divise en plusieurs bras, un delta arqué forme un \
+               lobe de terre sur la côte, et dans une ria ou un fjord la mer remonte la vallée. Un delta gagne sur la \
+               mer quand le fond est peu profond : de la terre basse que le fleuve traverse. \
+               L'infobulle d'une case d'embouchure donne son type."),
+            h("Houle"),
+            p("Le vent lève les vagues. Leur hauteur dépend de sa force, de la distance de mer sur laquelle il \
+               souffle et de sa durée. Quand elles quittent le vent qui les a formées, elles deviennent de la houle : \
+               les plus longues voyagent le plus vite et traversent des océans en perdant peu d'énergie. La houle \
+               des vents d'ouest, levée vers 40 à 60° de latitude, arrive ainsi jusque sous les tropiques. Une île \
+               laisse une zone plus calme derrière elle, un plateau continental use la houle longue, une mer fermée \
+               reste plus calme que le large, et la banquise l'arrête. La carte de la houle \
+               montre la hauteur moyenne de l'année, et des flèches indiquent vers où elle va, plus longues pour \
+               une longue période. L'infobulle d'une mer donne la hauteur, la plus forte de l'année, la période, \
+               d'où vient la houle et sa hauteur quand elle déferle sur la côte."),
+            h("Banquise"),
+            p(format!("Près des pôles, au-delà de 72 à 80° de latitude selon l'endroit, la mer reste gelée toute l'année. Les courants \
+               chauds repoussent un peu sa limite, les courants froids la rapprochent. La banquise arrête la houle. \
+               Les unités peuvent y marcher ({ice} PM par case, sauf au pied d'une côte escarpée), ce qui ouvre un \
+               passage entre des terres que la mer sépare ailleurs. On ne peut pas y fonder de ville, et aucune \
+               structure n'y prend place, mais on y pêche comme en mer libre.", ice = crate::map::ICE_MOVE_COST)),
             h("Vents"),
             p("Le vent naît des différences de pression : ceintures alternées de hautes et basses pressions, effet des \
                continents (une terre chaude attire l'air, une terre froide le repousse), dépressions et anticyclones \

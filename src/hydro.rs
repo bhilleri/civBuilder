@@ -66,6 +66,8 @@ const SECONDS_PER_YEAR: f32 = 31_557_600.0;
 
 /// Données d'entrée, une valeur par case (ligne par ligne, comme la carte).
 pub struct HydroInput<'a> {
+    /// Écoulements imposés (case, case réceptrice) : un fleuve traverse la terre gagnée par son delta.
+    pub routes: &'a [(usize, usize)],
     pub width: i32,
     pub height: i32,
     /// Distance entre centres de cases (km).
@@ -278,6 +280,10 @@ pub fn simulate(input: &HydroInput) -> Hydrology {
             filled[j] = input.elevation[j].max(filled[i] + EPSILON_M);
             queue.push(filled[j], j);
         }
+    }
+
+    for &(from, to) in input.routes {
+        receiver[from] = Some(to);
     }
 
     // --- 2. Cuvettes : cases remplies voisines au même niveau
@@ -672,6 +678,7 @@ mod tests {
         let pet = vec![900.0; n];
         let ar = vec![aridity; n];
         simulate(&HydroInput {
+            routes: &[],
             width: w,
             height: h,
             cell_km: 40.0,
@@ -724,6 +731,7 @@ mod tests {
         let z: Vec<f32> = (0..n).map(|i| (i as i32 % w).min(w - i as i32 % w) as f32 * 50.0).collect();
         let (rain, pet, ar, runoff) = (vec![1000.0; n], vec![900.0; n], vec![1.0; n], vec![300.0; n]);
         let h = simulate(&HydroInput {
+            routes: &[],
             width: w,
             height: hh,
             cell_km: 40.0,
@@ -769,6 +777,7 @@ mod tests {
         let dry_runoff = vec![2.0; 360];
         let n = 360;
         let dry = simulate(&HydroInput {
+            routes: &[],
             width: 30,
             height: 12,
             cell_km: 40.0,

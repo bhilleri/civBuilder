@@ -468,7 +468,7 @@ const SHORE_START: f32 = 0.35;
 /// Subdivisions de chaque arête dans le maillage.
 const EDGE_STEPS: usize = 8;
 /// Assombrissement du bord des cases (séparation discrète entre cases).
-const EDGE_SHADE: f32 = 0.84;
+pub const EDGE_SHADE: f32 = 0.84;
 /// Anneaux du maillage (fractions de l'apothème) ; les deux derniers intervalles forment
 /// l'escarpement des falaises.
 const RINGS: [f32; 5] = [FLAT_RADIUS, 0.62, 0.78, 0.9, 1.0];
@@ -514,6 +514,11 @@ pub struct HexTop {
     pub edge_slopes: [f32; 6],
     /// Hauteur de la voisine (pied de la paroi d'une arête non liée).
     pub wall_bottoms: [f32; 6],
+    /// Bande de sable le long de ses rivages (non dans le grand froid ni contre la banquise).
+    pub beach: bool,
+    /// Forme du rivage : déplacement des coins et bombement des arêtes (`waterways::coast_warp`).
+    pub warp_corners: [Vec2; 6],
+    pub warp_edges: [f32; 6],
 }
 
 impl HexTop {
@@ -561,6 +566,9 @@ pub fn compute_top(
     // Une falaise sépare les cases comme une paroi : chacune garde sa hauteur sur l'arête
     let joined = |a: Hex, b: Hex| !matches!(link(a, b), Link::None | Link::Cliff);
     let mut top = HexTop {
+        beach: true,
+        warp_corners: [Vec2::ZERO; 6],
+        warp_edges: [0.0; 6],
         center: h,
         corners: [h; 6],
         mids: [h; 6],
@@ -720,15 +728,19 @@ impl MeshData {
     }
 
     /// Paroi de falaise : roche striée en facettes, rangées intermédiaires en saillie aléatoire,
-    /// jusqu'au pied (`bottom`), puis prolongée jusqu'au fond.
-    fn rock_wall(&mut self, top_a: Vec3, top_b: Vec3, bottom: f32) {
+    /// jusqu'au pied (`bottom`), puis prolongée jusqu'au fond. `pinned` : pas de saillie à ce bout
+    /// (coin de la case : la paroi voisine part dans une autre direction, une fente s'ouvrirait).
+    fn rock_wall(&mut self, top_a: Vec3, top_b: Vec3, bottom: f32, pinned: [bool; 2]) {
         const ROWS: usize = 4;
         let outward = (Vec3::new(top_b.x, 0.0, top_b.z) - top_a).cross(top_b - top_a).normalize_or_zero();
         let bottom = bottom.min(top_a.y.min(top_b.y));
-        let point = |top: Vec3, row: usize| {
+        // Fond plein derrière la roche : une facette très penchée par la saillie se voit de dos, donc
+        // pas du tout, et on verrait le vide à travers (fentes noires)
+        self.wall(top_a, top_b, rock_color(bottom) * 0.6);
+        let point = |top: Vec3, row: usize, pin: bool| {
             let f = row as f32 / ROWS as f32;
             let mut p = Vec3::new(top.x, top.y + (bottom - top.y) * f, top.z);
-            if row > 0 && row < ROWS {
+            if row > 0 && row < ROWS && !pin {
                 p += outward * (hash01(p) * ROCK_JUT);
             }
             p
@@ -743,12 +755,12 @@ impl MeshData {
             }
         };
         for row in 0..ROWS {
-            let (a0, b0, a1, b1) = (point(top_a, row), point(top_b, row), point(top_a, row + 1), point(top_b, row + 1));
+            let (a0, b0, a1, b1) = (point(top_a, row, pinned[0]), point(top_b, row, pinned[1]), point(top_a, row + 1, pinned[0]), point(top_b, row + 1, pinned[1]));
             facet(a0, a1, b1);
             facet(a0, b1, b0);
         }
         // Sous le pied : simple prolongement jusqu'au fond (caché par la case basse)
-        let (a, b) = (point(top_a, ROWS), point(top_b, ROWS));
+        let (a, b) = (point(top_a, ROWS, pinned[0]), point(top_b, ROWS, pinned[1]));
         self.wall(a, b, rock_color(bottom) * 0.6);
     }
 }
@@ -845,7 +857,7 @@ pub fn build_hex(
     // Rivages de la case (côté terre) : arête, hauteur de l'eau
     let corner = |j: usize| Vec2::from_angle((-30.0 + 60.0 * j as f32).to_radians()) * HEX_SIZE;
     let shores: Vec<(Vec2, Vec2, f32)> = (0..6)
-        .filter(|&d| top.links[d] == Link::Shore && top.center > top.wall_bottoms[d] + 0.5)
+        .filter(|&d| top.beach && top.links[d] == Link::Shore && top.center > top.wall_bottoms[d] + 0.5)
         .map(|d| (corner(d), corner(d + 1), top.wall_bottoms[d]))
         .collect();
     let dig = |q: Vec2| {
@@ -857,8 +869,9 @@ pub fn build_hex(
     // là où le sol est entaillé
     let normal = |q: Vec2, g: Vec2, bank: f32| {
         let g = if bank > 0.0 {
-            // (écart assez large pour lisser les angles du profil du lit)
-            let e = 1.0;
+            // (écart assez large pour lisser les angles du profil du lit, et les stries sombres d'un
+            // maillage coupé en biais par la berge)
+            let e = 2.0;
             let cut = |v: Vec2| terrain(v) - dig(v).0;
             let dd = |v: Vec2| cut(q + v) - cut(q - v);
             g - Vec2::new(dd(Vec2::X * e), dd(Vec2::Y * e)) / (2.0 * e)
@@ -925,7 +938,22 @@ pub fn build_hex(
     let border = boundary_points(if fine { FINE_EDGE_STEPS } else { EDGE_STEPS });
     let rings: &[f32] = if fine { &FINE_RINGS } else { &RINGS };
     let n = border.len() as u32;
-    let vertex = |mesh: &mut MeshData, q: Vec2, edge: bool| {
+    // Déplacement du pourtour pour la forme du rivage : le long d'une arête, entre ses deux coins, avec
+    // un bombement en sinus par morceaux (mêmes points quel que soit le découpage de l'arête)
+    let warped = top.warp_corners.iter().any(|c| *c != Vec2::ZERO) || top.warp_edges.iter().any(|r| *r != 0.0);
+    let shift = |p: Vec2, d: usize| -> Vec2 {
+        if !warped {
+            return Vec2::ZERO;
+        }
+        let (a, b) = (corner(d), corner(d + 1));
+        let t = ((p - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
+        let x = t * 4.0;
+        let k = (x.floor() as usize).min(3);
+        const PROFILE: [f32; 5] = [0.0, 0.71, 1.0, 0.71, 0.0];
+        let bulge = PROFILE[k] + (PROFILE[k + 1] - PROFILE[k]) * (x - k as f32);
+        top.warp_corners[d].lerp(top.warp_corners[(d + 1) % 6], t) + Vec2::from_angle((60.0 * d as f32).to_radians()) * top.warp_edges[d] * bulge
+    };
+    let vertex = |mesh: &mut MeshData, q: Vec2, moved: Vec2, edge: bool| {
         let (y, bank) = dig(q);
         let up = lift(q);
         // Pente : profil de la case, plus la déformation du relief (mesurée de part et d'autre)
@@ -939,14 +967,16 @@ pub fn build_hex(
         };
         // Une crête enneigée reste blanche même sur une pente raide
         let slope = if up.0 > up.1 { 0.0 } else { g.length() };
-        mesh.vertex(world(q, y), normal(q, g, bank), shade(q, y, bank, slope, edge, up))
+        mesh.vertex(world(q + moved, y), normal(q, g, bank), shade(q, y, bank, slope, edge, up))
     };
-    let center = vertex(&mut mesh, Vec2::ZERO, false);
+    let center = vertex(&mut mesh, Vec2::ZERO, Vec2::ZERO, false);
     let mut ring_start = Vec::new();
     for &r in rings {
         ring_start.push(mesh.positions.len() as u32);
-        for &(p, _) in &border {
-            vertex(&mut mesh, p * r, r >= 1.0);
+        // (l'intérieur de la case bouge moins : son centre, où sont les unités, ne bouge pas)
+        let weight = smoothstep((r - 0.5) / 0.5);
+        for &(p, d) in &border {
+            vertex(&mut mesh, p * r, shift(p, d) * weight, r >= 1.0);
         }
     }
     // Plateau central en éventail, puis bandes entre anneaux (sens trigonométrique vu du dessus)
@@ -971,13 +1001,16 @@ pub fn build_hex(
             continue;
         }
         let q = border[(i + 1) % border.len()].0;
-        let (ta, tb) = (world(p, height(p)), world(q, height(q)));
+        // (le coin de fin vu depuis cette arête : `border` suivant peut déjà être l'arête d'après)
+        let (ta, tb) = (world(p + shift(p, d), height(p)), world(q + shift(q, d), height(q)));
         if skirt && top.joined(d) {
             // Bord d'une étendue d'eau : vu dans l'entaille d'une embouchure, il doit avoir l'air
             // d'eau (même couleur, éclairé comme la surface)
             mesh.water_skirt(ta, tb, color);
         } else if top.cliff_top(d) {
-            mesh.rock_wall(ta, tb, top.wall_bottoms[d]);
+            let n = border.len();
+            let pinned = [border[(i + n - 1) % n].1 != d, border[(i + 1) % n].1 != d];
+            mesh.rock_wall(ta, tb, top.wall_bottoms[d], pinned);
         } else {
             mesh.wall(ta, tb, color * EDGE_SHADE);
         }
@@ -1146,6 +1179,9 @@ mod tests {
     #[test]
     fn faces_tournees_vers_le_haut() {
         let top = HexTop {
+            beach: true,
+            warp_corners: [Vec2::ZERO; 6],
+            warp_edges: [0.0; 6],
             center: 10.0,
             corners: [12.0; 6],
             mids: [11.0; 6],

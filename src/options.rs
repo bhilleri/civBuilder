@@ -154,6 +154,7 @@ fn setup_panel(mut commands: Commands) {
                     MapLayer::Plates => "Plaques",
                     MapLayer::Currents => "Courants",
                     MapLayer::Tides => "Marées",
+                    MapLayer::Waves => "Houle",
                     MapLayer::Resources => "Ressources",
                     MapLayer::Geography => "Géo",
                 };
