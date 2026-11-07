@@ -293,7 +293,7 @@ fn climate() -> Article {
                plateaux). Deux boutons de sa légende ajoutent les lignes d'heure de pleine mer (la marée avance \
                d'une ligne à la suivante, ronds blancs : points sans marée) et des flèches du sens de la marée."),
             h("Rivage"),
-            p("En vue 3D, le rivage ondule pour ne pas suivre exactement le bord des cases. Ce n'est que du dessin : \
+            p("En vue 3D, le rivage ondule et ses angles s'arrondissent, sur les côtes, les lacs et la banquise, pour ne pas suivre exactement le bord des cases. Ce n'est que du dessin : \
                une case reste de la terre ou de la mer tout entière, pour les déplacements comme pour les rendements."),
             h("Embouchures"),
             p("Un fleuve apporte des sédiments, la houle et la marée les reprennent, et la forme de l'embouchure dépend \
