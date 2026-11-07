@@ -4084,4 +4084,38 @@ mod lieux {
             println!("graine {seed} : embouchures {}, à 40 m ou plus {}, à 200 m ou plus {}, à 500 m ou plus {}, la plus haute {highest:.0} m ; moyenne {mean:.0} m, à 1 500 m ou plus {high}, montagnes {mountains}, falaises {cliffs}, lacs {lakes}, chutes de fleuve {falls}", mouths.len(), mouths.iter().filter(|&&a| a >= 40.0).count(), mouths.iter().filter(|&&a| a >= 200.0).count(), mouths.iter().filter(|&&a| a >= 500.0).count());
         }
     }
+
+    /// Fins de rivière : `cargo test bilan_fins_de_riviere -- --ignored --nocapture` (`SEEDS=777,2` ;
+    /// `FINS_LIST=1` : chacune) : rivières qui s'arrêtent sans rejoindre aucune eau, à plein débit
+    /// ou parce qu'elles se tarissent (le débit de sortie passe sous le seuil).
+    #[test]
+    #[ignore]
+    fn bilan_fins_de_riviere() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![777, 2, 4242]);
+        let list = std::env::var("FINS_LIST").is_ok();
+        for seed in seeds {
+            let m = WorldMap::generate_in(192, 111, seed, Region::planet(crate::climate::CELL_KM, 111));
+            let segs = &m.hydro.river_segments;
+            let leaving: bevy::platform::collections::HashSet<u32> = segs.iter().map(|s| s.up).collect();
+            let mut ends: bevy::platform::collections::HashMap<u32, f32> = bevy::platform::collections::HashMap::default();
+            for s in segs {
+                if !leaving.contains(&s.down) {
+                    let cells = m.hydro.corner_cells[s.down as usize];
+                    let wet = cells.iter().any(|&c| c == u32::MAX || { let c = c as usize; m.tiles[c].is_water() || m.hydro.fleuve[c] || m.hydro.small_lake[c] });
+                    if !wet {
+                        let e = ends.entry(s.down).or_insert(0.0);
+                        *e += s.flow;
+                    }
+                }
+            }
+            let at = |min: f32| ends.values().filter(|&&q| q >= min).count();
+            println!("graine {seed} : rivières {}, fins sans eau {}, à 200 m³/s ou plus {}, à 500 ou plus {}, à 1 000 ou plus {}", segs.len(), ends.len(), at(200.0), at(500.0), at(1_000.0));
+            if list {
+                for (c, q) in &ends {
+                    let cells = m.hydro.corner_cells[*c as usize].map(|i| m.hex_at(i as usize).to_offset());
+                    println!("  {q:.0} m³/s au coin {cells:?}");
+                }
+            }
+        }
+    }
 }

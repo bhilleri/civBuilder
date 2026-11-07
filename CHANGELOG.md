@@ -12,6 +12,8 @@
 
 - **Les cours d'eau creusent le relief après le climat** : les vallées suivent l'eau réelle, et les fleuves arrivent à la mer à peu près à son niveau au lieu de tomber d'une case à plus de 1 000 m. La houle et la marée renforcent le creusement des dernières cases. Les rias deviennent de vraies vallées noyées entre leurs reliefs. Altitude moyenne un peu plus basse (−6 à −8 %), lacs préservés.
 
+- **Correctif : plus de rivière coupée net en pleine plaine** : une rivière qui arrivait dans une cuvette sèche s'y arrêtait, parfois à plus de 1 000 m³/s. Elle passe maintenant le col et continue.
+
 ### Raccord est-ouest
 - **Correctif en 3D** : les unités et les bâtiments des colonnes du bord ne disparaissent plus selon le côté d'où on les regarde, et les rivières restent continues. Un ennemi pouvait y être invisible.
 

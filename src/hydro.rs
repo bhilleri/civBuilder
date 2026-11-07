@@ -32,6 +32,8 @@ use std::collections::BinaryHeap;
 
 /// Débit à partir duquel une rivière est tracée sur les arêtes (m³/s).
 pub const RIVER_M3S: f32 = 100.0;
+/// Tours au plus pour rouvrir les fonds de cuvette secs (rouvrir l'un peut en remplir un autre).
+const DRY_PIT_ROUNDS: usize = 8;
 /// Débit à partir duquel le cours d'eau occupe toute la case : fleuve (m³/s).
 pub const FLEUVE_M3S: f32 = 2_000.0;
 /// Un fleuve reste un fleuve vers l'aval tant qu'il garde cette part du seuil (il ne redevient
@@ -512,10 +514,27 @@ pub fn simulate(input: &HydroInput) -> Hydrology {
     out
 }
 
+/// Fonds de cuvette secs où une rivière s'arrêterait : un coin d'arrivée (`is_end`) reçoit au moins
+/// `RIVER_M3S`, et la seule eau qu'il touche est ce fond sec, sans mer, lac ni fleuve pour la recevoir.
+/// `cells` : les trois cases de chaque coin (`usize::MAX` hors de la carte).
+fn flooded_dry_pits(q: &[f32], is_end: &[bool], cells: &[[usize; 3]], sink_cell: &[bool], dry_pit: &[bool]) -> Vec<usize> {
+    let mut pits = Vec::new();
+    for c in (0..q.len()).filter(|&c| is_end[c] && q[c] >= RIVER_M3S) {
+        let sinks: Vec<usize> = cells[c].iter().copied().filter(|&i| i == usize::MAX || sink_cell[i]).collect();
+        if !sinks.is_empty() && sinks.iter().all(|&i| i != usize::MAX && dry_pit[i]) {
+            pits.extend(sinks);
+        }
+    }
+    pits.sort_unstable();
+    pits.dedup();
+    pits
+}
+
 /// Rivières le long des arêtes. Un coin (sommet commun à trois cases) a l'altitude moyenne de
 /// ces cases ; le ruissellement de chaque case est réparti entre ses six coins ; l'eau suit la
 /// pente de coin en coin (Priority-Flood depuis les exutoires) jusqu'à un exutoire : un coin qui
-/// touche la mer, un lac, un fleuve, ou le fond d'une cuvette sans issue.
+/// touche la mer, un lac, un fleuve, ou le fond d'une cuvette sans issue qui n'a pas à recevoir de
+/// rivière (voir `flooded_dry_pits`).
 fn edge_rivers(input: &HydroInput, grid: Grid, out: &mut Hydrology, pools: &[Pool], terminal: &[bool]) {
     let n = (input.width * input.height) as usize;
     let cell_m = input.cell_km * 1000.0;
@@ -576,59 +595,85 @@ fn edge_rivers(input: &HydroInput, grid: Grid, out: &mut Hydrology, pools: &[Poo
             zs.iter().sum::<f32>() / zs.len().max(1) as f32
         })
         .collect();
-    let is_sink = |c: &[Hex; 3]| c.iter().any(|&h| cell_index(h).is_none_or(|i| sink_cell[i]));
-
-    // Priority-Flood sur les coins
-    let mut receiver: Vec<Option<(usize, usize, u8)>> = vec![None; m];
-    let mut done = vec![false; m];
-    let mut filled = corner_z.clone();
-    let mut queue = LowestFirst::default();
-    for c in 0..m {
-        if is_sink(&corners[c]) {
-            done[c] = true;
-            queue.push(filled[c], c);
+    // Écoulement de coin en coin vers les exutoires : receveur de chaque coin, ordre de remplissage,
+    // eau reçue et eau qui repart
+    let route = |sink_cell: &[bool]| {
+        let is_sink = |c: &[Hex; 3]| c.iter().any(|&h| cell_index(h).is_none_or(|i| sink_cell[i]));
+        // Priority-Flood sur les coins
+        let mut receiver: Vec<Option<(usize, usize, u8)>> = vec![None; m];
+        let mut done = vec![false; m];
+        let mut filled = corner_z.clone();
+        let mut queue = LowestFirst::default();
+        for c in 0..m {
+            if is_sink(&corners[c]) {
+                done[c] = true;
+                queue.push(filled[c], c);
+            }
         }
-    }
-    let mut order = Vec::with_capacity(m);
-    while let Some(c) = queue.pop() {
-        order.push(c);
-        for &(k, cell, d) in &adjacency[c] {
-            if done[k] {
+        let mut order = Vec::with_capacity(m);
+        while let Some(c) = queue.pop() {
+            order.push(c);
+            for &(k, cell, d) in &adjacency[c] {
+                if done[k] {
+                    continue;
+                }
+                done[k] = true;
+                receiver[k] = Some((c, cell, d));
+                filled[k] = corner_z[k].max(filled[c] + EPSILON_M);
+                queue.push(filled[k], k);
+            }
+        }
+        // Ruissellement des cases de terre (hors fleuves et lacs) réparti sur leurs coins
+        let mut q = vec![0f32; m];
+        for i in 0..n {
+            if input.sea[i] || out.fleuve[i] || out.lake[i] {
                 continue;
             }
-            done[k] = true;
-            receiver[k] = Some((c, cell, d));
-            filled[k] = corner_z[k].max(filled[c] + EPSILON_M);
-            queue.push(filled[k], k);
+            let share = per_second(input.runoff[i].max(0.0)) / 6.0;
+            for j in 0..6 {
+                q[corner_of[i][j]] += share;
+            }
         }
+        // D'amont en aval : ordre inverse du remplissage
+        let mut outflow = vec![0f32; m];
+        for &c in order.iter().rev() {
+            let Some((r, cell, d)) = receiver[c] else { continue };
+            let neighbor = grid.index(grid.hex(cell) + DIRECTIONS[d as usize]);
+            let aridity = match neighbor {
+                Some(j) => (input.aridity[cell] + input.aridity[j]) / 2.0,
+                None => input.aridity[cell],
+            };
+            outflow[c] = q[c] - bed_loss(q[c], aridity, edge_m);
+            q[r] += outflow[c];
+        }
+        (receiver, order, q, outflow)
+    };
+    // Un fond de cuvette sec n'arrête pas une vraie rivière : les deux écoulements ne passent pas
+    // forcément par les mêmes cases, et il peut recevoir par les coins une eau que l'écoulement par
+    // cases ne lui donne pas. Sans lac pour la recevoir, elle passe le col et continue.
+    let mut dry_pit = vec![false; n];
+    for (pool, &t) in pools.iter().zip(terminal) {
+        dry_pit[pool.pit] = t && !out.lake[pool.pit] && !out.small_lake[pool.pit];
     }
-
-    // Ruissellement des cases de terre (hors fleuves et lacs) réparti sur leurs coins
-    let mut q = vec![0f32; m];
-    let mut basin = vec![0f32; m];
-    for i in 0..n {
-        if input.sea[i] || out.fleuve[i] || out.lake[i] {
-            continue;
+    let corner_indices: Vec<[usize; 3]> = corners.iter().map(|c| c.map(|h| cell_index(h).unwrap_or(usize::MAX))).collect();
+    let mut routed = route(&sink_cell);
+    for _ in 0..DRY_PIT_ROUNDS {
+        let is_end: Vec<bool> = routed.0.iter().map(|r| r.is_none()).collect();
+        let opened = flooded_dry_pits(&routed.2, &is_end, &corner_indices, &sink_cell, &dry_pit);
+        if opened.is_empty() {
+            break;
         }
-        let share = per_second(input.runoff[i].max(0.0)) / 6.0;
-        for j in 0..6 {
-            q[corner_of[i][j]] += share;
-            basin[corner_of[i][j]] += 1.0 / 6.0;
+        for i in opened {
+            sink_cell[i] = false;
         }
+        routed = route(&sink_cell);
     }
-    // D'amont en aval : ordre inverse du remplissage
+    let (receiver, order, _, outflow) = routed;
     for &c in order.iter().rev() {
         let Some((r, cell, d)) = receiver[c] else { continue };
-        let neighbor = grid.index(grid.hex(cell) + DIRECTIONS[d as usize]);
-        let aridity = match neighbor {
-            Some(j) => (input.aridity[cell] + input.aridity[j]) / 2.0,
-            None => input.aridity[cell],
-        };
-        let flow = q[c] - bed_loss(q[c], aridity, edge_m);
-        q[r] += flow;
-        basin[r] += basin[c];
+        let flow = outflow[c];
         // Rivière tracée entre deux cases de terre (ni mer, ni lac, ni fleuve)
-        let Some(j) = neighbor else { continue };
+        let Some(j) = grid.index(grid.hex(cell) + DIRECTIONS[d as usize]) else { continue };
         let plain = |i: usize| !input.sea[i] && !out.lake[i] && !out.fleuve[i];
         if flow >= RIVER_M3S && plain(cell) && plain(j) {
             out.edge_flow[cell][d as usize] = flow;
@@ -687,6 +732,20 @@ mod tests {
             aridity: &ar,
             wraps: false,
         })
+    }
+
+    #[test]
+    fn un_fond_sec_n_arrete_pas_une_riviere() {
+        // Coins : 0 finit sur un fond sec, 1 aussi mais avec peu d'eau, 2 touche la mer en plus du
+        // fond sec, 3 n'est pas un coin d'arrivée
+        let cells = vec![[0, 5, 6], [1, 5, 6], [2, 3, 6], [0, 5, 6]];
+        let q = [300.0, 40.0, 300.0, 300.0];
+        let is_end = [true, true, true, false];
+        let mut sink = vec![false; 7];
+        (sink[0], sink[1], sink[2], sink[3]) = (true, true, true, true);
+        let mut dry = vec![false; 7];
+        (dry[0], dry[1], dry[2]) = (true, true, true);
+        assert_eq!(flooded_dry_pits(&q, &is_end, &cells, &sink, &dry), vec![0]);
     }
 
     #[test]

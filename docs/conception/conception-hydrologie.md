@@ -46,7 +46,7 @@ Entrées par case : altitude continue (m), mer, ruissellement (mm/an, trop-plein
 5. **Deux passes** : la première dit quels lacs débordent ; ensuite l'eau d'un lac qui déborde traverse la cuvette du fond au col.
 6. **Débits** d'amont en aval, en m³/s réels. **Pertes de lit** en climat sec. Le débit peut **baisser vers l'aval**.
 7. **Fleuve** : débit ≥ 2 000 m³/s ; il le reste vers l'aval tant qu'il garde la moitié du seuil. **Fleuve absorbé par un lac** (`FLEUVE_IN_LAKE` = 3).
-8. **Rivières sur les arêtes** : graphe des coins ; rivière tracée si débit ≥ 100 m³/s **et** bassin ≥ 6 cases, entre deux cases de terre. Gardé : `RiverSegment`, `corner_outlet`, `corner_cells`.
+8. **Rivières sur les arêtes** : graphe des coins ; rivière tracée si débit ≥ 100 m³/s, entre deux cases de terre. Gardé : `RiverSegment`, `corner_outlet`, `corner_cells`. Les écoulements par cases et par coins ne suivent pas toujours le même chemin : un fond de cuvette sec, sans lac, pouvait recevoir par les coins une rivière de plus de 1 000 m³/s, qui s'y arrêtait net. Un tel fond n'arrête plus une rivière d'au moins 100 m³/s : elle passe le col et continue (`flooded_dry_pits`). Les deux écoulements ne sont pas unifiés pour autant. `bilan_fins_de_riviere` compte les fins sans eau : il reste celles d'une rivière qui se tarit, autour de 100 m³/s.
 9. **Contrôle** : ruissellement total = arrivée à la mer + évaporation des lacs + pertes de lit (tests).
 10. **Bassins versants et noms** (`basins.rs`, voir plus bas).
 

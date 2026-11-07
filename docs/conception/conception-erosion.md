@@ -28,7 +28,7 @@ Sur une planète, appliquée à l'altitude relative issue des plaques, avant le 
 
 **Essais écartés** : réglage global de la première passe (× 3 ou 30 passes : 22 % de hautes terres en moins, 30 % de lacs en moins) ; second creusement seul à 0,05 (7 embouchures à 40 m ou plus sur 4 graines, mais lacs divisés par 2 et 27 % de falaises en plus).
 
-**Limites** : les débits qui creusent viennent d'une seule passe de climat, sur le relief d'avant le creusement. Quelques embouchures restent perchées (la plus haute à 420 m, graine 8). Les réseaux par cases et par coins restent distincts (rivière coupée T3-03).
+**Limites** : les débits qui creusent viennent d'une seule passe de climat, sur le relief d'avant le creusement. Quelques embouchures restent perchées (la plus haute à 420 m, graine 8). Les réseaux par cases et par coins restent distincts.
 
 ## Graine du monde (menu Échap)
 - Le menu affiche la graine du monde actuel dans un champ ; on tape des chiffres (Retour arrière pour effacer), puis Entrée ou « Regénérer avec cette graine ». « Nouveau monde (graine au hasard) » en tire une autre. Avertissement : la partie en cours est perdue.
