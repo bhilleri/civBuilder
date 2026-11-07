@@ -883,6 +883,8 @@ pub struct WorldMap {
     /// Règle du relief de la génération, pour recalculer le relief d'une case modifiée (vide pour
     /// une carte remplie à la main).
     relief_rule: Option<ReliefRule>,
+    /// Les cours d'eau ont déjà creusé le relief (`incise_rivers`).
+    rivers_incised: bool,
     /// Graine de la génération, et état d'avant le climat (pour refaire climat et eau).
     seed: u32,
     climate_base: Option<ClimateBase>,
@@ -932,6 +934,7 @@ impl WorldMap {
             banks: Vec::new(),
             bank_of: vec![None; n],
             relief_rule: None,
+            rivers_incised: false,
             seed: 0,
             climate_base: None,
             step_cache: std::sync::OnceLock::new(),
@@ -2489,6 +2492,37 @@ impl WorldMap {
     /// voit les lacs de la passe précédente : ils évaporent et humidifient l'air, ce qui change la
     /// pluie, le ruissellement, donc les lacs eux-mêmes).
     fn simulate_climate_and_water(&mut self) {
+        if self.climate_base.is_none() {
+            return;
+        }
+        // Les vrais cours d'eau creusent le relief, une seule fois : une passe de climat donne leur
+        // débit, puis tout le climat est refait sur le relief creusé (la pluie suit les vallées, et
+        // « regenerer climat » redonne la même carte)
+        if !self.rivers_incised && self.region.wraps {
+            self.rivers_incised = true;
+            self.climate_passes(1);
+            self.sea_and_mouths();
+            self.incise_rivers();
+        }
+        self.climate_passes(CLIMATE_PASSES);
+        let regimes = self.sea_and_mouths();
+        let (width, height, seed, region) = (self.width, self.height, self.seed, self.region);
+        let n = self.tiles.len();
+        // 13) Les deltas gagnent sur la mer : l'eau, les noms et la houle sont refaits ; les marées
+        //     ne changent guère pour si peu de cases
+        if self.delta_cells.is_empty() && self.grow_deltas() {
+            self.regenerate_water();
+            self.add_marine_life(seed);
+            let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
+            self.ice = (0..n).map(|i| self.ice[i] && sea[i]).collect();
+            self.waves = crate::waves::simulate(width, height, &sea, &self.ice, &self.depth, &regimes, &region);
+            self.mouths = self.classify_mouths();
+        }
+    }
+
+    /// Climat, biomes, eaux peu profondes, cours d'eau et lacs, marais, noms, eaux poissonneuses, en
+    /// `passes` passes (voir `simulate_climate_and_water`).
+    fn climate_passes(&mut self, passes: usize) {
         let Some(base) = self.climate_base.clone() else { return };
         let (width, height, seed, region) = (self.width, self.height, self.seed, self.region);
         let n = self.tiles.len();
@@ -2496,7 +2530,7 @@ impl WorldMap {
         let land: Vec<bool> = self.tiles.iter().map(|t| !t.is_sea()).collect();
         let surface: Vec<climate::Surface> =
             (0..n).map(|i| if land[i] { climate::Surface::Land(self.elevation[i].max(0.0)) } else { climate::Surface::Water }).collect();
-        for pass in 0..CLIMATE_PASSES {
+        for pass in 0..passes {
             let mut surface = surface.clone();
             if pass > 0 {
                 for (i, s) in surface.iter_mut().enumerate() {
@@ -2544,6 +2578,13 @@ impl WorldMap {
             // 8) Eaux poissonneuses (remontées d'eaux, monts sous-marins, îles volcaniques)
             self.add_marine_life(seed);
         }
+    }
+
+    /// Marées, banquise, houle et forme des embouchures, sur les mers et le climat actuels. Rend les
+    /// régimes de vent du climat (qui ne sert plus ensuite).
+    fn sea_and_mouths(&mut self) -> Vec<crate::climate::RegimeWind> {
+        let (width, height, seed, region) = (self.width, self.height, self.seed, self.region);
+        let n = self.tiles.len();
         // 9) Marées (voir tides.rs), sur les mers définitives
         let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
         self.tides = crate::tides::simulate(width, height, &sea, &self.depth, &region);
@@ -2556,16 +2597,71 @@ impl WorldMap {
         self.waves = crate::waves::simulate(width, height, &sea, &self.ice, &self.depth, &regimes, &region);
         // 12) Forme des embouchures de fleuve (voir mouths.rs)
         self.mouths = self.classify_mouths();
-        // 13) Les deltas gagnent sur la mer : l'eau, les noms et la houle sont refaits ; les marées
-        //     ne changent guère pour si peu de cases
-        if self.delta_cells.is_empty() && self.grow_deltas() {
-            self.regenerate_water();
-            self.add_marine_life(seed);
-            let sea: Vec<bool> = self.tiles.iter().map(|t| t.is_sea()).collect();
-            self.ice = (0..n).map(|i| self.ice[i] && sea[i]).collect();
-            self.waves = crate::waves::simulate(width, height, &sea, &self.ice, &self.depth, &regimes, &region);
-            self.mouths = self.classify_mouths();
+        regimes
+    }
+
+    /// Érosion par l'eau réelle, après le climat (voir `erosion::incise`) : les cases parcourues par
+    /// un fort débit descendent vers leur case aval ; classe d'altitude et relief suivent. Le climat
+    /// et l'eau sont à refaire ensuite.
+    fn incise_rivers(&mut self) {
+        let Some(mut base) = self.climate_base.take() else { return };
+        let n = self.tiles.len();
+        let surface: Vec<f32> = (0..n).map(|i| match self.tiles[i] {
+            t if t.is_sea() => 0.0,
+            Terrain::Lake => self.lake_level_m[i],
+            _ => self.elevation[i].max(0.0),
+        }).collect();
+        let receiver: Vec<Option<usize>> = (0..n).map(|i| {
+            let h = self.hex_at(i);
+            self.downstream(h).and_then(|d| self.index(h + crate::hex::DIRECTIONS[d]))
+        }).collect();
+        let discharge: Vec<f32> = (0..n).map(|i| self.discharge(self.hex_at(i))).collect();
+        // Ni la mer et les lacs, ni la sortie d'un lac : l'abaisser le viderait
+        let mut fixed: Vec<bool> = self.tiles.iter().map(|t| t.is_water()).collect();
+        for (i, r) in receiver.iter().enumerate() {
+            if self.tiles[i] == Terrain::Lake && let Some(r) = *r {
+                fixed[r] = true;
+            }
         }
+        // Embouchures : la houle et la marée renforcent le creusement sur les dernières cases, en
+        // remontant le fleuve par son plus fort affluent
+        let mut boost = vec![1.0f32; n];
+        for &(mouth, m) in &self.mouths {
+            let mut at = mouth;
+            for reach in crate::erosion::MOUTH_REACH {
+                boost[at] = boost[at].max(crate::erosion::mouth_boost(m.river, m.wave, m.tide, reach));
+                let up = self.neighbors(self.hex_at(at)).into_iter().filter_map(|nb| self.index(nb)).filter(|&j| receiver[j] == Some(at)).max_by(|&a, &b| discharge[a].total_cmp(&discharge[b]));
+                let Some(up) = up else { break };
+                at = up;
+            }
+        }
+        let lowered = crate::erosion::incise(&surface, &receiver, &discharge, &fixed, &boost, crate::erosion::IncisionParams::default());
+        let changed: Vec<usize> = (0..n).filter(|&i| !fixed[i] && lowered[i] < surface[i]).collect();
+        for &i in &changed {
+            self.elevation[i] = lowered[i];
+            self.levels[i] = level_of_meters(lowered[i]);
+            base.levels[i] = self.levels[i];
+        }
+        // Relief des cases abaissées et de leurs voisines (dénivelée), comme à la génération : sans
+        // les fleuves, que l'eau refaite aplanira de nouveau ; un pic reste un pic s'il en remplit
+        // encore les conditions
+        let mut touched: Vec<usize> = changed.iter().flat_map(|&i| {
+            std::iter::once(i).chain(self.neighbors(self.hex_at(i)).into_iter().filter_map(|nb| self.index(nb)).collect::<Vec<_>>())
+        }).collect();
+        touched.sort_unstable();
+        touched.dedup();
+        let fleuves = std::mem::replace(&mut self.hydro.fleuve, vec![false; n]);
+        for i in touched {
+            let h = self.hex_at(i);
+            if let Some(r) = self.natural_relief(h)
+                && !(base.relief[i] == Relief::Peak && r == Relief::Mountain && self.could_be_peak_ignoring_relief(h))
+            {
+                base.relief[i] = r;
+            }
+        }
+        self.hydro.fleuve = fleuves;
+        self.step_cache = std::sync::OnceLock::new();
+        self.climate_base = Some(base);
     }
 
     /// Fait avancer les deltas : les cases de mer peu profonde devant leur embouchure deviennent
@@ -3964,5 +4060,28 @@ mod lieux {
         }
         let square: Vec<usize> = (0..6).flat_map(|y| (0..6).map(move |x| ((y + 2) * 40 + x + 2) as usize)).collect();
         assert!(m.zone_spine(&square).is_empty());
+    }
+
+    /// Effet de l'érosion après le climat : `cargo test bilan_incision -- --ignored --nocapture`
+    /// (`SEEDS=777,2`) : embouchures hautes, hautes terres, falaises, lacs, chutes des fleuves.
+    #[test]
+    #[ignore]
+    fn bilan_incision() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![777, 2, 4242]);
+        for seed in seeds {
+            let m = WorldMap::generate_in(192, 111, seed, Region::planet(crate::climate::CELL_KM, 111));
+            let mouths: Vec<f32> = m.mouths().iter().filter(|(i, _)| !m.delta_cells.iter().any(|c| c.0 == *i)).map(|(i, _)| m.elevation[*i]).collect();
+            let land: Vec<usize> = (0..m.tiles.len()).filter(|&i| !m.tiles[i].is_water()).collect();
+            let down = |i: usize| { let h = m.hex_at(i); m.downstream(h).and_then(|d| m.index(h + crate::hex::DIRECTIONS[d])) };
+            let cliffs = land.iter().map(|&i| m.neighbors(m.hex_at(i)).iter().filter(|&&nb| m.cliff_between(m.hex_at(i), nb)).count()).sum::<usize>() / 2;
+            let falls = land.iter().filter(|&&i| m.is_fleuve(m.hex_at(i)) && down(i).is_some_and(|j| m.elevation[i] - m.elevation[j] > 150.0)).count();
+            let high = land.iter().filter(|&&i| m.elevation[i] >= 1_500.0).count();
+            let mean = land.iter().map(|&i| f64::from(m.elevation[i])).sum::<f64>() / land.len().max(1) as f64;
+            let lakes = m.tiles.iter().filter(|&&t| t == Terrain::Lake).count();
+            let mountains = land.iter().filter(|&&i| matches!(m.relief[i], Relief::Mountain | Relief::Peak)).count();
+            let highest = mouths.iter().copied().fold(0.0f32, f32::max);
+            if std::env::var("MOUTHS_LIST").is_ok() { for (i, q) in m.mouths().iter().filter(|(i, _)| !m.delta_cells.iter().any(|c| c.0 == *i)) { println!("  {:?} {:?} {:.0} m, marnage {:.1} m, fleuve {:.0} houle {:.0} maree {:.0} kg/s", m.hex_at(*i).to_offset(), q.kind, m.elevation[*i], m.tides.spring_range(m.downstream(m.hex_at(*i)).and_then(|d| m.index(m.hex_at(*i) + crate::hex::DIRECTIONS[d])).unwrap_or(*i)), q.river, q.wave, q.tide); } }
+            println!("graine {seed} : embouchures {}, à 40 m ou plus {}, à 200 m ou plus {}, à 500 m ou plus {}, la plus haute {highest:.0} m ; moyenne {mean:.0} m, à 1 500 m ou plus {high}, montagnes {mountains}, falaises {cliffs}, lacs {lakes}, chutes de fleuve {falls}", mouths.len(), mouths.iter().filter(|&&a| a >= 40.0).count(), mouths.iter().filter(|&&a| a >= 200.0).count(), mouths.iter().filter(|&&a| a >= 500.0).count());
+        }
     }
 }

@@ -61,7 +61,7 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [ ] **Or** (plus tard) : acheter des unités et des bâtiments, entretenir le tout, éventuellement un coût structurel de l'État.
 - [ ] **Frein à l'expansion et choix de développement** (plus tard) : à concevoir avec l'or.
 - [x] **Limite d'habitat selon le climat** (T0-09), **relief moins adouci sous les sites** (T4-18), **fleuves limoneux plus bleus en 3D** (T5-22) : faits (07/11).
-- [ ] **Type « ria » d'une case haute** (T0-04) : revu après le changement de climat : 38 embouchures sur 146 restent à 40 m ou plus, dont 5 à 500 m ou plus. Le climat ne règle donc pas le problème ; l'érosion est censée gérer ce genre de cas.
+- [x] **Rias perchées** (T0-04, 07/11) : seconde érosion après le climat, par le débit réel, renforcée à l'embouchure par la houle et la marée (voir `conception/conception-erosion.md`). Aucune embouchure à 500 m ou plus sur 8 graines.
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

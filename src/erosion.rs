@@ -1,5 +1,5 @@
 //! Érosion (logique pure) : l'eau creuse le relief tectonique avant qu'on y fasse couler les
-//! vrais cours d'eau.
+//! vrais cours d'eau, puis les vrais cours d'eau le creusent après le climat (`incise`).
 //!
 //! À chaque passe :
 //! 1. les cuvettes sont remplies jusqu'à leur seuil (Priority-Flood depuis la mer) : chaque case
@@ -126,6 +126,80 @@ pub fn erode(elevation: &mut [f64], neighbors: &[Vec<(usize, f32)>], area: &[f32
     report
 }
 
+/// Réglages du creusement par les vrais cours d'eau, après le climat.
+#[derive(Clone, Copy, Debug)]
+pub struct IncisionParams {
+    pub passes: usize,
+    /// Coefficient par passe, pour un débit de `reference_m3s`, et exposant du débit.
+    pub stream: f32,
+    pub reference_m3s: f32,
+    pub exponent: f32,
+    /// Débit (m³/s) sous lequel une case ne creuse pas.
+    pub min_m3s: f32,
+    /// Altitude (m) minimale d'une case de terre.
+    pub floor_m: f32,
+}
+
+impl Default for IncisionParams {
+    fn default() -> Self {
+        // (référence : le débit d'une case sous 1 000 mm/an, qui vaut une case de surface drainée)
+        Self { passes: 10, stream: 0.02, reference_m3s: 44.0, exponent: 0.5, min_m3s: 100.0, floor_m: 1.0 }
+    }
+}
+
+/// Renfort du creusement à l'embouchure, selon le bilan de sédiments : là où la houle et la marée
+/// emportent plus que le fleuve n'apporte, rien ne se dépose et la vallée reste creusée (au plus
+/// `MOUTH_BOOST_MAX` fois). `MOUTH_REACH` : part du renfort sur l'embouchure et les cases d'amont ;
+/// la houle attaque la côte et la marée remonte le bas du fleuve, pas plus loin.
+const MOUTH_BOOST_MAX: f32 = 4.0;
+pub const MOUTH_REACH: [f32; 3] = [1.0, 0.6, 0.3];
+
+/// Coefficient du creusement à une embouchure, d'après les flux de sédiments (kg/s) du fleuve, de
+/// la houle et de la marée, à la part `reach` de la portée.
+pub fn mouth_boost(river: f32, wave: f32, tide: f32, reach: f32) -> f32 {
+    let full = ((wave + tide) / river.max(1.0)).sqrt().clamp(1.0, MOUTH_BOOST_MAX);
+    1.0 + (full - 1.0) * reach
+}
+
+/// Creuse les cases selon leur débit réel : chacune descend vers sa case aval (`receiver`), avec la
+/// même loi que `erode`, mais le débit remplace la surface drainée : un petit bassin très arrosé
+/// creuse autant qu'il porte d'eau, une montagne sèche ne bouge pas. `elevation` : altitude (m) de
+/// la surface, 0 en mer ; `fixed` : cases qui ne changent pas (mer, lacs et leurs sorties) ; `boost` :
+/// coefficient du creusement de chaque case (`mouth_boost`). Une case ne descend jamais sous sa case
+/// aval. Rend les nouvelles altitudes.
+pub fn incise(elevation: &[f32], receiver: &[Option<usize>], discharge: &[f32], fixed: &[bool], boost: &[f32], params: IncisionParams) -> Vec<f32> {
+    let n = elevation.len();
+    // Ordre de l'aval vers l'amont (une boucle éventuelle est simplement laissée de côté)
+    let mut upstream = vec![0u32; n];
+    for r in receiver.iter().flatten() {
+        upstream[*r] += 1;
+    }
+    let mut order: Vec<usize> = (0..n).filter(|&i| upstream[i] == 0).collect();
+    let mut k = 0;
+    while k < order.len() {
+        if let Some(r) = receiver[order[k]] {
+            upstream[r] -= 1;
+            if upstream[r] == 0 {
+                order.push(r);
+            }
+        }
+        k += 1;
+    }
+    order.reverse();
+    let mut z = elevation.to_vec();
+    for _ in 0..params.passes {
+        for &i in &order {
+            let Some(r) = receiver[i] else { continue };
+            if fixed[i] || discharge[i] < params.min_m3s || z[i] <= z[r] {
+                continue;
+            }
+            let f = boost[i] * params.stream * (discharge[i] / params.reference_m3s).powf(params.exponent);
+            z[i] = ((z[i] + f * z[r]) / (1.0 + f)).max(z[r]).max(params.floor_m);
+        }
+    }
+    z
+}
+
 /// Écoulement sur la surface remplie : niveau de remplissage, case aval et ordre de traitement
 /// (de la mer vers l'amont).
 struct Flow {
@@ -222,6 +296,42 @@ mod tests {
         // La mer n'a pas bougé ; la terre reste de la terre
         assert!((0..h).all(|y| e[y * w] == -0.5));
         assert!((0..w * h).filter(|&i| i % w != 0).all(|i| e[i] > 0.0));
+    }
+
+    #[test]
+    fn le_debit_reel_creuse_et_le_profil_reste_descendant() {
+        // Ligne amont → mer : cases 0 à 3, la 4 est la mer
+        let e = vec![2_000.0, 1_500.0, 1_200.0, 1_000.0, 0.0];
+        let receiver = vec![Some(1), Some(2), Some(3), Some(4), None];
+        let fixed = vec![false, false, false, false, true];
+        let z = incise(&e, &receiver, &[3_000.0; 5], &fixed, &[1.0; 5], IncisionParams::default());
+        assert!(z[3] < 300.0, "l'embouchure d'un fort débit descend : {}", z[3]);
+        assert_eq!(z[4], 0.0, "la mer ne bouge pas");
+        assert!(z[0] >= z[1] && z[1] >= z[2] && z[2] >= z[3] && z[3] >= 1.0, "{z:?}");
+        // Sans débit, rien ne bouge ; un débit plus fort creuse plus
+        assert_eq!(incise(&e, &receiver, &[10.0; 5], &fixed, &[1.0; 5], IncisionParams::default()), e);
+        let faible = incise(&e, &receiver, &[200.0; 5], &fixed, &[1.0; 5], IncisionParams::default());
+        assert!(z[3] < faible[3] && faible[3] < e[3]);
+        // Le renfort de l'embouchure creuse davantage
+        let renfort = incise(&e, &receiver, &[3_000.0; 5], &fixed, &[1.0, 1.0, 1.0, 4.0, 1.0], IncisionParams::default());
+        assert!(renfort[3] < z[3], "{} contre {}", renfort[3], z[3]);
+    }
+
+    #[test]
+    fn la_mer_renforce_le_creusement_si_le_fleuve_apporte_peu() {
+        // Le fleuve l'emporte : pas de renfort ; la houle l'emporte : renfort, borné, qui s'éteint vers l'amont
+        assert_eq!(mouth_boost(1_000.0, 100.0, 50.0, 1.0), 1.0);
+        assert!((mouth_boost(100.0, 300.0, 100.0, 1.0) - 2.0).abs() < 1e-5);
+        assert_eq!(mouth_boost(10.0, 10_000.0, 0.0, 1.0), MOUTH_BOOST_MAX);
+        assert!(mouth_boost(100.0, 300.0, 100.0, MOUTH_REACH[2]) < mouth_boost(100.0, 300.0, 100.0, MOUTH_REACH[1]));
+    }
+
+    #[test]
+    fn une_case_figee_garde_son_altitude() {
+        let e = vec![800.0, 500.0, 0.0];
+        let z = incise(&e, &[Some(1), Some(2), None], &[5_000.0; 3], &[false, true, true], &[1.0; 3], IncisionParams::default());
+        assert_eq!(z[1], 500.0, "le lac ne bouge pas");
+        assert!(z[0] < 800.0 && z[0] >= 500.0, "la case amont ne descend pas sous le lac : {}", z[0]);
     }
 
     #[test]

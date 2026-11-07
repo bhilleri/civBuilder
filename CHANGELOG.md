@@ -10,6 +10,8 @@
 - **Pluies extrêmes plafonnées** : plus de 35 000 mm/an sur un versant, le maximum tombe vers 10 000 à 15 000 mm. L'eau qui ne tombe pas continue avec le vent : il y a 8 à 21 % de cases de désert en moins. Le monde généré change : pour une même graine, biomes, cours d'eau et noms ne sont plus les mêmes.
 - **Rivières plus nombreuses, qui partent d'un filet** : une rivière se trace dès 100 m³/s, quelle que soit la taille de son bassin, et s'élargit depuis sa source. Plus de rivière qui naît d'un coup à pleine largeur.
 
+- **Les cours d'eau creusent le relief après le climat** : les vallées suivent l'eau réelle, et les fleuves arrivent à la mer à peu près à son niveau au lieu de tomber d'une case à plus de 1 000 m. La houle et la marée renforcent le creusement des dernières cases. Les rias deviennent de vraies vallées noyées entre leurs reliefs. Altitude moyenne un peu plus basse (−6 à −8 %), lacs préservés.
+
 ### Raccord est-ouest
 - **Correctif en 3D** : les unités et les bâtiments des colonnes du bord ne disparaissent plus selon le côté d'où on les regarde, et les rivières restent continues. Un ennemi pouvait y être invisible.
 

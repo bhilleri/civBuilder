@@ -19,6 +19,17 @@ Sur une planète, appliquée à l'altitude relative issue des plaques, avant le 
 - Durée : négligeable devant le climat.
 - Tests : `une_cuvette_se_vide_ou_se_comble` (cuvette moins profonde, mer intacte), `les_grands_cours_d_eau_creusent_plus` (la vallée qui draine tout s'abaisse plus que les bords, profil toujours descendant).
 
+## Érosion par l'eau réelle, après le climat (07/11/2026)
+**Décision de Benjamin** : l'érosion doit venir après le climat. La première passe voit seulement la surface drainée : un petit bassin très arrosé y compte pour un ruisseau, d'où des fleuves à 1 193 m au bord de la mer (Binvik, graine 4242 : 8 cases, 2 325 m³/s). Benjamin propose aussi de réutiliser la houle et le marnage.
+
+**Algorithme** (`erosion::incise`, `WorldMap::incise_rivers`, une seule fois, à la génération) : une passe de climat, la houle, les marées et les embouchures donnent les débits et les flux, puis le creusement agit, puis tout le climat est refait sur le relief final (la pluie suit les vallées, et « regenerer climat » redonne la même carte). Même loi implicite que la première passe, sur 10 passes, F = 0,02 × (débit / 44 m³/s)^0,5 (44 m³/s : une case sous 1 000 mm/an), à partir de 100 m³/s. Les lacs et leur case de sortie ne bougent pas : l'abaisser les viderait. À l'embouchure, F est multiplié par √((houle + marée) / fleuve), entre 1 et 4, avec les flux de sédiments de `mouths.rs` : là où la mer emporte plus que le fleuve n'apporte, la vallée reste creusée ; le renfort s'éteint sur 3 cases (× 1, 0,6, 0,3). Classe d'altitude et relief suivent sur les cases abaissées et leurs voisines ; un pic reste un pic s'il en remplit encore les conditions.
+
+**Bilan** (`bilan_incision`, graines 777, 4242, 8, 31337, sans → avec) : embouchures à 40 m ou plus 24 sur 65 → 4 sur 62 ; à 500 m ou plus 4 → 0 ; la plus haute 1 193 → 420 m ; altitude moyenne −6 à −8 % ; cases à 1 500 m ou plus 6 364 → 5 794 (−9 %) ; lacs 153 → 131 cases ; falaises 1 036 → 1 033 ; chutes de fleuve 197 → 150. Sur 8 graines : 9 embouchures à 40 m ou plus sur 119, 2 à 200 m ou plus, aucune à 500 m. Binvik : 1 193 → 15 m, et sa pluie 4 411 → 1 488 mm (le relief n'y soulève plus l'air de la même façon). Génération (graine 4242) : 25,5 → 35,7 s, à cause de la passe de climat en plus, mesuré une fois.
+
+**Essais écartés** : réglage global de la première passe (× 3 ou 30 passes : 22 % de hautes terres en moins, 30 % de lacs en moins) ; second creusement seul à 0,05 (7 embouchures à 40 m ou plus sur 4 graines, mais lacs divisés par 2 et 27 % de falaises en plus).
+
+**Limites** : les débits qui creusent viennent d'une seule passe de climat, sur le relief d'avant le creusement. Quelques embouchures restent perchées (la plus haute à 420 m, graine 8). Les réseaux par cases et par coins restent distincts (rivière coupée T3-03).
+
 ## Graine du monde (menu Échap)
 - Le menu affiche la graine du monde actuel dans un champ ; on tape des chiffres (Retour arrière pour effacer), puis Entrée ou « Regénérer avec cette graine ». « Nouveau monde (graine au hasard) » en tire une autre. Avertissement : la partie en cours est perdue.
 - Mise en œuvre : le jeu se relance (nouveau processus, mêmes arguments et variables d'environnement, `CIVBUILDER_SEED` fixée ou retirée), la fenêtre actuelle se ferme. Repartir d'un processus neuf évite d'avoir à remettre à zéro tout l'état du jeu (carte, brouillard, relief 3D, étiquettes…).
