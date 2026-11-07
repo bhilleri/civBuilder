@@ -29,6 +29,8 @@ use crate::waterways::{WaterAxis, WaterKind, WaterShape, hex_gap, hex_water};
 
 /// Couche de rendu du monde 3D (la 2D reste sur la couche 0).
 pub const LAYER_3D: usize = 1;
+/// Couche des copies du sol au raccord (`SeamCopy`), vue seulement par les caméras fantômes.
+pub const LAYER_SEAM_COPY: usize = 2;
 /// Atténuation des couleurs de terrain en 3D (l'éclairage les rend plus vives qu'en 2D).
 const TERRAIN_TINT: f32 = 0.8;
 /// Inclinaison de la caméra (angle au-dessus de l'horizon).
@@ -2582,8 +2584,10 @@ pub fn hovered_hex_3d(ray: Ray3d, relief: &Relief, map: &GameMap) -> Option<Hex>
 /// Copie, de l'autre côté du raccord d'une planète, du sol ou de l'eau d'une case du bord
 /// (même maillage, même matériau, décalée d'un tour). Sans elle, la vue « fantôme » du bord
 /// opposé (voir `seam.rs`) et la vue principale se touchent pile sur le raccord, et le lissage
-/// des bords (MSAA) y laisse un fin liseré sombre en pointillés ; avec elle, chaque vue
-/// déborde d'une colonne sur l'autre.
+/// des bords (MSAA) y laisse un fin liseré sombre en pointillés ; avec elle, la vue fantôme
+/// déborde d'une colonne sous la vue principale. Seules les caméras fantômes la voient : dessinée
+/// par la caméra principale, elle recouvrait ce que le fantôme avait peint sur cette colonne
+/// (unités, bâtiments, arbres, eau).
 #[derive(Component)]
 struct SeamCopy {
     source: Entity,
@@ -2609,8 +2613,12 @@ fn sync_seam_copies(
             let (c, _) = h.to_offset();
             if c == 0 { Some(world) } else if c == map.0.width - 1 { Some(-world) } else { None }
         };
-        let entities = relief.tiles.iter().map(|(h, &e)| (h, e)).chain(relief.water.iter().map(|(h, (_, e))| (h, *e)));
-        for (hex, source) in entities {
+        let ground = relief.tiles.iter().map(|(h, &e)| (h, e, RenderLayers::layer(LAYER_SEAM_COPY)));
+        // Une rivière d'arête n'est dessinée que par une de ses deux cases, et déborde sur l'autre :
+        // son eau reste vue des deux côtés. Pas celle d'un fleuve ou d'un lac, qui resterait
+        // peinte sur les barques du fantôme.
+        let water = relief.water.iter().map(|(h, (_, e))| (h, *e, if map.0.is_fleuve(*h) || map.0.get(*h).is_some_and(|t| t.is_water()) { RenderLayers::layer(LAYER_SEAM_COPY) } else { layer() }));
+        for (hex, source, layers) in ground.chain(water) {
             let Some(shift) = edge(hex) else { continue };
             let Ok((mesh, material, _)) = sources.get(source) else { continue };
             commands.spawn((
@@ -2618,7 +2626,7 @@ fn sync_seam_copies(
                 mesh.clone(),
                 material.clone(),
                 Transform::from_xyz(shift, 0.0, 0.0),
-                layer(),
+                layers,
             ));
         }
         return;

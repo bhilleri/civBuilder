@@ -189,6 +189,25 @@ mod tests {
         }
     }
 
+    /// Effet du plafond des pluies : `cargo test bilan_plafond_pluie -- --ignored --nocapture`
+    /// (`SEEDS=777,2`) : pluie la plus forte, cases très arrosées, déserts, pluie moyenne des terres.
+    #[test]
+    #[ignore]
+    fn bilan_plafond_pluie() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![777, 2, 4242]);
+        for seed in seeds {
+            let map = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let land: Vec<Hex> = map.hexes().filter(|&h| map.get(h).is_some_and(|t| !t.is_water())).collect();
+            let rain: Vec<f32> = land.iter().filter_map(|&h| map.rain(h)).collect();
+            let max = rain.iter().copied().fold(0.0f32, f32::max);
+            let deserts = land.iter().filter(|&&h| map.get(h) == Some(crate::map::Terrain::Desert)).count();
+            println!("graine {seed} : terres {}, pluie max {max:.0} mm, plus de 12 000 mm : {}, plus de 8 000 mm : {}, déserts {deserts}, pluie moyenne {:.0} mm, arêtes de rivière {}", land.len(), rain.iter().filter(|&&r| r > 12_000.0).count(), rain.iter().filter(|&&r| r > 8_000.0).count(), rain.iter().sum::<f32>() / rain.len().max(1) as f32, land.iter().map(|&h| (0..6).filter(|&d| map.river_flow(h, d) > 0.0).count()).sum::<usize>() / 2);
+            let mouths: Vec<f32> = land.iter().filter(|&&h| map.mouth(h).is_some()).map(|&h| map.elevation(h).unwrap_or(0.0)).collect();
+            let forests_high = land.iter().filter(|&&h| map.get(h) == Some(crate::map::Terrain::Forest) && map.warmest_season(h).is_some_and(|t| t < HERDERS_BELOW)).count();
+            println!("  embouchures {}, à 40 m ou plus {}, à 500 m ou plus {} ; forêts tempérées sous 10 °C en été : {forests_high}", mouths.len(), mouths.iter().filter(|&&a| a >= 40.0).count(), mouths.iter().filter(|&&a| a >= 500.0).count());
+        }
+    }
+
     #[test]
     fn distribution_des_evenements() {
         let mut rng = StdRng::seed_from_u64(1);

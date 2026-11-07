@@ -96,8 +96,10 @@ Simulation lancée à la génération du monde (module `src/climate.rs`, logique
 - **Température de la mer au fil de l'année**.
 - Cyclones tropicaux éventuels sous forme d'événements de jeu.
 
+## Plafond des pluies (07/11/2026)
+**Décision de Benjamin** : plafonner les pluies extrêmes (jusqu'à 35 666 mm/an), reporter l'humidité non tombée aux cases suivantes, ajouter du bruit pour que le plafond ne se voie pas. **Algorithme** : à chaque pas, la pluie d'un nuage est limitée à un rythme par case (`RAIN_CAP_MM_YEAR` 12 000 mm/an × `RAIN_CAP_PEAK` 1,5, ±25 % de bruit sur 320 km) ; le reste reste dans le nuage, que le vent d'altitude transporte. **Bilan** (`bilan_plafond_pluie`, 8 graines) : pluie maximale de 10 179 à 15 188 mm (auparavant jusqu'à 35 666), et 8 à 21 % de cases de désert en moins sur les 5 graines comparées (777 : 960 → 838 ; 4242 : 1 439 → 1 218 ; 31337 : 738 → 586 ; 8 : 1 476 → 1 362 ; 2 : 1 346 → 1 236). Une marge de 2,0 laissait 16 500 à 18 300 mm. **Limite** : le plafond porte sur le rythme, pas sur le total annuel : il dépasse parfois 12 000 mm, et il touche aussi de fortes pluies ordinaires (−8 % sur le continent équatorial du test, 2 139 → 1 968 mm).
+
 ## Limites connues / pistes
-- Versants tropicaux exposés : jusqu'à ~19 000 mm sur une barrière de 3 800 m (records réels 11-13 000).
 - Courants marins fixes toute l'année (calculés une fois, sur le vent annuel moyen).
 - Le générateur de relief (bruit fractal) sera remplacé par une génération géologique.
 - Les mers intérieures sont traitées comme l'océan (courants compris, même modèle).

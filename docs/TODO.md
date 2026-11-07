@@ -53,13 +53,15 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [x] c. Relief trop haut (01/11) : altitude en mètres d'abord (échelle fixe depuis les plaques), 9 niveaux déduits des mètres, falaise en mètres (voir `conception/conception-altitude.md`).
 
 ## Décisions de Benjamin après la première campagne de tests (07/11)
-- [ ] **Rivières** : plus de seuil de bassin de 6 cases. Un seuil de débit seul, et une largeur qui part de zéro à la source (T3-01).
-- [ ] **Pluies extrêmes plafonnées**, avec un peu de bruit sur le plafond pour qu'il ne se voie pas sur la carte. L'humidité non tombée passe aux cases suivantes, ce qui réduira peut-être les déserts (T0-03).
+- [x] **Rivières** (07/11) : plus de seuil de bassin de 6 cases. Un seuil de débit seul, et une largeur qui part de presque rien à la source (T3-01).
+- [x] **Pluies extrêmes plafonnées** (07/11), avec du bruit sur le plafond et l'humidité non tombée reportée aux cases suivantes : 8 à 21 % de cases de désert en moins (T0-03).
+- [x] **Raccord 3D** (07/11) : unités, bâtiments et rivières visibles des deux côtés (T5-01, T3-02). Reste une paroi sombre, en vue tournée surtout, quand une case du bord domine sa voisine de l'autre côté.
+- [ ] **Forêts tempérées à moins de 10 °C en été** : 105 à 435 cases par graine, à revoir avec les biomes (villages en yourtes au milieu des arbres).
 - [ ] **Sites inaccessibles à pied** : pas par défaut. Éventuellement une option au lancement de la partie pour les autoriser (T0-08, T4-11).
 - [ ] **Or** (plus tard) : acheter des unités et des bâtiments, entretenir le tout, éventuellement un coût structurel de l'État.
 - [ ] **Frein à l'expansion et choix de développement** (plus tard) : à concevoir avec l'or.
 - [x] **Limite d'habitat selon le climat** (T0-09), **relief moins adouci sous les sites** (T4-18), **fleuves limoneux plus bleus en 3D** (T5-22) : faits (07/11).
-- [ ] **Type « ria » d'une case haute** (T0-04) : à revoir après le changement de climat ; l'érosion est censée gérer ce genre de cas.
+- [ ] **Type « ria » d'une case haute** (T0-04) : revu après le changement de climat : 38 embouchures sur 146 restent à 40 m ou plus, dont 5 à 500 m ou plus. Le climat ne règle donc pas le problème ; l'érosion est censée gérer ce genre de cas.
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

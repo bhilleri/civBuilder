@@ -26,10 +26,8 @@ const FLEUVE_WIDE_M3S: f32 = 60_000.0;
 const RIVER_MIN_HALF_WIDTH: f32 = 1.0;
 const RIVER_WIDTH_PER_DECADE: f32 = 4.0;
 const RIVER_MAX_HALF_WIDTH: f32 = 7.0;
-/// Demi-largeur d'une rivière à sa source, et au moins cette part de sa largeur plus bas (une rivière
-/// déjà abondante ne part pas d'un point : un coin triangulaire).
-const RIVER_SOURCE_HALF_WIDTH: f32 = 0.8;
-const RIVER_SOURCE_SHARE: f32 = 0.55;
+/// Demi-largeur d'une rivière à sa source : presque rien, elle s'élargit sur sa première arête.
+const RIVER_SOURCE_HALF_WIDTH: f32 = 0.1;
 /// Demi-largeur d'un fleuve à son embouchure : au plus toute l'arête, et évasement d'un fleuve
 /// étroit (part de sa demi-largeur).
 const ESTUARY_HALF_WIDTH: f32 = HEX_SIZE * 0.5;
@@ -1486,8 +1484,8 @@ pub fn hex_water(map: &WorldMap, hex: Hex) -> WaterShape {
         let bisect = |r: &EdgeRiver| (along + (river_node(map, r.down) - river_node(map, r.up)).normalize_or_zero()).normalize_or(along);
         let (t_up, t_down) = (prev.as_ref().map_or(along, bisect), next.as_ref().map_or(along, bisect));
         let hw = river_half_width(own.q);
-        // (à sa source, elle part fine : pas de bout rond déjà large)
-        let (hw_up, tone_up) = prev.as_ref().map_or((hw.min(RIVER_SOURCE_HALF_WIDTH.max(hw * RIVER_SOURCE_SHARE)), own.tone), |r| (river_half_width(r.q), r.tone));
+        // (à sa source, sa largeur part de presque rien)
+        let (hw_up, tone_up) = prev.as_ref().map_or((hw.min(RIVER_SOURCE_HALF_WIDTH), own.tone), |r| (river_half_width(r.q), r.tone));
         let length = node_up.distance(node_down);
         let mut path: Vec<PathPoint> = vec![(node_up, hw_up, tone_up)];
         path.extend(hermite(node_up, t_up * length, node_down, t_down * length, RIVER_STEPS).map(|(s, p)| (p, hw_up + (hw - hw_up) * s, tone_up.lerp(own.tone, s))));

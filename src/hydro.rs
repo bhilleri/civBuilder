@@ -30,11 +30,8 @@ use std::cmp::Reverse;
 use bevy::platform::collections::HashMap;
 use std::collections::BinaryHeap;
 
-/// Débit à partir duquel une rivière est tracée sur les arêtes (m³/s)…
+/// Débit à partir duquel une rivière est tracée sur les arêtes (m³/s).
 pub const RIVER_M3S: f32 = 100.0;
-/// … pour un bassin versant d'au moins ce nombre de cases : sous les climats très humides, un
-/// tout petit bassin suffirait à faire une rivière, et la carte en serait quadrillée.
-pub const RIVER_MIN_BASIN_CELLS: f32 = 6.0;
 /// Débit à partir duquel le cours d'eau occupe toute la case : fleuve (m³/s).
 pub const FLEUVE_M3S: f32 = 2_000.0;
 /// Un fleuve reste un fleuve vers l'aval tant qu'il garde cette part du seuil (il ne redevient
@@ -633,7 +630,7 @@ fn edge_rivers(input: &HydroInput, grid: Grid, out: &mut Hydrology, pools: &[Poo
         // Rivière tracée entre deux cases de terre (ni mer, ni lac, ni fleuve)
         let Some(j) = neighbor else { continue };
         let plain = |i: usize| !input.sea[i] && !out.lake[i] && !out.fleuve[i];
-        if flow >= RIVER_M3S && basin[c] >= RIVER_MIN_BASIN_CELLS && plain(cell) && plain(j) {
+        if flow >= RIVER_M3S && plain(cell) && plain(j) {
             out.edge_flow[cell][d as usize] = flow;
             out.edge_flow[j][(d as usize + 3) % 6] = flow;
             let down_corner = if corner_of[cell][d as usize] == r { d } else { (d + 1) % 6 };

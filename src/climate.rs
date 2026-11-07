@@ -146,6 +146,14 @@ const PRECIPITATION_EFFICIENCY: (f32, f32) = (0.6, 0.7);
 /// un sommet fixe à 6 km, 80 % de la vapeur soulevée à l'équateur restait en altitude et partait
 /// vers les latitudes moyennes.
 const DEEP_CLOUD_EXTRA_M: f32 = 8_000.0;
+/// Plafond des pluies (mm/an, records terrestres : 11 000 à 13 000) : ce que le plafond empêche de
+/// tomber reste dans le nuage, que le vent porte aux cases suivantes. Le plafond varie d'un lieu à
+/// l'autre (part de bruit, longueur d'onde en km) pour ne pas se voir sur la carte. Il limite le
+/// rythme à chaque pas ; une pluie ne dure pas toute l'année, d'où la marge sur le rythme de pointe.
+const RAIN_CAP_MM_YEAR: f32 = 12_000.0;
+const RAIN_CAP_NOISE: f32 = 0.25;
+const RAIN_CAP_NOISE_KM: f32 = 320.0;
+const RAIN_CAP_PEAK: f32 = 1.5;
 /// Temps de chute des gouttes une fois formées (s) : le vent les pousse pendant ce temps, d'où
 /// une partie de la pluie qui passe la crête d'un relief.
 const FALLOUT_TIME_S: f32 = 2_000.0;
@@ -763,6 +771,11 @@ pub fn simulate_periods(
     periods: &[Period],
 ) -> Climate {
     let grid = Grid::new(width, height, region);
+    // Plafond de pluie de chaque case (mm/jour)
+    let cap_noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(90_001)).set_octaves(2).set_frequency(1.0);
+    let rain_cap: Vec<f32> = (0..grid.lat.len())
+        .map(|i| RAIN_CAP_MM_YEAR * RAIN_CAP_PEAK / 365.0 * (1.0 + RAIN_CAP_NOISE * grid.noise(&cap_noise, i, RAIN_CAP_NOISE_KM).clamp(-1.0, 1.0)))
+        .collect();
     let (dt, dt_days) = (grid.dt, grid.dt_days);
     let steps = |days: f32| (days / dt_days).ceil() as usize;
     let n = grid.lat.len();
@@ -951,6 +964,7 @@ pub fn simulate_periods(
                     snow: t_upper + LAPSE * (z_upper - ground[i] - LOW_DEPTH) < 0.0 && t_surface < 2.0,
                     // Évaporation potentielle de Hargreaves, sans le facteur de l'écart jour-nuit
                     pet_base: hargreaves(grid.lat[i] - period.sun_lat, t_ground, 1.0),
+                    rain_cap: rain_cap[i],
                     storms: STORM_W * (bump((grid.lat[i] - period.sun_lat * 0.5).abs(), 0.42, 0.68, 0.12) + CYCLOGENESIS_STORMS * winter(i)),
                     land_share: land_share[i],
                     ground: ground[i],
@@ -1103,6 +1117,8 @@ struct CellConst {
     snow: bool,
     pet_base: f32,
     storms: f32,
+    /// Plafond de pluie (mm/jour).
+    rain_cap: f32,
     land_share: f32,
     ground: f32,
 }
@@ -1151,6 +1167,11 @@ struct Rates {
     cloud_evaporation: f32,
     drizzle: f32,
     rh_memory: f32,
+}
+
+/// Eau qui tombe d'un nuage pendant un pas, sous le plafond de la case (mm/jour) ; le reste y reste.
+fn capped_fall(cloud: f32, fall_rate: f32, cap_per_day: f32, dt_days: f32) -> f32 {
+    (cloud * fall_rate).min(cap_per_day * dt_days)
 }
 
 /// Processus verticaux et échanges avec la surface d'une colonne d'air pendant un pas.
@@ -1269,7 +1290,7 @@ fn column_step(
 
     // 3) Pluie (ou neige, qui tombe plus lentement) ; une partie s'évapore en tombant dans un air sec
     let fall_rate = if c.snow { rates.snowfall } else { rates.fallout };
-    let from_cloud = air.cloud * fall_rate;
+    let from_cloud = capped_fall(air.cloud, fall_rate, c.rain_cap, dt_days);
     air.cloud -= from_cloud;
     let falling = from_cloud + drizzled;
     // Le nuage restant (non précipité) s'évapore dans un air d'altitude non saturé
@@ -1453,7 +1474,17 @@ mod tests {
         // Ordres de grandeur : Europe de l'Ouest, Méditerranée, Bornéo
         assert!((350.0..900.0).contains(&temperate), "tempéré {temperate}");
         assert!((200.0..600.0).contains(&subtropical), "subtropical {subtropical}");
-        assert!((2_000.0..6_000.0).contains(&equatorial), "équatorial {equatorial}");
+        // (le plafond retire environ 8 % de la pluie de ce petit continent : 2 139 mm sans lui)
+        assert!((1_800.0..6_000.0).contains(&equatorial), "équatorial {equatorial}");
+    }
+
+    #[test]
+    fn la_pluie_au_dela_du_plafond_reste_dans_le_nuage() {
+        // Sous le plafond : tout ce qui devait tomber tombe
+        assert_eq!(capped_fall(10.0, 0.5, 100.0, 1.0), 5.0);
+        // Au-delà : le plafond limite, et le reste du nuage repart avec le vent
+        assert_eq!(capped_fall(100.0, 0.5, 20.0, 1.0), 20.0);
+        assert_eq!(capped_fall(100.0, 0.5, 20.0, 0.1), 2.0);
     }
 
     #[test]

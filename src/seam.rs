@@ -60,7 +60,8 @@ fn spawn_ghosts(
                 e.insert(Camera2d);
             }
             if let Some(layers) = layers {
-                e.insert(layers.clone());
+                // (en 3D, le fantôme voit aussi les copies du sol qui le font déborder du raccord)
+                e.insert(if is_3d { layers.clone().with(crate::view3d::LAYER_SEAM_COPY) } else { layers.clone() });
             }
         }
     }
