@@ -798,6 +798,66 @@ const SAND_HEIGHT: f32 = 6.5;
 const SAND_BAND: f32 = APOTHEM * 0.42;
 
 /// Distance d'un point à un segment.
+/// Déplacement du pourtour d'une case dessinée : à la fraction `t` de son arête `d`.
+fn warp_shift(corners: &[Vec2; 6], edges: &[f32; 6], d: usize, t: f32) -> Vec2 {
+    const PROFILE: [f32; 5] = [0.0, 0.71, 1.0, 0.71, 0.0];
+    let x = t * 4.0;
+    let k = (x.floor() as usize).min(3);
+    let bulge = PROFILE[k] + (PROFILE[k + 1] - PROFILE[k]) * (x - k as f32);
+    corners[d].lerp(corners[(d + 1) % 6], t) + Vec2::from_angle((60.0 * d as f32).to_radians()) * edges[d] * bulge
+}
+
+/// Rivage tel qu'il est dessiné : le contour déformé de cases d'eau voisines.
+#[derive(Default)]
+pub struct Shoreline {
+    cells: Vec<Vec<Vec2>>,
+    shore: Vec<(Vec2, Vec2)>,
+}
+
+impl Shoreline {
+    /// Ajoute une case d'eau : `shore` a un bit par arête qui borde la terre (les autres arêtes ne
+    /// sont pas un rivage : au milieu d'une mer, le passage d'une case à l'autre ne compte pas).
+    pub fn add(&mut self, center: Vec2, corners: &[Vec2; 6], edges: &[f32; 6], shore: u8) {
+        const STEPS: usize = 4;
+        let mut outline = Vec::with_capacity(6 * STEPS);
+        for d in 0..6 {
+            let [a, b] = [d, d + 1].map(|j| Vec2::from_angle((-30.0 + 60.0 * j as f32).to_radians()) * HEX_SIZE);
+            let at = |k: usize| {
+                let t = k as f32 / STEPS as f32;
+                center + a.lerp(b, t) + warp_shift(corners, edges, d, t)
+            };
+            for k in 0..STEPS {
+                outline.push(at(k));
+                if shore & (1 << d) != 0 {
+                    self.shore.push((at(k), at(k + 1)));
+                }
+            }
+        }
+        self.cells.push(outline);
+    }
+
+    /// Distance au rivage : négative dans l'eau, `f32::MAX` sans eau ni rivage alentour.
+    pub fn gap(&self, p: Vec2) -> f32 {
+        let inside = self.cells.iter().any(|cell| {
+            let mut odd = false;
+            for (i, &a) in cell.iter().enumerate() {
+                let b = cell[(i + 1) % cell.len()];
+                if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (b.x - a.x) * (p.y - a.y) / (b.y - a.y) {
+                    odd = !odd;
+                }
+            }
+            odd
+        });
+        let far = self.shore.iter().map(|&(a, b)| distance_to_segment(p, a, b)).fold(f32::MAX, f32::min);
+        match (inside, far == f32::MAX) {
+            (true, true) => f32::MIN,
+            (false, true) => f32::MAX,
+            (true, false) => -far,
+            (false, false) => far,
+        }
+    }
+}
+
 fn distance_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     let ab = b - a;
     let t = ((p - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
@@ -947,11 +1007,7 @@ pub fn build_hex(
         }
         let (a, b) = (corner(d), corner(d + 1));
         let t = ((p - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
-        let x = t * 4.0;
-        let k = (x.floor() as usize).min(3);
-        const PROFILE: [f32; 5] = [0.0, 0.71, 1.0, 0.71, 0.0];
-        let bulge = PROFILE[k] + (PROFILE[k + 1] - PROFILE[k]) * (x - k as f32);
-        top.warp_corners[d].lerp(top.warp_corners[(d + 1) % 6], t) + Vec2::from_angle((60.0 * d as f32).to_radians()) * top.warp_edges[d] * bulge
+        warp_shift(&top.warp_corners, &top.warp_edges, d, t)
     };
     let vertex = |mesh: &mut MeshData, q: Vec2, moved: Vec2, edge: bool| {
         let (y, bank) = dig(q);
@@ -1023,6 +1079,47 @@ pub fn build_hex(
 mod tests {
     use super::*;
     use bevy::platform::collections::HashMap;
+
+    const APOTHEM_TEST: f32 = HEX_SIZE * 0.866;
+
+    #[test]
+    fn le_rivage_d_une_case_seule_suit_son_contour() {
+        let mut s = Shoreline::default();
+        s.add(Vec2::ZERO, &[Vec2::ZERO; 6], &[0.0; 6], 0b111111);
+        assert!((s.gap(Vec2::ZERO) + APOTHEM_TEST).abs() < 0.1, "{}", s.gap(Vec2::ZERO));
+        assert!((s.gap(Vec2::X * (APOTHEM_TEST + 5.0)) - 5.0).abs() < 0.1);
+        // (jusque dans les coins, contrairement à un cercle)
+        assert!(s.gap(Vec2::from_angle((-30f32).to_radians()) * (HEX_SIZE - 1.0)) < 0.0);
+        assert_eq!(Shoreline::default().gap(Vec2::ZERO), f32::MAX);
+    }
+
+    #[test]
+    fn le_passage_entre_deux_cases_d_eau_n_est_pas_un_rivage() {
+        let mut s = Shoreline::default();
+        let next = Vec2::X * APOTHEM_TEST * 2.0;
+        // (arête 0 de la première, arête 3 de la seconde : communes)
+        s.add(Vec2::ZERO, &[Vec2::ZERO; 6], &[0.0; 6], 0b111110);
+        s.add(next, &[Vec2::ZERO; 6], &[0.0; 6], 0b110111);
+        // (le rivage le plus proche est au bout de l'arête commune, à une demi-arête)
+        assert!((s.gap(next / 2.0) + HEX_SIZE / 2.0).abs() < 0.1, "{}", s.gap(next / 2.0));
+    }
+
+    #[test]
+    fn le_rivage_suit_le_dessin_deforme() {
+        // Coin 0 ramené de 8 vers le centre : l'ancien coin est sur la terre
+        let tip = Vec2::from_angle((-30f32).to_radians()) * HEX_SIZE;
+        let mut corners = [Vec2::ZERO; 6];
+        corners[0] = -tip.normalize() * 8.0;
+        let mut s = Shoreline::default();
+        s.add(Vec2::ZERO, &corners, &[0.0; 6], 0b111111);
+        assert!(s.gap(tip * 0.97) > 0.0, "{}", s.gap(tip * 0.97));
+        // Arête 0 bombée vers l'extérieur : l'eau gagne au-delà de l'arête droite
+        let mut edges = [0.0; 6];
+        edges[0] = 3.0;
+        let mut s = Shoreline::default();
+        s.add(Vec2::ZERO, &[Vec2::ZERO; 6], &edges, 0b111111);
+        assert!(s.gap(Vec2::X * (APOTHEM_TEST + 2.0)) < 0.0);
+    }
 
     fn tops(heights: &HashMap<Hex, f32>, link: impl Fn(Hex, Hex) -> Link + Copy) -> HashMap<Hex, HexTop> {
         let h = |x: Hex| *heights.get(&x).unwrap_or(&0.0);

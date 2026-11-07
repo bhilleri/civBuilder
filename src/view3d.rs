@@ -337,6 +337,20 @@ struct ReliefSite<'a> {
     relief: &'a Relief,
     center: Vec2,
     hex: Hex,
+    shoreline: crate::relief::Shoreline,
+}
+
+/// Rivage dessiné de la mer et des lacs autour d'un point : celui que le joueur voit.
+fn shoreline_near(map: &crate::map::WorldMap, relief: &Relief, center: Vec2) -> crate::relief::Shoreline {
+    let mut shoreline = crate::relief::Shoreline::default();
+    let water = |h: Hex| relief.water_hexes.contains(&relief.wrap.hex(h));
+    for h in Hex::from_world(center.x, center.y).range(3).filter(|&h| water(h)) {
+        let (corners, edges) = crate::waterways::coast_warp(map, relief.wrap.hex(h));
+        let shore = (0..6).filter(|&d| !water(h + crate::hex::DIRECTIONS[d])).fold(0u8, |bits, d| bits | 1 << d);
+        let (x, y) = h.to_world();
+        shoreline.add(Vec2::new(x, y), &corners, &edges, shore);
+    }
+    shoreline
 }
 
 impl crate::settlements::Site for ReliefSite<'_> {
@@ -348,15 +362,7 @@ impl crate::settlements::Site for ReliefSite<'_> {
     fn water_gap(&self, p: Vec2) -> f32 {
         let q = self.center + p;
         let river = self.relief.channels.get(&self.hex).map_or(f32::MAX, |near| near.iter().map(|c| c.water_gap(q)).fold(f32::MAX, f32::min));
-        let sea = Hex::from_world(q.x, q.y)
-            .range(2)
-            .filter(|&h| self.relief.water_hexes.contains(&self.relief.wrap.hex(h)))
-            .map(|h| {
-                let (cx, cy) = h.to_world();
-                q.distance(Vec2::new(cx, cy)) - HEX_SIZE * 0.866
-            })
-            .fold(f32::MAX, f32::min);
-        river.min(sea)
+        river.min(self.shoreline.gap(q))
     }
 
     fn river_near(&self, p: Vec2) -> Option<crate::settlements::RiverAxis> {
@@ -2147,7 +2153,7 @@ fn sync_mirrors(
                 // Pose gardée tant que le stade et la fortification ne changent pas
                 if let Some(model) = model.as_mut() {
                     if model.pose.is_none() || model.code != code {
-                        let site = ReliefSite { relief: &relief, center: c, hex };
+                        let site = ReliefSite { relief: &relief, center: c, hex, shoreline: shoreline_near(&map.0, &relief, c) };
                         let family = map.0.get(hex).map_or(crate::settlements::Family::Prairie, crate::settlements::Family::of);
                         let seed = (hex.q as i64 as u64).wrapping_mul(73_856_093) ^ (hex.r as i64 as u64).wrapping_mul(19_349_663);
                         model.pose = Some(if let Ok(state) = camp_states.get(mirror.source) {

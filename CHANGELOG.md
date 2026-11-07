@@ -49,7 +49,7 @@
 - **Une ville fortifiée le garde** : une porte dans l'axe du pont, et une tour de tête de pont sur l'autre rive.
 
 ### Détails
-- **La barque** se pose là où l'eau est assez large pour elle, le long du ponton ou un peu au-delà, et il n'y en a pas si l'eau manque.
+- **La barque** se pose là où l'eau est assez large pour elle, le long du ponton ou un peu au-delà, et il n'y en a pas si l'eau manque. Ponton et barque suivent le rivage tel qu'il est dessiné, même arrondi.
 - **Les pieux du Campement** sont plus épais et plus hauts, pour se lire de loin.
 
 ## 0.3.1 — 6 novembre 2026

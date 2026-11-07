@@ -18,7 +18,7 @@ Code : `settlements.rs` (pose, logique pure), `settlement_mesh.rs` (maillage), `
 
 ## Algorithme (`settlements.rs`)
 
-Tout se calcule dans le repère de la case, à travers le trait `Site` (hauteur, distance à l'eau) : le module se teste sans rendu.
+Tout se calcule dans le repère de la case, à travers le trait `Site` (hauteur, distance à l'eau) : le module se teste sans rendu. La distance à la mer et aux lacs se mesure sur le rivage tel qu'il est dessiné (`relief::Shoreline`, avec la déformation de `coast_warp`), pas sur le bord exact des cases.
 
 1. **Limite de la ville** : un rayon par angle (72 angles) et par stade. Elle s'arrête avant la rive et le bord de la case et, sur un relief, cherche le tracé qui monte et descend le moins (programmation dynamique sur quatre rayons). C'est le tracé de la muraille, réservé même sans fortification : la construire ne déplace rien.
 2. **Place centrale** (rayon 5,5) libre : la garnison s'y tient.
@@ -97,7 +97,6 @@ Script de commandes : `ville c l`, `ville population c l n`, `ville fortifier c 
 
 - La fortification n'a pas encore de règle de jeu : seule la console la pose. `CityState` ne produit que des unités ; il faudra une production de bâtiments et l'effet en combat (`conception-combat.md`).
 - Une tête de pont dans une case voisine ne dégage pas ses arbres et n'en occupe pas la case : un arbre ou une autre ville peut s'y trouver tout près.
-- L'eau de mer est estimée par la distance au centre de la case d'eau (approximation près des coins).
 - Une ville fortifiée reste sur une seule rive.
 - Sur un relief accidenté, les familles à habitat léger peuvent n'avoir que quelques bâtiments au stade Ville.
 
