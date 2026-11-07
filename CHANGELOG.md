@@ -14,6 +14,8 @@
 
 - **Correctif : plus de rivière coupée net en pleine plaine** : une rivière qui arrivait dans une cuvette sèche s'y arrêtait, parfois à plus de 1 000 m³/s. Elle passe maintenant le col et continue.
 
+- **Des vallées dans les chaînes de montagnes** : l'eau y converge en vrais réseaux d'affluents, au lieu d'un peigne de rivières parallèles sur des versants lisses. Altitude moyenne inchangée, mais un quart de falaises en plus. Le monde généré change.
+
 ### Raccord est-ouest
 - **Correctif en 3D** : les unités et les bâtiments des colonnes du bord ne disparaissent plus selon le côté d'où on les regarde, et les rivières restent continues. Un ennemi pouvait y être invisible.
 

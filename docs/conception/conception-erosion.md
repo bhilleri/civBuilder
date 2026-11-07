@@ -19,6 +19,17 @@ Sur une planète, appliquée à l'altitude relative issue des plaques, avant le 
 - Durée : négligeable devant le climat.
 - Tests : `une_cuvette_se_vide_ou_se_comble` (cuvette moins profonde, mer intacte), `les_grands_cours_d_eau_creusent_plus` (la vallée qui draine tout s'abaisse plus que les bords, profil toujours descendant).
 
+## Vallées dans les chaînes, avant l'érosion (07/11/2026)
+**Retour de Benjamin** (graine 3793283170, cordillère d'Omathurn) : beaucoup trop de cours d'eau, un rendu bizarre. Mesure : 92 % des cases de la chaîne touchent une rivière, en un « peigne » de rivières parallèles, une par rangée de cases, déjà présent sans le creusement après le climat. Une crête aux versants lisses ne rassemble pas l'eau ; relever le seuil de rivière ou bruiter l'écoulement ne suffit pas.
+
+**Algorithme** (`erosion::with_valleys`, avant la première érosion) : dans les terres hautes (de 350 à 1 200 m environ, complet au-delà), un bruit à l'échelle de quelques cases (`VALLEY_ZOOM`) creuse des vallées et relève d'autant les crêtes voisines, jusqu'à ±35 % de l'altitude (`VALLEY_DEPTH`). L'érosion approfondit ensuite ces vallées.
+
+**Essais** (graines 3793283170, 777, 8) : abaisser sans relever (35 %, 50 %, deux échelles) donne les mêmes confluences, mais perd 14 à 25 % d'altitude moyenne et jusqu'à 37 % des hautes terres ; relever les crêtes garde l'altitude ; ±50 % donne plus de falaises sans gain net.
+
+**Bilan** (`bilan_incision`, 8 graines de référence, avant → après) : confluences pour 100 arêtes 5,1-5,8 → 7,3-8,1 (3 graines comparées) ; arêtes de rivière −14 % ; altitude moyenne gardée (écart de −1,3 à +1,2 %) ; cases à 1 500 m ou plus gardées (777 : 1 635 → 1 667 ; 8 : 2 687 → 2 728) ; embouchures : 9 sur 124 à 40 m ou plus, aucune à 500 m ; `verifier` à 0. **Prix à payer** : falaises 1 676 → 2 119 (+26 %) et chutes de fleuve 295 → 429 (+45 %), donc plus de passages infranchissables en montagne.
+
+**Limites** : l'échelle des vallées est la même partout ; le bruit n'est pas orienté selon la pente. Les hautes terres restent assez arrosées pour rester touchées par une rivière à 50 % environ.
+
 ## Érosion par l'eau réelle, après le climat (07/11/2026)
 **Décision de Benjamin** : l'érosion doit venir après le climat. La première passe voit seulement la surface drainée : un petit bassin très arrosé y compte pour un ruisseau, d'où des fleuves à 1 193 m au bord de la mer (Binvik, graine 4242 : 8 cases, 2 325 m³/s). Benjamin propose aussi de réutiliser la houle et le marnage.
 

@@ -2231,6 +2231,11 @@ impl WorldMap {
         let tectonic = wrap.wraps();
         let tectonic_e = if tectonic {
             let mut e = map.plates.elevation(seed, region.cell_km);
+            // Des vallées dans les terres hautes, pour que l'eau y converge (voir erosion.rs)
+            let valley_noise: Fbm<Perlin> = Fbm::new(seed.wrapping_add(271_828)).set_octaves(2).set_frequency(1.0);
+            for (i, v) in e.iter_mut().enumerate() {
+                *v = crate::erosion::with_valleys(*v, sample(&valley_noise, map.hex_at(i), crate::erosion::VALLEY_ZOOM));
+            }
             // L'eau creuse le relief : vallées, cuvettes vidées ou comblées, cols (voir erosion.rs)
             let neighbors = map.plates.neighbor_graph(region.cell_km);
             // (l'eau qui atteint le bord, aux pôles, s'en va : la terre continue au-delà)
@@ -4080,6 +4085,15 @@ mod lieux {
             let lakes = m.tiles.iter().filter(|&&t| t == Terrain::Lake).count();
             let mountains = land.iter().filter(|&&i| matches!(m.relief[i], Relief::Mountain | Relief::Peak)).count();
             let highest = mouths.iter().copied().fold(0.0f32, f32::max);
+            // Peigne : part des hautes terres touchées par une rivière, confluences pour 100 arêtes
+            let high_cells: Vec<usize> = land.iter().copied().filter(|&i| m.elevation[i] >= 1_000.0).collect();
+            let touched = high_cells.iter().filter(|&&i| (0..6).any(|d| m.river_flow(m.hex_at(i), d) > 0.0)).count();
+            let mut arrivals: bevy::platform::collections::HashMap<u32, u32> = bevy::platform::collections::HashMap::default();
+            for s in &m.hydro.river_segments {
+                *arrivals.entry(s.down).or_insert(0) += 1;
+            }
+            let confluences = arrivals.values().filter(|&&k| k >= 2).count();
+            println!("  peigne : hautes terres touchées {:.0} %, confluences pour 100 arêtes {:.1}, arêtes {}", 100.0 * touched as f32 / high_cells.len().max(1) as f32, 100.0 * confluences as f32 / m.hydro.river_segments.len().max(1) as f32, m.hydro.river_segments.len());
             if std::env::var("MOUTHS_LIST").is_ok() { for (i, q) in m.mouths().iter().filter(|(i, _)| !m.delta_cells.iter().any(|c| c.0 == *i)) { println!("  {:?} {:?} {:.0} m, marnage {:.1} m, fleuve {:.0} houle {:.0} maree {:.0} kg/s", m.hex_at(*i).to_offset(), q.kind, m.elevation[*i], m.tides.spring_range(m.downstream(m.hex_at(*i)).and_then(|d| m.index(m.hex_at(*i) + crate::hex::DIRECTIONS[d])).unwrap_or(*i)), q.river, q.wave, q.tide); } }
             println!("graine {seed} : embouchures {}, à 40 m ou plus {}, à 200 m ou plus {}, à 500 m ou plus {}, la plus haute {highest:.0} m ; moyenne {mean:.0} m, à 1 500 m ou plus {high}, montagnes {mountains}, falaises {cliffs}, lacs {lakes}, chutes de fleuve {falls}", mouths.len(), mouths.iter().filter(|&&a| a >= 40.0).count(), mouths.iter().filter(|&&a| a >= 200.0).count(), mouths.iter().filter(|&&a| a >= 500.0).count());
         }

@@ -19,6 +19,30 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
+/// Relief des vallées, avant la première érosion : une longue crête aux versants lisses ne rassemble
+/// pas l'eau, et chaque rangée de cases garde sa rivière (un peigne). Le bruit (`noise`, de −1 à 1,
+/// à l'échelle de quelques cases) y creuse des vallées et relève d'autant les crêtes voisines :
+/// l'altitude moyenne ne change pas, et l'érosion approfondira ces vallées. Altitude relative `e`
+/// (0 : niveau de la mer, 0,38 : 1 200 m environ) à partir de laquelle ça commence et où c'est
+/// complet ; part de l'altitude déplacée au plus.
+const VALLEY_FROM: f64 = 0.14;
+const VALLEY_FULL: f64 = 0.38;
+pub const VALLEY_DEPTH: f64 = 0.35;
+/// Échelle du bruit des vallées (12 : une alternance vallée-crête tous les 4 cases environ).
+pub const VALLEY_ZOOM: f64 = 12.0;
+
+/// Altitude relative après le relief des vallées. La mer et les basses terres ne changent pas ; une
+/// case de terre reste de la terre.
+pub fn with_valleys(e: f64, noise: f64) -> f64 {
+    if e <= VALLEY_FROM {
+        return e;
+    }
+    let t = ((e - VALLEY_FROM) / (VALLEY_FULL - VALLEY_FROM)).clamp(0.0, 1.0);
+    let highland = t * t * (3.0 - 2.0 * t);
+    let valley = (-noise * 1.5).clamp(-1.0, 1.0);
+    e * (1.0 + VALLEY_DEPTH * highland * valley)
+}
+
 /// Réglages de l'érosion.
 #[derive(Clone, Copy, Debug)]
 pub struct ErosionParams {
@@ -324,6 +348,22 @@ mod tests {
         assert!((mouth_boost(100.0, 300.0, 100.0, 1.0) - 2.0).abs() < 1e-5);
         assert_eq!(mouth_boost(10.0, 10_000.0, 0.0, 1.0), MOUTH_BOOST_MAX);
         assert!(mouth_boost(100.0, 300.0, 100.0, MOUTH_REACH[2]) < mouth_boost(100.0, 300.0, 100.0, MOUTH_REACH[1]));
+    }
+
+    #[test]
+    fn les_vallees_ne_touchent_que_les_terres_hautes() {
+        // Mer et basses terres : rien ne change
+        assert_eq!(with_valleys(-0.3, 1.0), -0.3);
+        assert_eq!(with_valleys(0.1, 1.0), 0.1);
+        // En montagne : une vallée d'un côté du bruit, une crête autant relevée de l'autre, rien au milieu
+        let (valley, ridge) = (with_valleys(0.8, 1.0), with_valleys(0.8, -1.0));
+        assert!(valley < 0.8 && ridge > 0.8);
+        assert!((valley + ridge - 1.6).abs() < 1e-9, "altitude moyenne gardée");
+        assert_eq!(with_valleys(0.8, 0.0), 0.8);
+        // Une terre reste une terre
+        for e in [0.15, 0.2, 0.4, 1.0] {
+            assert!(with_valleys(e, 1.0) > 0.0, "{e}");
+        }
     }
 
     #[test]
