@@ -170,6 +170,22 @@ ajouter des options il va se charger (la regénération du monde y prend déjà 
 - D'autres paramètres trouveront leur rubrique dans cette page (son, interface, caméra) ; les
   options de carte (touche O) restent à part, car on les change en regardant la carte.
 
+# Mode joueur pilotable (07/11/2026)
+
+**Demande de Benjamin** : faire jouer des agents en mode normal, sans debug, pour trouver des problèmes. Un script ne convient
+pas : il est lu une fois au lancement, en mode debug, donc l'agent ne peut pas réagir à ce qu'il voit.
+
+**Décisions** : `CIVBUILDER_PILOTE=<fichier>` (`pilote.rs`, `scripts/pilote.sh`) suit le fichier pendant la partie, et le mode
+debug reste coupé. Les ordres passent par les vraies commandes : souris pilotée sur la carte (`input::Pilot`), messages de
+clavier et de souris injectés avant la lecture des entrées pour le reste. La vraie souris n'est pas déplacée : plusieurs parties
+tournent en même temps. Les réponses ne donnent que ce que le joueur peut savoir (cases explorées, ennemis en vue, infobulle), et
+les commandes qui modifient ou révèlent la carte sont refusées. `CIVBUILDER_FENETRE=1920x1080` règle la taille de la fenêtre.
+
+**Limites** : un clic sur la carte désigne une case sans passer par le calcul écran → case. `interface` liste aussi ce qui se trouve
+sous un panneau et devient long avec les options ouvertes. `etat` répète le journal récent.
+
+**Première campagne** (graine 777 et 7 autres) : une partie de 63 tours a tenu sans plantage ; voir `CHANGELOG.md`.
+
 # Console de debug et scripts de commandes (01/11/2026)
 
 ## Demande de Benjamin

@@ -9,6 +9,8 @@
 //!   dans `CIVBUILDER_SCRIPT_OUT` (sinon `<script>.reponses.txt` à côté du script) et dans la
 //!   console du terminal. Une capture attend que le relief 3D soit construit. Pensé pour les
 //!   agents IA : mise en scène d'un cas, captures, lecture des réponses, `quitter`.
+//! - **Mode joueur** : `CIVBUILDER_PILOTE=<fichier>` suit le fichier pendant la partie, sans mode
+//!   debug ; seuls les ordres du joueur et une partie des commandes sont permis (`pilote.rs`).
 //!
 //! Après une modification de la carte, `MapEdited` porte les cases dont le rendu est à refaire
 //! (cases modifiées et voisines) : le rendu 2D (`render.rs`) et 3D (`view3d.rs`) les reconstruit.
@@ -72,6 +74,8 @@ struct Script {
     dir: PathBuf,
     out: PathBuf,
     wait: u32,
+    /// Mode joueur : fichier d'ordres suivi pendant la partie (sinon, lu une fois au lancement).
+    live: Option<crate::pilote::LiveFile>,
 }
 
 /// Travelling en cours : départ et arrivée (point visé en 3D, centre en 2D, distance de la
@@ -138,30 +142,45 @@ pub struct ConsolePlugin;
 impl Plugin for ConsolePlugin {
     fn build(&self, app: &mut App) {
         let mut console = Console::default();
-        if let Some(path) = std::env::var_os("CIVBUILDER_SCRIPT").map(PathBuf::from) {
+        let mut orders = crate::pilote::PlayerOrders::default();
+        let reply_file = |path: &PathBuf| {
+            std::env::var_os("CIVBUILDER_SCRIPT_OUT").map(PathBuf::from).unwrap_or_else(|| {
+                let stem = path.file_stem().map_or("script".into(), |s| s.to_string_lossy().into_owned());
+                path.with_file_name(format!("{stem}.reponses.txt"))
+            })
+        };
+        if let Some(path) = std::env::var_os("CIVBUILDER_PILOTE").map(PathBuf::from) {
+            let out = reply_file(&path);
+            if let Err(e) = std::fs::write(&out, "") {
+                error!("Mode joueur : fichier des réponses {} impossible à écrire ({e})", out.display());
+            }
+            info!("Mode joueur : ordres lus dans {}, réponses dans {}", path.display(), out.display());
+            let dir = path.parent().map(PathBuf::from).unwrap_or_default();
+            orders = crate::pilote::PlayerOrders::activate(out.clone());
+            console.script = Some(Script { lines: VecDeque::new(), dir, out, wait: SCRIPT_START_FRAMES, live: Some(crate::pilote::LiveFile::new(path)) });
+        } else if let Some(path) = std::env::var_os("CIVBUILDER_SCRIPT").map(PathBuf::from) {
             match std::fs::read_to_string(&path) {
                 Ok(text) => {
-                    let out = std::env::var_os("CIVBUILDER_SCRIPT_OUT").map(PathBuf::from).unwrap_or_else(|| {
-                        let stem = path.file_stem().map_or("script".into(), |s| s.to_string_lossy().into_owned());
-                        path.with_file_name(format!("{stem}.reponses.txt"))
-                    });
+                    let out = reply_file(&path);
                     // (fichier des réponses vidé au départ)
                     if let Err(e) = std::fs::write(&out, "") {
                         error!("Script : fichier des réponses {} impossible à écrire ({e})", out.display());
                     }
                     info!("Script {} : {} ligne(s), réponses dans {}", path.display(), text.lines().count(), out.display());
                     let dir = path.parent().map(PathBuf::from).unwrap_or_default();
-                    console.script = Some(Script { lines: text.lines().map(String::from).collect(), dir, out, wait: SCRIPT_START_FRAMES });
+                    console.script = Some(Script { lines: text.lines().map(String::from).collect(), dir, out, wait: SCRIPT_START_FRAMES, live: None });
                 }
                 Err(e) => error!("Script {} illisible ({e})", path.display()),
             }
         }
         app.insert_resource(console)
+            .insert_resource(orders)
             .add_message::<MapEdited>()
             .add_message::<NamesChanged>()
             .add_systems(Startup, setup_console)
             .add_systems(PreUpdate, console_keys.after(InputSystems).after(crate::search::capture_keyboard))
-            .add_systems(Update, (run_script, run_travel, run_capture, run_turns, touch_fog, refresh_console).chain());
+            .add_systems(PreUpdate, crate::pilote::inject_inputs.before(InputSystems))
+            .add_systems(Update, (run_script, crate::pilote::run_orders, run_travel, run_capture, run_turns, touch_fog, refresh_console).chain());
     }
 }
 
@@ -585,20 +604,25 @@ fn describe_unit(u: &crate::rules::UnitState, hostile: bool, place: &str) -> Str
 }
 
 /// Script : une commande par image, sauf pendant une attente ou une capture.
-fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ctx: ConsoleContext) {
+fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ctx: ConsoleContext, mut orders: ResMut<crate::pilote::PlayerOrders>) {
     let capturing = console.capture.is_some();
     let playing = console.turns.is_some();
     let travelling = console.travel.is_some();
     let Some(script) = console.script.as_mut() else { return };
-    if !debug.0 {
-        debug.0 = true;
+    // Script : mode debug. Mode joueur : jamais de mode debug, même demandé depuis le menu
+    let live = script.live.is_some();
+    if debug.0 == live {
+        debug.0 = !live;
     }
     if script.wait > 0 {
         script.wait -= 1;
         return;
     }
-    if capturing || playing || travelling {
+    if capturing || playing || travelling || orders.busy() {
         return;
+    }
+    if let Some(file) = script.live.as_mut() {
+        script.lines.extend(file.poll());
     }
     // (lignes vides et commentaires passés d'un coup)
     let line = loop {
@@ -609,9 +633,18 @@ fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ct
         }
     };
     match line {
+        Some(line) if live => match crate::pilote::route(&ctx.map.0, &line) {
+            crate::pilote::Route::Console => {
+                execute(&mut console, &mut ctx, &line);
+            }
+            crate::pilote::Route::Answer(lines) => orders.answer(&line, &lines),
+            crate::pilote::Route::Game(order) => orders.start(&line, order),
+        },
         Some(line) => {
             execute(&mut console, &mut ctx, &line);
         }
+        // (mode joueur : le prochain ordre arrivera)
+        None if live => {}
         None => {
             info!("Script terminé (réponses dans {})", script.out.display());
             let out = script.out.clone();

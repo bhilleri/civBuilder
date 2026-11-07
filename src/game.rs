@@ -139,7 +139,6 @@ impl LogText {
     }
 
     /// Texte complet, sans les renvois.
-    #[cfg(test)]
     pub fn plain(&self) -> String {
         self.0.iter().map(|s| s.text.as_str()).collect()
     }

@@ -28,7 +28,7 @@ const PLACE_HOVER: Color = Color::srgba(1.0, 1.0, 1.0, 0.14);
 #[derive(Component)]
 struct SelectionText;
 #[derive(Component)]
-struct HoverText;
+pub struct HoverText;
 /// Journal (en haut à droite) : une ligne par message.
 #[derive(Component)]
 struct LogList;

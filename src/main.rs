@@ -32,6 +32,7 @@ mod menu;
 mod mountains;
 mod mouths;
 mod pathfinding;
+mod pilote;
 mod plates;
 mod pointer;
 mod render;
@@ -57,12 +58,20 @@ mod wiki;
 
 use bevy::prelude::*;
 
+/// Taille de la fenêtre au lancement : `CIVBUILDER_FENETRE=1920x1080`, sinon 1400 × 860.
+fn window_size() -> (u32, u32) {
+    std::env::var("CIVBUILDER_FENETRE").ok().and_then(|s| {
+        let (w, h) = s.split_once('x')?;
+        Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+    }).unwrap_or((1400, 860))
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "CivBuilder".into(),
-                resolution: (1400, 860).into(),
+                resolution: window_size().into(),
                 // `CIVBUILDER_ECRAN=2` : ouvre la fenêtre sur cet écran (tests sans gêner le bureau)
                 position: std::env::var("CIVBUILDER_ECRAN").ok().and_then(|e| e.parse::<usize>().ok()).filter(|&e| e >= 1).map_or(WindowPosition::Automatic, |e| {
                     WindowPosition::Centered(MonitorSelection::Index(e - 1))
