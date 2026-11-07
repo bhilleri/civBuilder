@@ -45,7 +45,7 @@
 - **Plus lisible** : chaque stade ajoute des maisons (3, 5 puis 7), les passerelles restent à angle droit, le grand toit se place derrière la place et un escalier descend vers la caméra.
 
 ### Ponts
-- **Une ville sur un cours d'eau jette un pont au stade Ville**, en travers du courant et jusqu'à la terre ferme de l'autre rive, même chez le voisin quand la rivière suit le bord de la case. Il est en pierre sous une muraille de pierre, en bois sinon. C'est pour l'instant du décor : il ne change ni les déplacements ni les combats.
+- **Une ville sur un cours d'eau jette un pont au stade Ville**, en travers du courant et jusqu'à la terre ferme de l'autre rive, même chez le voisin quand la rivière suit le bord de la case. Il est en pierre sous une muraille de pierre, en bois sinon. Il prend la meilleure place, et le ponton s'en écarte. C'est pour l'instant du décor : il ne change ni les déplacements ni les combats.
 - **Une ville fortifiée le garde** : une porte dans l'axe du pont, et une tour de tête de pont sur l'autre rive.
 
 ### Détails

@@ -82,7 +82,7 @@ Pour la famille Marais, la pose change (`marsh_ponds`, `marsh_network`) :
 
 ## Ponts
 
-- **Où** (`find_bridge`) : sur un cours d'eau proche, à l'endroit où l'on arrive le plus près du centre, jamais sur la mer ni un lac (`Site::river_near`, adossé aux lits de `relief.channels`). Largeur d'eau limitée à 18. Écarté du ponton : à 11 au moins de son départ et de 0,4 rad autour du centre.
+- **Où** (`find_bridge`) : sur un cours d'eau proche, à l'endroit où l'on arrive le plus près du centre, jamais sur la mer ni un lac (`Site::river_near`, adossé aux lits de `relief.channels`). Largeur d'eau limitée à 18. Il est choisi **avant le ponton**, qui s'en écarte (11 de distance, et 0,8 rad autour du centre, ou 0,4 rad si la place manque) : une rivière qui ne frôle la ville que sur un petit arc n'offre qu'une bonne place, et le ponton, s'il la prenait, ne laissait aucun emplacement au pont.
 - **Forme** : perpendiculaire au courant, d'une terre ferme à l'autre (3,2 de la rive). Tablier bombé sur piles, en pierre sous une muraille de pierre, en bois sinon.
 - **Quand** : le pont n'apparaît qu'au stade Ville, mais sa culée et l'axe de sa porte sont réservés dès le hameau : rien ne bouge quand il arrive.
 - **Autre rive** : les cours d'eau suivent souvent le bord de la case. Le pont arrive alors dans la case voisine, et la tête de pont y est posée. Un chemin s'y perd.
