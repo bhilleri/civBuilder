@@ -94,6 +94,8 @@ pub fn debug_article() -> Article {
     blocks.push(h("Scripts (agents IA, cas à rejouer)"));
     blocks.push(p("CIVBUILDER_SCRIPT=<fichier> cargo run exécute les commandes du fichier, une par image, en mode debug (lignes vides et lignes commençant par # ignorées). Chaque commande et sa réponse sont écrites dans CIVBUILDER_SCRIPT_OUT (sinon <script>.reponses.txt à côté du script) et dans la console du terminal. Une réponse commence par OK ou ERREUR, suivie de lignes clé=valeur. « capture » attend que le relief 3D soit construit puis enregistre l'écran, sans la console ; « quitter » ferme le jeu. « journal <fichier> » écrit les commandes de la séance en script, avec la graine et la taille de la carte en tête : un cas trouvé à la main se rejoue tel quel."));
     blocks.push(p("Exemple : trouver relief=montagne terrain=foret voisin=pic max=1 · aller 52 37 · vue 3d · camera 300 · capture montagne · terrain 52 37 neige · capture montagne_neige · quitter"));
+    blocks.push(h("Mode joueur pilotable (agents de test)"));
+    blocks.push(p("scripts/pilote.sh lancer <dossier> 777 lance une partie normale, sans mode debug, qui suit le fichier d'ordres CIVBUILDER_PILOTE pendant la partie ; scripts/pilote.sh <dossier> \"etat\" \"clic 66 39\" \"touche b\" envoie des ordres et rend les réponses. Ordres : etat, alentours, survol, clic, clic-droit, touche, interface, bouton, clic-ecran, zoom, et les commandes de caméra, de carte, de capture et de fin de tour (« aide » les liste). Les réponses ne donnent que ce que le joueur peut savoir. CIVBUILDER_FENETRE=1920x1080 règle la taille de la fenêtre."));
     blocks.push(h("GIF des actions"));
     blocks.push(p("scripts/animations.sh (ou CIVBUILDER_CAPTURE=docs/animations CIVBUILDER_CAPTURE_GIF=1 cargo run --release) joue chaque action — déplacement, trajet de plusieurs tours, échange, corps à corps, charge, tir, attaque perdue, attaque hostile en fin de tour, village (commerce, habitants, embuscade), camp — avec une souris pilotée, en 2D puis en 3D, et en fait des GIF avec ffmpeg (page docs/ANIMATIONS.md du dépôt). CIVBUILDER_CAPTURE_GIF=tir,camp limite aux scènes nommées."));
     Article { title: "Console de debug", icon: "icons/wiki_mechanics.png", blocks }
@@ -796,7 +798,8 @@ fn villages() -> Article {
         blocks: vec![
             p(format!(
                 "Des villages tribaux sont dispersés sur la carte (environ une case de terre sur {LAND_PER_VILLAGE}, à \
-                 {VILLAGE_MIN_FROM_START} cases au moins du départ). Ils apparaissent quand leur case est explorée."
+                 {VILLAGE_MIN_FROM_START} cases au moins du départ). Ils apparaissent quand leur case est explorée. \
+                 Personne ne vit là où la saison la plus chaude reste sous 5 °C ; là où elle reste sous 10 °C, ce sont des éleveurs."
             )),
             h("Visiter un village"),
             p("La première unité qui entre dans un village déclenche un événement, puis le village disparaît :"),

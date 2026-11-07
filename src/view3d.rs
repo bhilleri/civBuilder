@@ -108,7 +108,7 @@ pub struct Relief {
 
 /// Sous une ville, un camp ou un village, le relief interne est adouci (pas aplani) : les
 /// bâtiments suivent le terrain sans être de travers.
-const SITE_RELIEF: f32 = 0.5;
+const SITE_RELIEF: f32 = 0.75;
 
 /// Relief interne des cases explorées, adouci sous les sites (`sites`).
 fn explored_bumps(map: &crate::map::WorldMap, fog: &ShownFog, sites: &HashSet<Hex>) -> BumpMap {
@@ -1617,7 +1617,7 @@ fn water_mesh<'a>(
     let tint = |waters: &[(Vec2, Vec3)], p: Vec2, tone: crate::waterways::Tone, kind: WaterKind, blend: f32| {
         // Teinte du cours d'eau (débit, limon), qui se fond dans la mer ou le lac où il se jette
         // (sur une plus longue distance pour un fleuve : pas de coupure de couleur à l'embouchure)
-        let water = tone.apply(fresh);
+        let water = tone.apply_3d(fresh);
         let own = kind.rapids_color(tone, water).unwrap_or(water);
         // (vers la couleur du bord de la case d'eau, assombri : pas de ligne droite à l'arête)
         let c = match nearest_water(waters, p) {
@@ -2161,7 +2161,8 @@ fn sync_mirrors(
                         } else {
                             SitePose::Town(match city {
                                 Some(city) => crate::settlements::city_layout(&site, family, crate::settlements::stage_of_population(city.state.population), city.state.fortified, seed),
-                                None => crate::settlements::village_layout(&site, family, seed),
+                                // (été frais : un village d'éleveurs plutôt qu'un village de culture)
+                                None => crate::settlements::village_layout(&site, map.0.warmest_season(hex).map_or(family, |t| crate::settlements::village_family(family, t)), seed),
                             })
                         });
                         model.code = code;

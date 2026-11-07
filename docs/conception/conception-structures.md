@@ -93,6 +93,18 @@ Pour la famille Marais, la pose change (`marsh_ponds`, `marsh_network`) :
 
 Script de commandes : `ville c l`, `ville population c l n`, `ville fortifier c l oui|non`, `vue 3d`, `camera 300`, `capture`.
 
+## Habitat en montagne (07/11/2026)
+
+**Décision de Benjamin** : limite selon le climat plutôt qu'en mètres, d'après les sources historiques. L'habitat permanent monte très haut là où l'été reste assez chaud : Pucuncho au-dessus de 4 000 m il y a plus de 12 000 ans, Soro Mik'aya Patjxa à environ 3 800 m occupé à l'année, plateau tibétain au-dessus de 3 000 m grâce à l'orge. La Rinconada (environ 5 100 m) est une ville de mine, pas un modèle de village. Les arbres s'arrêtent vers 8 à 10 °C au mois le plus chaud ; les seuils ci-dessous sont un choix de jeu inspiré de cet ordre de grandeur, à régler.
+
+- **Pas de village ni de camp** si la saison la plus chaude reste sous 5 °C (`sites::NO_SITE_BELOW`).
+- **Éleveurs** sous 10 °C (`sites::HERDERS_BELOW`) : le village prend les yourtes de la steppe, sauf en toundra et sur neige, qui ont déjà leur habitat. Les villes et les camps gardent la famille de leur terrain.
+- **Le relief sous un site** est adouci de 25 % au lieu de 50 % (`view3d::SITE_RELIEF`) : une case de montagne ne paraît plus aussi plate. Vérifié sur captures (graine 777, 3 villages et un camp de 2 657 à 3 140 m ; villes à relief fort) : les bâtiments restent droits et lisibles.
+
+**Bilan** (`bilan_sites_climat`, 8 graines) : 10 à 22 % des terres écartées, 141 à 160 villages dont 20 à 40 d'éleveurs, 39 à 45 camps, 10 à 26 sites à 2 000 m ou plus, le plus haut entre 2 557 et 3 281 m. Comme le tirage se fait sur les terres restantes, tous les sites d'une graine changent de place.
+
+**Limites** : la simulation ne place aucun site au niveau des Andes (plus haut 3 281 m). Une forêt tempérée peut rester portée à 3 140 m avec 6 °C en été : le village y prend des yourtes au milieu des arbres. Les sites inaccessibles à pied ne sont pas encore retirés.
+
 ## Limites
 
 - La fortification n'a pas encore de règle de jeu : seule la console la pose. `CityState` ne produit que des unités ; il faudra une production de bâtiments et l'effet en combat (`conception-combat.md`).

@@ -16,6 +16,18 @@ pub const VILLAGE_MIN_FROM_START: i32 = 3;
 pub const CAMP_MIN_FROM_START: i32 = 10;
 const MIN_BETWEEN_SITES: i32 = 4;
 
+/// Limite de l'habitat : pas de site si la saison la plus chaude reste sous cette température
+/// (°C). L'habitat de montagne suit la chaleur de l'été, pas l'altitude : un haut plateau tropical
+/// reste habité, une montagne froide non (voir `conception/conception-structures.md`).
+pub const NO_SITE_BELOW: f32 = 5.0;
+/// Sous cette température de la saison la plus chaude (°C), les villages sont des éleveurs.
+pub const HERDERS_BELOW: f32 = 10.0;
+
+/// Le climat de la case permet d'y vivre à l'année (les cases sans climat simulé : oui).
+fn habitable(map: &WorldMap, h: Hex) -> bool {
+    map.warmest_season(h).is_none_or(|t| t >= NO_SITE_BELOW)
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Sites {
     pub villages: Vec<Hex>,
@@ -26,7 +38,7 @@ pub struct Sites {
 pub fn place_sites(map: &WorldMap, start: Hex, seed: u64) -> Sites {
     let mut rng = StdRng::seed_from_u64(seed);
     // (la banquise est franchissable, mais aucune structure n'y prend place)
-    let mut land: Vec<Hex> = map.hexes().filter(|&h| map.move_cost(h).is_some() && !map.is_fleuve(h) && !map.is_ice(h)).collect();
+    let mut land: Vec<Hex> = map.hexes().filter(|&h| map.move_cost(h).is_some() && !map.is_fleuve(h) && !map.is_ice(h) && habitable(map, h)).collect();
     land.shuffle(&mut rng);
 
     let camp_target = (land.len() / LAND_PER_CAMP).max(2);
@@ -132,6 +144,49 @@ mod tests {
         let map = WorldMap::generate(64, 40, 7);
         let start = map.find_start().unwrap();
         assert_eq!(place_sites(&map, start, 7), place_sites(&map, start, 7));
+    }
+
+    #[test]
+    fn aucun_site_sans_ete() {
+        for seed in 0..5 {
+            let map = WorldMap::generate(64, 40, seed as u32);
+            let sites = place_sites(&map, map.find_start().unwrap(), seed);
+            for &h in sites.villages.iter().chain(&sites.camps) {
+                let warmest = map.warmest_season(h).unwrap();
+                assert!(warmest >= NO_SITE_BELOW, "graine {seed} : site à {warmest:.1} °C en été");
+            }
+        }
+    }
+
+    #[test]
+    fn un_ete_frais_donne_des_eleveurs() {
+        use crate::settlements::{Family, village_family};
+        assert_eq!(village_family(Family::Forest, 7.0), Family::Steppe);
+        assert_eq!(village_family(Family::Forest, 14.0), Family::Forest);
+        assert_eq!(village_family(Family::Cold, 7.0), Family::Cold);
+    }
+
+    /// Effet de la limite d'habitat : `cargo test bilan_sites_climat -- --ignored --nocapture`
+    /// (`SEEDS=777,2`) : terres écartées, sites, part des villages d'éleveurs, altitudes.
+    #[test]
+    #[ignore]
+    fn bilan_sites_climat() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![777, 2, 4242]);
+        for seed in seeds {
+            let map = WorldMap::generate_in(192, 111, seed, crate::climate::Region::planet(crate::climate::CELL_KM, 111));
+            let land: Vec<Hex> = map.hexes().filter(|&h| map.move_cost(h).is_some() && !map.is_fleuve(h) && !map.is_ice(h)).collect();
+            let cold = land.iter().filter(|&&h| !habitable(&map, h)).count();
+            let sites = place_sites(&map, map.find_start().unwrap(), seed as u64);
+            let herders = sites.villages.iter().filter(|&&h| map.warmest_season(h).is_some_and(|t| t < HERDERS_BELOW)).count();
+            let high = sites.villages.iter().chain(&sites.camps).map(|&h| map.elevation(h).unwrap_or(0.0)).fold(0.0f32, f32::max);
+            let mountain = sites.villages.iter().chain(&sites.camps).filter(|&&h| map.elevation(h).unwrap_or(0.0) >= 2_000.0).count();
+            println!("graine {seed} : terres {}, écartées {cold} ({:.0} %), villages {} (éleveurs {herders}), camps {}, sites à 2 000 m ou plus {mountain}, plus haut {high:.0} m", land.len(), 100.0 * cold as f32 / land.len().max(1) as f32, sites.villages.len(), sites.camps.len());
+            if std::env::var("SITES_LIST").is_ok() {
+                let line = |h: Hex| format!("{:?} {:.0} m, été {:.1} °C", h.to_offset(), map.elevation(h).unwrap_or(0.0), map.warmest_season(h).unwrap_or(0.0));
+                sites.villages.iter().filter(|&&h| map.elevation(h).unwrap_or(0.0) >= 2_000.0 || map.warmest_season(h).is_some_and(|t| t < HERDERS_BELOW)).for_each(|&h| println!("  village {}", line(h)));
+                sites.camps.iter().filter(|&&h| map.elevation(h).unwrap_or(0.0) >= 2_000.0).for_each(|&h| println!("  camp {}", line(h)));
+            }
+        }
     }
 
     #[test]

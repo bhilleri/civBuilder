@@ -1917,6 +1917,11 @@ impl WorldMap {
         self.index(hex).and_then(|i| self.climate.rain.get(i).copied())
     }
 
+    /// Température de la saison la plus chaude (°C).
+    pub fn warmest_season(&self, hex: Hex) -> Option<f32> {
+        self.index(hex).and_then(|i| self.climate.coldest_warmest(i)).map(|t| t.1)
+    }
+
     /// Température moyenne annuelle (°C).
     pub fn temperature(&self, hex: Hex) -> Option<f32> {
         self.index(hex).and_then(|i| self.climate.temperature.get(i).copied())

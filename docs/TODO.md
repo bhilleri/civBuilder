@@ -52,6 +52,15 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [ ] g. Dépressions qui se déplacent (régimes plus courts, systèmes décalés vers l'est) : transport par les tourbillons, à la place du brassage (après e).
 - [x] c. Relief trop haut (01/11) : altitude en mètres d'abord (échelle fixe depuis les plaques), 9 niveaux déduits des mètres, falaise en mètres (voir `conception/conception-altitude.md`).
 
+## Décisions de Benjamin après la première campagne de tests (07/11)
+- [ ] **Rivières** : plus de seuil de bassin de 6 cases. Un seuil de débit seul, et une largeur qui part de zéro à la source (T3-01).
+- [ ] **Pluies extrêmes plafonnées**, avec un peu de bruit sur le plafond pour qu'il ne se voie pas sur la carte. L'humidité non tombée passe aux cases suivantes, ce qui réduira peut-être les déserts (T0-03).
+- [ ] **Sites inaccessibles à pied** : pas par défaut. Éventuellement une option au lancement de la partie pour les autoriser (T0-08, T4-11).
+- [ ] **Or** (plus tard) : acheter des unités et des bâtiments, entretenir le tout, éventuellement un coût structurel de l'État.
+- [ ] **Frein à l'expansion et choix de développement** (plus tard) : à concevoir avec l'or.
+- [x] **Limite d'habitat selon le climat** (T0-09), **relief moins adouci sous les sites** (T4-18), **fleuves limoneux plus bleus en 3D** (T5-22) : faits (07/11).
+- [ ] **Type « ria » d'une case haute** (T0-04) : à revoir après le changement de climat ; l'érosion est censée gérer ce genre de cas.
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,

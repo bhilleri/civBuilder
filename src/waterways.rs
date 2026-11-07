@@ -92,6 +92,7 @@ const RIVER_STEPS: usize = 6;
 /// plus grands débits.
 const SILT_SRGB: [f32; 3] = [0.58, 0.52, 0.26];
 const SILT_MAX: f32 = 0.65;
+const SILT_MAX_3D: f32 = 0.35;
 const DEEP_DARKEN: f32 = 0.3;
 /// Rapides : pente (m/km) où ils commencent et où ils sont au plus fort ; taille des tronçons qui
 /// en ont ; intensité minimale d'un rapide ; eau vive (sRGB) et part au plus ; assombrissement de
@@ -281,8 +282,17 @@ impl Tone {
     /// Couleur (linéaire) de l'eau de couleur de base `base` (linéaire) avec cette teinte : tirée
     /// vers le limon, assombrie par le débit.
     pub fn apply(self, base: Vec3) -> Vec3 {
+        self.apply_silt(base, SILT_MAX)
+    }
+
+    /// Même teinte en vue 3D : moins de limon, l'eau chargée ne doit pas se lire comme une route.
+    pub fn apply_3d(self, base: Vec3) -> Vec3 {
+        self.apply_silt(base, SILT_MAX_3D)
+    }
+
+    fn apply_silt(self, base: Vec3, silt_max: f32) -> Vec3 {
         let silt = Vec3::from(SILT_SRGB.map(srgb_to_linear));
-        base.lerp(silt, self.murk.clamp(0.0, 1.0) * SILT_MAX) * (1.0 - DEEP_DARKEN * self.size.clamp(0.0, 1.0))
+        base.lerp(silt, self.murk.clamp(0.0, 1.0) * silt_max) * (1.0 - DEEP_DARKEN * self.size.clamp(0.0, 1.0))
     }
 }
 

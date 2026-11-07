@@ -71,6 +71,12 @@ pub fn stage_of_population(population: i32) -> usize {
     }
 }
 
+/// Famille d'un village d'après celle du lieu et la température de la saison la plus chaude (°C) :
+/// sous `sites::HERDERS_BELOW`, rien n'y mûrit, ce sont des éleveurs (yourtes de la steppe).
+pub fn village_family(family: Family, warmest: f32) -> Family {
+    if warmest < crate::sites::HERDERS_BELOW && !family.herds() { Family::Steppe } else { family }
+}
+
 /// Famille de matériaux, d'après le lieu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Family {
@@ -106,6 +112,11 @@ impl Family {
             Terrain::Marsh => Family::Marsh,
             Terrain::Ocean | Terrain::Coast | Terrain::Lake => Family::Prairie,
         }
+    }
+
+    /// Habitat déjà fait pour des éleveurs (voir `village_family`).
+    fn herds(self) -> bool {
+        self == Family::Cold
     }
 
     /// Demi-dimensions d'une maison, débord du toit compris.

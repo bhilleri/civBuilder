@@ -6,6 +6,12 @@
 - **Mode joueur pilotable** : `CIVBUILDER_PILOTE=<fichier>` (`scripts/pilote.sh`) fait jouer une partie normale, sans mode debug, par des ordres ajoutés au fichier pendant la partie : clics sur la carte, touches, boutons de l'interface, captures. Les réponses ne donnent que ce que le joueur peut savoir. Plusieurs parties peuvent tourner en même temps, la vraie souris n'est pas déplacée.
 - **Taille de la fenêtre au lancement** : `CIVBUILDER_FENETRE=1920x1080`.
 
+### Habitat de montagne et lisibilité
+- **Plus de village ni de camp sans été** : aucun site là où la saison la plus chaude reste sous 5 °C. La limite suit le climat, pas l'altitude : un plateau chaud reste habité. Tous les villages et camps d'une graine changent donc de place.
+- **Villages d'éleveurs** : sous 10 °C en été, un village prend des yourtes (sauf en toundra et sur neige).
+- **Le relief reste plus visible sous les sites** en 3D : il est adouci de 25 % au lieu de 50 %.
+- **Fleuves limoneux plus bleus en 3D** : ils ne ressemblent plus à des routes.
+
 ### Embouchures
 - **Chaque embouchure de fleuve a maintenant un type** : delta digité, delta arqué, delta de marée, estuaire, lagune, ria ou fjord, selon ce que le fleuve apporte, ce que la houle et la marée reprennent, le fond devant elle, le relief et le froid. Il apparaît dans l'infobulle.
 - **Estuaires et deltas digités dessinés** : l'estuaire s'ouvre en entonnoir vers la mer, le delta digité se divise en 2 à 4 bras à travers sa case. Plus d'île de fleuve isolée à l'embouchure.
