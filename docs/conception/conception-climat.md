@@ -168,6 +168,56 @@ deux d'entre elles corrigées.
   (7e) et aux dépressions qui se déplacent (7g). Les eaux froides des courants sont 2 à 3 fois trop faibles (côtes ouest de
   20-30° : −2,4 °C au large, Terre −4 à −8 °C).
 
+## Air marin (08/11/2026, TODO 7e) : chantier en pause
+Décision de Benjamin : rendre l'air marin humide en corrigeant la circulation et les échanges de la couche basse (étape 1), puis
+rendre leur pluie aux terres par une pluie déclenchée par l'humidité (étape 2). Méthode : trois agents par étape, deux
+analystes, sur un **banc d'essai** (`banc_air_marin` : planète presque océanique avec deux continents rectangulaires à 300 m,
+≈ 4 s ; bilan de la vapeur de la couche basse en 12 termes, `Climate::low_budget`). Résultat : l'air marin est devenu humide,
+mais les terres tropicales ont perdu leur pluie, et rien de ce qui a été essayé ne la leur rend. `develop` garde le climat de
+c8e3f50 ; les essais restent sur des branches locales.
+- **Étape 1, réussie sur la mer** (branche `air-marin`, 6141f4a). Défauts trouvés : la cellule de Hadley était comptée deux fois
+  (convergence de la pente des ceintures + circulation de fond imposée) ; sur cette petite planète (rayon ≈ 1/5 de la Terre),
+  les vitesses verticales étaient 3 à 5 fois celles de la Terre et la couche basse se renouvelait en ~2 jours (Terre 8-9) ; la
+  descente retirait deux fois l'air bas qui diverge et le remplaçait en partie par de l'air sec. Corrections : circulation de
+  fond fermée (`hadley_return`, vent méridien par continuité, ∝ la taille de la planète : 0,3 m/s ici, 1,6 sur Terre), descente
+  cohérente en masse, `LOW_LAYER_WIND` 1,2, couche haute sans faux retour vers le pôle, air soulevé lentement avec la vapeur du
+  haut de la couche (`ASCENT_TOP_HUMIDITY`), air entraîné à l'humidité de la base de la couche haute (`ENTRAINED_HUMIDITY` 2),
+  part du vent qui descend la pente des ceintures gardée près du sol mais retirée du transport. Banc : humidité de la mer à
+  0-30° 43-49 → 73-74 %, évaporation 0-30° 2 078-3 442 → 1 144-1 704 mm. Vrai monde (3 graines) : équateur 2 080 → 1 463 mm,
+  déserts 12,1 → 17,8 % (bande 10-20° : 48 %) ; gains à garder : côte ouest 20-30° 244 mm, 60-70° 516, hautes / basses 1,53.
+- **Étape 2, sans solution**. Convection de Betts-Miller (C1) : presque sans effet. Convection selon l'instabilité (C2) :
+  négatif, sans apport de vapeur la convection ne peut rien. Descente bornée sous les tropiques (C3, Sobel et al. 2001) :
+  remplit presque tous les critères, mais **crée 252 mm d'eau par an (27 % de la pluie de la planète)** ; une version qui
+  conserve l'eau revient à l'étape 1. Défaut trouvé : le transport case par case envoie l'air en parts en cos², d'où une
+  divergence artificielle en bandes (w ≈ Δ²u/120) ; le transport aux faces (branche `analyse-etape2`, 8227ba9, derrière des
+  réglages `A_*` à retirer) fait passer le désert de 0-10° de 17 à 10 %, mais 30-40°, arrosé par ces fausses pluies,
+  s'assèche. Meilleure combinaison qui conserve l'eau (faces + convection C1, 8 graines) : équateur 1 659 mm, déserts 19,4 %,
+  côte ouest 20-30° 190, 60-70° 410, hautes / basses 1,51.
+- **Pas de fuite d'eau** : compté par case (toutes les cases ont la même masse d'air dans le modèle), pluie et évaporation
+  de la planète s'équilibrent à 1,5 % près (banc : −7 mm/an à l'étape 1, −12 à `develop` ; l'écart sort par les bords
+  polaires au transport et au changement de saison). Pondéré par cos φ, on trouve −57 et −131 mm : ce n'est pas un défaut,
+  le modèle ne conserve pas l'eau ainsi. Le banc affiche les deux (ligne `EAU`).
+- **Mousson** (banc `banc_mousson` : plein été boréal seul). Cause trouvée : la circulation de fond de l'étape 1 reste calée sur
+  l'équateur thermique de la mer (~10° N l'été), alors que la dépression des continents remonte vers 17° N ; entre les deux,
+  la couche basse diverge et l'air sec d'altitude descend : intérieur de 5-10° N 1 158 → 435 mm/an au rythme de l'été, 10-15°
+  N 699 → 80. Trois essais (branche `air-mousson`, 367b436), vrai monde sur 3 graines :
+
+| | Étape 1 | Fond calé sur la mousson | + air aspiré par la dépression (frottement, 0,3) | + montée profonde seulement dans un air humide |
+|---|---|---|---|---|
+| Équateur 0-10° | 1 463 mm | 1 360 | 1 428 | 1 324 |
+| Désert 10-20° / 20-30° / 30-40° | 48 / 28 / 9 % | 41 / 42 / — | 43 / 8 / 26 | 45 / 9 / 27 |
+| Intérieur 20-30° | 382 mm | 222 | 1 079 | 1 067 |
+| Déserts, toutes terres | 17,8 % | 17,2 % | 18,2 % | 19,4 % |
+
+  Le désert ne fait que se déplacer : la pluie tombe là où est la dépression thermique, alors que sur Terre elle reste sèche
+  (air sec venu du pôle, l'harmattan ; descente au-dessus du Sahara induite par la mousson d'Asie, Rodwell et Hoskins 1996) et
+  que la pluie tombe sur son bord côté équateur. L'air qu'elle aspire vient de la mer et converge à plus de 85 % d'humidité :
+  une règle sur l'humidité n'y change rien.
+- **Pour reprendre** : il faut une autre façon de calculer la circulation tropicale des continents (dépression thermique sèche
+  coiffée par la descente, pluie sur son flanc équatorial, mousson qui traverse l'équateur), pas un réglage de plus. Partir
+  de l'étape 1 et du transport aux faces, avec les deux bancs (`banc_air_marin`, `banc_mousson`) et le bilan
+  `bilan_pluie_comparatif` ; ne pas réessayer une borne qui crée de l'eau, ni l'air aspiré par la dépression seul.
+
 ## Limites connues / pistes
 - Courants marins fixes toute l'année (calculés une fois, sur le vent annuel moyen).
 - Le générateur de relief (bruit fractal) sera remplacé par une génération géologique.

@@ -327,7 +327,20 @@ pub struct Climate {
     /// Gardée seulement dans les tests.
     #[cfg(test)]
     pub sources: Vec<[f32; 6]>,
+    /// Diagnostic des bilans (mm par an) : bilan de la vapeur de la couche basse, dans l'ordre de
+    /// `LOW_BUDGET` (positif : apport). Gardé seulement dans les tests.
+    #[cfg(test)]
+    pub low_budget: Vec<[f32; LOW_TERMS]>,
 }
+
+/// Nombre de termes du bilan de la couche basse.
+pub const LOW_TERMS: usize = 12;
+/// Termes du bilan de la vapeur de la couche basse (`Climate::low_budget`).
+#[cfg(test)]
+pub const LOW_BUDGET: [&str; LOW_TERMS] = [
+    "transport", "diffusion", "air chassé reçu", "montée", "subsidence", "saturation", "brouillard évaporé", "brassage vertical",
+    "pluie réévaporée", "rosée", "évaporation", "air chassé parti",
+];
 
 /// Vent de surface d'un régime météo (m/s par case, x vers l'est, y vers le nord).
 #[derive(Clone, Debug)]
@@ -1127,13 +1140,22 @@ pub fn simulate_periods(
             }
             let refresh_dew = step % dew_every == 0;
 
-            // 1) Transport horizontal et mélange
+            // 1) Transport horizontal et mélange (écarts notés pour le bilan de la couche basse)
+            let track = cfg!(test) && record;
+            let before_transport = track.then(|| low.clone());
             advect(&mut low, &r.surface_out, Some(&outside_low), &mut scratch);
+            let after_transport = track.then(|| low.clone());
             advect(&mut up, &r.upper_out, Some(&outside_up), &mut scratch);
             advect(&mut cloud, &r.upper_out, None, &mut scratch);
             advect(&mut fog, &r.surface_out, None, &mut scratch);
             mix(&mut low, &grid, &mixing, &mut scratch);
             mix(&mut up, &grid, &mixing, &mut scratch);
+            if let (Some(b), Some(a)) = (&before_transport, &after_transport) {
+                sums.par_iter_mut().enumerate().for_each(|(i, s)| {
+                    s.low[0] += a[i] - b[i];
+                    s.low[1] += low[i] - a[i];
+                });
+            }
 
             // 2) à 4) Processus verticaux et surface, chaque case indépendamment
             (low.par_iter_mut(), up.par_iter_mut(), cloud.par_iter_mut(), fog.par_iter_mut(), cells.par_iter_mut(), sums.par_iter_mut())
@@ -1148,8 +1170,12 @@ pub fn simulate_periods(
             // L'air bas chassé par la subsidence s'écoule vers les cases sous le vent
             scratch.par_iter_mut().zip(cells.par_iter()).for_each(|(v, c)| *v = c.pushed);
             let pushed: &[f32] = &scratch;
-            low.par_iter_mut().enumerate().for_each(|(i, v)| {
-                *v += r.pushed.received(i, pushed) + if r.keeps_pushed[i] { pushed[i] } else { 0.0 };
+            low.par_iter_mut().zip(sums.par_iter_mut()).enumerate().for_each(|(i, (v, s))| {
+                let received = r.pushed.received(i, pushed) + if r.keeps_pushed[i] { pushed[i] } else { 0.0 };
+                *v += received;
+                if cfg!(test) && record {
+                    s.low[2] += received;
+                }
             });
             cells.par_iter_mut().for_each(|c| c.pushed = 0.0);
             if record {
@@ -1200,6 +1226,8 @@ pub fn simulate_periods(
         regime_wind,
         #[cfg(test)]
         sources: sums.iter().map(|s| s.src.map(|v| v * per_year)).collect(),
+        #[cfg(test)]
+        low_budget: sums.iter().map(|s| s.low.map(|v| v * per_year)).collect(),
     }
 }
 
@@ -1263,6 +1291,7 @@ struct Sums {
     column: f32,
     wind: (f32, f32),
     src: [f32; 6],
+    low: [f32; LOW_TERMS],
 }
 
 /// Taux par pas de temps.
@@ -1296,6 +1325,13 @@ fn column_step(
 ) {
     let (dt, dt_days) = (rates.dt, rates.dt_days);
     let mut src = [0.0f32; 6];
+    // Bilan de la couche basse (`LOW_BUDGET`) : écart de `air.low` après chaque étape
+    let mut low = [0.0f32; LOW_TERMS];
+    let mut mark = air.low;
+    let mut note = |k: usize, now: f32| {
+        low[k] += now - mark;
+        mark = now;
+    };
     let efficiency_at = |rh: f32| PRECIPITATION_EFFICIENCY.0 + (PRECIPITATION_EFFICIENCY.1 - PRECIPITATION_EFFICIENCY.0) * rh;
     let rh = (air.low / c.cap_low).clamp(0.0, 1.5);
     cell.rh_mean += rates.rh_memory * (rh.min(1.0) - cell.rh_mean);
@@ -1362,6 +1398,7 @@ fn column_step(
         air.up -= condensed_up;
         air.cloud += condensed_up;
     }
+    note(3, air.low);
     // Près du sol, la subsidence s'atténue : l'air descendant n'entre que par le haut de la couche
     // basse (entraînement), d'où la moitié de la vitesse d'altitude
     let sunk = (0.5 * sinking * dt / LOW_DEPTH).min(0.3);
@@ -1369,7 +1406,11 @@ fn column_step(
         // L'air d'altitude descend et remplace une part de l'air bas, qui part sous le vent
         let arriving = air.up / c.m_up * c.m_low * sunk;
         cell.pushed += air.low * sunk;
-        air.low += arriving - air.low * sunk;
+        let gone = air.low * sunk;
+        air.low += arriving;
+        note(4, air.low);
+        air.low -= gone;
+        note(11, air.low);
         air.up -= arriving.min(air.up);
     }
     // Saturation. Sur une pente au vent, l'air qui monte en suivant le sol se refroidit : le nuage
@@ -1377,6 +1418,7 @@ fn column_step(
     // ailleurs, c'est du brouillard
     let excess_low = (air.low - c.cap_low).max(0.0);
     air.low -= excess_low;
+    note(5, air.low);
     if r.w_relief[i] > 0.0 {
         air.cloud += excess_low * efficiency;
         src[0] += excess_low * efficiency;
@@ -1394,6 +1436,7 @@ fn column_step(
     let cleared = air.fog.min(rates.cloud_evaporation * (c.cap_low - air.low).max(0.0));
     air.fog -= cleared;
     air.low += cleared;
+    note(6, air.low);
     let drizzled = air.fog * rates.drizzle;
     air.fog -= drizzled;
     src[1] += drizzled;
@@ -1401,6 +1444,7 @@ fn column_step(
     let moved = VERTICAL_MIXING_PER_DAY * dt_days * (air.low / c.cap_low - air.up / c.cap_up) * c.cap_up.min(c.cap_low);
     air.low -= moved;
     air.up += moved;
+    note(7, air.low);
 
     // 3) Pluie (ou neige, qui tombe plus lentement) ; une partie s'évapore en tombant dans un air sec
     let fall_rate = if c.snow { rates.snowfall } else { rates.fallout };
@@ -1414,6 +1458,7 @@ fn column_step(
     let rh = (air.low / c.cap_low).clamp(0.0, 1.0);
     let reevaporated = falling * RAIN_REEVAPORATION * (1.0 - rh);
     air.low += reevaporated;
+    note(8, air.low);
     let rain = falling - reevaporated;
 
     // 4) Surface
@@ -1443,7 +1488,9 @@ fn column_step(
         runoff = 0.0;
         dew = 0.0;
     }
+    note(9, air.low);
     air.low += evap;
+    note(10, air.low);
 
     if let Some(s) = sum {
         s.temperature += c.t_ground;
@@ -1459,6 +1506,9 @@ fn column_step(
         s.wind.0 += r.surface[i].0 / SURFACE_WIND;
         s.wind.1 += r.surface[i].1 / SURFACE_WIND;
         for (total, v) in s.src.iter_mut().zip(src) {
+            *total += v;
+        }
+        for (total, v) in s.low.iter_mut().zip(low) {
             *total += v;
         }
     }
@@ -1717,6 +1767,172 @@ mod tests {
                     show(&c.soil, 100.0)
                 );
             }
+        }
+    }
+
+    /// Banc de la mousson (essai) : le banc de l'air marin en plein été boréal seulement (soleil à 0,26), terres du
+    /// grand continent (colonnes 20-80) par bande de 5° de l'hémisphère nord (été) et sud (hiver).
+    #[test]
+    #[ignore]
+    fn banc_mousson() {
+        let (w, h) = (192, 111);
+        let region = Region::planet(CELL_KM, h);
+        let seed: u32 = std::env::var("BANC_GRAINE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+        let lat_of = |row: i32| region.latitude_deg(row, h);
+        let blocks = [(20, 80, -40.0, 60.0), (120, 150, -35.0, 35.0)];
+        let is_land = |col: i32, row: i32| blocks.iter().any(|&(c0, c1, l0, l1)| (c0..c1).contains(&col) && (l0..=l1).contains(&lat_of(row)));
+        let surface: Vec<Surface> = (0..h).flat_map(|row| (0..w).map(move |col| (col, row))).map(|(col, row)| if is_land(col, row) { Surface::Land(300.0) } else { Surface::Water }).collect();
+        let c = simulate_periods(w, h, &surface, seed, &region, &vec![0.0; (w * h) as usize], &[Period { sun_lat: 0.26 }]);
+        let toward = |col: i32, row: i32, step: i32, land: bool| (1..w).find(|&k| is_land((col + step * k).rem_euclid(w), row) == land).unwrap_or(w);
+        println!("MOUSSON graine {seed} (été nord) | {}", LOW_BUDGET.join(" | "));
+        for (name, cols) in [("ouest", 20..23), ("intérieur", 28..72), ("est", 77..80), ("mer O 3-10", 10..17), ("mer E 3-10", 83..90)] {
+            for b in -6..12 {
+                let (l0, l1) = (b as f32 * 5.0, b as f32 * 5.0 + 5.0);
+                let (mut k, mut rain, mut hum, mut col_w, mut ev, mut u, mut v) = (0usize, 0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+                let mut bud = [0.0f64; LOW_TERMS];
+                for row in 0..h {
+                    let lat = lat_of(row);
+                    if lat < l0 || lat >= l1 {
+                        continue;
+                    }
+                    for col in cols.clone() {
+                        if name == "intérieur" && (!is_land(col, row) || toward(col, row, 1, false).min(toward(col, row, -1, false)) < 8) {
+                            continue;
+                        }
+                        let i = (row * w + col) as usize;
+                        k += 1;
+                        rain += f64::from(c.rain[i]);
+                        hum += f64::from(c.humidity[i]);
+                        col_w += f64::from(c.column[i]);
+                        ev += f64::from(c.evaporation[i]);
+                        u += f64::from(c.wind[i].0 * SURFACE_WIND);
+                        v += f64::from(c.wind[i].1 * SURFACE_WIND);
+                        for (s, x) in bud.iter_mut().zip(c.low_budget[i]) {
+                            *s += f64::from(x);
+                        }
+                    }
+                }
+                if k == 0 {
+                    continue;
+                }
+                let kf = k as f64;
+                println!(
+                    "MOUSSON {name:<10} {:>3}-{:<3} pluie {:>5.0}  évap {:>5.0}  hum {:>3.0} %  eau {:>4.1}  vent sol {:>5.1} {:>5.1} | {}",
+                    l0, l1, rain / kf, ev / kf, 100.0 * hum / kf, col_w / kf, u / kf, v / kf,
+                    bud.iter().map(|x| format!("{:>6.0}", x / kf)).collect::<Vec<_>>().join(" ")
+                );
+            }
+        }
+    }
+
+    /// Banc d'essai de l'air marin (TODO 7e) : `cargo test --no-default-features banc_air_marin -- --ignored --nocapture`.
+    /// Planète entière (192 × 111 cases de 40 km) presque toute océanique, avec deux continents
+    /// rectangulaires bas (300 m) : un grand (60 colonnes, de 40° S à 60° N) et un petit (30 colonnes,
+    /// de 35° S à 35° N), sans courants marins. Par bande de latitude, sur la mer à 3 cases au moins
+    /// des côtes : humidité près de la surface, eau de l'air, évaporation, pluie, et bilan de la
+    /// vapeur de la couche basse (`LOW_BUDGET`, mm/an). Puis la pluie des terres : côtes ouest et est
+    /// (2 cases), intérieur. Repères terrestres sur mer : humidité ~75-80 %, eau de l'air ~40-50 mm
+    /// sous les tropiques et ~25 mm en moyenne, évaporation ~1 000-1 500 mm sous les alizés.
+    /// `BANC_GRAINE` change la météo (graine 1 par défaut).
+    #[test]
+    #[ignore]
+    fn banc_air_marin() {
+        let (w, h) = (192, 111);
+        let region = Region::planet(CELL_KM, h);
+        let seed: u32 = std::env::var("BANC_GRAINE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+        let lat_of = |row: i32| region.latitude_deg(row, h);
+        let blocks = [(20, 80, -40.0, 60.0), (120, 150, -35.0, 35.0)];
+        let is_land = |col: i32, row: i32| blocks.iter().any(|&(c0, c1, l0, l1)| (c0..c1).contains(&col) && (l0..=l1).contains(&lat_of(row)));
+        let surface: Vec<Surface> = (0..h).flat_map(|row| (0..w).map(move |col| (col, row))).map(|(col, row)| if is_land(col, row) { Surface::Land(300.0) } else { Surface::Water }).collect();
+        let started = std::time::Instant::now();
+        let c = simulate(w, h, &surface, seed, &region, &vec![0.0; (w * h) as usize]);
+        let elapsed = started.elapsed().as_secs_f32();
+        // Distance (en colonnes, sur la même ligne) à la terre la plus proche, et côté de la mer
+        let toward = |col: i32, row: i32, step: i32, land: bool| (1..w).find(|&k| is_land((col + step * k).rem_euclid(w), row) == land).unwrap_or(w);
+        let bands = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0), (30.0, 40.0), (40.0, 60.0), (60.0, 90.0)];
+        println!("Banc de l'air marin, graine {seed}, simulation {elapsed:.1} s");
+        println!("MER    bande  humid.  eau air  évap.  pluie | {}", LOW_BUDGET.join(" | "));
+        let mut sea_all = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0usize);
+        for &(l0, l1) in &bands {
+            let (mut n, mut hum, mut water, mut ev, mut rain) = (0usize, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            let mut budget = [0.0f64; LOW_TERMS];
+            for row in 0..h {
+                let lat = lat_of(row).abs();
+                if lat < l0 || lat >= l1 {
+                    continue;
+                }
+                for col in 0..w {
+                    if is_land(col, row) || toward(col, row, 1, true).min(toward(col, row, -1, true)) < 3 {
+                        continue;
+                    }
+                    let i = (row * w + col) as usize;
+                    n += 1;
+                    hum += f64::from(c.humidity[i]);
+                    water += f64::from(c.column[i]);
+                    ev += f64::from(c.evaporation[i]);
+                    rain += f64::from(c.rain[i]);
+                    for (b, v) in budget.iter_mut().zip(c.low_budget[i]) {
+                        *b += f64::from(v);
+                    }
+                }
+            }
+            let k = n.max(1) as f64;
+            sea_all = (sea_all.0 + hum, sea_all.1 + water, sea_all.2 + ev, sea_all.3 + rain, sea_all.4 + n);
+            println!(
+                "MER    {:>2}-{:<2}  {:>4.0} %  {:>5.1} mm  {:>5.0}  {:>5.0} | {}",
+                l0 as i32, l1 as i32, 100.0 * hum / k, water / k, ev / k, rain / k,
+                budget.iter().map(|b| format!("{:>6.0}", b / k)).collect::<Vec<_>>().join(" ")
+            );
+        }
+        let k = sea_all.4.max(1) as f64;
+        println!("MER    toute  {:>4.0} %  {:>5.1} mm  {:>5.0}  {:>5.0}", 100.0 * sea_all.0 / k, sea_all.1 / k, sea_all.2 / k, sea_all.3 / k);
+        // Bilan d'eau de toute la planète (mer et terres) : par case (ce que conserve le modèle, toutes les cases ont la même
+        // masse d'air) et pondéré par cos φ (aire sur une sphère)
+        {
+            let (mut p, mut e, mut pw, mut ew, mut aw) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for row in 0..h {
+                let wc = f64::from(lat_of(row).to_radians().cos());
+                for col in 0..w {
+                    let i = (row * w + col) as usize;
+                    p += f64::from(c.rain[i]);
+                    e += f64::from(c.evaporation[i]);
+                    pw += wc * f64::from(c.rain[i]);
+                    ew += wc * f64::from(c.evaporation[i]);
+                    aw += wc;
+                }
+            }
+            let k = f64::from(w * h);
+            println!("EAU    par case : pluie {:.1}  évap. {:.1}  écart {:.1} mm | cos φ : pluie {:.1}  évap. {:.1}  écart {:.1} mm", p / k, e / k, (p - e) / k, pw / aw, ew / aw, (pw - ew) / aw);
+        }
+        // Terres : médianes par bande et par situation
+        println!("TERRE  bande  côte ouest  côte est  intérieur (médianes, mm/an ; intérieur à 8 colonnes ou plus de la mer)");
+        for &(l0, l1) in &bands[..5] {
+            let (mut west, mut east, mut inner) = (Vec::new(), Vec::new(), Vec::new());
+            for row in 0..h {
+                let lat = lat_of(row).abs();
+                if lat < l0 || lat >= l1 {
+                    continue;
+                }
+                for col in 0..w {
+                    if !is_land(col, row) {
+                        continue;
+                    }
+                    let rain = c.rain[(row * w + col) as usize];
+                    let (to_west, to_east) = (toward(col, row, -1, false), toward(col, row, 1, false));
+                    if to_west <= 2 && to_west < to_east {
+                        west.push(rain);
+                    } else if to_east <= 2 && to_east < to_west {
+                        east.push(rain);
+                    } else if to_west.min(to_east) >= 8 {
+                        inner.push(rain);
+                    }
+                }
+            }
+            let med = |v: &mut Vec<f32>| {
+                v.sort_by(f32::total_cmp);
+                v.get(v.len() / 2).map_or("-".to_string(), |x| format!("{x:.0}"))
+            };
+            println!("TERRE  {:>2}-{:<2}  {:>10}  {:>8}  {:>9}", l0 as i32, l1 as i32, med(&mut west), med(&mut east), med(&mut inner));
         }
     }
 }

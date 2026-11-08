@@ -349,7 +349,7 @@ fn climate() -> Article {
                (anticyclones, derrière les massifs), l'air sec d'altitude assèche la couche basse. Sous un \
                anticyclone, l'air chaud qui descend forme un couvercle : les orages sont étouffés et l'air qui monte \
                ne forme que des nuages bas. Un air bas saturé sans être soulevé (air marin poussé sur une côte froide) \
-               forme du brouillard, qui bruine à peine."),
+               forme du brouillard, qui bruine à peine. Les pluies les plus fortes sont plafonnées (vers 10 000 à                15 000 mm par an) : l'eau qui ne tombe pas continue avec le vent et arrose les terres suivantes."),
             h("Relief"),
             p("Sur un versant exposé au vent, l'air qui monte en suivant le sol se refroidit et la pluie augmente ; elle \
                culmine sur les pentes hautes. L'air épouse un relief adouci (il contourne en partie les sommets) ; \
@@ -515,7 +515,7 @@ fn terrain() -> Article {
             p("Puis l'eau creuse ce relief (érosion) : les grands cours d'eau s'enfoncent dans des vallées au \
                profil régulier, les cuvettes s'ouvrent ou se comblent (peu de lacs, sauf dans les fossés et les \
                régions sèches), les crêtes sont découpées et leurs points bas forment des cols. Les montagnes, peu \
-               drainées, gardent leur hauteur. Une même graine (menu Échap) redonne exactement le même monde."),
+               drainées, gardent leur hauteur. Une fois le climat connu, les vrais cours d'eau creusent à nouveau                leur vallée selon leur débit, plus fort près de la mer où la houle et la marée emportent les dépôts :                les fleuves arrivent à la mer à son niveau. Une même graine (menu Échap) redonne exactement le même monde."),
             h("Brouillard de guerre"),
             p("Une case inexplorée est noire. Une fois découverte, elle reste connue mais apparaît assombrie hors de \
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \
