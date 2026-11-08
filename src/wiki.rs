@@ -218,7 +218,7 @@ fn waters() -> Article {
 fn climate() -> Article {
     use crate::map::{
         ARID_BELOW, COLD_WINTER, DESERT_ABOVE, FOREST_ABOVE, JUNGLE_WET, SEMI_ARID_BELOW, SEMI_ARID_WOODLAND, SNOW_BELOW,
-        TAIGA_ABOVE, TROPICAL_WINTER, TUNDRA_BELOW,
+        TAIGA_ABOVE, TREE_LINE_SUMMER, TROPICAL_WINTER, TUNDRA_BELOW,
     };
     let rain = |mm: f32| swatch(crate::render::rain_color(mm));
     let row = |t: Terrain, temp: String, ar: String| (swatch(t.color()), vec![temp, ar, t.name().into()]);
@@ -233,8 +233,8 @@ fn climate() -> Article {
         row(Terrain::WoodedSavanna, format!("tropical (≥ {TROPICAL_WINTER:.0} °C), 2 saisons sèches ou plus"), format!("{FOREST_ABOVE} et plus")),
         row(Terrain::Jungle, "tropical, au plus 1 saison sèche".into(), format!("{FOREST_ABOVE} et plus (ou {JUNGLE_WET} et plus)")),
         row(Terrain::Mediterranean, "été sec, hiver pluvieux".into(), format!("{SEMI_ARID_WOODLAND} à {FOREST_ABOVE} (au-delà : forêt)")),
-        row(Terrain::Grassland, "tempéré".into(), format!("sous {FOREST_ABOVE}")),
-        row(Terrain::Forest, "tempéré".into(), format!("{FOREST_ABOVE} et plus (humide)")),
+        row(Terrain::Grassland, format!("tempéré (en montagne : été sous {TREE_LINE_SUMMER:.0} °C)"), format!("sous {FOREST_ABOVE} (en montagne : toute)")),
+        row(Terrain::Forest, format!("tempéré, été de {TREE_LINE_SUMMER:.0} °C et plus"), format!("{FOREST_ABOVE} et plus (humide)")),
         row(Terrain::Marsh, "terre basse et plate au bord d'un fleuve ou d'un lac, ne gèle pas".into(), "1 et plus".into()),
     ];
     let belts = vec![

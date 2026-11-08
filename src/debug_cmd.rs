@@ -807,11 +807,12 @@ fn biome_climate(map: &WorldMap, hex: Hex) -> Option<BiomeClimate> {
     let i = map.cell(hex);
     let c = map.climate();
     let temperature = *c.temperature.get(i)?;
-    let (coldest, _) = c.coldest_warmest(i)?;
+    let (coldest, warmest) = c.coldest_warmest(i)?;
     Some(BiomeClimate {
         temperature,
         aridity: c.aridity(i)?,
         coldest,
+        warmest,
         dry_seasons: c.dry_seasons(i)?.iter().filter(|&&d| d).count() as u8,
         dry_summer: c.dry_summer(i)?,
     })

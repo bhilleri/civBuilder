@@ -20,9 +20,17 @@ Implémenté dans `src/climate.rs` (valeurs par saison), `src/map.rs` (`Terrain`
 4. Saison froide < −3 °C : taïga si aridité ≥ 0,6, sinon steppe.
 5. Tropical : aridité < 0,75 → savane ; au plus 1 saison sèche ou aridité ≥ 2 → jungle ; sinon savane arborée.
 6. Été sec et aridité < 0,75 → broussailles.
-7. Aridité < 0,75 → prairie ; sinon forêt tempérée.
+7. Aridité < 0,75, ou saison la plus chaude < 10 °C (limite des arbres, `TREE_LINE_SUMMER`) → prairie ; sinon forêt tempérée.
 - **Marais** (après l'hydrologie, à chaque passe) : terre hors montagne, neige, toundra, désert ; sans collines ; pas un fleuve ; niveau ≤ 2 ; aucune voisine de terre plus basse ; au bord d'un fleuve ou d'un lac (ou petit lac) ; aridité ≥ 1 et moyenne > 0 °C.
 - Petite variation locale de l'aridité (bruit ±25 %) partout.
+- **Limite des arbres** (décision de Benjamin, 08/11/2026) : pas de forêt tempérée quand la saison la plus chaude reste sous
+  10 °C (limite des arbres et toundra de Köppen, vers 10 °C au mois le plus chaud) ; c'est une prairie d'altitude (páramo,
+  puna, alpages). Ces forêts étaient toutes à 1 500 m ou plus, sur les hauts plateaux des tropiques et des subtropiques (latitude
+  moyenne 11 à 23°, année ≈ 4,5 °C, hiver ≈ 0 à 3 °C) : 243 / 170 / 127 cases (graines 777 / 2 / 4242), devenues prairies ;
+  plus de villages d'éleveurs en yourtes au milieu des arbres (`sites::HERDERS_BELOW`, même seuil). Variante écartée : 6,5 °C
+  (température de la saison de croissance à la limite des arbres, Körner et Paulsen 2004), plus juste sous les tropiques mais
+  qui laissait la moitié de ces forêts. La taïga n'est pas concernée : les étés de la simulation sont trop frais aux hautes
+  latitudes (89 % des cases de taïga sous 10 °C en été). Bilan `bilan_forets_froides`.
 - **Seuil des arbres selon le climat** : forêt tempérée, jungle et savane arborée à partir de 0,75 ; taïga dès 0,6 (écart discuté avec Benjamin, conservé pour l'instant : l'indice d'aridité tient déjà compte de la faible évaporation du froid) ; broussailles (arbres épars) de 0,35 à 0,75 en été sec.
 
 ## Répartition (terres, 192 × 111, avant la règle « été sec humide → forêt »)

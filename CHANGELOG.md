@@ -29,6 +29,7 @@
 ### Habitat de montagne et lisibilité
 - **Plus de village ni de camp sans été** : aucun site là où la saison la plus chaude reste sous 5 °C. La limite suit le climat, pas l'altitude : un plateau chaud reste habité. Tous les villages et camps d'une graine changent donc de place.
 - **Villages d'éleveurs** : sous 10 °C en été, un village prend des yourtes (sauf en toundra et sur neige).
+- **Limite des arbres** : plus de forêt tempérée quand l'été reste sous 10 °C. Ces forêts des hauts plateaux tropicaux deviennent des prairies d'altitude (130 à 240 cases par graine) ; plus de yourtes au milieu des arbres.
 - **Le relief reste plus visible sous les sites** en 3D : il est adouci de 25 % au lieu de 50 %.
 - **Fleuves limoneux plus bleus en 3D** : ils ne ressemblent plus à des routes.
 

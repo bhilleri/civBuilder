@@ -103,7 +103,7 @@ Script de commandes : `ville c l`, `ville population c l n`, `ville fortifier c 
 
 **Bilan** (`bilan_sites_climat`, 8 graines) : 10 à 22 % des terres écartées, 140 à 160 villages dont 22 à 39 d'éleveurs, 39 à 45 camps, 10 à 29 sites à 2 000 m ou plus, le plus haut entre 2 773 et 3 327 m. Comme le tirage se fait sur les terres restantes, tous les sites d'une graine changent de place.
 
-**Limites** : la simulation ne place aucun site au niveau des Andes (plus haut 3 327 m). Une forêt tempérée peut rester portée à 3 140 m avec 6 °C en été : le village y prend des yourtes au milieu des arbres. Les sites inaccessibles à pied ne sont pas encore retirés.
+**Limites** : la simulation ne place aucun site au niveau des Andes (plus haut 3 327 m). Plus de forêt tempérée sous 10 °C en été depuis la limite des arbres (08/11, `conception-biomes.md`) : plus de yourtes au milieu des arbres. Les sites inaccessibles à pied ne sont pas encore retirés.
 
 ## Limites
 

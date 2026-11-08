@@ -71,7 +71,7 @@ Correctifs possibles, à essayer et comparer :
 - [x] **Rivières** (07/11) : plus de seuil de bassin de 6 cases. Un seuil de débit seul, et une largeur qui part de presque rien à la source (T3-01).
 - [x] **Pluies extrêmes plafonnées** (07/11), avec du bruit sur le plafond et l'humidité non tombée reportée aux cases suivantes : 8 à 21 % de cases de désert en moins (T0-03).
 - [x] **Raccord 3D** (07/11) : unités, bâtiments et rivières visibles des deux côtés (T5-01, T3-02). La paroi sombre en vue tournée (case du bord qui domine sa voisine de l'autre côté) est corrigée (08/11) : la caméra 3D est gardée dans le tour par son œil.
-- [ ] **Forêts tempérées à moins de 10 °C en été** : 105 à 435 cases par graine, à revoir avec les biomes (villages en yourtes au milieu des arbres).
+- [x] **Forêts tempérées à moins de 10 °C en été** (08/11) : limite des arbres à 10 °C en été, prairie d'altitude au-dessus (voir `conception/conception-biomes.md`). Reste : les étés trop frais de la taïga (89 % de ses cases sous 10 °C).
 - [ ] **Sites inaccessibles à pied** : pas par défaut. Éventuellement une option au lancement de la partie pour les autoriser (T0-08, T4-11).
 - [ ] **Or** (plus tard) : acheter des unités et des bâtiments, entretenir le tout, éventuellement un coût structurel de l'État.
 - [ ] **Frein à l'expansion et choix de développement** (plus tard) : à concevoir avec l'or.

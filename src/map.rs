@@ -343,6 +343,13 @@ pub const SEMI_ARID_WOODLAND: f32 = 0.35;
 /// Marais : niveau d'altitude maximal (3 : sous 500 m) et indice d'aridité minimal.
 pub const MARSH_MAX_LEVEL: u8 = 3;
 pub const MARSH_ARIDITY: f32 = 1.0;
+/// Limite des arbres (choix de Benjamin, 08/11/2026) : pas de forêt tempérée quand la saison la
+/// plus chaude reste sous ces températures (°C) ; c'est une prairie d'altitude (páramo, puna,
+/// alpages). Repère : la limite des arbres et la toundra de Köppen, vers 10 °C au mois le plus
+/// chaud. Ne vise que les forêts tempérées : sous ces latitudes, celles des hauts plateaux
+/// tropicaux, presque sans saisons. La taïga n'est pas concernée (les étés de la simulation sont
+/// trop frais aux hautes latitudes : la plupart de ses cases resteraient sous 10 °C).
+pub const TREE_LINE_SUMMER: f32 = 10.0;
 
 /// Climat d'une case vu par le choix du biome.
 #[derive(Clone, Copy, Debug)]
@@ -353,6 +360,8 @@ pub struct BiomeClimate {
     pub aridity: f32,
     /// Température de la saison la plus froide (°C).
     pub coldest: f32,
+    /// Température de la saison la plus chaude (°C).
+    pub warmest: f32,
     /// Nombre de saisons sèches (0 à 4).
     pub dry_seasons: u8,
     /// Été sec et hiver pluvieux.
@@ -391,7 +400,8 @@ pub fn biome(c: BiomeClimate) -> Terrain {
     } else if c.dry_summer && c.aridity < FOREST_ABOVE {
         // Été sec : végétation basse et clairsemée ; bien arrosé sur l'année, c'est une forêt
         Terrain::Mediterranean
-    } else if c.aridity < FOREST_ABOVE {
+    } else if c.aridity < FOREST_ABOVE || c.warmest < TREE_LINE_SUMMER {
+        // (au-dessus de la limite des arbres : prairie d'altitude)
         Terrain::Grassland
     } else {
         Terrain::Forest
@@ -2731,12 +2741,13 @@ impl WorldMap {
     fn climate_biome(&self, i: usize, jitter: f32) -> Terrain {
         let temperature = self.climate.temperature[i];
         let aridity = self.climate.aridity(i).unwrap_or(1.0) * jitter;
-        let (coldest, _) = self.climate.coldest_warmest(i).unwrap_or((temperature, temperature));
+        let (coldest, warmest) = self.climate.coldest_warmest(i).unwrap_or((temperature, temperature));
         let dry = self.climate.dry_seasons(i).unwrap_or([false; 4]);
         biome(BiomeClimate {
             temperature,
             aridity,
             coldest,
+            warmest,
             dry_seasons: dry.iter().filter(|&&d| d).count() as u8,
             dry_summer: self.climate.dry_summer(i).unwrap_or(false),
         })
@@ -3019,7 +3030,9 @@ mod tests {
     #[test]
     fn biomes_selon_les_saisons() {
         let c = |temperature: f32, aridity: f32, coldest: f32, dry_seasons: u8, dry_summer: bool| {
-            biome(BiomeClimate { temperature, aridity, coldest, dry_seasons, dry_summer })
+            // (été : 8 °C au-dessus de l'hiver, au moins la moyenne annuelle)
+            let warmest = (coldest + 8.0).max(temperature);
+            biome(BiomeClimate { temperature, aridity, coldest, warmest, dry_seasons, dry_summer })
         };
         assert_eq!(c(-20.0, 1.0, -30.0, 0, false), Terrain::Snow);
         assert_eq!(c(-8.0, 1.0, -20.0, 0, false), Terrain::Tundra);
@@ -3039,6 +3052,10 @@ mod tests {
         assert_eq!(c(15.0, 0.4, 8.0, 2, false), Terrain::Plains);
         assert_eq!(c(10.0, 0.6, 2.0, 0, false), Terrain::Grassland);
         assert_eq!(c(10.0, 1.0, 2.0, 0, false), Terrain::Forest);
+        let alpine = BiomeClimate { temperature: 5.0, aridity: 1.2, coldest: 1.0, warmest: 8.0, dry_seasons: 0, dry_summer: false };
+        assert_eq!(biome(alpine), Terrain::Grassland, "au-dessus de la limite des arbres : prairie d'altitude");
+        assert_eq!(biome(BiomeClimate { warmest: 11.0, ..alpine }), Terrain::Forest, "sous la limite des arbres");
+        assert_eq!(biome(BiomeClimate { coldest: -8.0, warmest: 8.0, ..alpine }), Terrain::Taiga, "la taïga n'est pas concernée");
     }
 
     #[test]
@@ -3354,6 +3371,39 @@ mod apercu {
         println!("{counts:?}");
     }
 }
+
+    /// Bilan des forêts froides (essai) : forêts tempérées et taïga dont la saison la plus chaude reste sous 10 °C.
+    #[test]
+    #[ignore]
+    fn bilan_forets_froides() {
+        use super::*;
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![777, 2, 4242]);
+        for seed in seeds {
+            let m = WorldMap::generate_in(192, 111, seed, Region::planet(crate::climate::CELL_KM, 111));
+            let c = m.climate();
+            for kind in [Terrain::Forest, Terrain::Taiga, Terrain::Grassland, Terrain::Steppe, Terrain::Tundra] {
+                let cells: Vec<(usize, Hex)> = m.hexes().enumerate().filter(|&(_, h)| m.get(h) == Some(kind)).collect();
+                let warm = |i: usize| c.coldest_warmest(i).map_or(99.0, |w| w.1);
+                let mut hist = [0usize; 8];
+                let (mut high, mut lat_sum, mut cold_sum, mut t_sum, mut k) = (0usize, 0.0f32, 0.0f32, 0.0f32, 0usize);
+                for &(i, h) in &cells {
+                    let w = warm(i);
+                    let b = ((w - 4.0) / 2.0).floor().clamp(0.0, 7.0) as usize;
+                    hist[b] += 1;
+                    if w < 10.0 {
+                        k += 1;
+                        high += usize::from(m.elevation(h).unwrap_or(0.0) >= 1_500.0);
+                        lat_sum += m.latitude(h).abs();
+                        cold_sum += c.coldest_warmest(i).unwrap().0;
+                        t_sum += c.temperature[i];
+                    }
+                }
+                let kf = k.max(1) as f32;
+                println!("graine {seed} {:<14} {:>5} cases ; été <10 °C : {:>4} (dont ≥ 1 500 m {:>4}) lat. moy. {:>4.0}° hiver {:>5.1} °C année {:>5.1} °C | été par 2 °C depuis <6 : {:?}",
+                    kind.name(), cells.len(), k, high, lat_sum / kf, cold_sum / kf, t_sum / kf, hist);
+            }
+        }
+    }
 
 #[cfg(test)]
 mod bilan {
