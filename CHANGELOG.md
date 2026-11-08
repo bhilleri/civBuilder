@@ -16,6 +16,12 @@
 
 - **Des vallées dans les chaînes de montagnes** : l'eau y converge en vrais réseaux d'affluents, au lieu d'un peigne de rivières parallèles sur des versants lisses. Altitude moyenne inchangée, mais un quart de falaises en plus. Le monde généré change.
 
+- **Pluie plus proche de la Terre** (le monde généré change) :
+  - **Montagnes moins détrempées** : l'air d'altitude passe au-dessus des massifs au lieu d'y condenser sans être soulevé. Les hautes terres recevaient 2,6 à 3,6 fois la pluie des plaines ; elles en reçoivent 1,6 à 1,8 fois, surtout sur le versant au vent.
+  - **Façades côtières** : l'été, l'air descend davantage à l'ouest des continents, et le vent ralentit sur les terres. Les côtes ouest subtropicales sont plus sèches (20-30° : 373 mm au lieu de 456) et les côtes est relativement plus arrosées.
+  - **Hautes latitudes moins arrosées** : le vent porte moins de vapeur vers les pôles au-delà de 40°. De 60 à 70°, 896 mm au lieu de 949.
+  - Un peu moins de désert (12,5 % des terres au lieu de 13,7 %), la ceinture sèche de 30-40° est conservée ; les latitudes de 40-50° sont plus arrosées et plus boisées.
+
 ### Raccord est-ouest
 - **Correctif en 3D** : les unités et les bâtiments des colonnes du bord ne disparaissent plus selon le côté d'où on les regarde, et les rivières restent continues. Un ennemi pouvait y être invisible.
 

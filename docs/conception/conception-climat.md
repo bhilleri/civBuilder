@@ -41,8 +41,9 @@ Simulation lancée à la génération du monde (module `src/climate.rs`, logique
 
 ## Circulation
 - Pression : ceintures selon la latitude, effet thermique des continents, dépressions/anticyclones mobiles (~2 500 km).
-- Vent de surface très dévié (72-84°) ; près de l'équateur, où la déviation s'annule, la part qui descend la pente de pression est plafonnée à 0,3 × la pente (`EQUATORIAL_CROSS_FLOW_MAX`, comme une déviation de ~72°, voir « Cycle de l'eau tropical ») ; couche basse 1,7 × plus rapide ; vents d'altitude surtout d'ouest.
-- Circulation de fond imposée par la latitude (descente vers 30°, montée à l'équateur et vers 60°).
+- Vent de surface très dévié (72-84° ; 87° au-delà de 50°, rampe depuis 40° : flux de la cellule de Ferrel, voir « Correctifs du 08/11 ») ; près de l'équateur, où la déviation s'annule, la part qui descend la pente de pression est plafonnée à 0,3 × la pente (`EQUATORIAL_CROSS_FLOW_MAX`, comme une déviation de ~72°, voir « Cycle de l'eau tropical ») ; couche basse 1,7 × plus rapide ; vents d'altitude surtout d'ouest.
+- Circulation de fond imposée par la latitude (descente vers 30°, montée à l'équateur et vers 60°), renforcée l'été à l'ouest des continents (façades des anticyclones, voir « Correctifs du 08/11 »).
+- Couche basse ralentie de 10 % au-dessus des terres, pas des lacs (frottement) : convergence sur les côtes au vent, divergence sur les côtes sous le vent.
 - Cohérence de masse : l'air de la couche basse qui converge monte ; celui qui diverge est remplacé par de l'air qui descend.
 - Fronts des latitudes moyennes (35-65°) et convection tropicale ; couvercle d'inversion sous les anticyclones. L'hiver, au-dessus des mers chaudes bordées d'un continent à l'ouest (30-45°), dépressions d'hiver : fronts et brassage renforcés (voir « Cycle de l'eau tropical »).
 - Déplacement saisonnier des ceintures : 0,45 × latitude du soleil ; sur les continents, entre 5 et 35° de latitude, jusqu'à 0,3 × de plus (mousson, voir « Cycle de l'eau tropical »).
@@ -72,7 +73,7 @@ Simulation lancée à la génération du monde (module `src/climate.rs`, logique
 - Suite : navigation (bonus ou malus selon le courant), dérive de la banquise, saisons.
 
 ## Deux couches d'air
-- Basse : 0-2 km au-dessus d'un relief adouci (lissé sur ~40 km). Haute : centrée à 4 km.
+- Basse : 0-2 km au-dessus d'un relief adouci (lissé sur ~40 km). Haute : atmosphère libre, 2-6 km, soulevée seulement là où le relief dépasse sa base (2 000 m), d'autant ; au-dessus de 2 000 m, elle recouvre donc toute la couche basse (les deux couches se chevauchent). Avant le 08/11, elle suivait le sol dès 1 000 m et condensait sur les massifs sans y être soulevée.
 - Clausius-Clapeyron (Bolton). Air soulevé en profondeur → condense, rendement 30-70 % selon l'humidité.
 - Pluie de relief sur les pentes au vent ; ailleurs, brouillard (bruine).
 - Neige : chute plus lente → débordement au-delà des crêtes.
@@ -98,6 +99,74 @@ Simulation lancée à la génération du monde (module `src/climate.rs`, logique
 
 ## Plafond des pluies (07/11/2026)
 **Décision de Benjamin** : plafonner les pluies extrêmes (jusqu'à 35 666 mm/an), reporter l'humidité non tombée aux cases suivantes, ajouter du bruit pour que le plafond ne se voie pas. **Algorithme** : à chaque pas, la pluie d'un nuage est limitée à un rythme par case (`RAIN_CAP_MM_YEAR` 12 000 mm/an × `RAIN_CAP_PEAK` 1,5, ±25 % de bruit sur 320 km) ; le reste reste dans le nuage, que le vent d'altitude transporte. **Bilan** (`bilan_plafond_pluie`, 8 graines) : pluie maximale de 10 179 à 15 188 mm (auparavant jusqu'à 35 666), et 8 à 21 % de cases de désert en moins sur les 5 graines comparées (777 : 960 → 838 ; 4242 : 1 439 → 1 218 ; 31337 : 738 → 586 ; 8 : 1 476 → 1 362 ; 2 : 1 346 → 1 236). Une marge de 2,0 laissait 16 500 à 18 300 mm. **Limite** : le plafond porte sur le rythme, pas sur le total annuel : il dépasse parfois 12 000 mm, et il touche aussi de fortes pluies ordinaires (−8 % sur le continent équatorial du test, 2 139 → 1 968 mm).
+
+## Comparatif avec la Terre (08/11/2026)
+Question de Benjamin : le monde est-il trop humide ? Bilan `bilan_pluie_comparatif` (8 graines, médianes par bande de latitude
+et par situation : côte ouest ou est à 2 cases au plus de la mer, intérieur à 8 cases ou plus, hautes terres à 1 500 m ou plus).
+Pas de tableau fiable de la Terre par bande : comparaison avec des stations (Manaus 2 307 mm, Kisangani 1 804, Lima 13,
+Oulan-Bator 270-278, Miami 1 487, Seattle 999, Vancouver 1 199, Bergen ≈ 2 250) et des ordres de grandeur.
+- **Juste** : tropiques humides (0-10° : médiane 2 174 mm), côtes ouest à 30-40° (393 mm), Arctique (169 mm).
+- **Trop arrosé** : intérieurs à 30-70° (40-50° : 719 mm contre 250-400 dans les steppes ; 60-70° : 949 contre 300-500),
+  intérieur des tropiques secs (20-30° : 557 mm contre moins de 100), côtes ouest désertiques à 10-30° (456-670 mm contre
+  moins de 50), hautes terres (2 à 4 fois les plaines).
+- **Trop sec** : côtes est subtropicales (20-40° : 343-788 mm contre 1 000-1 500).
+- Moyenne des terres ≈ 1 220 mm (Terre ≈ 850, GPCC). Une part de l'écart peut venir de la planète elle-même : rayon ≈ 1/5
+  de la Terre, petits continents, peu de cases loin de la mer.
+- Correctifs possibles : voir `docs/TODO.md`, point 8.
+
+## Correctifs du 08/11/2026 (TODO 8a, 8b, 8c)
+Trois agents ont cherché chacun un angle (continentalité, relief et tropiques secs, façades côtières), avec le même bilan ;
+deux analystes indépendants (sens physique et code ; mesures et combinaisons) ont jugé leurs propositions. Retenu : les trois,
+deux d'entre elles corrigées.
+- **Couche haute au-dessus des massifs** (8b, `UPPER_BASE`). Le comptage de l'eau condensée par origine (`Climate::sources`,
+  gardé pour les tests) montrait que sur les hautes terres de 30-40° (graine 777), 1 485 mm/an sur 1 618 venaient de la couche
+  haute saturée, contre 103 mm d'air bas poussé contre la pente : l'air d'altitude venu d'une plaine, posé 1 à 3 km plus haut et
+  6 à 20 °C plus froid, condensait sans avoir été soulevé, versants sous le vent compris. Elle n'est plus soulevée que par un
+  relief plus haut que sa base. Le test `relief_et_ombre_pluviometrique` admet le maximum sur la crête (la couche haute y condense).
+  Variantes écartées : couche haute toujours horizontale (ombre sous le vent trop faible), lissée sur 400 km (sans gain).
+- **Façades des anticyclones** (8c, `FACADE_*`, Rodwell et Hoskins 2001). Sur les côtes ouest de 20-30°, la pluie tombait
+  surtout l'été : la ceinture de subsidence, la même sur tout le parallèle, montait avec le soleil vers 40°. L'été, de 15 à 40°,
+  la descente de fond reçoit 2 × 3 mm/s × max(0, E − O) en plus, E et O parts de terre à l'est et à l'ouest sur 1 000 km le long
+  du parallèle (5 lignes) : ~5 mm/s sur une côte ouest, comme au large de la Californie ou du Pérou. Bornée (E − O ≤ 1).
+  Corrigé par l'analyse : pas de montée en plus à l'est (elle est déjà celle de la dépression thermique des continents ; l'ajouter
+  comptait deux fois la mousson et mouillait les continents subtropicaux).
+- **Frottement des terres** (8c, `LAND_WIND` = 0,9) : la couche basse va 0,9 fois moins vite sur le sol (case et voisines ; les
+  lacs, lisses, n'en ont pas). 0,8 asséchait les côtes ouest équatoriales.
+- **Flux de Ferrel** (8a, `MIDLATITUDE_DEFLECTION` = 87°, `MIDLATITUDE_RAMP` 40-50°). À 60-70°, presque toute la terre est
+  côtière et recevait autant que la mer (≈ 950 mm, surtout l'été) ; la pluie y est limitée par la vapeur apportée des mers de
+  30-45° par la couche basse (0,85 m/s vers le pôle, Terre 0,4-0,5), pas par le soulèvement (fronts ou montée de fond réduits :
+  sans effet). 87° divise ce flux par deux. Corrigé par l'analyse : la rampe proposée (30-40°) réduisait aussi la divergence du
+  flanc polaire des anticyclones et faisait disparaître les déserts de 30-40° (22 → 8 % de la bande avec les autres
+  corrections) ; à 40-50°, elle commence au début de la cellule de Ferrel. Une rampe à 45-55° (8 graines) donne 40-50° 744 mm
+  au lieu de 798, mais 50-60° 1 026 au lieu de 933 et 60-70° 910 au lieu de 896 : écartée.
+- **Essais sans gain** : saisons plus marquées sur les continents (60-70° plus arrosé), inertie thermique de la mer (côtes
+  basses de 40-60° +90 mm), décalage saisonnier des ceintures réduit (60-70° 869 → 1 182 mm), fronts étouffés sous le
+  couvercle (déserts de 30-40° en hausse), dépression thermique peu profonde (côtes est −1/3), façade multiplicative (E − O
+  trop faible sur de petits continents), cellule de Hadley d'hiver plus forte.
+- **Résultat** (8 graines, avant → après) :
+
+| Indicateur | Repère Terre | Avant | Après |
+|---|---|---|---|
+| Moyenne des terres | ≈ 850 mm | 1 228 | 1 205 |
+| Ruissellement | 290-460 mm | 659 | 639 |
+| Déserts (cases de terre) | — | 13,7 % | 12,5 % (bande 30-40° : 22 → 13 %) |
+| Équateur 0-10° | 1 800-2 300 mm | 2 174 | 2 162 |
+| Intérieur 20-30° | < 250 mm | 557 | 505 |
+| Côte ouest 20-30° | < 200 mm | 456 | 373 |
+| Côte est / côte ouest 20-30° et 30-40° | > 1,5 | 1,73 et 0,87 | 2,34 et 0,86 |
+| Intérieur / côte ouest 40-50° et 50-60° | < 0,7 | 0,98 et 1,08 | 0,71 et 1,06 |
+| 60-70° | 300-500 mm | 949 | 896 |
+| Hautes terres / basses 30-40° et 40-50° | ≈ 1,3-2 | 3,56 et 2,61 | 1,82 et 1,56 |
+
+- **Effets de bord** : 40-50° plus arrosé (médiane 603 → 798 mm ; côtes ouest 730 → 1 150, intérieur 719 → 816, basses terres
+  552 → 759) : l'eau qui ne tombe plus sur les montagnes et la vapeur que garde le flux de Ferrel s'y arrêtent. Biomes de 40-50° :
+  forêt 32 → 46 %, la steppe sort des cinq premiers. 30-40° : forêt 23 → 28 %, méditerranéen 12 → 17 %. Le test
+  `climats_selon_la_latitude` passe (rapport tempéré / subtropical 1,31) ; il ne peut pas trancher seul : son continent d'essai
+  est à l'échelle de la Terre (3,3 lignes par degré, 5 fois plus que la planète).
+- **Reste** : côtes est de 30-40° aussi sèches que les côtes ouest, intérieur des tropiques secs (pluie d'été de la mousson),
+  60-70° encore deux fois la Terre, intérieurs de 40-50° trop arrosés, moyenne des terres. Tous renvoient à l'air marin trop sec
+  (7e) et aux dépressions qui se déplacent (7g). Les eaux froides des courants sont 2 à 3 fois trop faibles (côtes ouest de
+  20-30° : −2,4 °C au large, Terre −4 à −8 °C).
 
 ## Limites connues / pistes
 - Courants marins fixes toute l'année (calculés une fois, sur le vent annuel moyen).

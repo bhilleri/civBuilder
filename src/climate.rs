@@ -54,9 +54,23 @@ const WEATHER_SYSTEM_KM: f32 = 2_500.0;
 /// ont la taille d'un continent) et rayon de l'influence de la mer sur l'écart jour-nuit (km).
 const CONTINENT_RADIUS_KM: f32 = 800.0;
 const MARITIME_RADIUS_KM: f32 = 250.0;
-/// Déviation du vent de surface par rapport à la pente de pression (degrés) : il franchit les
-/// isobares sous un angle de 10 à 20° sur mer, 25 à 45° sur terre (frottement).
+/// Déviation du vent de surface par rapport à la pente de pression (degrés). C'est un angle effectif
+/// pour le flux moyen d'un régime (une semaine de temps), pas pour le vent d'un instant : le vent
+/// réel franchit les isobares sous 10 à 20° sur mer et 25 à 45° sur terre, mais les va-et-vient des
+/// dépressions se compensent en moyenne. 84° ne laisse que 6° (cos 84° ≈ 10 % du vent à travers les
+/// isobares).
 const CROSS_ISOBAR_DEFLECTION: f32 = 84.0;
+/// Aux latitudes moyennes et hautes, déviation plus forte : le flux moyen vers le pôle des vents
+/// d'ouest (branche basse de la cellule de Ferrel, circulation faible entretenue par les
+/// tourbillons, 20 à 30 × 10⁹ kg/s sur Terre) ne fait que 0,4 à 0,5 m/s dans les 2 km du bas. À 84°,
+/// la couche basse (1,7 × le vent du sol) allait vers le pôle à ~0,85 m/s et noyait la dépression
+/// subpolaire (50-70°) de la vapeur des mers de 30-45° ; à 87°, ~0,43 m/s. Même chose pour le flux
+/// des vents d'est polaires vers l'équateur. Rampe entre les latitudes `MIDLATITUDE_RAMP` (degrés) :
+/// la cellule de Ferrel commence au pôle de la crête anticyclonique (30-35° en moyenne, ~40° l'été
+/// avec `SEASONAL_SHIFT`) ; plus près de l'équateur, garder la vapeur sur 30-40° y faisait
+/// disparaître les déserts (22 → 8 % de la bande avec les autres corrections).
+const MIDLATITUDE_DEFLECTION: f32 = 87.0;
+const MIDLATITUDE_RAMP: (f32, f32) = (40.0, 50.0);
 /// Près de l'équateur, la déviation s'annule : sans plafond, tout le vent descendrait la pente
 /// de pression et l'air convergerait 15 à 20 fois plus qu'ailleurs (l'équateur thermique, décalé
 /// de 10° avec les saisons, laisse une forte pente sur l'équateur). Dans les vrais tropiques, les
@@ -91,6 +105,27 @@ const CYCLOGENESIS_RADIUS_KM: f32 = 500.0;
 const CYCLOGENESIS_LATITUDES: (f32, f32) = (30.0, 45.0);
 const CYCLOGENESIS_STORMS: f32 = 1.0;
 const CYCLOGENESIS_MIXING: f32 = 1.0;
+/// Façades des anticyclones subtropicaux (Rodwell et Hoskins 2001) : la chaleur des continents en été
+/// (mousson) fait descendre l'air à leur ouest (est des océans, côtes ouest : Sahara, Californie,
+/// Namib, Atacama) et monter à leur est (côtes est : Floride, Chine, Brésil du sud-est). La montée de
+/// l'est est déjà celle de la dépression thermique des continents (`land_heat`, qui fait l'essentiel
+/// de la convergence des côtes est) ; il manquait la descente qui la compense à l'ouest. La descente
+/// de fond reçoit donc `FACADE_GAIN` × `LARGE_SCALE_W` × max(0, E − O) de descente en plus, E et O
+/// parts de terre à l'est et à l'ouest le long du parallèle jusqu'à `FACADE_RADIUS_KM`, entre
+/// `FACADE_LATITUDES` (rampe de 10°). Pleine l'été, moitié aux équinoxes, nulle l'hiver. Sur une
+/// côte ouest, E − O vaut 0,35 à 0,45 : la descente y passe de ~3 à ~5 mm/s, comme au-dessus des
+/// océans terrestres en été (4 à 5 mm/s au large de la Californie ou du Pérou). Ajouter aussi une
+/// montée à l'est comptait deux fois la mousson et mouillait les continents subtropicaux.
+const FACADE_RADIUS_KM: f32 = 1_000.0;
+const FACADE_GAIN: f32 = 2.0;
+const FACADE_LATITUDES: (f32, f32) = (15.0, 40.0);
+/// Frottement du sol : au-dessus des terres, plus rugueuses, le vent moyen de la couche basse
+/// (0-2 km) n'est que `LAND_WIND` fois celui de la mer (près du sol : ~0,5 contre ~0,75 du vent
+/// géostrophique ; vers 1 à 1,5 km, le même). L'air qui aborde une côte ralentit et converge (pluies
+/// des côtes au vent : Bergen, Colombie-Britannique, Floride, côtes est des alizés) ; celui qui la
+/// quitte accélère et diverge (côtes sous le vent, côtes ouest sous les alizés). Transition sur la
+/// case et ses voisines.
+const LAND_WIND: f32 = 0.9;
 /// Vent d'est observé près de l'équateur, là où les alizés des deux hémisphères se rejoignent (m/s).
 const EQUATORIAL_EASTERLY: f32 = 4.0;
 
@@ -105,9 +140,18 @@ const LOW_LAYER_WIND: f32 = 1.7;
 const UPPER_WIND: f32 = 12.0;
 /// Épaisseur de la couche basse (m).
 const LOW_DEPTH: f32 = 2_000.0;
-/// Altitude du milieu de la couche haute (m) et épaisseur.
+/// Altitude du milieu de la couche haute (m) et épaisseur. La couche haute est l'atmosphère libre,
+/// au-dessus de `UPPER_BASE` : l'air à 2-6 km passe au-dessus d'un massif plus bas sans s'élever
+/// (seule la couche basse, qui suit le sol, est poussée contre la pente) ; un relief plus haut que
+/// sa base la soulève d'autant. Elle suivait auparavant le sol dès 1 000 m (centre 3 km au-dessus
+/// du relief lissé) : l'air d'altitude venu d'une plaine, posé 1 à 3 km plus haut et 6 à 20 °C plus
+/// froid au-dessus d'un massif, y condensait sans avoir été soulevé, et les hautes terres recevaient
+/// 2,6 à 4 fois la pluie des plaines, versants sous le vent compris. Les deux couches se recouvrent
+/// en partie au-dessus du relief.
 const UPPER_Z: f32 = 4_000.0;
 const UPPER_DEPTH: f32 = 4_000.0;
+/// Base de la couche haute (m).
+const UPPER_BASE: f32 = UPPER_Z - UPPER_DEPTH / 2.0;
 /// Décroissance de la température avec l'altitude (°C par m).
 pub const LAPSE: f32 = 0.0065;
 /// L'humidité diminue avec la hauteur dans la couche basse : près du sol, l'air est environ
@@ -277,6 +321,12 @@ pub struct Climate {
     /// Vent de surface de chaque régime de l'année : la houle en a besoin à la génération
     /// (`WorldMap` le reprend ensuite pour ne pas le garder en mémoire).
     pub regime_wind: Vec<RegimeWind>,
+    /// Diagnostic des bilans (mm par an) : eau condensée selon son origine, dans l'ordre : air bas
+    /// poussé contre une pente, bruine, montée profonde, montée peu profonde (sous le couvercle),
+    /// couche haute soulevée, couche haute saturée. Comptée là où elle se forme (le nuage voyage).
+    /// Gardée seulement dans les tests.
+    #[cfg(test)]
+    pub sources: Vec<[f32; 6]>,
 }
 
 /// Vent de surface d'un régime météo (m/s par case, x vers l'est, y vers le nord).
@@ -656,7 +706,8 @@ struct Regime {
     w_subsidence: Vec<f32>,
 }
 
-fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], ground: &[f32], continental: &[f32]) -> Regime {
+#[allow(clippy::too_many_arguments)]
+fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], ground: &[f32], continental: &[f32], facade: &[f32], near_land: &[f32]) -> Regime {
     let n = grid.lat.len();
     let weather: Fbm<Perlin> =
         Fbm::new(seed.wrapping_add(31_337).wrapping_add(k * 7_919)).set_octaves(2).set_frequency(1.0);
@@ -679,7 +730,9 @@ fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], gro
     let mut surface: Vec<(f32, f32)> = (0..n)
         .map(|i| {
             let (gx, gy) = grid.gradient(&pressure, i);
-            let a = deflect(grid.lat[i], CROSS_ISOBAR_DEFLECTION);
+            let (r0, r1) = MIDLATITUDE_RAMP;
+            let mid = ((grid.lat[i].abs() * 90.0 - r0) / (r1 - r0)).clamp(0.0, 1.0);
+            let a = deflect(grid.lat[i], CROSS_ISOBAR_DEFLECTION + (MIDLATITUDE_DEFLECTION - CROSS_ISOBAR_DEFLECTION) * mid);
             let (x, y) = rotate((-gx, -gy), a);
             // Part qui descend la pente plafonnée (`EQUATORIAL_CROSS_FLOW_MAX`)
             let cut = a.cos() - a.cos().min(EQUATORIAL_CROSS_FLOW_MAX);
@@ -715,7 +768,15 @@ fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], gro
             ((gx * wx + gy * wy) / grid.dx).max(0.0)
         })
         .collect();
-    let low_layer: Vec<(f32, f32)> = surface.iter().map(|w| (w.0 * LOW_LAYER_WIND, w.1 * LOW_LAYER_WIND)).collect();
+    // Couche basse plus rapide que le vent du sol, ralentie au-dessus des terres (`LAND_WIND`)
+    let low_layer: Vec<(f32, f32)> = surface
+        .iter()
+        .zip(near_land)
+        .map(|(w, &l)| {
+            let f = LOW_LAYER_WIND * (1.0 - (1.0 - LAND_WIND) * l);
+            (w.0 * f, w.1 * f)
+        })
+        .collect();
     let surface_out: Vec<Flow> = (0..n).map(|i| grid.outflow(&low_layer, i)).collect();
     let upper_out: Vec<Flow> = (0..n).map(|i| grid.outflow(&upper, i)).collect();
     // Vitesse verticale cohérente avec le transport : l'air de la couche basse qui converge sur
@@ -731,7 +792,15 @@ fn regime(grid: &Grid, period: Period, seed: u32, k: u32, land_heat: &[f32], gro
     // Ferrel) : l'air descend sous les anticyclones subtropicaux et monte à l'équateur et vers
     // 60°. Sur une carte régionale, elle ne peut pas naître de la convergence des vents de la carte.
     let shift = period.sun_lat * SEASONAL_SHIFT;
-    let background: Vec<f32> = (0..n).map(|i| -LARGE_SCALE_W * band_pressure(grid.lat[i] - shift)).collect();
+    let background: Vec<f32> = (0..n)
+        .map(|i| {
+            let zonal = -LARGE_SCALE_W * band_pressure(grid.lat[i] - shift);
+            // Descente à l'ouest des continents, montée à leur est (voir `FACADE_GAIN`)
+            let summer = (0.5 + 0.5 * period.sun_lat * grid.lat[i].signum() / 0.26).clamp(0.0, 1.0);
+            let (a, b) = FACADE_LATITUDES;
+            zonal - FACADE_GAIN * LARGE_SCALE_W * facade[i].max(0.0) * summer * bump(grid.lat[i].abs() * 90.0, a, b, 10.0)
+        })
+        .collect();
     let w_large: Vec<f32> = (0..n).map(|i| background[i] + converging[i] * LOW_DEPTH / grid.dt).collect();
     let w_subsidence: Vec<f32> = background.iter().map(|&w| (-w).max(0.0)).collect();
     let pushed = Gather::from_sends(n, |j| {
@@ -865,6 +934,39 @@ pub fn simulate_periods(
             .collect()
     };
     let land_share = share_within(MARITIME_RADIUS_KM);
+    // Part de sol de la case et de ses voisines (frottement du sol sur le vent ; un lac est lisse
+    // comme la mer)
+    let near_land: Vec<f32> = (0..n)
+        .map(|i| (f32::from(u8::from(has_soil(i))) + grid.neighbors[i].iter().map(|&(_, j)| f32::from(u8::from(has_soil(j)))).sum::<f32>()) / (1 + grid.neighbors[i].len()) as f32)
+        .collect();
+    // Façade : part de terre à l'est moins part de terre à l'ouest (voir `FACADE_GAIN`)
+    let facade: Vec<f32> = {
+        let radius = grid.cells(FACADE_RADIUS_KM, 2);
+        (0..n)
+            .into_par_iter()
+            .map(|i| {
+                // Bande de 5 lignes (~170 km) le long du parallèle, jusqu'à `FACADE_RADIUS_KM` de chaque côté
+                let (col, row) = grid.hexes[i].to_offset();
+                let land_at = |c: i32, r: i32| {
+                    let c = if grid.wraps { c.rem_euclid(grid.width) } else { c };
+                    (c >= 0 && c < grid.width && r >= 0 && r < grid.height).then(|| is_land((r * grid.width + c) as usize))
+                };
+                let share = |step: i32| {
+                    let (mut land, mut all) = (0usize, 0usize);
+                    for r in row - 2..=row + 2 {
+                        for k in 1..=radius {
+                            if let Some(l) = land_at(col + step * k, r) {
+                                land += usize::from(l);
+                                all += 1;
+                            }
+                        }
+                    }
+                    land as f32 / all.max(1) as f32
+                };
+                share(1) - share(-1)
+            })
+            .collect()
+    };
 
     let mixing: Vec<f32> = (0..n).map(|i| grid.mixing(i)).collect();
     // Effet de lac : pour chaque case proche d'un lac, distance et direction depuis le lac le plus
@@ -936,7 +1038,9 @@ pub fn simulate_periods(
             .map(|i| {
                 let t0 = sea_level_temperature(grid.lat[i] - period.sun_lat * 0.4);
                 let t_surface = t0 - LAPSE * ground[i] + coast_anomaly[i];
-                let z_upper = UPPER_Z.max(ground[i] + LOW_DEPTH + 1_000.0);
+                // Couche haute : atmosphère libre, soulevée seulement par un relief plus haut que sa
+                // base (voir `UPPER_Z`)
+                let z_upper = UPPER_Z + (ground[i] - UPPER_BASE).max(0.0);
                 let t_upper = t0 - LAPSE * z_upper;
                 let m_low = layer_mass(ground[i] + LOW_DEPTH / 2.0, LOW_DEPTH);
                 let m_up = layer_mass(z_upper, UPPER_DEPTH);
@@ -995,7 +1099,7 @@ pub fn simulate_periods(
 
         let regimes: Vec<Regime> = (0..REGIMES)
             .into_par_iter()
-            .map(|k| regime(&grid, period, seed.wrapping_add(p as u32 * 101), k, &land_heat, &ground, &continental))
+            .map(|k| regime(&grid, period, seed.wrapping_add(p as u32 * 101), k, &land_heat, &ground, &continental, &facade, &near_land))
             .collect();
         regime_wind.extend(regimes.iter().map(|r| RegimeWind { sun_lat: period.sun_lat, surface: r.surface.clone() }));
         let warm_up = steps(if p == 0 { SPIN_UP_DAYS } else { TRANSITION_DAYS });
@@ -1094,6 +1198,8 @@ pub fn simulate_periods(
         season_rain: seasonal(1, &|s: &Sums| s.rain * per_year),
         season_pet: seasonal(2, &|s: &Sums| s.pet * per_year),
         regime_wind,
+        #[cfg(test)]
+        sources: sums.iter().map(|s| s.src.map(|v| v * per_year)).collect(),
     }
 }
 
@@ -1156,6 +1262,7 @@ struct Sums {
     humidity: f32,
     column: f32,
     wind: (f32, f32),
+    src: [f32; 6],
 }
 
 /// Taux par pas de temps.
@@ -1188,6 +1295,7 @@ fn column_step(
     sum: Option<&mut Sums>,
 ) {
     let (dt, dt_days) = (rates.dt, rates.dt_days);
+    let mut src = [0.0f32; 6];
     let efficiency_at = |rh: f32| PRECIPITATION_EFFICIENCY.0 + (PRECIPITATION_EFFICIENCY.1 - PRECIPITATION_EFFICIENCY.0) * rh;
     let rh = (air.low / c.cap_low).clamp(0.0, 1.5);
     cell.rh_mean += rates.rh_memory * (rh.min(1.0) - cell.rh_mean);
@@ -1226,6 +1334,7 @@ fn column_step(
         let parcel = air.low * lifted_shallow;
         let capacity = c.qs_low_top * c.m_low * lifted_shallow;
         let condensed = (parcel - capacity).max(0.0) * PRECIPITATION_EFFICIENCY.0;
+        src[3] += condensed;
         air.low -= condensed;
         air.cloud += condensed;
     }
@@ -1235,6 +1344,7 @@ fn column_step(
         let parcel = air.low * lifted;
         let capacity = c.qs_top * c.m_low * lifted;
         let condensed = (parcel - capacity).max(0.0) * efficiency;
+        src[2] += condensed;
         air.low -= parcel;
         air.up += parcel - condensed;
         air.cloud += condensed;
@@ -1248,6 +1358,7 @@ fn column_step(
         let parcel_up = air.up * lifted_up;
         let capacity_up = c.qs_top * c.m_up * lifted_up;
         let condensed_up = (parcel_up - capacity_up).max(0.0) * efficiency_at(rh_up);
+        src[4] += condensed_up;
         air.up -= condensed_up;
         air.cloud += condensed_up;
     }
@@ -1268,6 +1379,7 @@ fn column_step(
     air.low -= excess_low;
     if r.w_relief[i] > 0.0 {
         air.cloud += excess_low * efficiency;
+        src[0] += excess_low * efficiency;
         air.up += excess_low * (1.0 - efficiency);
     } else {
         air.fog += excess_low;
@@ -1275,6 +1387,7 @@ fn column_step(
     // En altitude : sous un anticyclone, ce sont surtout des nuages élevés (cirrus) qui pleuvent à
     // peine ; ils restent dans la couche haute et partent avec le vent
     let excess_up = (air.up - c.cap_up).max(0.0) * (0.3 + 0.7 * lid);
+    src[5] += excess_up;
     air.up -= excess_up;
     air.cloud += excess_up;
     // Le brouillard s'évapore dans un air bas non saturé, sinon il bruine
@@ -1283,6 +1396,7 @@ fn column_step(
     air.low += cleared;
     let drizzled = air.fog * rates.drizzle;
     air.fog -= drizzled;
+    src[1] += drizzled;
     // Brassage vertical : rapproche les humidités relatives des deux couches
     let moved = VERTICAL_MIXING_PER_DAY * dt_days * (air.low / c.cap_low - air.up / c.cap_up) * c.cap_up.min(c.cap_low);
     air.low -= moved;
@@ -1344,6 +1458,9 @@ fn column_step(
         s.column += air.low + air.up + air.cloud + air.fog;
         s.wind.0 += r.surface[i].0 / SURFACE_WIND;
         s.wind.1 += r.surface[i].1 / SURFACE_WIND;
+        for (total, v) in s.src.iter_mut().zip(src) {
+            *total += v;
+        }
     }
 }
 
@@ -1504,9 +1621,11 @@ mod tests {
         let c = simulate(W, H, &continent(Some(m)), 11, &region(48.0), &earth_sea(48.0));
         let p = profile(&c);
         let at = |col: i32| p[(col - LAND.0) as usize];
-        // Plus de pluie sur le versant au vent qu'en plaine en amont ; maximum avant le sommet
+        // Plus de pluie sur le versant au vent qu'en plaine en amont ; maximum sur la pente au vent
+        // ou sur la crête (la couche haute, soulevée par un relief plus haut que sa base, condense
+        // sur la case de crête), pas au-delà
         let max_col = (m - 8..=m + 2).max_by(|&a, &b| at(a).total_cmp(&at(b))).unwrap();
-        assert!(max_col < m, "le maximum doit être sur la pente au vent : {p:?}");
+        assert!(max_col <= m, "le maximum doit être sur la pente au vent ou la crête : {p:?}");
         assert!(at(max_col) > at(m - 8) * 1.3, "versant {p:?}");
         // Creux sous le vent (une partie de la neige déborde juste derrière la crête), puis
         // remontée plus loin

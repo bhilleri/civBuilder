@@ -4132,4 +4132,180 @@ mod lieux {
             }
         }
     }
+
+    /// Pluie comparée à la Terre : `cargo test bilan_pluie_comparatif -- --ignored --nocapture`
+    /// (`SEEDS=777,2` ; 8 graines par défaut). Médianes par bande de latitude et par situation (côte
+    /// ouest ou est à 2 cases au plus de la mer, intérieur à 8 cases ou plus, hautes terres à 1 500 m
+    /// ou plus), parts des biomes, puis des indicateurs de cohérence (voir
+    /// `conception/conception-climat.md`, « Comparatif avec la Terre »).
+    #[test]
+    #[ignore]
+    #[allow(clippy::needless_range_loop)]
+    fn bilan_pluie_comparatif() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![777, 4242, 8, 31337, 90210, 2, 1234, 55555]);
+        let bands = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 91.0];
+        let mut groups: std::collections::BTreeMap<(usize, &str), Vec<f32>> = Default::default();
+        let mut biomes: std::collections::BTreeMap<(usize, String), usize> = Default::default();
+        let (mut weight, mut rain_sum, mut runoff_sum, mut land_cells, mut deserts) = (0.0f64, 0.0f64, 0.0f64, 0usize, 0usize);
+        let started = std::time::Instant::now();
+        let mut sources: std::collections::BTreeMap<(usize, &str), [f64; 11]> = Default::default();
+        for &seed in &seeds {
+            let m = WorldMap::generate_in(192, 111, seed, Region::planet(crate::climate::CELL_KM, 111));
+            let n = m.tiles.len();
+            let w = m.width;
+            let mut dist = vec![u16::MAX; n];
+            let mut q = std::collections::VecDeque::new();
+            for i in 0..n {
+                if m.tiles[i].is_sea() {
+                    dist[i] = 0;
+                    q.push_back(i);
+                }
+            }
+            while let Some(i) = q.pop_front() {
+                for nb in m.neighbors(m.hex_at(i)) {
+                    if let Some(j) = m.index(nb)
+                        && dist[j] == u16::MAX
+                    {
+                        dist[j] = dist[i] + 1;
+                        q.push_back(j);
+                    }
+                }
+            }
+            let river_cells = (0..n).filter(|&i| !m.tiles[i].is_sea() && (0..6).any(|d| m.river_flow(m.hex_at(i), d) > 0.0)).count();
+            let high_river = (0..n).filter(|&i| !m.tiles[i].is_sea() && m.elevation[i] >= 1_500.0 && (0..6).any(|d| m.river_flow(m.hex_at(i), d) > 0.0)).count();
+            let desert = (0..n).filter(|&i| m.tiles[i] == Terrain::Desert).count();
+            println!("RIVIERES graine {seed} : {river_cells} cases de terre touchent une rivière, dont {high_river} à 1 500 m ou plus ; désert {desert} cases");
+            for i in 0..n {
+                if m.tiles[i].is_sea() {
+                    continue;
+                }
+                let (col, row) = m.hex_at(i).to_offset();
+                let lat = m.latitude(m.hex_at(i));
+                let b = bands.windows(2).position(|x| lat.abs() >= x[0] && lat.abs() < x[1]).unwrap_or(7);
+                let rain = m.climate.rain[i];
+                let area = f64::from(lat.to_radians().cos().max(0.0));
+                weight += area;
+                rain_sum += area * f64::from(rain);
+                runoff_sum += area * f64::from(m.climate.runoff[i]);
+                land_cells += 1;
+                deserts += usize::from(m.tiles[i] == Terrain::Desert);
+                let toward = |step: i32| (1..w).find(|&k| m.tiles[(row * w + (col + step * k).rem_euclid(w)) as usize].is_sea()).unwrap_or(w);
+                let (west, east) = (toward(-1), toward(1));
+                let srcs = m.climate.sources.get(i).copied().unwrap_or_default();
+                let mut push = |c: &'static str| {
+                    groups.entry((b, c)).or_default().push(rain);
+                    let e = sources.entry((b, c)).or_insert([0.0; 11]);
+                    for k in 0..6 {
+                        e[k] += f64::from(srcs[k]);
+                    }
+                    e[6] += f64::from(rain);
+                    e[7] += 1.0;
+                    let sr = m.climate.season_rain[i];
+                    let (summer, winter) = if lat >= 0.0 { (sr[1], sr[3]) } else { (sr[3], sr[1]) };
+                    e[8] += f64::from(summer);
+                    e[9] += f64::from(winter);
+                    e[10] += f64::from(sr[0] + sr[2]) / 2.0;
+                };
+                push("toutes");
+                if dist[i] <= 2 && west < east {
+                    push("cote-ouest");
+                }
+                if dist[i] <= 2 && east < west {
+                    push("cote-est");
+                }
+                if dist[i] >= 8 {
+                    push("interieur");
+                }
+                if m.elevation[i] >= 1_500.0 {
+                    push("haut");
+                }
+                if m.elevation[i] < 500.0 {
+                    push("bas");
+                }
+                if dist[i] >= 8 && m.elevation[i] < 500.0 {
+                    push("int-bas");
+                }
+                // Versants (agent B) : altitude 2 cases sous le vent moins 2 cases au vent (vent annuel)
+                {
+                    const U: [(f32, f32); 6] = [(1.0, 0.0), (0.5, 0.866), (-0.5, 0.866), (-1.0, 0.0), (-0.5, -0.866), (0.5, -0.866)];
+                    let (wx, wy) = m.climate.wind[i];
+                    if wx.hypot(wy) > 0.05 {
+                        let down = (0..6).max_by(|&a, &b| (U[a].0 * wx + U[a].1 * wy).total_cmp(&(U[b].0 * wx + U[b].1 * wy))).unwrap();
+                        let up = (down + 3) % 6;
+                        let walk = |d: usize| {
+                            let h = m.neighbors(m.neighbors(m.hex_at(i))[d])[d];
+                            m.index(h).map(|j| if m.tiles[j].is_sea() { 0.0 } else { m.elevation[j] })
+                        };
+                        if let (Some(zd), Some(zu)) = (walk(down), walk(up)) {
+                            let rise = zd - zu;
+                            if m.elevation[i] >= 500.0 && rise > 600.0 {
+                                push("au-vent");
+                            }
+                            if m.elevation[i] >= 500.0 && rise < -600.0 {
+                                push("sous-vent");
+                            }
+                        }
+                    }
+                }
+                *biomes.entry((b, format!("{:?}", m.tiles[i]))).or_default() += 1;
+            }
+        }
+        for ((b, c), v) in groups.iter_mut() {
+            v.sort_by(f32::total_cmp);
+            let p = |f: f32| v[((v.len() - 1) as f32 * f) as usize];
+            println!("B {:>2}-{:<2} {c:<11} n {:>5} p10 {:>5.0} med {:>5.0} p90 {:>6.0}", bands[*b] as i32, bands[b + 1].min(90.0) as i32, v.len(), p(0.1), p(0.5), p(0.9));
+        }
+        for ((b, c), e) in &sources {
+            if ["bas", "haut", "au-vent", "sous-vent", "int-bas", "cote-ouest"].contains(c) {
+                let k = e[7].max(1.0);
+                println!("S {:>2} {c:<11} pluie {:>5.0} (été {:>5.0} hiver {:>5.0} équinoxe {:>5.0}) | relief {:>5.0} bruine {:>4.0} profonde {:>5.0} basse {:>4.0} haute {:>4.0} sat-haute {:>4.0}", bands[*b] as i32, e[6] / k, e[8] / k, e[9] / k, e[10] / k, e[0] / k, e[1] / k, e[2] / k, e[3] / k, e[4] / k, e[5] / k);
+            }
+        }
+        for b in 0..8 {
+            let total: usize = biomes.iter().filter(|((x, _), _)| *x == b).map(|(_, k)| k).sum();
+            let mut list: Vec<(String, usize)> = biomes.iter().filter(|((x, _), _)| *x == b).map(|((_, t), k)| (t.clone(), *k)).collect();
+            list.sort_by_key(|x| std::cmp::Reverse(x.1));
+            println!("T {}-{} : {}", bands[b] as i32, bands[b + 1].min(90.0) as i32, list.iter().take(5).map(|(t, k)| format!("{t} {:.0} %", 100.0 * *k as f32 / total.max(1) as f32)).collect::<Vec<_>>().join(", "));
+        }
+        let median = |b: usize, c: &str| {
+            groups.get(&(b, c)).filter(|v| v.len() >= 30).map(|v| {
+                let mut v = v.clone();
+                v.sort_by(f32::total_cmp);
+                v[v.len() / 2]
+            })
+        };
+        // Indicateurs de cohérence (médianes ; repères de la Terre dans la doc du climat)
+        let ratio = |a: Option<f32>, b: Option<f32>| match (a, b) {
+            (Some(a), Some(b)) if b > 0.0 => format!("{:.2}", a / b),
+            _ => "-".into(),
+        };
+        let mm = |v: Option<f32>| v.map_or("-".into(), |x| format!("{x:.0}"));
+        println!(
+            "INDICATEURS graines {} ; moyenne des terres {:.0} mm (Terre ≈ 850) ; ruissellement {:.0} mm (Terre 290-460) ; déserts {:.1} % des cases de terre",
+            seeds.len(),
+            rain_sum / weight,
+            runoff_sum / weight,
+            100.0 * deserts as f32 / land_cells.max(1) as f32
+        );
+        println!(
+            "INDICATEURS équateur 0-10 {} mm (Terre 1 800-2 300) ; intérieur 20-30 {} (Terre < 250) ; côte ouest 20-30 {} (Terre < 200)",
+            mm(median(0, "toutes")),
+            mm(median(2, "interieur")),
+            mm(median(2, "cote-ouest"))
+        );
+        println!(
+            "INDICATEURS côte est / côte ouest 20-30 {} et 30-40 {} (Terre > 1,5) ; intérieur / côte ouest 40-50 {} et 50-60 {} (Terre < 0,7)",
+            ratio(median(2, "cote-est"), median(2, "cote-ouest")),
+            ratio(median(3, "cote-est"), median(3, "cote-ouest")),
+            ratio(median(4, "interieur"), median(4, "cote-ouest")),
+            ratio(median(5, "interieur"), median(5, "cote-ouest"))
+        );
+        println!(
+            "INDICATEURS 60-70 {} mm (Terre 300-500) ; hautes terres / basses 30-40 {} et 40-50 {} (Terre ≈ 1,3-2) ; génération {:.1} s par graine",
+            mm(median(6, "toutes")),
+            ratio(median(3, "haut"), median(3, "bas")),
+            ratio(median(4, "haut"), median(4, "bas")),
+            started.elapsed().as_secs_f32() / seeds.len().max(1) as f32
+        );
+    }
 }

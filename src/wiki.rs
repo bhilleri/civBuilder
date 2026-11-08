@@ -335,8 +335,10 @@ fn climate() -> Article {
                c'est la mousson (pluies d'été des savanes). L'hiver, l'air froid des continents qui sort sur une mer \
                chaude (au large des côtes est, vers 30-45°) y fait naître des dépressions ; en passant, elles ramènent \
                l'air marin sur la côte, qui garde des pluies d'hiver. En altitude, les vents soufflent surtout de l'ouest. Les grandes cellules de circulation font descendre \
-               l'air vers 30° de latitude (anticyclones) et monter à l'équateur et vers 60°. L'air qui converge \
-               quelque part doit monter, celui qui diverge est remplacé par de l'air qui descend."),
+               l'air vers 30° de latitude (anticyclones) et monter à l'équateur et vers 60°. En été, l'air descend \
+               surtout à l'ouest des continents (déserts côtiers) et bien moins à leur est (côtes est arrosées). L'air qui converge \
+               quelque part doit monter, celui qui diverge est remplacé par de l'air qui descend. Le vent ralentit sur les \
+               terres, plus rugueuses : l'air qui arrive de la mer s'y accumule et monte (côtes au vent arrosées)."),
             table_icons(&["Latitude", "Effet", "Circulation"], belts),
             h("L'air en deux couches"),
             p("La couche basse (jusqu'à 2 km au-dessus du sol) suit le relief et porte l'essentiel de la vapeur ; la \
@@ -350,8 +352,10 @@ fn climate() -> Article {
                forme du brouillard, qui bruine à peine."),
             h("Relief"),
             p("Sur un versant exposé au vent, l'air qui monte en suivant le sol se refroidit et la pluie augmente ; elle \
-               culmine sur les pentes hautes. L'air épouse un relief adouci (il contourne en partie les sommets) et la \
-               neige, qui tombe lentement, est en partie portée au-delà de la crête. Derrière, l'air redescend en se \
+               culmine sur les pentes hautes. L'air épouse un relief adouci (il contourne en partie les sommets) ; \
+               l'air d'altitude passe au-dessus des massifs, sauf des plus hauts (au-delà de 2 000 m), qui le soulèvent \
+               à son tour. Une montagne reçoit ainsi une à deux fois la pluie des plaines voisines, bien plus sur son \
+               versant au vent que sur l'autre. La neige, qui tombe lentement, est en partie portée au-delà de la crête. Derrière, l'air redescend en se \
                réchauffant : il est loin de la saturation et il pleut peu, c'est l'ombre pluviométrique. Plus loin, \
                les perturbations et l'évaporation des sols lui rendent peu à peu de l'humidité. Un haut plateau est \
                froid et sec."),

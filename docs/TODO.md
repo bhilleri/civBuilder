@@ -52,6 +52,21 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [ ] g. Dépressions qui se déplacent (régimes plus courts, systèmes décalés vers l'est) : transport par les tourbillons, à la place du brassage (après e).
 - [x] c. Relief trop haut (01/11) : altitude en mètres d'abord (échelle fixe depuis les plaques), 9 niveaux déduits des mètres, falaise en mètres (voir `conception/conception-altitude.md`).
 
+## [ ] 8. Pluie plus proche de la Terre (décidé le 08/11)
+Voir `conception/conception-climat.md` (« Comparatif avec la Terre »), bilan `bilan_pluie_comparatif`. But de Benjamin : une
+distribution du climat cohérente avec le monde généré (ses continents ne sont pas ceux de la Terre), pas les chiffres exacts.
+Correctifs possibles, à essayer et comparer :
+- [x] a. (08/11, en partie : flux de Ferrel plus faible au-delà de 40°, 60-70° 949 → 896 mm ; intérieurs de 40-50° encore trop arrosés) **Intérieurs et hautes latitudes trop arrosés** (× 2 à 3 à 40-70°) : assèchement continental (recyclage de l'humidité
+  au-dessus des terres, pluie plus faible quand l'air vient de loin dans les terres, évaporation des sols), pluie du froid.
+- [x] b. (08/11 : couche haute au-dessus des massifs, rapport 1,6-1,8) **Pluie de relief forte** (hautes terres : 2 à 4 fois les plaines) : moins d'eau perdue par l'air qui monte une pente,
+  ou un effet qui sature avec la hauteur.
+- [ ] c. (08/11, en partie : façades des anticyclones et frottement des terres ; côtes ouest de 20-30° 456 → 373 mm, côtes est de 30-40° encore sèches) **Côtes est subtropicales trop sèches** (÷ 2 à 4) et **côtes ouest pas assez sèches** : air marin, courants chauds et
+  froids, mousson (lié à 7e et 7g).
+- [ ] d. (08/11 : 557 → 505 mm ; pluie d'été de la mousson, attend 7e) **Intérieur des tropiques secs trop arrosé** (≈ 550 mm à 20-30° contre moins de 100 au Sahara) : subsidence, couvercle
+  d'inversion.
+- [ ] e. Moyenne des terres ≈ 1 220 mm (Terre ≈ 850) : devrait suivre des corrections a à d, sans baisse uniforme (les déserts
+  reviendraient : voir 7).
+
 ## Décisions de Benjamin après la première campagne de tests (07/11)
 - [x] **Rivières** (07/11) : plus de seuil de bassin de 6 cases. Un seuil de débit seul, et une largeur qui part de presque rien à la source (T3-01).
 - [x] **Pluies extrêmes plafonnées** (07/11), avec du bruit sur le plafond et l'humidité non tombée reportée aux cases suivantes : 8 à 21 % de cases de désert en moins (T0-03).
