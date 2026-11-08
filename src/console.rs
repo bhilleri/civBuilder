@@ -661,7 +661,7 @@ fn run_script(mut console: ResMut<Console>, mut debug: ResMut<DebugMode>, mut ct
 /// des images (la première, celle de la commande, n'est pas comptée). La souris est tenue au
 /// milieu de la vue (souris pilotée) : la case survolée change en chemin, comme quand on se
 /// déplace sur la carte (infobulle, surbrillance).
-fn run_travel(mut console: ResMut<Console>, time: Res<Time>, mut cam: ResMut<Cam3d>, mode: Res<ViewMode>, mut pilot: ResMut<crate::input::Pilot>, mut camera_2d: Query<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>) {
+fn run_travel(mut console: ResMut<Console>, map: Res<GameMap>, time: Res<Time>, mut cam: ResMut<Cam3d>, mode: Res<ViewMode>, mut pilot: ResMut<crate::input::Pilot>, mut camera_2d: Query<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>) {
     let Some(travel) = console.travel.as_mut() else { return };
     if travel.done > 0 {
         travel.times.push(time.delta_secs() * 1000.0);
@@ -675,7 +675,7 @@ fn run_travel(mut console: ResMut<Console>, time: Res<Time>, mut cam: ResMut<Cam
     cam.distance = (ad.ln() + (bd.ln() - ad.ln()) * t).exp();
     let p = a2.lerp(b2, t);
     pilot.active = true;
-    pilot.cursor = Some(if mode.is_3d { Hex::from_world(cam.target.x, -cam.target.z) } else { Hex::from_world(p.x, p.y) });
+    pilot.cursor = Some(map.0.canonical(if mode.is_3d { Hex::from_world(cam.target.x, -cam.target.z) } else { Hex::from_world(p.x, p.y) }));
     if let Ok((mut transform, mut projection)) = camera_2d.single_mut() {
         (transform.translation.x, transform.translation.y) = (p.x, p.y);
         if let Projection::Orthographic(ortho) = projection.as_mut() {

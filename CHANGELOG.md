@@ -24,6 +24,7 @@
 
 ### Raccord est-ouest
 - **Correctif en 3D** : les unités et les bâtiments des colonnes du bord ne disparaissent plus selon le côté d'où on les regarde, et les rivières restent continues. Un ennemi pouvait y être invisible.
+- **Paroi sombre au raccord, en vue tournée** : près du bord est, vue tournée vers l'ouest (ou l'inverse), les parois d'une case haute du bord se dessinaient par-dessus le sol plus proche, de l'autre côté du raccord. La caméra 3D est maintenant ramenée dans le tour selon la position de son œil, et non plus selon le point qu'elle vise.
 
 ### Habitat de montagne et lisibilité
 - **Plus de village ni de camp sans été** : aucun site là où la saison la plus chaude reste sous 5 °C. La limite suit le climat, pas l'altitude : un plateau chaud reste habité. Tous les villages et camps d'une graine changent donc de place.

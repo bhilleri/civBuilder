@@ -85,7 +85,15 @@ fn wrap_cameras(
             t.translation.x -= k * world;
         }
     }
-    let k = turns(cam3d.target.x);
+    // En 3D, c'est l'œil de la caméra qu'on garde dans le tour, pas le point visé : la caméra
+    // principale peint par-dessus ses fantômes, ce qui n'est juste que si tout ce qu'elle dessine est
+    // plus près que ce qu'ils dessinent. Œil dans le tour, chaque rayon part de la carte et passe le
+    // raccord une fois : le fantôme ne voit que le plus loin. Avec le point visé dans le tour, une vue
+    // tournée vers l'ouest près du bord est mettait l'œil au-delà du raccord : la caméra principale
+    // peignait alors le bord de la carte (parois des cases hautes) par-dessus le sol plus proche que
+    // dessinait le fantôme. Le point visé peut donc sortir un peu du tour (de la distance de la caméra).
+    let eye = cams3d.iter().next().map_or(cam3d.target.x, |t| t.translation.x);
+    let k = turns(eye);
     if k != 0.0 {
         // (sans marquer `Cam3d` changée : la caméra est déplacée ici, du même tour)
         cam3d.bypass_change_detection().target.x -= k * world;
