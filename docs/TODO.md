@@ -63,9 +63,17 @@ semi-réaliste, relief marqué et réglable, modèles CC0 retouchés et maison).
 - [ ] f. Structures glTF, décalques au sol, villes qui grandissent.
 - [ ] g. Saisons visuelles (après la tâche 9), nuages, brouillard de guerre stylisé.
 
-## [ ] 9. Règles de jeu des saisons (décidé le 09/11)
-Les saisons sont un élément du jeu, pas seulement visuel : définir leurs règles avec Benjamin
-(effets sur les rendements, les déplacements, la navigation, la neige…) avant leur rendu (8 g).
+## [ ] 9. Saisons, calendrier et météo (décidé le 09/11)
+Voir `conception/conception-saisons.md` (1 tour = 1 mois, mode 2 tours par mois, cycle séparé de la
+date historique, météo = moyennes + écarts, lit d'hiver et d'été). Avant le rendu (8 g).
+- [ ] a. Calendrier : mois, saison locale, mode 2 tours par mois.
+- [ ] b. Climat mensuel interpolé depuis les quatre saisons.
+- [ ] c. Météo du mois (méthode à valider) et anomalies durables ; bilans.
+- [ ] d. Neige au sol, gel des lacs et cours d'eau, boue au dégel.
+- [ ] e. Débit mensuel : crues, étiages, lit mineur et majeur, oueds.
+- [ ] f. Effets sur les déplacements.
+- [ ] g. Cyclones et tempêtes.
+- Plus tard : navigation, combat, récolte et stocks, santé, prévisions.
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
