@@ -67,6 +67,25 @@ lancier. Un fleuve et une rivière sans pont gardent les règles actuelles.
 - **Infobulle** et wiki (« Cours d'eau et lacs », Ponts).
 - **Limites** : le pont n'existe pas encore pour les villes (pas de production) ; pont en bois partout hors des villes.
 
+## Étape 2 faite (09/11/2026)
+- **Production** (`rules::Production`) : une ville produit une unité ou un pont (`Production::Bridge { at, cost }`, coût fixé au
+  choix). Coût (`rules::bridge_cost`) : 20 + 100 × ln(débit / 100) / ln(100 000 / 100), de 20 (rivière de 100 m³/s) à 120
+  (100 000 m³/s), arrondi à 5 ; débit de l'arête, ou sortant de la case de fleuve. Exemples : 1 500 m³/s, 60 ; 20 000 m³/s, 95.
+- **Emplacements** (`rules::bridge_spots`, `bridge_build::city_spots`) : arêtes de rivière dont une case au moins est au
+  territoire, cases de fleuve du territoire (chaque traversée possible), sans les ponts déjà construits ni ceux qu'une autre
+  ville produit.
+- **Choix** (`bridge_build.rs`) : bouton « Pont… » du panneau de production (caché sans emplacement), mode choix de la carte,
+  emplacements surlignés en 2D (traits jaunes) et en 3D (traits posés sur le sol), celui sous le curseur en blanc
+  (`spot_under` : arête de rivière la plus proche du curseur, près du bord de la case ; sur un fleuve, la traversée dont la rive
+  est vers le curseur). Clic gauche : la ville produit ce pont ; clic droit, nouveau clic sur le bouton ou autre sélection :
+  annulé. Le stock de production est gardé, comme quand on change d'unité.
+- **Fin de production** (`game::end_turn`) : le pont est posé sur la carte, message au journal, la ville revient à la milice.
+- **Mode joueur pilotable** : `clic col lig côté` vise le bord de la case de ce côté (point du curseur, `HoveredPoint`).
+- **Vérifié** (graine 777, partie pilotée) : Paris, 5 emplacements ; pont sur la rivière de 1 542 m³/s, 60 de production, posé
+  au tour 13.
+- **Limites** : sur un fleuve, la traversée choisie dépend du côté visé, mais le dessin 3D est toujours perpendiculaire au
+  courant ; le pont ne coûte pas d'entretien ; il reste debout si la ville perd son territoire.
+
 ## Étapes proposées
 1. **Le pont dans les règles** : pont sur une arête de rivière ou une case de fleuve, posé à la console (`pont col lig dir`,
    comme la muraille), déplacement et combat, dessin en 2D et en 3D entre les deux rives, infobulle. Tests des règles.

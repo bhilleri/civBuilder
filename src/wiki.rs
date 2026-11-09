@@ -220,7 +220,7 @@ fn waters() -> Article {
                  Il sert à tout le monde, ennemis compris. Par le pont, une rivière se traverse sans surcoût ; on monte \
                  sur le pont d'un fleuve par un de ses bouts pour {BRIDGE_MOVE_COST} PM, et l'on peut s'y arrêter ou \
                  continuer. Entrer dans le fleuve par un autre côté, c'est entrer dans l'eau ({FLEUVE_MOVE_COST} PM). \
-                 Les villes construiront leurs ponts ; pour l'instant, la console les pose (« pont »)."
+                 Les villes les construisent (voir « Villes », Production) ; la console en pose aussi (« pont »)."
             )),
             p(format!(
                 "Sur le pont d'un fleuve, une unité attaquée en mêlée ne peut être ni flanquée ni chargée ; \
@@ -813,6 +813,15 @@ fn cities() -> Article {
             p("La production s'accumule pour l'unité choisie dans le panneau de la ville. L'unité apparaît sur la \
                ville ou sur une case voisine libre ; si tout est occupé, la production attend. Un colon coûte en plus \
                1 habitant."),
+            p(format!(
+                "Une ville peut aussi construire un pont sur une rivière ou un fleuve de son territoire (pour une \
+                 rivière, une des deux cases suffit). « Pont… » dans le panneau de production surligne les emplacements \
+                 possibles ; un clic sur l'un d'eux le choisit, un clic droit annule. Il coûte de {} (petite rivière) à \
+                 {} de production (grand fleuve), selon le débit ; il est posé à la fin du tour où il est terminé, puis \
+                 la ville revient à la milice.",
+                crate::rules::BRIDGE_COST.0,
+                crate::rules::BRIDGE_COST.1
+            )),
         ],
     }
 }

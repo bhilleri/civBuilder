@@ -9,7 +9,9 @@
 ### Ponts
 - **Les ponts ont un effet en jeu**, et servent à tout le monde. Par un pont, une rivière se traverse sans surcoût. Sur un fleuve, on monte sur le pont par un de ses bouts pour 1 PM, et l'on peut s'y arrêter ou continuer.
 - **Combat sur le pont** : pas de flanquement ni de charge contre une unité sur le pont ; l'infanterie et les lanciers le tiennent (+3, les lanciers encore +10 face à la cavalerie), les archers aussi face aux unités à pied sans bouclier (+3) ; contre les tirs, on y est exposé (−3). En sortie de pont : −5 en mêlée contre l'infanterie, les lanciers et l'archer-épéiste, −10 et pas de charge pour la cavalerie contre des lanciers, −5 pour tirer depuis le pont ; seuls les alliés déjà sur la rive flanquent ; plus de bonus de rivière à franchir.
-- **Plus de pont décoratif** au stade Ville : seuls les ponts construits existent. Pour l'instant, la console les pose (`pont col lig direction`) ; les villes les construiront.
+- **Les villes construisent leurs ponts** : « Pont… » dans le panneau de production surligne les emplacements du territoire (rivière : une des deux cases suffit ; fleuve) ; un clic choisit, un clic droit annule. De 20 à 120 de production selon le débit.
+- **Plus de pont décoratif** au stade Ville : seuls les ponts construits existent. La console en pose aussi (`pont col lig direction`).
+- **Mode joueur pilotable** : `clic col lig côté` vise le bord de la case de ce côté (choix d'une arête de rivière).
 - **Dessin** : en 2D, une planche sur l'eau ; en 3D, un pont perpendiculaire au courant, posé sur une berge sèche, sans arbre à ses abords. Infobulle des cases.
 
 ### Climat et rivières

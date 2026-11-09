@@ -45,7 +45,7 @@ const HELP: &str = "Ordres du joueur :\n\
 etat : tour, or, unités, villes, ennemis en vue, villages et camps connus, derniers messages\n\
 alentours [col lig] [rayon] : cases explorées autour d'une case (par défaut la sélection, rayon 2, 6 au plus)\n\
 survol col lig : place la souris sur la case et rend le texte de l'infobulle et le trajet prévu\n\
-clic col lig : clic gauche sur la case (sélection)\n\
+clic col lig [côté] : clic gauche sur la case (sélection) ; avec un côté (e, ne, no, o, so, se), près de ce bord (arête d'une rivière, emplacement d'un pont)\n\
 clic-droit col lig : clic droit sur la case (ordre : déplacer, attaquer)\n\
 touche nom : appui sur une touche (a à z, 0 à 9, entree, tab, espace, echap, haut, bas, gauche, droite, f1 à f12)\n\
 interface : boutons visibles de l'interface, avec leur numéro et leur position\n\
@@ -97,7 +97,8 @@ pub enum Order {
     State,
     Around(Option<Hex>, i32),
     Hover(Hex),
-    Click(Hex, MouseButton),
+    /// Case, bouton, et côté de la case visé (son bord ; sinon son centre).
+    Click(Hex, MouseButton, Option<usize>),
     Key(KeyCode, Key),
     Buttons,
     /// Numéro ou texte du bouton.
@@ -150,8 +151,15 @@ pub fn route(map: &WorldMap, line: &str) -> Route {
             _ => Err("usage : alentours [col lig] [rayon]".to_string()),
         },
         "survol" => cell("survol col lig").map(Order::Hover),
-        "clic" => cell("clic col lig").map(|h| Order::Click(h, MouseButton::Left)),
-        "clic-droit" => cell("clic-droit col lig").map(|h| Order::Click(h, MouseButton::Right)),
+        "clic" | "clic-droit" => {
+            let button = if head == "clic" { MouseButton::Left } else { MouseButton::Right };
+            let side = |w: &str| ["e", "ne", "no", "o", "so", "se"].iter().position(|d| *d == token(w)).ok_or(format!("côté illisible : {w} (e, ne, no, o, so, se)"));
+            match words[1..] {
+                [c, r] => parse_cell(map, c, r).map(|h| Order::Click(h, button, None)),
+                [c, r, d] => parse_cell(map, c, r).and_then(|h| side(d).map(|d| Order::Click(h, button, Some(d)))),
+                _ => Err(format!("usage : {head} col lig [e|ne|no|o|so|se]")),
+            }
+        }
         "touche" => match words[1..] {
             [name] => key_of(name).map(|(code, key)| Order::Key(code, key)).ok_or(format!("touche inconnue : {name} (aide)")),
             _ => Err("usage : touche nom".to_string()),
@@ -546,12 +554,17 @@ pub fn run_orders(
         Order::Hover(h) => {
             if frame == 1 {
                 pilot.cursor = Some(*h);
+                pilot.point = None;
             }
             done_after = 5;
         }
-        Order::Click(h, button) => {
+        Order::Click(h, button, side) => {
             match frame {
-                1 => pilot.cursor = Some(*h),
+                1 => {
+                    pilot.cursor = Some(*h);
+                    // (le bord de la case de ce côté : une arête de rivière, la rive d'un fleuve)
+                    pilot.point = side.map(|d| Vec2::from(h.to_world()) + Vec2::from_angle((d as f32 * 60.0).to_radians()) * crate::hex::HEX_SIZE * 0.75);
+                }
                 4 => pilot.click = Some(*button),
                 _ => {}
             }
@@ -620,7 +633,7 @@ pub fn run_orders(
             }
             lines
         }
-        (Order::Click(h, button), _) => vec![format!("OK clic {} sur {}", if *button == MouseButton::Left { "gauche" } else { "droit" }, view.place(*h)), view.selection_line()],
+        (Order::Click(h, button, _), _) => vec![format!("OK clic {} sur {}", if *button == MouseButton::Left { "gauche" } else { "droit" }, view.place(*h)), view.selection_line()],
         (Order::Key(..), _) | (Order::Button(_), _) | (Order::ScreenClick(_), _) => vec![format!("OK tour={}", view.state.turn), view.selection_line()],
     };
     // Messages parus depuis la réponse précédente (`etat` donne déjà tout le journal)

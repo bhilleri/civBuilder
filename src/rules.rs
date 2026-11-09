@@ -425,6 +425,75 @@ pub fn city_yields(map: &WorldMap, center: Hex, worked: &[Hex]) -> Yields {
     total
 }
 
+/// Coût d'un pont (production) : de `BRIDGE_COST.0` sur la plus petite rivière (`RIVER_M3S`) à
+/// `BRIDGE_COST.1` sur les plus grands fleuves (`BRIDGE_COST_TOP_M3S`, l'Amazone), avec le
+/// logarithme du débit (choix de Benjamin, 08/11/2026). Arrondi à 5.
+pub const BRIDGE_COST: (i32, i32) = (20, 120);
+pub const BRIDGE_COST_TOP_M3S: f32 = 100_000.0;
+
+/// Coût de production d'un pont, selon le débit du cours d'eau qu'il franchit.
+pub fn bridge_cost(map: &WorldMap, at: crate::map::BridgeAt) -> i32 {
+    let q = match at {
+        crate::map::BridgeAt::Edge { hex, dir } => map.river_flow(hex, usize::from(dir)),
+        crate::map::BridgeAt::Fleuve { hex, .. } => map.discharge(hex),
+    };
+    let lo = crate::hydro::RIVER_M3S;
+    let share = ((q.max(lo) / lo).ln() / (BRIDGE_COST_TOP_M3S / lo).ln()).clamp(0.0, 1.0);
+    let cost = BRIDGE_COST.0 as f32 + (BRIDGE_COST.1 - BRIDGE_COST.0) as f32 * share;
+    ((cost / 5.0).round() * 5.0) as i32
+}
+
+/// Emplacements de pont d'un territoire (`owned` : la case est au territoire) : toutes les arêtes
+/// de rivière dont une case au moins en est, toutes ses cases de fleuve (d'une rive à l'autre ;
+/// chaque traversée possible), sauf là où un pont existe déjà.
+pub fn bridge_spots(map: &WorldMap, owned: impl Fn(Hex) -> bool, cells: impl IntoIterator<Item = Hex>) -> Vec<crate::map::BridgeAt> {
+    let mut spots: Vec<crate::map::BridgeAt> = Vec::new();
+    for h in cells {
+        let h = map.canonical(h);
+        if !owned(h) {
+            continue;
+        }
+        let dirs = if map.is_fleuve(h) { 0..3 } else { 0..6 };
+        if map.is_fleuve(h) && map.fleuve_bridge(h).is_some() {
+            continue;
+        }
+        for d in dirs {
+            if let Some(at) = map.bridge_site(h, d)
+                && !map.bridges().any(|b| b == at)
+                && !spots.contains(&at)
+            {
+                spots.push(at);
+            }
+        }
+    }
+    spots
+}
+
+/// Ce que produit une ville : une unité, ou un pont à un emplacement choisi (au coût fixé au choix).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Production {
+    Unit(UnitKind),
+    Bridge { at: crate::map::BridgeAt, cost: i32 },
+}
+
+impl Production {
+    pub fn cost(self) -> i32 {
+        match self {
+            Production::Unit(kind) => kind.cost(),
+            Production::Bridge { cost, .. } => cost,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Production::Unit(kind) => kind.name(),
+            Production::Bridge { at: crate::map::BridgeAt::Edge { .. }, .. } => "Pont sur la rivière",
+            Production::Bridge { at: crate::map::BridgeAt::Fleuve { .. }, .. } => "Pont sur le fleuve",
+        }
+    }
+
+}
+
 /// État économique d'une ville.
 #[derive(Clone, Debug)]
 pub struct CityState {
@@ -432,7 +501,7 @@ pub struct CityState {
     pub population: i32,
     pub food_stock: i32,
     pub production_stock: i32,
-    pub producing: Option<UnitKind>,
+    pub producing: Option<Production>,
     /// Présence d'une fortification : la muraille n'existe que si elle est vraie. La règle de jeu
     /// reste à concevoir ; pour l'instant, seule la console de debug la pose.
     pub fortified: bool,
@@ -443,13 +512,13 @@ pub struct CityState {
 pub struct CityTurnReport {
     pub grew: bool,
     pub starved: bool,
-    pub built: Option<UnitKind>,
+    pub built: Option<Production>,
     pub gold: i32,
 }
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, population: 1, food_stock: 0, production_stock: 0, producing: Some(UnitKind::Militia), fortified: false }
+        Self { name, population: 1, food_stock: 0, production_stock: 0, producing: Some(Production::Unit(UnitKind::Militia)), fortified: false }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -475,15 +544,20 @@ impl CityState {
         }
 
         // Production
-        if let Some(kind) = self.producing {
+        if let Some(item) = self.producing {
             self.production_stock += yields.production;
-            let pop_ok = kind != UnitKind::Settler || self.population >= 2;
-            if self.production_stock >= kind.cost() && pop_ok {
-                self.production_stock -= kind.cost();
-                if kind == UnitKind::Settler {
+            let settler = item == Production::Unit(UnitKind::Settler);
+            let pop_ok = !settler || self.population >= 2;
+            if self.production_stock >= item.cost() && pop_ok {
+                self.production_stock -= item.cost();
+                if settler {
                     self.population -= 1;
                 }
-                report.built = Some(kind);
+                report.built = Some(item);
+                // (un pont n'est construit qu'une fois : la ville revient à la milice)
+                if matches!(item, Production::Bridge { .. }) {
+                    self.producing = Some(Production::Unit(UnitKind::Militia));
+                }
             }
         }
         report
@@ -942,17 +1016,17 @@ mod tests {
         }
         assert_eq!(grew_at, Some(4)); // 4 tours × 4 = 16 >= 15
         // 50 de production sur 10 tours, milice à 15 : une unité tous les 3 tours
-        assert_eq!(built, vec![UnitKind::Militia; 3]);
+        assert_eq!(built, vec![Production::Unit(UnitKind::Militia); 3]);
     }
 
     #[test]
     fn colon_exige_deux_habitants() {
         let mut city = CityState::new("Test".into());
-        city.producing = Some(UnitKind::Settler);
+        city.producing = Some(Production::Unit(UnitKind::Settler));
         city.production_stock = 100;
         assert_eq!(city.process_turn(Yields::new(2, 0, 0)).built, None);
         city.population = 2;
-        assert_eq!(city.process_turn(Yields::new(4, 0, 0)).built, Some(UnitKind::Settler));
+        assert_eq!(city.process_turn(Yields::new(4, 0, 0)).built, Some(Production::Unit(UnitKind::Settler)));
         assert_eq!(city.population, 1);
     }
 

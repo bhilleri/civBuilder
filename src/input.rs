@@ -22,6 +22,10 @@ use bevy::window::PrimaryWindow;
 #[derive(Resource, Default)]
 pub struct HoveredHex(pub Option<Hex>);
 
+/// Point du sol sous le curseur (repère 2D du monde, pas ramené dans la carte), avec `HoveredHex`.
+#[derive(Resource, Default)]
+pub struct HoveredPoint(pub Option<Vec2>);
+
 /// Chemin prévisualisé vers la case survolée pour l'unité sélectionnée,
 /// avec pour chaque case le tour d'arrivée (1 = ce tour-ci).
 #[derive(Resource, Default)]
@@ -57,6 +61,8 @@ pub struct AttackInfo {
 pub struct Pilot {
     pub active: bool,
     pub cursor: Option<Hex>,
+    /// Point visé dans la case (repère 2D du monde) : son centre, ou le bord d'un côté.
+    pub point: Option<Vec2>,
     /// Clic à jouer à la prochaine image (consommé par les commandes de souris).
     pub click: Option<MouseButton>,
 }
@@ -74,6 +80,7 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HoveredHex>()
+            .init_resource::<HoveredPoint>()
             .init_resource::<HoverPath>()
             .init_resource::<OrderPath>()
             .init_resource::<AttackPreview>()
@@ -88,7 +95,7 @@ impl Plugin for InputPlugin {
                     update_hovered_hex,
                     update_hover_path,
                     // Commandes de jeu suspendues pendant la lecture du wiki ou le menu Échap
-                    mouse_commands.run_if(no_overlay),
+                    mouse_commands.run_if(no_overlay).run_if(crate::bridge_build::not_placing),
                     keyboard_commands.run_if(no_overlay),
                 )
                     .chain()
@@ -167,6 +174,7 @@ fn track_pointer_over_ui(mut over: ResMut<PointerOverUi>, nodes: Query<&UiPointe
 
 fn update_hovered_hex(
     mut hovered: ResMut<HoveredHex>,
+    mut point: ResMut<HoveredPoint>,
     window: Single<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     map: Res<GameMap>,
@@ -178,21 +186,30 @@ fn update_hovered_hex(
         if hovered.0 != pilot.cursor {
             hovered.0 = pilot.cursor;
         }
+        let at = pilot.point.or_else(|| pilot.cursor.map(|h| Vec2::from(h.to_world())));
+        if point.0 != at {
+            point.0 = at;
+        }
         return;
     }
     // Caméra active : 2D (projection directe) ou 3D (rayon intersecté avec le relief)
     let Some((camera, cam_transform, is_3d)) = cameras.iter().find(|(c, ..)| c.is_active) else { return };
-    let hex = window.cursor_position().filter(|_| !over_ui.0).and_then(|p| {
+    let hit = window.cursor_position().filter(|_| !over_ui.0).and_then(|p| {
         if is_3d {
             let ray = camera.viewport_to_world(cam_transform, p).ok()?;
-            crate::view3d::hovered_hex_3d(ray, relief.as_deref()?, &map)
+            crate::view3d::hovered_ground_3d(ray, relief.as_deref()?, &map)
         } else {
             let w = camera.viewport_to_world_2d(cam_transform, p).ok()?;
-            Some(map.0.canonical(Hex::from_world(w.x, w.y))).filter(|&h| map.0.contains(h))
+            Some((map.0.canonical(Hex::from_world(w.x, w.y)), w)).filter(|&(h, _)| map.0.contains(h))
         }
     });
+    let hex = hit.map(|(h, _)| h);
     if hovered.0 != hex {
         hovered.0 = hex;
+    }
+    let at = hit.map(|(_, p)| p);
+    if point.0 != at {
+        point.0 = at;
     }
 }
 
@@ -537,8 +554,8 @@ fn keyboard_commands(
         for (i, (k1, k2)) in choices.iter().enumerate() {
             if keys.just_pressed(*k1) || keys.just_pressed(*k2) {
                 let kind = UnitKind::ALL[i];
-                if city.state.producing != Some(kind) {
-                    city.state.producing = Some(kind);
+                if city.state.producing != Some(rules::Production::Unit(kind)) {
+                    city.state.producing = Some(rules::Production::Unit(kind));
                     log.push(LogText::new().city(&city.state.name, selected, center.0).text(format!(" produit désormais : {}.", kind.name())));
                 }
             }

@@ -671,6 +671,7 @@ impl Plugin for View3dPlugin {
                     camera_3d_controls,
                     update_relief_3d,
                     sync_bridges_3d,
+                    draw_bridge_spots_3d,
                     update_decor_3d,
                     spawn_mirrors,
                     sync_mirrors,
@@ -2748,7 +2749,9 @@ fn draw_tide_lines_3d(
 
 /// Case sous le curseur en vue 3D : on avance le long du rayon de la caméra, du haut du
 /// relief vers le sol, jusqu'à passer sous le dessus de la case survolée (falaises comprises).
-pub fn hovered_hex_3d(ray: Ray3d, relief: &Relief, map: &GameMap) -> Option<Hex> {
+///
+/// Rend aussi le point du sol touché (repère 2D du monde).
+pub fn hovered_ground_3d(ray: Ray3d, relief: &Relief, map: &GameMap) -> Option<(Hex, Vec2)> {
     let top = meters_to_height(4_800.0);
     let ground = Vec3::Y;
     let start = ray.intersect_plane(Vec3::new(0.0, top, 0.0), InfinitePlane3d::new(ground))?;
@@ -2758,11 +2761,47 @@ pub fn hovered_hex_3d(ray: Ray3d, relief: &Relief, map: &GameMap) -> Option<Hex>
         let p = ray.get_point(start + (end - start) * i as f32 / steps as f32);
         let h = map.0.canonical(Hex::from_world(p.x, -p.z));
         if map.0.contains(h) && p.y <= relief.ground(p.x, -p.z) {
-            return Some(h);
+            return Some((h, Vec2::new(p.x, -p.z)));
         }
     }
     let p = ray.get_point(end);
-    Some(map.0.canonical(Hex::from_world(p.x, -p.z))).filter(|h| map.0.contains(*h))
+    Some((map.0.canonical(Hex::from_world(p.x, -p.z)), Vec2::new(p.x, -p.z))).filter(|(h, _)| map.0.contains(*h))
+}
+
+/// Emplacements de pont surlignés en 3D, en mode choix (voir `bridge_build`) : un trait posé au
+/// ras du sol d'une rive à l'autre, celui du curseur plus épais et blanc.
+fn draw_bridge_spots_3d(
+    placement: Res<crate::bridge_build::BridgePlacement>,
+    mode: Res<ViewMode>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    relief: Option<Res<Relief>>,
+    mut gizmos: Gizmos<Gizmos3d>,
+) {
+    let Some(relief) = relief else { return };
+    if !placement.active() || !mode.is_3d {
+        return;
+    }
+    for &at in &placement.spots {
+        let (e0, e1) = at.ends(map.0.wrap());
+        if !(fog.explored.contains(&e0) || fog.explored.contains(&e1)) {
+            continue;
+        }
+        let (a, b) = crate::render::bridge_ends_2d(&map.0, at);
+        let hovered = placement.hovered == Some(at);
+        let color = if hovered { Color::srgb(1.0, 1.0, 1.0) } else { Color::srgba(1.0, 0.9, 0.45, 0.9) };
+        let side = (b - a).normalize_or_zero().perp() * if hovered { 1.6 } else { 0.8 };
+        for k in [-1.0f32, 0.0, 1.0] {
+            let n = 8;
+            let pts: Vec<Vec3> = (0..=n)
+                .map(|i| {
+                    let p = a.lerp(b, i as f32 / n as f32) + side * k;
+                    Vec3::new(p.x, relief.ground(p.x, p.y).max(water_near(&relief, map.0.canonical(Hex::from_world(p.x, p.y)), p)) + 1.2, -p.y)
+                })
+                .collect();
+            gizmos.linestrip(pts, color);
+        }
+    }
 }
 
 /// Copie, de l'autre côté du raccord d'une planète, du sol ou de l'eau d'une case du bord

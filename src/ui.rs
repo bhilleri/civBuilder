@@ -87,9 +87,9 @@ const BUTTON_BG: Color = Color::srgb(0.16, 0.35, 0.70);
 const BUTTON_HOVER: Color = Color::srgb(0.22, 0.45, 0.85);
 /// Bouton de fin de tour pendant le passage de tour (sans effet).
 const BUTTON_WAIT: Color = Color::srgb(0.20, 0.23, 0.30);
-const PRODUCE_BG: Color = Color::srgba(0.16, 0.18, 0.24, 0.95);
-const PRODUCE_HOVER: Color = Color::srgb(0.24, 0.28, 0.38);
-const PRODUCE_ACTIVE: Color = Color::srgb(0.18, 0.40, 0.72);
+pub const PRODUCE_BG: Color = Color::srgba(0.16, 0.18, 0.24, 0.95);
+pub const PRODUCE_HOVER: Color = Color::srgb(0.24, 0.28, 0.38);
+pub const PRODUCE_ACTIVE: Color = Color::srgb(0.18, 0.40, 0.72);
 /// Renvois du journal : opacité de leur soulignement au repos (dans la couleur du texte), et
 /// couleur du passage survolé.
 const LINK_UNDERLINE: f32 = 0.4;
@@ -209,6 +209,18 @@ fn setup_ui(mut commands: Commands) {
                     children![text(kind.name(), 14.0)],
                 ));
             }
+            // Pont : choix de l'emplacement sur la carte (voir `bridge_build`)
+            p.spawn((
+                crate::bridge_build::BridgeButton,
+                UiPointer::default(),
+                Node {
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                    ..default()
+                },
+                BackgroundColor(PRODUCE_BG),
+                children![text("Pont…", 14.0)],
+            ));
         });
 
     // Panneau de sélection (en bas à gauche)
@@ -1059,8 +1071,8 @@ fn production_buttons(
     // (pas d'ordre tant que le passage de tour se joue)
     let Some((entity, mut city, center)) = selection.0.filter(|_| !replay.playing).and_then(|e| cities.get_mut(e).ok()) else { return };
     for (interaction, button) in &buttons {
-        if *interaction == UiPointer::Pressed && city.state.producing != Some(button.0) {
-            city.state.producing = Some(button.0);
+        if *interaction == UiPointer::Pressed && city.state.producing != Some(rules::Production::Unit(button.0)) {
+            city.state.producing = Some(rules::Production::Unit(button.0));
             log.push(LogText::new().city(&city.state.name, entity, center.0).text(format!(" produit désormais : {}.", button.0.name())));
         }
     }
@@ -1085,7 +1097,7 @@ fn update_production_panel(
     for (i, (button, interaction, mut bg, children)) in buttons.iter_mut().enumerate() {
         let kind = button.0;
         let st = kind.stats();
-        let remaining = (kind.cost() - if city.state.producing == Some(kind) { city.state.production_stock } else { 0 }).max(0);
+        let remaining = (kind.cost() - if city.state.producing == Some(rules::Production::Unit(kind)) { city.state.production_stock } else { 0 }).max(0);
         let turns = (remaining as f32 / production as f32).ceil() as i32;
         let combat = if st.ranged_attack > 0 {
             format!(
@@ -1104,7 +1116,7 @@ fn update_production_panel(
         {
             t.0 = label;
         }
-        let color = if city.state.producing == Some(kind) {
+        let color = if city.state.producing == Some(rules::Production::Unit(kind)) {
             PRODUCE_ACTIVE
         } else if *interaction == UiPointer::Hovered {
             PRODUCE_HOVER

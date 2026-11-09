@@ -416,7 +416,7 @@ pub fn assign_worked_tiles(map: &WorldMap, territory: &Territory, cities: &mut [
 fn end_turn(
     mut commands: Commands,
     mut requested: ResMut<EndTurnRequested>,
-    map: Res<GameMap>,
+    mut game_map: ResMut<GameMap>,
     mut state: ResMut<GameState>,
     mut territory: ResMut<Territory>,
     mut log: ResMut<GameLog>,
@@ -434,7 +434,7 @@ fn end_turn(
     if !std::mem::take(&mut requested.0) {
         return;
     }
-    let map = &map.0;
+    let map = &game_map.0;
     // (le joueur reprendra la main à la fin des animations du passage de tour)
     cues.0.push(Cue::TurnEnd);
 
@@ -443,6 +443,7 @@ fn end_turn(
     list.sort_by_key(|(e, _, _)| *e);
     assign_worked_tiles(map, &territory, &mut list);
     let mut new_units = Vec::new();
+    let mut new_bridges = Vec::new();
     for (entity, center, city) in list.iter_mut() {
         let yields = rules::city_yields(map, *center, &city.worked);
         let report = city.state.process_turn(yields);
@@ -455,8 +456,10 @@ fn end_turn(
         if report.starved {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" souffre de famine !"));
         }
-        if let Some(kind) = report.built {
-            new_units.push((*entity, kind, *center, name));
+        match report.built {
+            Some(rules::Production::Unit(kind)) => new_units.push((*entity, kind, *center, name)),
+            Some(rules::Production::Bridge { at, .. }) => new_bridges.push((*entity, at, *center, name)),
+            None => {}
         }
     }
     drop(list);
@@ -514,7 +517,17 @@ fn end_turn(
         }
     }
 
-    // 4) Puis la faction hostile joue (système suivant)
+    // 4) Ponts construits : posés sur la carte (un pont déjà là, posé entre-temps, ne change rien)
+    for (city_entity, at, center, name) in new_bridges {
+        game_map.0.set_bridge(at, true);
+        let what = match at {
+            crate::map::BridgeAt::Edge { .. } => "un pont sur la rivière",
+            crate::map::BridgeAt::Fleuve { .. } => "un pont sur le fleuve",
+        };
+        log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(format!(" a construit {what}.")));
+    }
+
+    // 5) Puis la faction hostile joue (système suivant)
     hostile_turn.0 = true;
     state.turn += 1;
 }
