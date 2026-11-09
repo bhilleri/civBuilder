@@ -52,6 +52,21 @@ Voir `conception/conception-climat.md` (« Cycle de l'eau tropical »).
 - [ ] g. Dépressions qui se déplacent (régimes plus courts, systèmes décalés vers l'est) : transport par les tourbillons, à la place du brassage (après e).
 - [x] c. Relief trop haut (01/11) : altitude en mètres d'abord (échelle fixe depuis les plaques), 9 niveaux déduits des mètres, falaise en mètres (voir `conception/conception-altitude.md`).
 
+## [ ] 8. Rendu 3D (décidé le 09/11)
+Voir `conception/conception-rendu-3d.md` (terrain continu avec grille par-dessus, style maquette
+semi-réaliste, relief marqué et réglable, modèles CC0 retouchés et maison).
+- [ ] a. Terrain continu en blocs : hauteurs, shader de terrain, données par case, grille par-dessus (prototype d'abord).
+- [ ] b. Matières du sol, règles pente / altitude / neige, lisibilité.
+- [ ] c. Eau animée : houle, écoulements des courants et des fleuves, profondeur, rivage.
+- [ ] d. Végétation instanciée, clairières sous les unités et structures, vent.
+- [ ] e. Unités glTF animées, animations par type et compétence, particules.
+- [ ] f. Structures glTF, décalques au sol, villes qui grandissent.
+- [ ] g. Saisons visuelles (après la tâche 9), nuages, brouillard de guerre stylisé.
+
+## [ ] 9. Règles de jeu des saisons (décidé le 09/11)
+Les saisons sont un élément du jeu, pas seulement visuel : définir leurs règles avec Benjamin
+(effets sur les rendements, les déplacements, la navigation, la neige…) avant leur rendu (8 g).
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,
