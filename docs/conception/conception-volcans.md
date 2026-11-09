@@ -65,8 +65,10 @@ la météo et les règles de jeu.
 - Ordres de grandeur réels pour comparer : environ 1 350 volcans potentiellement actifs sur Terre,
   dont la grande majorité le long des subductions (ceinture de feu du Pacifique).
 
+## Éruptions (décidé le 10/11/2026)
+D'abord des volcans géologiques (forme, sols, noms). Les éruptions viendront **plus tard, après
+la météo**, avec les autres risques naturels (tâche 20) : coulées, cendres sur les récoltes, hiver volcanique.
+
 ## Questions ouvertes
-- **Éruptions** : événements rares et dangereux (coulées qui détruisent des cases, cendres sur
-  les récoltes, hiver volcanique), ou volcans seulement géologiques pour commencer ?
 - Effets de jeu de la fertilité : attendre la tâche « Fertilité des sols ».
 - Ressources liées aux volcans : à décider avec les ressources.

@@ -85,7 +85,7 @@ dorsales, points chauds et leurs chapelets), avec une forme selon le type. Voir
 - [ ] c. Formes 3D selon le type (stratovolcan, bouclier, caldeira, dôme, champ de cônes, plateau de basalte, atoll), matières (basalte, cendres, coulées), fumerolles (après l'étape 8 a).
 - [ ] d. Noms (toponymie), infobulle, wiki, carte thématique.
 - [ ] e. Sols volcaniques fertiles (avec la tâche 11) ; ressources liées (obsidienne, soufre…) plus tard.
-- [ ] f. Éruptions (à décider) : événements et lien avec la météo (hiver volcanique) (après la tâche 9).
+- [ ] f. Éruptions, plus tard (décidé le 10/11) : avec les risques naturels (20), après la météo (9) ; lien avec l'hiver volcanique.
 
 ## [ ] 11. Fertilité des sols (décidé le 09/11)
 Pas de fertilité qui s'améliore à l'infini (comme dans Civilization). D'abord une recherche sur
@@ -168,6 +168,26 @@ Atlas des territoires connus du joueur, avec images et icônes, qui va avec la c
 - **Histoire** : découvert au tour N par telle unité, ville fondée, événements (crues, éruptions).
 - Seulement ce que le joueur connaît ; liens vers la carte (vol de la caméra, comme la recherche).
   Les informations secondaires vont dans l'atlas plutôt que sur la carte.
+
+### [ ] 27. Villes : ressources, indicateurs et répartition de la population
+Voir `conception/conception-villes.md`. Décidé : Population (habitants → indice) ; principales
+Nourriture, Production (construire), Économie (entretenir, acheter, diplomatie), Recherche ;
+capacité Eau ; secondaires Santé (le corps), Bonheur (la satisfaction), Éducation (alphabétisation) ;
+Attractivité calculée (migrations). Décidé le 10/11 : intendant guidable (cases forcées, priorités
+par ressource), population répartie sur plusieurs cases selon leur capacité, aménagements et
+bâtiments construits par la ville (seuils et paliers pour les bâtiments, rendements décroissants
+pour le rural), passage de rural à urbain, pénalité de distance (von Thünen), une seule file de
+construction, 7 sous-cases par case portant des quartiers (plan selon les bâtiments dominants),
+population active variable, économie (cases, impôt, surplus, commerce), entraide par envoi de
+production. Culture et politique : pistes retenues comme base, à détailler dans une doc dédiée.
+
+### [ ] 28. Armée : armes, équipement, formation, expérience
+Voir `conception/conception-combat.md` (« Armée »). Soldats formés (pas produits) dans la ville
+ou les casernes avec une formation progressive (accélérée par les casernes, recrutement possible
+avant la fin avec des malus), armes comme ressource stratégique (production seule ; vendues,
+capturées), taux d'équipement par type, attrition, niveaux d'expérience, effectif selon le type,
+entretien en nourriture, économie et matériel, soldats comptés dans la population de leur ville
+(pertes = population perdue). Après la tâche 27.
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

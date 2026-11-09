@@ -165,6 +165,10 @@ Benjamin a retenu une météo en deux couches, avec une exigence : **l'ensemble 
 8. Cyclones (systèmes tropicaux du même moteur).
 9. Rendu (étape 8 g du rendu 3D) et cartes thématiques (écart du mois, neige, débit, risque cyclonique).
 
+## Mois de départ (décidé le 10/11/2026)
+Une partie commence au **printemps de l'hémisphère nord** (mars ou avril, à régler) : la belle
+saison au nord, l'automne au sud.
+
 ## Questions ouvertes
-- Mois de départ d'une partie ; seuils et chiffres des effets sur les déplacements.
+- Seuils et chiffres des effets sur les déplacements.
 - Réutiliser le moteur des systèmes à la génération du climat (tâche 7 g) : à décider après l'étape 4, selon son coût.

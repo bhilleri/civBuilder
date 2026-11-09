@@ -85,6 +85,36 @@ Les unités capables de tirer attaquent toujours en tirant (y compris au contact
 - **Camps** : un camp vide est dispersé quand une unité y entre (+25 or) ; les hostiles n'occupent jamais la case du camp.
 - **Exploration automatique prudente** : les explorateurs évitent la zone dangereuse (à 2 cases ou moins d'un hostile visible ou d'un camp connu), y compris les ennemis aperçus en cours de route ; une cible dangereuse n'est choisie que s'il ne reste rien d'autre. Mesure sur des parties simulées de 80 tours : 25 à 47 attaques subies (contre plus de 50 sans cette règle).
 
+## Armée : armes, formation, expérience (décidé le 10/11/2026, à venir)
+Décisions de Benjamin, avec le système des villes (`conception-villes.md`) :
+- **On ne produit pas des soldats, on les forme.** Ils ne passent pas par la file de construction de la ville.
+- **Les armes, ressource stratégique** :
+  - produites dans les bâtiments de production d'armes, contre de la **production seule** ;
+  - vendues à d'autres joueurs, ou données aux soldats ;
+  - **capturées** en vainquant une unité adverse.
+- **Équipement** (comme dans Hearts of Iron) : chaque unité a un taux d'équipement. Le besoin
+  dépend du type : très faible pour la milice, beaucoup plus fort pour la cavalerie lourde.
+  **Un équipement incomplet donne un malus.**
+- **Attrition** : perte de matériel ; les pertes au combat détruisent aussi du matériel.
+- **Recrutement** dans la ville ou dans les casernes. **Formation progressive** : chaque unité
+  gagne de l'expérience au fil des tours, à un rythme qui dépend de son type. Les aménagements
+  comme la caserne accélèrent la formation et réduisent le temps nécessaire. Une unité peut être
+  recrutée **sans être totalement formée**, avec d'importants malus de combat.
+- **Niveaux d'expérience** (comme dans Hearts of Iron) : sans formation, une pénalité de combat ;
+  bien formée, l'unité commence avec un petit bonus et peut l'augmenter en gagnant de l'expérience.
+- **Effectif selon le type** : chaque unité représente un nombre d'habitants propre à son type
+  (par exemple 500 à 1 000 pour l'infanterie, moins pour la cavalerie lourde) ; les pertes au
+  combat retirent des habitants en proportion des PV perdus.
+- **Entretien** : nourriture (les soldats mangent), économie (une solde selon le type) et usure du
+  matériel (l'attrition consomme des armes, remplacées depuis le stock).
+- **Les soldats restent des habitants** : vivants, ils comptent dans la population de leur ville
+  d'origine, consomment de la nourriture mais ne produisent pas ; **leurs pertes coûtent de la
+  population** à cette ville. Lever des soldats retire des travailleurs : une campagne pendant la
+  récolte coûte cher (lien avec les saisons, `conception-saisons.md`).
+
+À décider : chiffres (rythme de formation par type, effet des casernes, besoins d'équipement et
+malus par type, effectifs, solde).
+
 ## Découpage du développement
 - **Étape 1 (fait) :** une unité par case, statistiques, PV, combat au corps à corps avec prévision, charge, dispersion des unités, hostiles qui attaquent.
 - **Étape 2 (fait) :** tir à distance et ligne de vue, zone de contrôle, flanquement, bonus de terrain.
