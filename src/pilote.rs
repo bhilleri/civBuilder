@@ -179,6 +179,8 @@ pub fn route(map: &WorldMap, line: &str) -> Route {
             _ => Err("usage : zoom échelle".to_string()),
         },
         name if CONSOLE_COMMANDS.contains(&name) => return Route::Console,
+        // (préparer une scène de test : toutes les commandes de la console, avec `CIVBUILDER_PILOTE_DEBUG`)
+        _ if std::env::var_os("CIVBUILDER_PILOTE_DEBUG").is_some() => return Route::Console,
         _ => Err(format!("« {first} » n'existe pas en mode joueur (aide : liste des ordres)")),
     };
     match order {

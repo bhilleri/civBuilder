@@ -441,6 +441,15 @@ pub const FLEUVE_MOVE_COST: u32 = 3;
 /// Monter sur le pont d'un fleuve par un de ses bouts : 1 PM, sans arrêt (choix de Benjamin, 08/11/2026).
 pub const BRIDGE_MOVE_COST: u32 = 1;
 
+/// Place d'une unité dans les ensembles d'occupation (`HashSet<Hex>`) : la case elle-même, ou, sur
+/// le pont d'une case de fleuve, une clé à part (la case décalée de `BRIDGE_SLOT_ROWS` lignes, hors
+/// de toute carte). Une case de fleuve avec pont a ainsi deux places : le pont et l'eau
+/// (choix de Benjamin, 09/11/2026).
+pub fn slot(hex: Hex, on_bridge: bool) -> Hex {
+    if on_bridge { Hex { q: hex.q, r: hex.r + BRIDGE_SLOT_ROWS } } else { hex }
+}
+const BRIDGE_SLOT_ROWS: i32 = 1 << 20;
+
 /// Pont construit (voir `conception/conception-ponts.md`) : sur l'arête d'une rivière, ou en
 /// travers d'une case de fleuve, d'une rive à la rive opposée. Toujours rangé sous une seule
 /// écriture (`WorldMap::bridge_site`).

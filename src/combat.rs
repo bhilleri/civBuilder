@@ -78,11 +78,13 @@ pub struct Engagement {
     pub attacker_on_bridge: bool,
     /// L'attaquant franchit une rivière par son pont (sortie de pont en mêlée).
     pub over_bridge: bool,
+    /// Tir depuis le pont sur l'unité dans l'eau en dessous (même case) : bonus de hauteur.
+    pub shot_below: bool,
 }
 
 impl Engagement {
     pub fn melee(attacker: Fighter, defender: Fighter, attacker_moved: bool) -> Self {
-        Self { attacker, defender, kind: AttackKind::Melee, attacker_moved, flanking_allies: 0, across_river: false, defender_on_bridge: false, attacker_on_bridge: false, over_bridge: false }
+        Self { attacker, defender, kind: AttackKind::Melee, attacker_moved, flanking_allies: 0, across_river: false, defender_on_bridge: false, attacker_on_bridge: false, over_bridge: false, shot_below: false }
     }
     pub fn ranged(attacker: Fighter, defender: Fighter) -> Self {
         Self { kind: AttackKind::Ranged, attacker_moved: false, ..Self::melee(attacker, defender, false) }
@@ -90,6 +92,10 @@ impl Engagement {
     /// Situation des deux unités vis-à-vis d'un pont (voir les champs).
     pub fn on_bridges(self, defender_on_bridge: bool, attacker_on_bridge: bool, over_bridge: bool) -> Self {
         Self { defender_on_bridge, attacker_on_bridge, over_bridge, ..self }
+    }
+    /// Tir depuis le pont sur l'unité en dessous (voir `shot_below`).
+    pub fn shooting_below(self, shot_below: bool) -> Self {
+        Self { shot_below, ..self }
     }
     pub fn flanked_by(self, allies: u32) -> Self {
         Self { flanking_allies: allies, ..self }
@@ -284,10 +290,11 @@ pub fn preview(e: &Engagement) -> Preview {
         }
         AttackKind::Ranged => {
             let mut att_mods = Vec::new();
-            if a.altitude - d.altitude >= HIGHER_GROUND_M {
-                att_mods.push(("surplomb".to_string(), (sa.ranged_attack * HIGH_GROUND_PERCENT + 50) / 100));
+            if a.altitude - d.altitude >= HIGHER_GROUND_M || e.shot_below {
+                let label = if e.shot_below { "depuis le pont" } else { "surplomb" };
+                att_mods.push((label.to_string(), (sa.ranged_attack * HIGH_GROUND_PERCENT + 50) / 100));
             }
-            if e.attacker_on_bridge {
+            if e.attacker_on_bridge && !e.shot_below {
                 att_mods.push(("tir depuis le pont".to_string(), BRIDGE_SHOT_ATTACK));
             }
             if e.defender_on_bridge {
@@ -423,6 +430,9 @@ mod tests {
         let shot = |d_on: bool, a_on: bool| preview(&Engagement::ranged(f(ExpertArcher), f(Militia)).on_bridges(d_on, a_on, false));
         assert_eq!(shot(true, false).defense.value, shot(false, false).defense.value + BRIDGE_EXPOSED_DEFENSE);
         assert_eq!(shot(false, true).attack.value, shot(false, false).attack.value + BRIDGE_SHOT_ATTACK);
+        // Tir depuis le pont sur l'unité en dessous : bonus de hauteur, sans le malus du pont
+        let below = preview(&Engagement::ranged(f(ExpertArcher), f(Militia)).on_bridges(false, true, false).shooting_below(true));
+        assert_eq!(below.attack.value, shot(false, false).attack.value + (ExpertArcher.stats().ranged_attack * HIGH_GROUND_PERCENT + 50) / 100);
         // Sortie de pont : malus contre l'infanterie, pas de bonus de rivière pour le défenseur
         let wet = melee(Militia, Militia).across_river(true);
         let (att, def, _) = value(wet);

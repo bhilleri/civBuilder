@@ -48,6 +48,9 @@ pub struct UnitState {
     pub zoc_stopped: bool,
     /// Sur le pont d'une case de fleuve (entrée par un de ses bouts) plutôt que dans l'eau.
     pub on_bridge: bool,
+    /// Destination d'un ordre sur une case de fleuve avec pont : sur le pont (`Some(true)`) ou dans
+    /// l'eau (`Some(false)`) ; `None` : selon le côté d'où l'on arrive.
+    pub order_layer: Option<bool>,
 }
 
 /// Marge tolérée sur le coût estimé d'un ordre avant de le suspendre : +50 %.
@@ -84,6 +87,7 @@ impl UnitState {
             has_attacked: false,
             zoc_stopped: false,
             on_bridge: false,
+            order_layer: None,
         }
     }
 
@@ -116,6 +120,7 @@ impl UnitState {
 
     pub fn clear_order(&mut self) {
         self.path.clear();
+        self.order_layer = None;
         self.explore_target = None;
         self.order_budget = None;
         self.order_spent = 0;
@@ -164,10 +169,26 @@ impl UnitState {
         while self.moves_left > 0 && !self.zoc_stopped {
             let Some(&destination) = self.path.last() else { break };
             let known = ForUnit::new(KnownMap::new(map, explored).blocking(&blocked), self.kind);
-            let Some(path) = find_path_turns(&known, *pos, destination, self.moves_left, self.move_debt, self.kind.max_moves()) else {
+            // Pont d'un fleuve : on n'en sort que par ses deux bouts, et on n'y monte que par eux ;
+            // l'étape intermédiaire est le bout le plus proche du but
+            let ends = |h: Hex| map.fleuve_bridge(h).map(|a| [map.wrap().neighbor(h, a), map.wrap().neighbor(h, a + 3)]);
+            let on_bridge_here = self.on_bridge && ends(*pos).is_some();
+            let goal = match (ends(*pos), ends(destination)) {
+                (Some(e), _) if on_bridge_here && !e.contains(&destination) && destination != *pos => {
+                    *e.iter().min_by_key(|&&x| map.distance(x, destination)).unwrap()
+                }
+                (_, Some(e)) if self.order_layer == Some(true) && !e.contains(pos) && *pos != destination => {
+                    *e.iter().min_by_key(|&&x| map.distance(x, *pos)).unwrap()
+                }
+                _ => destination,
+            };
+            let Some(mut path) = find_path_turns(&known, *pos, goal, self.moves_left, self.move_debt, self.kind.max_moves()) else {
                 self.clear_order();
                 return MoveOutcome::Unreachable;
             };
+            if goal != destination {
+                path.push(destination);
+            }
             // Garde-fou : le trajet total (déjà parcouru + reste estimé) ne doit pas exploser
             if let Some(budget) = self.order_budget
                 && self.order_spent + path_cost(&known, *pos, &path) > budget
@@ -177,17 +198,24 @@ impl UnitState {
             }
             self.path = path;
             let next = self.path[0];
+            // Sur le pont ou dans l'eau : par un bout du pont, sur le pont, sauf si l'ordre vise l'eau
+            let last = self.path.len() == 1;
+            let onto = map.bridge_end(next, *pos) && !(last && self.order_layer == Some(false));
             // Case suivante occupée (elle est voisine, donc visible) : on recalcule en l'évitant.
-            if occupied.contains(&next) {
+            if occupied.contains(&crate::map::slot(next, onto)) {
                 blocked.insert(next);
                 continue;
             }
             self.path.remove(0);
             // La case suivante est voisine, donc déjà révélée (vision ≥ 1) : son coût est le vrai.
-            let Some(step) = ForUnit::new(map, self.kind).step(*pos, next) else {
+            let Some(mut step) = ForUnit::new(map, self.kind).step(*pos, next) else {
                 self.clear_order();
                 return MoveOutcome::Unreachable;
             };
+            if step.onto_bridge && !onto {
+                // (descendre dans l'eau depuis le bout du pont : entrée dans le fleuve)
+                step = map.enter_cost(next).unwrap_or_default();
+            }
             self.pay(step);
             self.order_spent += step.total();
             *pos = next;
@@ -616,6 +644,56 @@ mod tests {
         // dette de départ : 3 PM dus, à 2 PM par tour → immobile au tour 2, 1 PM au tour 3
         let plain = WorldMap::filled(12, 12, Terrain::Plains);
         assert_eq!(path_turns(&plain, from, &path, 0, 3, 2), vec![3, 4, 4, 5, 5, 6]);
+    }
+
+    /// Fleuve avec pont : deux niveaux, le pont (par ses bouts) ou l'eau, au choix de l'ordre.
+    #[test]
+    fn pont_ou_eau_sur_un_fleuve() {
+        use crate::map::{BridgeAt, FLEUVE_MOVE_COST, slot};
+        let mut map = WorldMap::filled(10, 10, Terrain::Plains);
+        let f = Hex::from_offset(5, 5);
+        map.set_fleuve(f);
+        map.set_bridge(BridgeAt::Fleuve { hex: f, axis: 0 }, true);
+        let (west, east) = (f + crate::hex::DIRECTIONS[3], f + crate::hex::DIRECTIONS[0]);
+        let side = f + crate::hex::DIRECTIONS[1];
+        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let go = |unit: &mut UnitState, from: &mut Hex, to: Hex, layer: Option<bool>, occupied: &HashSet<Hex>, explored: &mut HashSet<Hex>| {
+            unit.moves_left = unit.kind.max_moves();
+            unit.set_order(*from, vec![to], &map);
+            unit.order_layer = layer;
+            unit.advance_exploring(from, &map, explored, &HashSet::new(), occupied, &HashSet::new())
+        };
+        // Par un bout : sur le pont, pour 1 PM ; l'unité peut continuer
+        let mut unit = UnitState::new(UnitKind::Militia);
+        let mut at = west;
+        go(&mut unit, &mut at, f, None, &HashSet::new(), &mut explored);
+        assert!(at == f && unit.on_bridge && unit.moves_left == 1);
+        // Depuis le pont, vers une case qui n'est pas un bout : on passe par un bout
+        go(&mut unit, &mut at, side, None, &HashSet::new(), &mut explored);
+        assert!(unit.last_steps.first().is_some_and(|h| *h == east || *h == west), "{:?}", unit.last_steps);
+        assert!(!unit.on_bridge);
+        // Par un bout, mais l'ordre vise l'eau : dans le fleuve (3 PM, arrêt)
+        let mut unit = UnitState::new(UnitKind::Militia);
+        let mut at = west;
+        go(&mut unit, &mut at, f, Some(false), &HashSet::new(), &mut explored);
+        assert!(at == f && !unit.on_bridge && unit.moves_left == 0);
+        assert_eq!(FLEUVE_MOVE_COST, 3);
+        // Le pont occupé : l'unité peut aller dans l'eau dessous
+        let taken = HashSet::from([slot(f, true)]);
+        let mut unit = UnitState::new(UnitKind::Militia);
+        let mut at = side;
+        go(&mut unit, &mut at, f, None, &taken, &mut explored);
+        assert!(at == f && !unit.on_bridge, "dans l'eau, sous le pont occupé");
+        // Viser le pont depuis le côté : on monte par un bout
+        let mut unit = UnitState::new(UnitKind::Scout);
+        let mut at = side;
+        for _ in 0..3 {
+            if at == f {
+                break;
+            }
+            go(&mut unit, &mut at, f, Some(true), &HashSet::new(), &mut explored);
+        }
+        assert!(at == f && unit.on_bridge, "sur le pont, arrivé par un bout");
     }
 
     /// Montagne : le coût dépasse les PM, la dette immobilise l'unité les tours suivants.

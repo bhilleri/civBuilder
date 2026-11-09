@@ -47,7 +47,8 @@ pub fn engagement(
     let defender_on = on_bridge(defender.0, defender.1, false);
     let attacker_on = on_bridge(attacker.0, attacker.1, will_move);
     match combat::attack_kind(a.kind) {
-        AttackKind::Ranged => Engagement::ranged(a, d).on_bridges(defender_on, attacker_on, false),
+        // (même case : l'un sur le pont, l'autre dans l'eau)
+        AttackKind::Ranged => Engagement::ranged(a, d).on_bridges(defender_on, attacker_on, false).shooting_below(attacker.1 == defender.1 && attacker_on && !defender_on),
         AttackKind::Melee => {
             let flankers = attacker_allies
                 .into_iter()

@@ -381,6 +381,9 @@ impl crate::settlements::Site for ReliefSite<'_> {
     }
 }
 
+/// Écart (unités du monde) entre le milieu d'un pont et la barque d'une unité dans l'eau de la même case.
+const BRIDGE_WATER_GAP: f32 = 9.0;
+
 /// Distance à laquelle on cherche la terre ferme de l'autre rive : rivière, fleuve.
 const BRIDGE_BANK_RIVER: f32 = 14.0;
 const BRIDGE_BANK_FLEUVE: f32 = 40.0;
@@ -468,10 +471,19 @@ struct Bridge3d;
 /// Ponts construits en 3D : entité et clé de pose de chacun (génération du relief alentour, ville
 /// au bout, rives explorées), et tracé de tous (y compris ceux des villes) pour dégager les arbres.
 #[derive(Resource, Default)]
-struct Bridges3d {
+pub struct Bridges3d {
     drawn: HashMap<crate::map::BridgeAt, (Option<Entity>, (u32, bool))>,
     /// Bouts de chaque pont (repère 2D du monde).
     spans: Vec<(Vec2, Vec2)>,
+    /// Bouts du tablier des ponts de fleuve, tels qu'ils sont dessinés (repère 2D du monde).
+    decks: HashMap<Hex, (Vec2, Vec2)>,
+}
+
+impl Bridges3d {
+    /// Tablier dessiné du pont de la case de fleuve `hex` (repère 2D du monde).
+    pub fn deck(&self, hex: Hex) -> Option<(Vec2, Vec2)> {
+        self.decks.get(&hex).copied()
+    }
 }
 
 /// Dessine les ponts construits (ou posés à la console) et les refait quand le relief alentour
@@ -534,6 +546,18 @@ fn sync_bridges_3d(
             })
             .collect();
         state.spans = spans;
+        let decks = state
+            .drawn
+            .keys()
+            .filter_map(|&at| match at {
+                crate::map::BridgeAt::Fleuve { hex, .. } => {
+                    let (o, b) = bridge_pose(&map.0, &relief, at);
+                    Some((hex, (o + b.near, o + b.far)))
+                }
+                crate::map::BridgeAt::Edge { .. } => None,
+            })
+            .collect();
+        state.decks = decks;
     }
 }
 
@@ -2255,8 +2279,9 @@ fn sync_mirrors(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     relief: Option<Res<Relief>>,
-    sources: Query<(&HexPos, Has<Hostile>, Has<Village>, Has<Camp>, Has<crate::feedback::Motion>)>,
+    sources: Query<(&HexPos, Has<Hostile>, Has<Village>, Has<Camp>, Has<crate::feedback::Motion>, Option<&Unit>)>,
     retired: Query<(), With<crate::feedback::Retired>>,
+    bridges: Res<Bridges3d>,
     cities: Query<&City>,
     camp_states: Query<&Camp>,
     mut mirrors: Query<(Entity, &mut Mirror3d, &mut Transform, &mut Visibility, Option<&Children>, Option<&mut SiteModel>)>,
@@ -2269,7 +2294,7 @@ fn sync_mirrors(
 ) {
     let Some(relief) = relief else { return };
     for (entity, mut mirror, mut transform, mut vis, children, mut model) in &mut mirrors {
-        let Ok((pos, hostile, village, camp, moving)) = sources.get(mirror.source) else {
+        let Ok((pos, hostile, village, camp, moving, unit)) = sources.get(mirror.source) else {
             // (une unité dispersée reste montrée le temps de son effacement)
             if !retired.contains(mirror.source) {
                 commands.entity(entity).despawn();
@@ -2289,11 +2314,25 @@ fn sync_mirrors(
         // (et le pont construit sur une rivière qui la borde : porte et tête de pont)
         let bridge_dir = city.and_then(|_| (0..6).find(|&d| map.0.bridge_between(hex, map.0.wrap().neighbor(hex, d))));
         let code = city.map_or(0, |c| crate::settlements::stage_of_population(c.state.population) as u8 * 2 + u8::from(c.state.fortified)) + bridge_dir.map_or(0, |d| 8 * (d as u8 + 1));
+        // Unité sur une case de fleuve avec pont : sur le tablier (1) ou dans l'eau, à côté (2)
+        let deck = bridges.deck(hex).filter(|_| mirror.is_unit);
+        let code = match (deck, unit) {
+            (Some(_), Some(u)) => code + if u.0.on_bridge { 1 } else { 2 },
+            _ => code,
+        };
         let key = (hex, relief.generation.get(&hex).copied().unwrap_or(0), code);
         if mirror.placed != Some(key) {
             mirror.placed = Some(key);
             let (cx, cy) = pos.0.to_world();
-            let c = Vec2::new(cx, cy);
+            let mut c = Vec2::new(cx, cy);
+            // (tablier et place dans l'eau, repère de la case, la case pouvant être une copie au-delà du raccord)
+            let shift = c - Vec2::from(hex.to_world());
+            let on_deck = deck.map(|(a, b)| (a + shift, b + shift)).filter(|_| code % 8 == 1);
+            if let Some((a, b)) = deck.map(|(a, b)| (a + shift, b + shift)) {
+                let mid = (a + b) / 2.0;
+                c = if on_deck.is_some() { mid } else { mid + (b - a).normalize_or_zero().perp() * BRIDGE_WATER_GAP };
+            }
+            let (cx, cy) = (c.x, c.y);
             let center = relief.ground(cx, cy);
             let children: Vec<Entity> = children.map(|c| c.iter().collect()).unwrap_or_default();
             if mirror.is_unit {
@@ -2308,16 +2347,24 @@ fn sync_mirrors(
                 // Groupe : chaque figurine a ses pieds au plus haut du sol sous elle (jamais
                 // enfoncée), ou sur le pont de sa barque (le groupe resserré) ; anneau au sol
                 // incliné comme le sol
-                let root = match afloat {
-                    Some((water, _)) => water + BOAT_DECK,
-                    None => footprint(&relief, c, FIGURE_REACH).1,
+                // Sur le tablier d'un pont : au milieu, à sa hauteur (bouts sur les rives, bombé de 1,3)
+                let deck_top = on_deck.map(|(a, b)| (relief.ground(a.x, a.y) + relief.ground(b.x, b.y)) / 2.0 + 0.15 + 1.3);
+                let afloat = afloat.filter(|_| deck_top.is_none());
+                let root = match (afloat, deck_top) {
+                    (_, Some(top)) => top,
+                    (Some((water, _)), None) => water + BOAT_DECK,
+                    (None, None) => footprint(&relief, c, FIGURE_REACH).1,
                 };
+                let deck_turn = on_deck.map(|(a, b)| {
+                    let d = b - a;
+                    Quat::from_rotation_y(d.x.atan2(-d.y))
+                });
                 transform.translation = Vec3::new(cx, root, -cy);
                 let ring = (center - root + 0.3, Quat::from_rotation_arc(Vec3::Y, ground_normal(&relief, c, SOCLE_RADIUS)));
                 for &child in &children {
                     if let Ok((mut t, mut v)) = socles.get_mut(child) {
-                        // (pas d'anneau sur l'eau)
-                        *v = if afloat.is_some() { Visibility::Hidden } else { Visibility::Inherited };
+                        // (pas d'anneau sur l'eau ni sur un pont)
+                        *v = if afloat.is_some() || deck_top.is_some() { Visibility::Hidden } else { Visibility::Inherited };
                         (t.translation.y, t.rotation) = ring;
                     } else if let Ok((mut t, mut v)) = boats.get_mut(child) {
                         *v = if afloat.is_some() { Visibility::Inherited } else { Visibility::Hidden };
@@ -2326,9 +2373,11 @@ fn sync_mirrors(
                             t.rotation = turn;
                         }
                     } else if let Ok((mut m, mut t)) = members.get_mut(child) {
-                        m.base = match afloat {
-                            Some((_, turn)) => turn * local3(m.at * BOAT_SQUEEZE),
-                            None => local3(m.at) + Vec3::Y * (footprint(&relief, c + m.at, FIGURE_REACH).1 - root),
+                        m.base = match (afloat, deck_turn) {
+                            // (en file sur le tablier)
+                            (_, Some(turn)) => turn * local3(Vec2::new(m.at.x * 0.3, m.at.y * 1.2)),
+                            (Some((_, turn)), None) => turn * local3(m.at * BOAT_SQUEEZE),
+                            (None, None) => local3(m.at) + Vec3::Y * (footprint(&relief, c + m.at, FIGURE_REACH).1 - root),
                         };
                         let k = t.scale.x;
                         t.translation = Vec3::new(m.base.x * k, m.base.y, m.base.z * k);

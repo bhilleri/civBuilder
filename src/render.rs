@@ -1764,6 +1764,7 @@ fn update_tile_fog(
 fn add_unit_visuals(
     mut commands: Commands,
     palette: Res<Palette>,
+    map: Res<GameMap>,
     units: Query<(Entity, &Unit, &HexPos, Has<Hostile>), Added<Unit>>,
 ) {
     for (entity, unit, pos, hostile) in &units {
@@ -1773,7 +1774,8 @@ fn add_unit_visuals(
             .insert((
                 Mesh2d(palette.outline_mesh.clone()),
                 MeshMaterial2d(palette.outline.clone()),
-                Transform::from_translation(hex_translation(pos.0, Z_UNIT)),
+                // (sur une case de fleuve avec pont : sur la planche, ou dans l'eau à côté)
+                Transform::from_translation(hex_translation(pos.0, Z_UNIT) + bridge_offset_2d(&map.0, pos.0, unit.0.on_bridge).extend(0.0)),
                 // Les hostiles n'apparaissent que lorsqu'ils sont à portée de vue
                 if hostile { Visibility::Hidden } else { Visibility::Inherited },
             ))
@@ -2126,11 +2128,22 @@ fn spawn_turn_labels(
 
 /// Recale les entités sur leur case quand elles changent de case (les animations de `feedback`
 /// s'appliquent ensuite).
-pub(crate) fn sync_transforms(mut moved: Query<(&HexPos, &mut Transform), Changed<HexPos>>) {
-    for (pos, mut transform) in &mut moved {
+pub(crate) fn sync_transforms(map: Res<GameMap>, mut moved: Query<(&HexPos, &mut Transform, Option<&Unit>), Changed<HexPos>>) {
+    for (pos, mut transform, unit) in &mut moved {
         let z = transform.translation.z;
-        transform.translation = hex_translation(pos.0, z);
+        transform.translation = hex_translation(pos.0, z) + unit.map_or(Vec3::ZERO, |u| bridge_offset_2d(&map.0, pos.0, u.0.on_bridge).extend(0.0));
     }
+}
+
+/// Décalage d'une unité sur une case de fleuve avec pont, en 2D : sur la planche (au centre), ou
+/// dans l'eau à côté (pour que les deux unités de la case se voient).
+pub fn bridge_offset_2d(map: &crate::map::WorldMap, hex: Hex, on_bridge: bool) -> Vec2 {
+    let Some(axis) = map.fleuve_bridge(hex) else { return Vec2::ZERO };
+    if on_bridge {
+        return Vec2::ZERO;
+    }
+    let (a, b) = bridge_ends_2d(map, crate::map::BridgeAt::Fleuve { hex: map.canonical(hex), axis: axis as u8 });
+    (b - a).normalize_or_zero().perp() * HEX_SIZE * 0.7
 }
 
 /// Frontières, sélection, chemin prévisualisé, cases exploitées.

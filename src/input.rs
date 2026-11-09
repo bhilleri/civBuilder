@@ -26,6 +26,30 @@ pub struct HoveredHex(pub Option<Hex>);
 #[derive(Resource, Default)]
 pub struct HoveredPoint(pub Option<Vec2>);
 
+/// Sur une case de fleuve avec pont, niveau que vise le curseur : le tablier (`Some(true)`) ou
+/// l'eau (`Some(false)`) ; `None` ailleurs.
+#[derive(Resource, Default)]
+pub struct PointedLayer(pub Option<bool>);
+
+/// Distance (unités du monde) au tablier en deçà de laquelle le curseur vise le pont.
+const DECK_PICK: f32 = 6.0;
+
+/// Niveau visé dans la case de fleuve `hex` par le point `p` (repère 2D du monde) : le tablier
+/// dessiné (3D) ou la planche (2D), sinon l'eau.
+pub fn pointed_layer(map: &crate::map::WorldMap, hex: Hex, p: Vec2, deck: Option<(Vec2, Vec2)>) -> Option<bool> {
+    let axis = map.fleuve_bridge(hex)?;
+    let (a, b) = deck.unwrap_or_else(|| crate::render::bridge_ends_2d(map, crate::map::BridgeAt::Fleuve { hex, axis: axis as u8 }));
+    // (le point ramené près du pont, autour de la planète)
+    let world = map.wrap().world_width();
+    let mut q = p;
+    if world > 0.0 {
+        q.x = a.x + (q.x - a.x + world / 2.0).rem_euclid(world) - world / 2.0;
+    }
+    let ab = b - a;
+    let t = ((q - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    Some(q.distance(a + ab * t) < DECK_PICK)
+}
+
 /// Chemin prévisualisé vers la case survolée pour l'unité sélectionnée,
 /// avec pour chaque case le tour d'arrivée (1 = ce tour-ci).
 #[derive(Resource, Default)]
@@ -81,6 +105,7 @@ impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HoveredHex>()
             .init_resource::<HoveredPoint>()
+            .init_resource::<PointedLayer>()
             .init_resource::<HoverPath>()
             .init_resource::<OrderPath>()
             .init_resource::<AttackPreview>()
@@ -172,9 +197,11 @@ fn track_pointer_over_ui(mut over: ResMut<PointerOverUi>, nodes: Query<&UiPointe
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_hovered_hex(
     mut hovered: ResMut<HoveredHex>,
     mut point: ResMut<HoveredPoint>,
+    (mut layer, decks, mode): (ResMut<PointedLayer>, Option<Res<crate::view3d::Bridges3d>>, Res<crate::view3d::ViewMode>),
     window: Single<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     map: Res<GameMap>,
@@ -189,6 +216,11 @@ fn update_hovered_hex(
         let at = pilot.point.or_else(|| pilot.cursor.map(|h| Vec2::from(h.to_world())));
         if point.0 != at {
             point.0 = at;
+        }
+        let deck = pilot.cursor.and_then(|h| decks.as_ref().filter(|_| mode.is_3d).and_then(|d| d.deck(h)));
+        let wanted = pilot.cursor.zip(at).and_then(|(h, p)| pointed_layer(&map.0, h, p, deck));
+        if layer.0 != wanted {
+            layer.0 = wanted;
         }
         return;
     }
@@ -210,6 +242,11 @@ fn update_hovered_hex(
     let at = hit.map(|(_, p)| p);
     if point.0 != at {
         point.0 = at;
+    }
+    let deck = hex.and_then(|h| decks.as_ref().filter(|_| mode.is_3d).and_then(|d| d.deck(h)));
+    let wanted = hit.and_then(|(h, p)| pointed_layer(&map.0, h, p, deck));
+    if layer.0 != wanted {
+        layer.0 = wanted;
     }
 }
 
@@ -246,7 +283,7 @@ fn update_hover_path(
     let known = KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now);
 
     // Survol d'un ennemi visible : trajet d'approche et prévision du combat
-    let foe = hovered.0.filter(|h| blocked.0.contains(h)).and_then(|h| hostiles.iter().find(|(_, p)| p.0 == h));
+    let foe = hovered.0.filter(|h| fog.visible.contains(h)).and_then(|h| hostiles.iter().find(|(_, p)| p.0 == h));
     let mut attack_info = None;
     let (hover_path, hover_turns) = match (hovered.0, &selected, foe) {
         (Some(target), Some((unit, pos)), Some((foe_unit, _))) if unit.0.kind.can_attack() => {
@@ -302,7 +339,7 @@ fn update_hover_path(
 fn mouse_commands(
     mut commands: Commands,
     mouse: Res<ButtonInput<MouseButton>>,
-    hovered: Res<HoveredHex>,
+    (hovered, pointed): (Res<HoveredHex>, Res<PointedLayer>),
     map: Res<GameMap>,
     mut fog: ResMut<Fog>,
     blocked: Res<Blocked>,
@@ -344,15 +381,39 @@ fn mouse_commands(
     let blocked_now = movement_blocked(&blocked.0, &occupancy.own);
     let mut occupied = occupancy.all.clone();
 
-    // 1) Ennemi visible : approche éventuelle puis attaque (mêlée) ou tir
-    if blocked.0.contains(&target) {
-        let Some(foe) = hostiles.iter().find(|(_, _, p)| p.0 == target).map(|(e, _, _)| e) else { return };
+    // Niveau d'une unité sur une case de fleuve avec pont (le pont ou l'eau), et niveau visé
+    let up = |u: &rules::UnitState, h: Hex| u.on_bridge && map.0.fleuve_bridge(h).is_some();
+    let layer = pointed.0;
+    let own_up = up(&snapshot, from);
+
+    // 1) Ennemi visible : approche éventuelle puis attaque (mêlée) ou tir ; sur une case à deux
+    // niveaux, celui que vise le curseur
+    let foes: Vec<(Entity, bool)> = hostiles.iter().filter(|(_, _, p)| p.0 == target).map(|(e, u, p)| (e, up(&u.0, p.0))).collect();
+    // (sur une case à deux niveaux, l'ennemi du niveau visé seulement : l'autre niveau libre, on s'y rend)
+    let foe = foes.iter().find(|(_, on)| layer.is_none_or(|l| l == *on)).copied();
+    if let Some((foe, foe_up)) = foe.filter(|_| fog.visible.contains(&target)) {
         if !kind.can_attack() {
             log.push(LogText::new().unit(kind.name(), selected, from).text(" : cette unité ne peut pas attaquer."));
             return;
         }
+        // Même case (l'un sur le pont, l'autre dans l'eau) : tirs seulement
+        if target == from && (foe_up == own_up || combat::attack_kind(kind) != crate::combat::AttackKind::Ranged) {
+            log.push(LogText::new().unit(kind.name(), selected, from).text(" : entre le pont et l'eau, on ne peut que tirer."));
+            return;
+        }
+        // Mêlée contre le pont, ou depuis le pont : seulement par ses deux bouts
+        if combat::attack_kind(kind) == crate::combat::AttackKind::Melee && target != from {
+            let ends_of = |h: Hex| map.0.fleuve_bridge(h).map(|a| [map.0.wrap().neighbor(h, a), map.0.wrap().neighbor(h, a + 3)]);
+            let refused = (foe_up && ends_of(target).is_some_and(|e| map.0.distance(from, target) == 1 && !e.contains(&from)))
+                || (own_up && ends_of(from).is_some_and(|e| !e.contains(&target)));
+            if refused {
+                log.push(LogText::new().unit(kind.name(), selected, from).text(" : on ne se bat sur un pont que par ses deux bouts."));
+                return;
+            }
+        }
         let known = KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now);
-        let Some(approach) = rules::attack_approach(&known, &map.0, &snapshot, from, target, &enemy_zoc.0) else {
+        let approach = if target == from && combat::can_attack_now(&snapshot) { Some(Vec::new()) } else { rules::attack_approach(&known, &map.0, &snapshot, from, target, &enemy_zoc.0) };
+        let Some(approach) = approach else {
             let reason = if snapshot.has_attacked {
                 "a déjà attaqué ce tour-ci"
             } else if kind == UnitKind::ExpertArcher && snapshot.moved_this_turn {
@@ -388,9 +449,11 @@ fn mouse_commands(
         if result.attacker_died {
             selection.0 = None;
         } else if result.attacker_advances() {
-            // Le vainqueur d'un corps à corps avance sur la case libérée
+            // Le vainqueur d'un corps à corps avance sur la case libérée (sur le pont si c'est là
+            // qu'était l'ennemi)
             cues.walk(selected, here, &[target], Actor::Player);
             pos.0 = target;
+            unit.0.on_bridge = foe_up;
             unit.0.last_steps = vec![target];
         }
         return;
@@ -401,8 +464,16 @@ fn mouse_commands(
         return;
     }
 
-    // 2) Une de nos unités : échange de place si elle est adjacente
-    if let Some(other) = units.iter().find(|(e, _, p)| *e != selected && p.0 == target).map(|(e, _, _)| e) {
+    // Même case, autre niveau : on ne passe du pont à l'eau (ou l'inverse) que par une rive
+    if target == from {
+        if layer.is_some_and(|l| l != own_up) {
+            log.push(LogText::new().unit(kind.name(), selected, from).text(" : pour passer du pont à l'eau, ou de l'eau au pont, passez par une rive."));
+        }
+        return;
+    }
+
+    // 2) Une de nos unités, au niveau visé : échange de place si elle est adjacente
+    if let Some(other) = units.iter().find(|(e, u, p)| *e != selected && p.0 == target && layer.is_none_or(|l| l == up(&u.0, p.0))).map(|(e, _, _)| e) {
         // Échange possible seulement si chacune peut aller sur la case de l'autre (pas de falaise)
         let step = ForUnit::new(&map.0, kind).step(from, target);
         if map.0.distance(from, target) != 1 || moves == 0 || step.is_none() || map.0.step_cost(target, from).is_none() {
@@ -423,10 +494,19 @@ fn mouse_commands(
 
     // 3) Déplacement (en contournant nos autres unités)
     let (_, mut unit, mut pos) = units.get_mut(selected).unwrap();
+    // (une case de fleuve avec pont dont le niveau visé est libre reste une destination possible)
+    let mut blocked_now = blocked_now;
+    if let Some(l) = layer
+        && !occupancy.all.contains(&crate::map::slot(target, l))
+    {
+        blocked_now.remove(&target);
+    }
     let known = ForUnit::new(KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now), kind);
     match find_path_turns(&known, from, target, unit.0.moves_left, unit.0.move_debt, unit.0.kind.max_moves()) {
         Some(path) => {
             unit.0.set_order(pos.0, path, &known);
+            // (sur une case de fleuve avec pont : le pont ou l'eau, selon le clic)
+            unit.0.order_layer = layer;
             move_unit(selected, &mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
             if pos.0 != from {
                 cues.walk(selected, from, &unit.0.last_steps, Actor::Player);

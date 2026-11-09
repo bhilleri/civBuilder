@@ -86,6 +86,32 @@ lancier. Un fleuve et une rivière sans pont gardent les règles actuelles.
 - **Limites** : sur un fleuve, la traversée choisie dépend du côté visé, mais le dessin 3D est toujours perpendiculaire au
   courant ; le pont ne coûte pas d'entretien ; il reste debout si la ville perd son territoire.
 
+## Étape 3 faite (09/11/2026) : deux niveaux sur un fleuve
+Décisions de Benjamin (09/11) : on ne quitte le pont (et on n'y monte) que par ses deux bouts ; un clic sur le tablier envoie
+l'unité sur le pont, ailleurs dans la case dans l'eau ; entre les deux niveaux, seulement des tirs (du pont vers l'eau avec le
+bonus de hauteur, de l'eau vers le pont sans bonus), pas de mêlée ; une barque passe sous un pont tenu par l'ennemi.
+- **Occupation** (`map::slot`) : une case de fleuve avec pont a deux places, l'eau (la case) et le pont (une clé à part dans
+  les mêmes ensembles `HashSet<Hex>` : la case décalée hors de toute carte). `Occupancy` et `Blocked` (ennemis visibles)
+  rangent chaque unité à sa place : un ennemi sur le pont ne bloque que le pont.
+- **Ordre** (`UnitState::order_layer`) : le pont (`Some(true)`), l'eau (`Some(false)`) ou selon l'arrivée (`None`). Depuis le
+  pont, le trajet passe d'abord par le bout le plus proche du but ; pour monter sur le pont depuis l'eau ou le côté, il passe
+  d'abord par le bout le plus proche de l'unité. Descendre dans l'eau depuis un bout coûte l'entrée dans le fleuve (3 PM,
+  arrêt). Passer du pont à l'eau de la même case : par une rive.
+- **Clic** (`input::PointedLayer`, `pointed_layer`) : à moins de 6 du tablier, le pont ; ailleurs dans la case, l'eau. En 3D,
+  c'est le tablier dessiné (`Bridges3d::deck`), en 2D la planche. Sur une case à deux niveaux, on ne vise que l'ennemi ou
+  l'unité alliée du niveau pointé ; le niveau libre est une destination.
+- **Combat** : même case, tirs seulement (`shot_below` : +20 %, sans le malus du tir depuis le pont) ; mêlée contre le pont,
+  ou depuis le pont, seulement depuis ou vers ses deux bouts. Le vainqueur d'une mêlée avance à la place de l'ennemi (sur le
+  pont s'il y était).
+- **Dessin** : 3D, l'unité du pont au milieu du tablier, à sa hauteur, en file, sans anneau ni barque ; celle de l'eau dans sa
+  barque, à 9 du milieu du pont, en amont ou en aval. 2D : la première sur la planche, la seconde à côté.
+- **Mode joueur pilotable** : `CIVBUILDER_PILOTE_DEBUG=1` autorise toutes les commandes de la console (préparer une scène).
+- **Vérifié** (graine 777, partie pilotée) : archer expert monté sur le pont depuis un bout (1 PM, peut continuer), au-dessus
+  d'une milice hostile dans l'eau ; au tour suivant, tir vers le bas (24 « depuis le pont +4 » contre 6, −63 PV).
+- **Limites** : l'IA hostile ne choisit pas son niveau (elle suit l'arrivée) ; une unité alliée dans l'eau bloque la case pour
+  la recherche de chemin qui la traverse (pas pour s'y arrêter sur le pont) ; l'animation 2D d'un déplacement finit au centre
+  de la case avant de reprendre sa place.
+
 ## Étapes proposées
 1. **Le pont dans les règles** : pont sur une arête de rivière ou une case de fleuve, posé à la console (`pont col lig dir`,
    comme la muraille), déplacement et combat, dessin en 2D et en 3D entre les deux rives, infobulle. Tests des règles.

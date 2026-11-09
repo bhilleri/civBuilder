@@ -220,7 +220,11 @@ fn waters() -> Article {
                  Il sert à tout le monde, ennemis compris. Par le pont, une rivière se traverse sans surcoût ; on monte \
                  sur le pont d'un fleuve par un de ses bouts pour {BRIDGE_MOVE_COST} PM, et l'on peut s'y arrêter ou \
                  continuer. Entrer dans le fleuve par un autre côté, c'est entrer dans l'eau ({FLEUVE_MOVE_COST} PM). \
-                 Les villes les construisent (voir « Villes », Production) ; la console en pose aussi (« pont »)."
+                 Les villes les construisent (voir « Villes », Production) ; la console en pose aussi (« pont »). \
+                 Une case de fleuve avec pont a deux niveaux : une unité sur le pont, une autre dans l'eau. Un clic \
+                 droit sur le tablier y envoie l'unité, ailleurs dans la case dans l'eau ; on ne monte sur le pont et \
+                 on n'en descend que par ses deux bouts, et une barque passe sous un pont ennemi. Entre les deux niveaux, \
+                 on ne fait que tirer : depuis le pont vers l'eau avec le bonus de hauteur."
             )),
             p(format!(
                 "Sur le pont d'un fleuve, une unité attaquée en mêlée ne peut être ni flanquée ni chargée ; \

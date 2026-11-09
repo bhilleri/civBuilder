@@ -415,7 +415,7 @@ pub fn update_knowledge(
     map: Res<GameMap>,
     fog: Res<crate::game::Fog>,
     hostiles: Query<(&Unit, &HexPos), With<Hostile>>,
-    own: Query<&HexPos, (With<Unit>, Without<Hostile>)>,
+    own: Query<(&Unit, &HexPos), Without<Hostile>>,
     villages: Query<&HexPos, With<Village>>,
     camps: Query<&HexPos, With<Camp>>,
     mut blocked: ResMut<Blocked>,
@@ -429,8 +429,14 @@ pub fn update_knowledge(
         known_villages.0 = known;
     }
     let visible: HashSet<Hex> = hostiles.iter().map(|(_, p)| p.0).filter(|h| fog.visible.contains(h)).collect();
-    if blocked.0 != visible {
-        blocked.0 = visible.clone();
+    // (un ennemi sur le pont d'un fleuve ne bloque que le pont : on passe dessous, voir `map::slot`)
+    let places: HashSet<Hex> = hostiles
+        .iter()
+        .filter(|(_, p)| fog.visible.contains(&p.0))
+        .map(|(u, p)| crate::map::slot(p.0, u.0.on_bridge && map.0.fleuve_bridge(p.0).is_some()))
+        .collect();
+    if blocked.0 != places {
+        blocked.0 = places;
     }
     let zoc = rules::zoc_tiles(
         map.0.wrap(),
@@ -448,8 +454,10 @@ pub fn update_knowledge(
     if danger.0 != threats {
         danger.0 = threats;
     }
-    let own_set: HashSet<Hex> = own.iter().map(|p| p.0).collect();
-    let all: HashSet<Hex> = own_set.iter().copied().chain(hostiles.iter().map(|(_, p)| p.0)).collect();
+    // (sur le pont d'un fleuve, une place à part : voir `map::slot`)
+    let place = |u: &Unit, p: &HexPos| crate::map::slot(p.0, u.0.on_bridge && map.0.fleuve_bridge(p.0).is_some());
+    let own_set: HashSet<Hex> = own.iter().map(|(u, p)| place(u, p)).collect();
+    let all: HashSet<Hex> = own_set.iter().copied().chain(hostiles.iter().map(|(u, p)| place(u, p))).collect();
     if occupancy.own != own_set || occupancy.all != all {
         occupancy.own = own_set;
         occupancy.all = all;

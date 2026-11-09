@@ -338,6 +338,7 @@ pub fn move_unit(
     if unit.path.is_empty() {
         return;
     }
+    let before = unit.on_bridge && map.fleuve_bridge(pos.0).is_some();
     let mut hex = pos.0;
     match unit.advance_exploring(&mut hex, map, &mut fog.explored, blocked, occupied, zoc) {
         MoveOutcome::Moved => {}
@@ -348,14 +349,18 @@ pub fn move_unit(
             log.notify(Importance::Info, LogText::new().unit(unit.kind.name(), entity, hex).text(" : trajet bien plus long que prévu, ordre suspendu."));
         }
     }
-    relocate(pos, hex, occupied);
+    relocate_unit(pos, before, hex, unit.on_bridge, occupied);
 }
 
-/// Déplace une entité et met à jour l'occupation des cases.
-pub fn relocate(pos: &mut Mut<HexPos>, to: Hex, occupied: &mut HashSet<Hex>) {
+/// Déplace une unité et met à jour l'occupation des cases, avec sa place sur le pont d'un fleuve
+/// (`map::slot`) : avant (`before` : sur le pont au départ) et après.
+pub fn relocate_unit(pos: &mut Mut<HexPos>, before: bool, to: Hex, on_bridge: bool, occupied: &mut HashSet<Hex>) {
+    let (from, at) = (crate::map::slot(pos.0, before), crate::map::slot(to, on_bridge));
+    if from != at {
+        occupied.remove(&from);
+        occupied.insert(at);
+    }
     if pos.0 != to {
-        occupied.remove(&pos.0);
-        occupied.insert(to);
         pos.0 = to;
     }
 }
@@ -393,13 +398,15 @@ pub fn explore_unit(
     fog: &mut Fog,
     log: &mut GameLog,
 ) {
+    let before = unit.on_bridge && world.map.fleuve_bridge(pos.0).is_some();
     let mut hex = pos.0;
     let outcome = explore::explore_step(unit, &mut hex, &world.occupied(occupied), &mut fog.explored);
     if outcome == ExploreOutcome::Finished {
         unit.auto_explore = false;
         log.push(LogText::new().unit(unit.kind.name(), entity, hex).text(" : plus rien d'accessible à explorer."));
     }
-    relocate(pos, hex, occupied);
+    let after = unit.on_bridge && world.map.fleuve_bridge(hex).is_some();
+    relocate_unit(pos, before, hex, after, occupied);
 }
 
 /// Recalcule les cases exploitées de toutes les villes (évite les doublons entre villes).
