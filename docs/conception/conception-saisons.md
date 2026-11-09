@@ -14,8 +14,9 @@ gel) et des effets sur les déplacements. Le rendu suivra (`conception-rendu-3d.
   à la météo (un ouragan qui dure 3 tours ne doit pas occuper un quart de l'année).
 - **Météo = moyennes du climat + écarts générés.** Écarts du mois et anomalies durables
   (sécheresse, hiver rude) sur une région entière, plus rares, qui pèsent sur les récoltes.
-  Méthode à choisir (systèmes de pression ou écarts probabilistes, voir plus bas) ; contrainte :
-  la météo ne doit pas peser lourd sur le processeur ni la carte graphique.
+  Méthode : un fond lent (écart de pression caché) et des systèmes qui se déplacent par-dessus,
+  cyclones compris, et l'ensemble doit rester cohérent (voir plus bas). Contrainte : la météo ne
+  doit pas peser lourd sur le processeur ni la carte graphique.
 - **Cours d'eau** : crues et sécheresses visibles, et lit d'hiver / lit d'été des cours d'eau.
 - **Déplacements** : oui (neige, boue au dégel, gués impraticables en crue, fleuves gelés franchissables).
 - **Plus tard** :
@@ -43,25 +44,51 @@ gel) et des effets sur les déplacements. Le rendu suivra (`conception-rendu-3d.
   harmoniques qui passe exactement par les quatre valeurs, pluie bornée à 0. Coût nul à la génération.
 - Les biomes restent calculés sur le climat moyen : la météo ne change pas le terrain.
 
-### Météo du mois : une pression cachée qui commande le reste
-À un mois par tour, une dépression (quelques jours) dure moins qu'un tour : suivre chaque
-dépression et chaque anticyclone n'apporterait rien au jeu. Je propose un compromis entre les deux
-méthodes :
-- **Un écart de pression caché**, champ continu sur la planète, calculé sur une grille grossière
-  (≈ 1 point pour 8 × 8 cases, environ 24 × 14 points) puis interpolé.
-  - Il évolue d'un mois au suivant avec de la **persistance** : une part du mois précédent plus un
-    tirage. Un anticyclone de blocage peut ainsi durer plusieurs mois et faire une sécheresse.
-  - Il est poussé par le vent moyen du mois : les perturbations vont d'ouest en est aux latitudes moyennes.
-  - Tirage déterministe : graine et numéro du tour.
-- **Températures et pluie en découlent**, avec des coefficients selon la saison et la latitude :
-  - pression haute = temps sec, été chaud ou hiver froid ;
-  - pression basse = humide et doux ;
-  - plus un petit bruit propre à la case.
-  Les écarts restent ainsi cohérents entre eux, au lieu de tirages indépendants.
-- **Anomalies durables** : rares, de 500 à 1 500 km, sur 2 à 6 mois, ajoutées au champ de pression (sécheresse, hiver rude).
-- **Coût** : quelques centaines de points par tour, plus une interpolation sur 21 000 cases.
-  Moins d'une milliseconde, une fois par tour. Rien sur la carte graphique, hors rendu.
-- Bilans chiffrés à ajouter : fréquence des sécheresses et des hivers rudes par région, écarts types mensuels comparés aux ordres de grandeur réels.
+### Météo du mois : un fond lent et des systèmes qui se déplacent (décidé le 09/11/2026)
+Benjamin a retenu une météo en deux couches, avec une exigence : **l'ensemble doit rester cohérent**.
+
+**Couche 1, le fond lent** : un écart de pression caché.
+- Champ continu sur une grille grossière (≈ 1 point pour 8 × 8 cases, environ 24 × 14 points), interpolé sur les cases.
+- **Persistance** d'un mois au suivant : une part du mois précédent plus un tirage (graine et
+  tour). Il fait les anomalies durables : sécheresse, hiver rude, blocage anticyclonique. Elles
+  sont rares, s'étendent sur 500 à 1 500 km et durent 2 à 6 mois.
+- Il décide où les systèmes naissent et passent, et module leur nombre et leur force.
+
+**Couche 2, les systèmes qui se déplacent** : dépressions et anticyclones.
+- Environ 50 à 150 en même temps sur la planète, chacun avec une position, une intensité, un rayon et une vitesse.
+- 4 pas par jour simulé (≈ 120 par mois). Chaque système naît, se déplace et meurt :
+  - **naissance** : là où le climat les fait naître (contraste terre-mer et mers chaudes de
+    l'hiver, déjà repérés par `CYCLOGENESIS_*` dans `climate.rs`, front polaire), selon le fond lent ;
+  - **déplacement** : avec le vent moyen du mois ; vers l'est aux latitudes moyennes, ce qui forme le rail des dépressions ;
+  - **évolution** : il se creuse ou se comble, puis disparaît.
+- Leurs effets (pression, température, pluie, vent, tempêtes) sont **cumulés sur le mois** sur la
+  grille grossière, puis interpolés sur les cases.
+- **Les cyclones sont des systèmes de cette couche**, avec leurs propres règles de naissance et
+  d'intensité (voir « Cyclones ») : un seul moteur.
+
+**Règles de cohérence.**
+- **Mêmes moyennes que le climat** : sur de nombreuses années fictives, la moyenne de la météo
+  doit redonner le climat mensuel de chaque case (température, pluie). Les biomes, calculés sur ce
+  climat, restent donc justes. Les écarts sont calibrés pour avoir une moyenne nulle.
+- **Une seule source pour chaque grandeur** : vent du mois, température de la mer et pression
+  viennent du climat ; la météo n'en invente pas d'autres.
+- **Températures et pluie découlent de la pression**, pas de tirages indépendants : pression
+  haute = sec, été chaud ou hiver froid ; pression basse = humide et doux.
+- **L'eau suit** : la pluie du mois alimente la neige au sol et le débit mensuel, donc les crues et les étiages.
+- **Un seul moteur pour le jeu et pour la génération** : le même pourra servir à la tâche 7 g du
+  climat (« dépressions qui se déplacent »), au prix d'années simulées à la génération.
+- **Déterminisme** : même graine, même tour, même météo.
+
+**Coût.**
+- Fond lent : moins d'une milliseconde par tour.
+- Systèmes : environ 100 systèmes × 120 pas × quelques centaines de points, quelques millisecondes par tour (`rayon` si besoin).
+- Rien sur la carte graphique, hors rendu. Le vrai coût est en conception et en réglages.
+
+**Bilans chiffrés à ajouter.**
+- Écart entre la moyenne de la météo sur 50 ans et le climat, par case et par mois (doit être faible).
+- Fréquence des sécheresses et des hivers rudes par région.
+- Écarts types mensuels comparés aux ordres de grandeur réels.
+- Densité des trajectoires de dépressions (rail des dépressions) et des cyclones.
 
 ### Neige et gel
 - **Stock de neige par case** : la précipitation tombe en neige sous 0 °C et s'accumule ; elle
@@ -130,14 +157,14 @@ méthodes :
 ## Étapes
 1. Calendrier (mois, saison locale, mode 2 tours par mois).
 2. Climat mensuel interpolé.
-3. Météo du mois : écart de pression, températures, pluie, anomalies durables ; bilans.
-4. Neige au sol, gel, boue.
-5. Débit mensuel, crues et étiages, lit mineur et majeur, oueds.
-6. Effets sur les déplacements.
-7. Cyclones et tempêtes.
-8. Rendu (étape 8 g du rendu 3D) et cartes thématiques (écart du mois, neige, débit).
+3. Météo, fond lent : écart de pression, températures, pluie, anomalies durables ; bilan de cohérence avec le climat.
+4. Météo, systèmes qui se déplacent : dépressions, anticyclones, tempêtes ; bilans (cohérence, rail des dépressions).
+5. Neige au sol, gel, boue.
+6. Débit mensuel, crues et étiages, lit mineur et majeur, oueds.
+7. Effets sur les déplacements.
+8. Cyclones (systèmes tropicaux du même moteur).
+9. Rendu (étape 8 g du rendu 3D) et cartes thématiques (écart du mois, neige, débit, risque cyclonique).
 
 ## Questions ouvertes
-- Méthode de la météo : l'écart de pression caché (proposé) convient-il, ou faut-il de vrais
-  systèmes mobiles dans le mode à 2 tours par mois ?
 - Mois de départ d'une partie ; seuils et chiffres des effets sur les déplacements.
+- Réutiliser le moteur des systèmes à la génération du climat (tâche 7 g) : à décider après l'étape 4, selon son coût.

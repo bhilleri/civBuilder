@@ -68,11 +68,12 @@ Voir `conception/conception-saisons.md` (1 tour = 1 mois, mode 2 tours par mois,
 date historique, météo = moyennes + écarts, lit d'hiver et d'été). Avant le rendu (8 g).
 - [ ] a. Calendrier : mois, saison locale, mode 2 tours par mois.
 - [ ] b. Climat mensuel interpolé depuis les quatre saisons.
-- [ ] c. Météo du mois (méthode à valider) et anomalies durables ; bilans.
-- [ ] d. Neige au sol, gel des lacs et cours d'eau, boue au dégel.
-- [ ] e. Débit mensuel : crues, étiages, lit mineur et majeur, oueds.
-- [ ] f. Effets sur les déplacements.
-- [ ] g. Cyclones et tempêtes.
+- [ ] c. Météo, fond lent : écart de pression caché, anomalies durables ; bilan de cohérence avec le climat.
+- [ ] d. Météo, systèmes qui se déplacent (dépressions, anticyclones, tempêtes), même moteur que 7 g à terme.
+- [ ] e. Neige au sol, gel des lacs et cours d'eau, boue au dégel.
+- [ ] f. Débit mensuel : crues, étiages, lit mineur et majeur, oueds.
+- [ ] g. Effets sur les déplacements.
+- [ ] h. Cyclones (systèmes tropicaux du même moteur), carte du risque.
 - Plus tard : navigation, combat, récolte et stocks, santé, prévisions.
 
 ## Plus tard
