@@ -96,6 +96,8 @@ pub enum Arg {
     Text,
     /// « oui » ou « non ».
     Switch,
+    /// Direction d'une voisine : e, ne, no, o, so, se.
+    Direction,
 }
 
 /// Une commande : nom, arguments (nom affiché, nature, facultatif), effet, rubrique.
@@ -143,6 +145,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "unite dette", args: &[AT[0], AT[1], ("pm dus", Arg::Number, false)], help: "Dette de PM de l'unité de la case : retirée des tours suivants, comme après une montagne (immobilisée tant qu'elle prend tous ses PM).", group: Group::Game },
     Spec { name: "unite soigner", args: &AT, help: "Rend à l'unité de la case tous ses PV et ses PM, et efface sa dette.", group: Group::Game },
     Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
+    Spec { name: "pont", args: &[AT[0], AT[1], ("e|ne|no|o|so|se", Arg::Direction, false), ("oui|non", Arg::Switch, true)], help: "Pose (ou retire, « non ») un pont : sur la rivière de l'arête de la case dans cette direction, ou, si la case est un fleuve, en travers d'elle, de la rive de cette direction à la rive opposée (terre ferme des deux côtés). Rivière : traversée sans surcoût ; fleuve : on monte sur le pont par un bout pour 1 PM, sans s'arrêter. Voir le wiki, « Cours d'eau et lacs », Ponts.", group: Group::Game },
     Spec { name: "ville fortifier", args: &[AT[0], AT[1], ("oui|non", Arg::Switch, false)], help: "Pose ou retire la fortification de la ville de la case : sa muraille, ses portes.", group: Group::Game },
     Spec { name: "ville population", args: &[AT[0], AT[1], ("habitants", Arg::Number, false)], help: "Population de la ville de la case (1 à 99) : son stade (hameau, bourg, ville) suit. Le territoire n'est pas recalculé.", group: Group::Game },
     Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
@@ -294,6 +297,8 @@ pub enum Criterion {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Fleuve(Vec<Hex>, f32),
+    /// Pont sur l'arête (ou en travers du fleuve) de la case dans la direction, posé ou retiré.
+    Bridge(Hex, usize, bool),
     /// `true` : climat (et eau) ; `false` : eau seule.
     Regen(bool),
     Path(Hex, Hex, UnitKind),
@@ -484,6 +489,18 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
         "unite dette" => Command::UnitSet(at()?, UnitChange::Debt(number(args[2], "pm dus")?.round().clamp(0.0, 99.0) as u32)),
         "unite soigner" => Command::UnitSet(at()?, UnitChange::Heal),
         "ville" => Command::City(at()?),
+        "pont" => {
+            let dir = match token(args[2]).as_str() {
+                "e" | "est" | "0" => 0,
+                "ne" | "nord-est" | "1" => 1,
+                "no" | "nord-ouest" | "2" => 2,
+                "o" | "ouest" | "3" => 3,
+                "so" | "sud-ouest" | "4" => 4,
+                "se" | "sud-est" | "5" => 5,
+                _ => return Err(format!("pont : direction e, ne, no, o, so ou se, pas « {} »", args[2])),
+            };
+            Command::Bridge(at()?, dir, args.get(3).map(|w| yes_no(w)).transpose()?.unwrap_or(true))
+        }
         "ville fortifier" => Command::CitySet(at()?, CityChange::Fortified(yes_no(args[2])?)),
         "ville population" => Command::CitySet(at()?, CityChange::Population(number(args[2], "habitants")?.round().clamp(1.0, 99.0) as i32)),
         "tour" => Command::Turns(args.first().map(|n| number(n, "nombre")).transpose()?.map_or(1, |n| n.round().clamp(1.0, 100.0) as u32)),
@@ -539,6 +556,7 @@ fn values(arg: Arg) -> Vec<String> {
         Arg::Regen => vec!["eau".into(), "climat".into()],
         Arg::Geo => geo_tokens().into_iter().map(|(n, _)| n).collect(),
         Arg::Switch => vec!["oui".into(), "non".into()],
+        Arg::Direction => ["e", "ne", "no", "o", "so", "se"].iter().map(|d| d.to_string()).collect(),
         _ => Vec::new(),
     }
 }
@@ -1349,6 +1367,29 @@ impl Session {
                 }
                 Reply::effect(format!("OK {} {}en {}", token(kind.name()), if hostile { "hostile " } else { "" }, coords(map, at)), Effect::Unit(kind, at, hostile))
             }
+            Command::Bridge(at, dir, built) => {
+                let Some(site) = map.bridge_site(at, dir) else {
+                    return Reply::error(format!("pas de pont possible en {} vers {} : il faut une rivière sur cette arête entre deux terres, ou un fleuve bordé de terre ferme de ce côté et du côté opposé", coords(map, at), ["e", "ne", "no", "o", "so", "se"][dir]));
+                };
+                let snapshot = map.clone();
+                if !map.set_bridge(site, built) {
+                    return Reply::ok(vec![format!("OK rien à changer : {}", if built { "le pont existe déjà" } else { "pas de pont ici" })]);
+                }
+                let (a, b) = site.ends(map.wrap());
+                let mut changed = vec![a, b];
+                let what = match site {
+                    crate::map::BridgeAt::Edge { .. } => format!("sur la rivière entre {} et {}", coords(map, a), coords(map, b)),
+                    crate::map::BridgeAt::Fleuve { hex, .. } => {
+                        changed.push(hex);
+                        format!("en travers du fleuve {}, de {} à {}", coords(map, hex), coords(map, a), coords(map, b))
+                    }
+                };
+                self.history.push((snapshot, changed.clone()));
+                if self.history.len() > UNDO_DEPTH {
+                    self.history.remove(0);
+                }
+                Reply { ok: true, lines: vec![format!("OK pont {} {what}", if built { "posé" } else { "retiré" })], changed, effect: None }
+            }
             Command::City(at) => Reply::effect(format!("OK ville demandée en {}", coords(map, at)), Effect::City(at)),
             Command::CitySet(at, change) => Reply::effect(format!("OK ville de {} à modifier", coords(map, at)), Effect::CitySet(at, change)),
             Command::UnitSet(at, change) => Reply::effect(format!("OK unité de {} à modifier", coords(map, at)), Effect::UnitSet(at, change)),
@@ -1464,6 +1505,7 @@ mod tests {
                 Arg::Regen => "eau",
                 Arg::Geo => "mers",
                 Arg::Switch => "oui",
+                Arg::Direction => "e",
                 Arg::Text => "x",
             }).collect();
             assert!(parse(&m, &format!("{} {}", s.name, args.join(" "))).is_ok(), "{}", s.name);

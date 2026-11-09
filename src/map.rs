@@ -19,6 +19,8 @@ pub struct StepCost {
     pub water: u32,
     /// Case d'arrivée en montagne (coût propre à chaque type d'unité).
     pub mountain: bool,
+    /// Le pas mène sur le pont d'une case de fleuve (par un de ses bouts).
+    pub onto_bridge: bool,
 }
 
 impl StepCost {
@@ -210,7 +212,10 @@ impl MoveCosts for WorldMap {
         if self.cliff_between(from, to) || ((self.is_ice(from) || self.is_ice(to)) && self.cliff_with_sea(from, to)) {
             return None;
         }
-        if self.river_between(from, to) {
+        // Pont d'un fleuve, par un de ses bouts : 1 PM, sans arrêt ; pont d'une rivière : sans surcoût
+        if self.bridge_end(to, from) {
+            step = StepCost { terrain: BRIDGE_MOVE_COST, onto_bridge: true, ..StepCost::default() };
+        } else if self.river_between(from, to) && !self.bridge_between(from, to) {
             step.water += RIVER_CROSSING_COST;
         }
         step.terrain += climb_cost(self.elevation(from)?, self.elevation(to)?);
@@ -433,6 +438,29 @@ pub fn level_of_meters(m: f32) -> u8 {
 pub const RIVER_CROSSING_COST: u32 = 2;
 /// Entrer dans un fleuve (à gué ou en barque) : 3 PM, l'unité s'y arrête.
 pub const FLEUVE_MOVE_COST: u32 = 3;
+/// Monter sur le pont d'un fleuve par un de ses bouts : 1 PM, sans arrêt (choix de Benjamin, 08/11/2026).
+pub const BRIDGE_MOVE_COST: u32 = 1;
+
+/// Pont construit (voir `conception/conception-ponts.md`) : sur l'arête d'une rivière, ou en
+/// travers d'une case de fleuve, d'une rive à la rive opposée. Toujours rangé sous une seule
+/// écriture (`WorldMap::bridge_site`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BridgeAt {
+    /// Arête `dir` de la case `hex` (rivière d'arête).
+    Edge { hex: Hex, dir: u8 },
+    /// Case de fleuve `hex`, de sa voisine `axis` à sa voisine `axis + 3` (`axis` de 0 à 2).
+    Fleuve { hex: Hex, axis: u8 },
+}
+
+impl BridgeAt {
+    /// Les deux cases que le pont relie (les deux rives).
+    pub fn ends(self, wrap: Wrap) -> (Hex, Hex) {
+        match self {
+            BridgeAt::Edge { hex, dir } => (hex, wrap.neighbor(hex, usize::from(dir))),
+            BridgeAt::Fleuve { hex, axis } => (wrap.neighbor(hex, usize::from(axis)), wrap.neighbor(hex, usize::from(axis) + 3)),
+        }
+    }
+}
 /// Rendements d'une case de fleuve (pêche, transport et commerce).
 pub const FLEUVE_YIELDS: Yields = Yields::new(2, 0, 1);
 /// Un lieu nommé (barre de lieu) : indice de sa zone dans sa famille.
@@ -906,6 +934,8 @@ pub struct WorldMap {
     /// Coin aval de la rivière de chaque arête (numéroté dans la case qui porte le tronçon, 255 sans
     /// tronçon), calculé à la première demande.
     river_down_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
+    /// Ponts construits (ou posés à la console).
+    bridges: HashSet<BridgeAt>,
 }
 
 impl WorldMap {
@@ -950,6 +980,65 @@ impl WorldMap {
             step_cache: std::sync::OnceLock::new(),
             murk_cache: std::sync::OnceLock::new(),
             river_down_cache: std::sync::OnceLock::new(),
+            bridges: HashSet::new(),
+        }
+    }
+
+    /// Emplacement de pont sur l'arête `dir` de la case `hex`, rangé sous son unique écriture :
+    /// en travers de la case si c'est un fleuve (de la voisine `dir` à l'opposée, deux terres
+    /// fermes), sinon sur la rivière de cette arête (deux cases de terre). `None` : pas de pont
+    /// possible ici.
+    pub fn bridge_site(&self, hex: Hex, dir: usize) -> Option<BridgeAt> {
+        let hex = self.canonical(hex);
+        let dir = dir % 6;
+        let firm = |h: Hex| self.contains(h) && !self.is_fleuve(h) && self.get(h).is_some_and(|t| !t.is_water()) && !self.is_ice(h);
+        if self.is_fleuve(hex) {
+            let axis = dir % 3;
+            let ok = firm(self.wrap.neighbor(hex, axis)) && firm(self.wrap.neighbor(hex, axis + 3));
+            return ok.then_some(BridgeAt::Fleuve { hex, axis: axis as u8 });
+        }
+        let other = self.wrap.neighbor(hex, dir);
+        if !(firm(hex) && firm(other) && self.river_flow(hex, dir) > 0.0) {
+            return None;
+        }
+        // (l'écriture de la case de plus petit indice)
+        Some(if self.cell(hex) <= self.cell(other) { BridgeAt::Edge { hex, dir: dir as u8 } } else { BridgeAt::Edge { hex: other, dir: ((dir + 3) % 6) as u8 } })
+    }
+
+    /// Pose (`true`) ou retire un pont ; rend vrai si quelque chose a changé. Une case de fleuve n'a
+    /// qu'un pont : en poser un autre remplace le premier.
+    pub fn set_bridge(&mut self, at: BridgeAt, built: bool) -> bool {
+        if built && let BridgeAt::Fleuve { hex, axis } = at {
+            self.bridges.retain(|b| !matches!(*b, BridgeAt::Fleuve { hex: h, axis: a } if h == hex && a != axis));
+        }
+        let changed = if built { self.bridges.insert(at) } else { self.bridges.remove(&at) };
+        if changed {
+            self.step_cache = std::sync::OnceLock::new();
+        }
+        changed
+    }
+
+    /// Ponts construits.
+    pub fn bridges(&self) -> impl Iterator<Item = BridgeAt> + '_ {
+        self.bridges.iter().copied()
+    }
+
+    /// Un pont franchit la rivière entre deux cases voisines.
+    pub fn bridge_between(&self, a: Hex, b: Hex) -> bool {
+        self.wrap.direction(a, b).and_then(|d| self.bridge_site(a, d)).is_some_and(|at| matches!(at, BridgeAt::Edge { .. }) && self.bridges.contains(&at))
+    }
+
+    /// Axe du pont d'une case de fleuve (0 à 2 : de la voisine `axis` à `axis + 3`), s'il y en a un.
+    pub fn fleuve_bridge(&self, hex: Hex) -> Option<usize> {
+        let hex = self.canonical(hex);
+        (0..3).find(|&axis| self.bridges.contains(&BridgeAt::Fleuve { hex, axis: axis as u8 }))
+    }
+
+    /// `from` est à un bout du pont de la case de fleuve `hex` (on y monte, on en descend).
+    pub fn bridge_end(&self, hex: Hex, from: Hex) -> bool {
+        match (self.fleuve_bridge(hex), self.wrap.direction(hex, from)) {
+            (Some(axis), Some(d)) => d % 3 == axis,
+            _ => false,
         }
     }
 
@@ -3290,6 +3379,45 @@ mod apercu {
         assert!(m.fresh_water(f + crate::hex::DIRECTIONS[3]));
         assert!(crate::rules::can_found_city(&m, f, &[]).is_err());
         assert!(crate::rules::can_found_city(&m, f + crate::hex::DIRECTIONS[3], &[]).is_ok());
+    }
+
+    #[test]
+    fn ponts_sur_riviere_et_fleuve() {
+        use super::*;
+        let mut m = WorldMap::filled(10, 10, Terrain::Grassland);
+        let a = Hex::from_offset(4, 4);
+        let b = a + crate::hex::DIRECTIONS[0];
+        assert_eq!(m.bridge_site(a, 0), None, "pas de pont sans cours d'eau");
+        m.set_river(a, 0, 150.0);
+        // Une seule écriture, quel que soit le côté
+        let at = m.bridge_site(a, 0).unwrap();
+        assert_eq!(m.bridge_site(b, 3), Some(at));
+        assert!(m.set_bridge(at, true) && !m.set_bridge(at, true));
+        assert!(m.bridge_between(a, b) && m.bridge_between(b, a));
+        assert_eq!(m.step_cost(a, b), Some(1), "rivière franchie par le pont sans surcoût");
+        assert_eq!(m.step_cost(b, a), Some(1));
+        // Fleuve : pont d'une rive à l'opposée ; on y monte par un bout pour 1 PM, sans arrêt
+        let f = Hex::from_offset(7, 6);
+        m.set_fleuve(f);
+        let (e0, e3) = (f + crate::hex::DIRECTIONS[1], f + crate::hex::DIRECTIONS[4]);
+        let side = f + crate::hex::DIRECTIONS[0];
+        let at = m.bridge_site(f, 4).unwrap();
+        assert_eq!(at, BridgeAt::Fleuve { hex: f, axis: 1 });
+        m.set_bridge(m.bridge_site(f, 0).unwrap(), true);
+        m.set_bridge(at, true);
+        assert_eq!(m.bridges().count(), 2, "un pont sur la rivière, un seul sur le fleuve");
+        assert_eq!(m.fleuve_bridge(f), Some(1));
+        assert!(m.bridge_end(f, e0) && m.bridge_end(f, e3) && !m.bridge_end(f, side));
+        let onto = m.step(e0, f).unwrap();
+        assert_eq!((onto.total(), onto.water, onto.onto_bridge), (BRIDGE_MOVE_COST, 0, true));
+        assert_eq!(onto.spend(2), (1, 0), "l'unité peut continuer après le pont");
+        assert_eq!(m.step(side, f).unwrap(), StepCost { water: FLEUVE_MOVE_COST, ..StepCost::default() }, "par le côté : dans l'eau");
+        assert_eq!(m.step_cost(f, e3), Some(1), "descendre du pont : le terrain d'arrivée");
+        // Un fleuve bordé d'eau n'a pas de pont
+        m.set(side, Terrain::Ocean);
+        assert_eq!(m.bridge_site(f, 0), None);
+        m.set_bridge(at, false);
+        assert_eq!(m.fleuve_bridge(f), None);
     }
 
     #[test]

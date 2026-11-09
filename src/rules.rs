@@ -46,6 +46,8 @@ pub struct UnitState {
     pub has_attacked: bool,
     /// Entrée dans une zone de contrôle ennemie : plus de déplacement ce tour-ci (l'attaque reste possible).
     pub zoc_stopped: bool,
+    /// Sur le pont d'une case de fleuve (entrée par un de ses bouts) plutôt que dans l'eau.
+    pub on_bridge: bool,
 }
 
 /// Marge tolérée sur le coût estimé d'un ordre avant de le suspendre : +50 %.
@@ -81,6 +83,7 @@ impl UnitState {
             fought_this_turn: false,
             has_attacked: false,
             zoc_stopped: false,
+            on_bridge: false,
         }
     }
 
@@ -120,6 +123,7 @@ impl UnitState {
 
     /// Paie un pas : PM restants, et dette pour le terrain qui dépasse les PM qu'il restait.
     pub fn pay(&mut self, step: StepCost) {
+        self.on_bridge = step.onto_bridge;
         let (left, debt) = step.spend(self.moves_left);
         self.moves_left = left;
         self.move_debt += debt;
@@ -556,7 +560,7 @@ mod tests {
         unit.start_turn(false);
         assert!(!unit.immobilized && unit.moves_left == 2 && unit.stuck_turns() == 0);
         // Rivière et fleuve : arrêt sans dette
-        let river = StepCost { terrain: 1, water: 2, mountain: false };
+        let river = StepCost { terrain: 1, water: 2, ..StepCost::default() };
         assert_eq!(river.spend(1), (0, 0));
         // Cavalerie : double ; éclaireur : deux tiers
         let cav = ForUnit::new(&map, UnitKind::LightCavalry).step(a, b).unwrap();

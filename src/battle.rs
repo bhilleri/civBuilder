@@ -41,16 +41,24 @@ pub fn engagement(
         relief: map.relief(h),
     };
     let (a, d) = (fighter(attacker.0, attacker.1), fighter(defender.0, defender.1));
+    // Sur le pont d'un fleuve : entrée par un de ses bouts (un attaquant qui va se déplacer y arrive
+    // par le pont, moins cher que l'eau)
+    let on_bridge = |u: &UnitState, h: Hex, moving: bool| map.fleuve_bridge(h).is_some() && (u.on_bridge || moving);
+    let defender_on = on_bridge(defender.0, defender.1, false);
+    let attacker_on = on_bridge(attacker.0, attacker.1, will_move);
     match combat::attack_kind(a.kind) {
-        AttackKind::Ranged => Engagement::ranged(a, d),
+        AttackKind::Ranged => Engagement::ranged(a, d).on_bridges(defender_on, attacker_on, false),
         AttackKind::Melee => {
             let flankers = attacker_allies
                 .into_iter()
                 // Un allié séparé de la cible par une falaise ne la flanque pas
                 .filter(|h| *h != attacker.1 && rules::in_attack_position(map, UnitKind::Militia, *h, defender.1))
+                // En sortie du pont d'un fleuve : seulement les alliés déjà sur la rive, à côté du pont
+                .filter(|h| !attacker_on || (!map.is_fleuve(*h) && map.wrap().direction(attacker.1, *h).is_some()))
                 .count() as u32;
+            let over_bridge = map.bridge_between(attacker.1, defender.1);
             let across = map.river_between(attacker.1, defender.1) || map.is_fleuve(attacker.1);
-            Engagement::melee(a, d, attacker.0.moved_this_turn || will_move).flanked_by(flankers).across_river(across)
+            Engagement::melee(a, d, attacker.0.moved_this_turn || will_move).flanked_by(flankers).across_river(across).on_bridges(defender_on, attacker_on, over_bridge)
         }
     }
 }

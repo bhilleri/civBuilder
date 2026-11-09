@@ -103,8 +103,11 @@ pub fn debug_article() -> Article {
 
 fn waters() -> Article {
     use crate::hydro::{FLEUVE_M3S, RIVER_M3S, SMALL_LAKE_KM2};
-    use crate::map::{FLEUVE_MOVE_COST, FLEUVE_YIELDS, FRESH_WATER_FOOD, RIVER_CROSSING_COST};
-    use crate::combat::RIVER_DEFENSE;
+    use crate::map::{BRIDGE_MOVE_COST, FLEUVE_MOVE_COST, FLEUVE_YIELDS, FRESH_WATER_FOOD, RIVER_CROSSING_COST};
+    use crate::combat::{
+        BRIDGE_ARCHER_DEFENSE, BRIDGE_EXIT_ATTACK, BRIDGE_EXIT_CAVALRY_VS_SPEARS, BRIDGE_EXPOSED_DEFENSE, BRIDGE_HOLD_DEFENSE, BRIDGE_SHOT_ATTACK,
+        BRIDGE_SPEAR_DEFENSE, RIVER_DEFENSE,
+    };
     let water = |c: (f32, f32, f32)| swatch(c);
     let kinds = vec![
         (
@@ -208,8 +211,27 @@ fn waters() -> Article {
                 "Une case de terre au bord d'une rivière, d'un fleuve ou d'un lac, ou qui a un petit lac, a de l'eau \
                  douce : +{FRESH_WATER_FOOD} nourriture. Un fleuve rapporte {} nourriture, {} production et {} or \
                  (pêche, transport) ; on ne fonde pas de ville dans son lit, mais sur une rive. Les villes pourront plus \
-                 tard y aménager des ponts et des moulins à eau.",
+                 tard y aménager des moulins à eau.",
                 FLEUVE_YIELDS.food, FLEUVE_YIELDS.production, FLEUVE_YIELDS.gold
+            )),
+            h("Ponts"),
+            p(format!(
+                "Un pont franchit la rivière d'une arête, ou traverse la case d'un fleuve d'une rive à la rive opposée. \
+                 Il sert à tout le monde, ennemis compris. Par le pont, une rivière se traverse sans surcoût ; on monte \
+                 sur le pont d'un fleuve par un de ses bouts pour {BRIDGE_MOVE_COST} PM, et l'on peut s'y arrêter ou \
+                 continuer. Entrer dans le fleuve par un autre côté, c'est entrer dans l'eau ({FLEUVE_MOVE_COST} PM). \
+                 Les villes construiront leurs ponts ; pour l'instant, la console les pose (« pont »)."
+            )),
+            p(format!(
+                "Sur le pont d'un fleuve, une unité attaquée en mêlée ne peut être ni flanquée ni chargée ; \
+                 l'infanterie et les lanciers y tiennent la position (+{BRIDGE_HOLD_DEFENSE} en défense), les lanciers \
+                 encore +{BRIDGE_SPEAR_DEFENSE} face à la cavalerie, et les archers +{BRIDGE_ARCHER_DEFENSE} face aux \
+                 unités à pied sans bouclier (les assaillants n'arrivent qu'un par un). Contre les tirs, elle est \
+                 exposée ({BRIDGE_EXPOSED_DEFENSE} en défense). Attaquer depuis le pont, ou à travers une rivière par \
+                 son pont, c'est une sortie de pont : {BRIDGE_EXIT_ATTACK} en mêlée contre l'infanterie, les lanciers et \
+                 l'archer-épéiste ({BRIDGE_EXIT_CAVALRY_VS_SPEARS} et pas de charge pour la cavalerie contre des \
+                 lanciers), {BRIDGE_SHOT_ATTACK} pour tirer depuis le pont ; seuls les alliés déjà sur la rive, à côté \
+                 du pont, flanquent la cible ; la cible n'a pas le bonus de la rivière à franchir."
             )),
         ],
     }

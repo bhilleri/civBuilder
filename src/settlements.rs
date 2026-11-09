@@ -52,6 +52,11 @@ pub trait Site {
     fn river_near(&self, _p: Vec2) -> Option<RiverAxis> {
         None
     }
+    /// Pont construit sur une rivière qui borde la case (voir `span_bridge`) : la ville y ouvre une
+    /// porte, et le ponton s'en écarte.
+    fn built_bridge(&self) -> Option<Bridge> {
+        None
+    }
 }
 
 /// Tronçon de cours d'eau : point de l'axe, sens du courant, demi-largeur de l'eau.
@@ -724,39 +729,24 @@ fn boat_spot(site: &impl Site, p: &Pier) -> Option<(Vec2, f32)> {
 
 /// Pont sur le cours d'eau proche, là où il est le plus près de la ville : `near` de son côté.
 /// Choisi avant le ponton : une rivière qui ne frôle la ville que sur un arc n'y offre qu'une place.
-fn find_bridge(site: &impl Site) -> Option<Bridge> {
-    let mut best: Option<(f32, Bridge)> = None;
-    for i in 0..72 {
-        let d = Vec2::from_angle(i as f32 / 72.0 * TAU);
-        let mut r = 6.0;
-        while r < 30.0 && site.water_gap(d * r) > 0.0 {
-            r += 0.5;
+/// Pont jeté sur le cours d'eau proche de `toward` : de la terre ferme d'une rive à celle de l'autre
+/// (3,2 de la rive), perpendiculaire au courant, ou selon `across` s'il est donné (pont d'un fleuve,
+/// d'une rive choisie à l'opposée). Rive cherchée jusqu'à `max_bank` de l'axe du cours d'eau ;
+/// `near` est le bout le plus proche du centre du site. `None` : pas de cours d'eau, ou pas de
+/// terre ferme à portée.
+pub fn span_bridge(site: &impl Site, toward: Vec2, across: Option<Vec2>, max_bank: f32) -> Option<Bridge> {
+    let axis = site.river_near(toward)?;
+    let across = across.map_or(axis.dir.perp(), |a| a.normalize_or_zero());
+    let bank = |side: f32| {
+        let mut k = 0.0;
+        while k < max_bank && site.water_gap(axis.point + across * side * k) < 3.2 {
+            k += 0.25;
         }
-        if r >= 30.0 {
-            continue;
-        }
-        let Some(axis) = site.river_near(d * r) else { continue };
-        // (les cours d'eau suivent souvent le bord de la case : le pont arrive alors chez le voisin)
-        if axis.half_width > 9.0 || !in_hex(axis.point, BRIDGE_REACH) {
-            continue;
-        }
-        // Perpendiculaire au courant : jusqu'à la terre ferme de chaque côté
-        let across = axis.dir.perp();
-        let bank = |side: f32| {
-            let mut k = axis.half_width;
-            while k < 14.0 && site.water_gap(axis.point + across * side * k) < 3.2 {
-                k += 0.25;
-            }
-            (k < 14.0).then_some(axis.point + across * side * k)
-        };
-        let (Some(a), Some(b)) = (bank(1.0), bank(-1.0)) else { continue };
-        let (near, far) = if a.length() < b.length() { (a, b) } else { (b, a) };
-        let score = near.length();
-        if best.as_ref().is_none_or(|(s, _)| score < *s) {
-            best = Some((score, Bridge { near, far, half_width: 1.25, head: false }));
-        }
-    }
-    best.map(|b| b.1)
+        (k < max_bank).then_some(axis.point + across * side * k)
+    };
+    let (a, b) = (bank(1.0)?, bank(-1.0)?);
+    let (near, far) = if a.length() < b.length() { (a, b) } else { (b, a) };
+    Some(Bridge { near, far, half_width: 1.25, head: false })
 }
 
 /// Bout du ponton : une avancée dans l'eau, plus courte sur une rivière (l'eau y est étroite).
@@ -876,8 +866,8 @@ pub fn city_layout(site: &impl Site, family: Family, stage: usize, fortified: bo
     let lims = limits(site, marsh);
     // (en marais, la place est le palier : moins large qu'une place de terre)
     let mut g = Ground { site, taken: vec![circle(Vec2::ZERO, if marsh { LANDING + 1.0 } else { PLACE_RADIUS })], marsh };
-    // (le pont n'apparaît qu'au stade Ville, mais sa place est gardée dès le hameau)
-    let bridge_plan = find_bridge(site);
+    // (seulement un pont construit : pas de décor qui contredit les règles)
+    let bridge_plan = site.built_bridge();
     if let Some(b) = bridge_plan {
         g.taken.push(rect(b.near, Vec2::splat(2.0), 0.0).to_vec());
     }
@@ -1001,7 +991,7 @@ pub fn city_layout(site: &impl Site, family: Family, stage: usize, fortified: bo
         .copied()
         .filter(|&(_, k)| match k {
             GateKind::Pier => stage >= 1,
-            GateKind::Bridge => stage >= 2,
+            GateKind::Bridge => true,
             GateKind::Land => {
                 seen += 1;
                 seen <= land_count
@@ -1011,7 +1001,7 @@ pub fn city_layout(site: &impl Site, family: Family, stage: usize, fortified: bo
     let limit = &lims[stage];
     let mut gates: Vec<Gate> = Vec::new();
     let mut pier = pier_plan.filter(|_| stage >= 1);
-    let bridge = bridge_plan.filter(|_| stage >= 2).map(|b| Bridge { head: fortified, ..b });
+    let bridge = bridge_plan.map(|b| Bridge { head: fortified, ..b });
     for &(a, kind) in &used_axes {
         // (la porte du pont est là où son axe coupe la muraille)
         let a = match (kind, bridge) {
@@ -1591,22 +1581,44 @@ mod tests {
         }
     }
 
-    #[test]
-    fn le_pont_apparait_au_stade_ville() {
-        for family in Family::ALL {
-            assert!(city_layout(&Test::River, family, 1, true, 7).bridge.is_none());
-            let city = city_layout(&Test::River, family, 2, true, 7);
-            let b = city.bridge.expect("un pont sur la rivière");
-            assert!(b.head, "tour de tête de pont");
-            assert!(Test::River.water_gap(b.near) >= 3.0 && Test::River.water_gap(b.far) >= 3.0, "les deux bouts sur la terre");
-            assert!(Test::River.water_gap((b.near + b.far) / 2.0) < 0.0, "il franchit l'eau");
-            assert!(city.gates.iter().any(|g| g.kind == GateKind::Bridge));
-            let pier = city.pier.expect("un ponton aussi");
-            assert!(pier.to.angle_to(b.near).abs() > 0.5, "pont et ponton sont écartés : {pier:?} {b:?}");
-            assert!(!city_layout(&Test::River, family, 2, false, 7).bridge.unwrap().head);
+    /// Site avec un pont construit sur la rivière proche de `toward`.
+    struct Bridged<S: Site>(S, Vec2);
+
+    impl<S: Site> Site for Bridged<S> {
+        fn height(&self, p: Vec2) -> f32 {
+            self.0.height(p)
         }
-        assert!(city_layout(&Test::Coast, Family::Prairie, 2, true, 7).bridge.is_none(), "pas de pont sur la mer");
-        assert!(city_layout(&Test::Flat, Family::Prairie, 2, true, 7).bridge.is_none());
+        fn water_gap(&self, p: Vec2) -> f32 {
+            self.0.water_gap(p)
+        }
+        fn river_near(&self, p: Vec2) -> Option<RiverAxis> {
+            self.0.river_near(p)
+        }
+        fn built_bridge(&self) -> Option<Bridge> {
+            span_bridge(&self.0, self.1, None, 14.0)
+        }
+    }
+
+    #[test]
+    fn seul_le_pont_construit_existe() {
+        let river = Bridged(Test::River, Vec2::new(0.0, 20.0));
+        for family in Family::ALL {
+            for stage in 0..3 {
+                assert!(city_layout(&Test::River, family, stage, true, 7).bridge.is_none(), "pas de pont décoratif");
+                let city = city_layout(&river, family, stage, true, 7);
+                let b = city.bridge.expect("le pont construit");
+                assert!(b.head, "tour de tête de pont");
+                assert!(Test::River.water_gap(b.near) >= 3.0 && Test::River.water_gap(b.far) >= 3.0, "les deux bouts sur la terre");
+                assert!(Test::River.water_gap((b.near + b.far) / 2.0) < 0.0, "il franchit l'eau");
+                assert!(city.gates.iter().any(|g| g.kind == GateKind::Bridge));
+                if let Some(pier) = city.pier {
+                    assert!(pier.to.angle_to(b.near).abs() > 0.5, "pont et ponton sont écartés : {pier:?} {b:?}");
+                }
+                assert!(!city_layout(&river, family, stage, false, 7).bridge.unwrap().head);
+            }
+        }
+        assert!(span_bridge(&Test::Coast, Vec2::new(15.0, 15.0), None, 14.0).is_none(), "pas de pont sur la mer");
+        assert!(span_bridge(&Test::Flat, Vec2::ZERO, None, 14.0).is_none());
     }
 
     /// Rivière qui ne frôle la ville que d'un côté, sur un petit arc.
@@ -1627,7 +1639,7 @@ mod tests {
     #[test]
     fn une_riviere_qui_frole_la_ville_garde_pont_et_ponton() {
         for family in Family::ALL {
-            let city = city_layout(&Frole, family, 2, true, 7);
+            let city = city_layout(&Bridged(Frole, Vec2::new(0.0, 29.5)), family, 2, true, 7);
             let b = city.bridge.expect("un pont");
             let pier = city.pier.expect("un ponton");
             assert!(b.near.x.abs() < 3.0, "le pont prend la meilleure place : {b:?}");
@@ -1643,8 +1655,8 @@ mod tests {
     fn le_pont_ne_touche_aucun_batiment() {
         for family in Family::ALL {
             for stage in 0..3 {
-                let plan = find_bridge(&Test::River).unwrap();
-                let l = city_layout(&Test::River, family, stage, true, 7);
+                let plan = span_bridge(&Test::River, Vec2::new(0.0, 20.0), None, 14.0).unwrap();
+                let l = city_layout(&Bridged(Test::River, Vec2::new(0.0, 20.0)), family, stage, true, 7);
                 for b in &l.buildings {
                     assert!(!overlap(&b.corners(), &rect(plan.near, Vec2::splat(1.2), 0.0)), "{b:?}");
                 }

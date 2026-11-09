@@ -20,6 +20,20 @@ pub const TERRAIN_DEFENSE: i32 = 3;
 pub const HIGHER_GROUND_DEFENSE: i32 = 2;
 /// Bonus de défense en mêlée contre un attaquant qui franchit une rivière ou sort d'un fleuve.
 pub const RIVER_DEFENSE: i32 = 3;
+/// Pont (choix de Benjamin, 08/11/2026 ; voir `conception/conception-ponts.md`). Unité sur le pont
+/// d'un fleuve, en défense : infanterie et lanciers en mêlée (position défendable) ; lanciers face à
+/// la cavalerie, en plus ; archers face à une unité à pied sans bouclier (les assaillants n'arrivent
+/// qu'un par un) ; contre un tir, malus (exposée). Ni flanquement ni charge contre elle.
+pub const BRIDGE_HOLD_DEFENSE: i32 = 3;
+pub const BRIDGE_SPEAR_DEFENSE: i32 = 10;
+pub const BRIDGE_ARCHER_DEFENSE: i32 = 3;
+pub const BRIDGE_EXPOSED_DEFENSE: i32 = -3;
+/// Attaque en sortie de pont (depuis le pont d'un fleuve, ou à travers une rivière par son pont) :
+/// mêlée contre l'infanterie, les lanciers ou l'archer-épéiste ; cavalerie contre des lanciers (au
+/// lieu du précédent, et sans charge) ; tir depuis le pont d'un fleuve.
+pub const BRIDGE_EXIT_ATTACK: i32 = -5;
+pub const BRIDGE_EXIT_CAVALRY_VS_SPEARS: i32 = -10;
+pub const BRIDGE_SHOT_ATTACK: i32 = -5;
 /// Bonus de force de tir quand l'archer est plus haut que sa cible (en %).
 pub const HIGH_GROUND_PERCENT: i32 = 20;
 pub const RANDOM_MIN: f32 = 0.8;
@@ -58,14 +72,24 @@ pub struct Engagement {
     pub flanking_allies: u32,
     /// L'attaquant franchit une rivière ou sort d'un fleuve pour frapper (mêlée).
     pub across_river: bool,
+    /// Le défenseur est sur le pont d'un fleuve.
+    pub defender_on_bridge: bool,
+    /// L'attaquant est sur le pont d'un fleuve (sortie de pont en mêlée, tir gêné).
+    pub attacker_on_bridge: bool,
+    /// L'attaquant franchit une rivière par son pont (sortie de pont en mêlée).
+    pub over_bridge: bool,
 }
 
 impl Engagement {
     pub fn melee(attacker: Fighter, defender: Fighter, attacker_moved: bool) -> Self {
-        Self { attacker, defender, kind: AttackKind::Melee, attacker_moved, flanking_allies: 0, across_river: false }
+        Self { attacker, defender, kind: AttackKind::Melee, attacker_moved, flanking_allies: 0, across_river: false, defender_on_bridge: false, attacker_on_bridge: false, over_bridge: false }
     }
     pub fn ranged(attacker: Fighter, defender: Fighter) -> Self {
-        Self { attacker, defender, kind: AttackKind::Ranged, attacker_moved: false, flanking_allies: 0, across_river: false }
+        Self { kind: AttackKind::Ranged, attacker_moved: false, ..Self::melee(attacker, defender, false) }
+    }
+    /// Situation des deux unités vis-à-vis d'un pont (voir les champs).
+    pub fn on_bridges(self, defender_on_bridge: bool, attacker_on_bridge: bool, over_bridge: bool) -> Self {
+        Self { defender_on_bridge, attacker_on_bridge, over_bridge, ..self }
     }
     pub fn flanked_by(self, allies: u32) -> Self {
         Self { flanking_allies: allies, ..self }
@@ -214,12 +238,34 @@ pub fn preview(e: &Engagement) -> Preview {
             if let Some((b, label)) = bonus_vs(a.kind, d.kind) {
                 att_mods.push((label.to_string(), b));
             }
-            let charge = charge_applies(a.kind, e.attacker_moved, d.terrain, d.relief);
+            // Pont : sortie de pont pour l'attaquant, position tenue pour le défenseur
+            let exits = e.attacker_on_bridge || e.over_bridge;
+            let (a_class, d_class) = (a.kind.class(), d.kind.class());
+            let cavalry_vs_spears = a_class == UnitClass::Cavalry && d_class == UnitClass::AntiCavalry;
+            if exits {
+                if cavalry_vs_spears {
+                    att_mods.push(("sortie de pont face aux lances".to_string(), BRIDGE_EXIT_CAVALRY_VS_SPEARS));
+                } else if matches!(d_class, UnitClass::Infantry | UnitClass::AntiCavalry) || d.kind == UnitKind::ArcherSwordsman {
+                    att_mods.push(("sortie de pont".to_string(), BRIDGE_EXIT_ATTACK));
+                }
+            }
+            let charge = charge_applies(a.kind, e.attacker_moved, d.terrain, d.relief) && !e.defender_on_bridge && !(exits && cavalry_vs_spears);
             if charge {
                 att_mods.push(("charge".to_string(), CHARGE_BONUS));
             }
-            if e.flanking_allies > 0 {
+            if e.flanking_allies > 0 && !e.defender_on_bridge {
                 att_mods.push(("flanquement".to_string(), FLANK_BONUS * e.flanking_allies as i32));
+            }
+            if e.defender_on_bridge {
+                if matches!(d_class, UnitClass::Infantry | UnitClass::AntiCavalry) {
+                    def_mods.push(("pont tenu".to_string(), BRIDGE_HOLD_DEFENSE));
+                }
+                if cavalry_vs_spears {
+                    def_mods.push(("lances sur le pont".to_string(), BRIDGE_SPEAR_DEFENSE));
+                }
+                if d_class == UnitClass::Ranged && a_class != UnitClass::Cavalry && !a.kind.has_shield() {
+                    def_mods.push(("pont étroit".to_string(), BRIDGE_ARCHER_DEFENSE));
+                }
             }
             if let Some((b, label)) = bonus_vs(d.kind, a.kind) {
                 def_mods.push((label.to_string(), b));
@@ -227,7 +273,7 @@ pub fn preview(e: &Engagement) -> Preview {
             if d.altitude - a.altitude >= HIGHER_GROUND_M {
                 def_mods.push(("en hauteur".to_string(), HIGHER_GROUND_DEFENSE));
             }
-            if e.across_river {
+            if e.across_river && !e.over_bridge && !e.attacker_on_bridge {
                 def_mods.push(("rivière à franchir".to_string(), RIVER_DEFENSE));
             }
             (
@@ -240,6 +286,12 @@ pub fn preview(e: &Engagement) -> Preview {
             let mut att_mods = Vec::new();
             if a.altitude - d.altitude >= HIGHER_GROUND_M {
                 att_mods.push(("surplomb".to_string(), (sa.ranged_attack * HIGH_GROUND_PERCENT + 50) / 100));
+            }
+            if e.attacker_on_bridge {
+                att_mods.push(("tir depuis le pont".to_string(), BRIDGE_SHOT_ATTACK));
+            }
+            if e.defender_on_bridge {
+                def_mods.push(("exposé sur le pont".to_string(), BRIDGE_EXPOSED_DEFENSE));
             }
             (
                 Strength::build(sa.ranged_attack, att_mods, a.hp),
@@ -348,6 +400,40 @@ mod tests {
         let shot = preview(&Engagement::ranged(f(ExpertArcher), f(Militia)).across_river(true));
         let flat = preview(&Engagement::ranged(f(ExpertArcher), f(Militia)));
         assert_eq!(shot.defense.value, flat.defense.value);
+    }
+
+    #[test]
+    fn combats_sur_le_pont() {
+        let melee = |a: UnitKind, d: UnitKind| Engagement::melee(f(a), f(d), true).flanked_by(2);
+        let value = |e: Engagement| (preview(&e).attack.value, preview(&e).defense.value, preview(&e).charge);
+        // Défenseur sur le pont : ni flanquement ni charge ; infanterie et lanciers tiennent le pont
+        let (att, def, _) = value(melee(Militia, Militia));
+        let (att_b, def_b, _) = value(melee(Militia, Militia).on_bridges(true, false, false));
+        assert_eq!((att_b, def_b), (att - 2 * FLANK_BONUS, def + BRIDGE_HOLD_DEFENSE));
+        let (_, def, charge) = value(melee(HeavyCavalry, Spearman));
+        let (_, def_b, charge_b) = value(melee(HeavyCavalry, Spearman).on_bridges(true, false, false));
+        assert!(charge && !charge_b);
+        assert_eq!(def_b, def + BRIDGE_HOLD_DEFENSE + BRIDGE_SPEAR_DEFENSE);
+        // Archers sur le pont : tenus face aux unités à pied sans bouclier, pas face à un bouclier
+        let (_, def, _) = value(melee(HeavyWarrior, ExpertArcher));
+        assert_eq!(value(melee(HeavyWarrior, ExpertArcher).on_bridges(true, false, false)).1, def + BRIDGE_ARCHER_DEFENSE);
+        let (_, def, _) = value(melee(ShieldWarrior, ExpertArcher));
+        assert_eq!(value(melee(ShieldWarrior, ExpertArcher).on_bridges(true, false, false)).1, def);
+        // Exposé aux tirs ; tir depuis le pont gêné
+        let shot = |d_on: bool, a_on: bool| preview(&Engagement::ranged(f(ExpertArcher), f(Militia)).on_bridges(d_on, a_on, false));
+        assert_eq!(shot(true, false).defense.value, shot(false, false).defense.value + BRIDGE_EXPOSED_DEFENSE);
+        assert_eq!(shot(false, true).attack.value, shot(false, false).attack.value + BRIDGE_SHOT_ATTACK);
+        // Sortie de pont : malus contre l'infanterie, pas de bonus de rivière pour le défenseur
+        let wet = melee(Militia, Militia).across_river(true);
+        let (att, def, _) = value(wet);
+        let (att_b, def_b, _) = value(wet.on_bridges(false, false, true));
+        assert_eq!((att_b, def_b), (att + BRIDGE_EXIT_ATTACK, def - RIVER_DEFENSE));
+        assert_eq!(value(melee(Militia, ExpertArcher).on_bridges(false, true, false)).0, value(melee(Militia, ExpertArcher)).0, "pas de malus contre un archer sans épée");
+        // Cavalerie contre des lances en sortie de pont : −10 et pas de charge
+        let (att, _, _) = value(melee(HeavyCavalry, Spearman));
+        let (att_b, _, charge_b) = value(melee(HeavyCavalry, Spearman).on_bridges(false, true, false));
+        assert!(!charge_b);
+        assert_eq!(att_b, att - CHARGE_BONUS + BRIDGE_EXIT_CAVALRY_VS_SPEARS);
     }
 
     #[test]

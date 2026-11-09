@@ -1342,6 +1342,7 @@ impl Plugin for RenderPlugin {
             .init_gizmo_group::<ReachGizmos>()
             .init_gizmo_group::<PlateGizmos>()
             .add_systems(Startup, (setup_map_visuals, setup_reach_gizmos, setup_plate_gizmos, setup_slope_overlay, setup_water_overlay, setup_hatch_overlay, setup_bank_overlay, setup_geo_gizmos))
+            .add_systems(Update, sync_bridges_2d)
             .add_systems(
             Update,
             (
@@ -1575,6 +1576,87 @@ fn spawn_relief_marks(commands: &mut Commands, g: &ReliefGlyphs, relief: Relief,
         glyph(&g.peak_lit, &g.bump_light, at + Vec3::Z * 0.01, k);
         if relief == Relief::Peak {
             glyph(&g.peak_cap, &g.snow_cap, at + Vec3::Z * 0.02, k);
+        }
+    }
+}
+
+/// Hauteur d'un pont en 2D : au-dessus des cours d'eau et des berges, sous les villes et les unités.
+const Z_BRIDGE: f32 = 0.8;
+
+/// Pont construit, en 2D (voir `sync_bridges_2d`).
+#[derive(Component)]
+struct Bridge2d(crate::map::BridgeAt);
+
+/// Bouts d'un pont en 2D (repère du monde) : par-dessus l'arête d'une rivière, ou en travers de la
+/// case d'un fleuve, d'une berge à l'autre.
+pub fn bridge_ends_2d(map: &crate::map::WorldMap, at: crate::map::BridgeAt) -> (Vec2, Vec2) {
+    let wrap = map.wrap();
+    let world = |h: Hex| {
+        let (x, y) = h.to_world();
+        Vec2::new(x, y)
+    };
+    match at {
+        crate::map::BridgeAt::Edge { hex, dir } => {
+            let (a, b) = (world(hex), world(wrap.nearest(hex, wrap.neighbor(hex, usize::from(dir)))));
+            (a.lerp(b, 0.36), a.lerp(b, 0.64))
+        }
+        crate::map::BridgeAt::Fleuve { hex, axis } => {
+            let a = world(wrap.nearest(hex, wrap.neighbor(hex, usize::from(axis))));
+            let b = world(wrap.nearest(hex, wrap.neighbor(hex, usize::from(axis) + 3)));
+            (a.lerp(b, 0.22), a.lerp(b, 0.78))
+        }
+    }
+}
+
+/// Ponts construits en 2D : une planche brune bordée de sombre, posée sur l'eau, montrée quand
+/// ses deux rives sont explorées.
+#[allow(clippy::too_many_arguments)]
+fn sync_bridges_2d(
+    mut commands: Commands,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut drawn: Local<HashMap<crate::map::BridgeAt, Entity>>,
+    mut paint: Local<Option<(Handle<ColorMaterial>, Handle<ColorMaterial>)>>,
+    mut shown: Query<(&Bridge2d, &mut Visibility)>,
+) {
+    let wanted: HashSet<crate::map::BridgeAt> = map.0.bridges().collect();
+    let mut added = false;
+    drawn.retain(|at, e| {
+        let keep = wanted.contains(at);
+        if !keep {
+            commands.entity(*e).despawn();
+        }
+        keep
+    });
+    let (outline, deck) = paint.get_or_insert_with(|| (materials.add(Color::srgb(0.24, 0.16, 0.09)), materials.add(Color::srgb(0.62, 0.45, 0.27)))).clone();
+    for at in wanted {
+        if drawn.contains_key(&at) {
+            continue;
+        }
+        added = true;
+        let (a, b) = bridge_ends_2d(&map.0, at);
+        let len = a.distance(b);
+        let mid = (a + b) / 2.0;
+        let angle = (b - a).to_angle();
+        let e = commands
+            .spawn((Bridge2d(at), Transform::from_xyz(mid.x, mid.y, Z_BRIDGE).with_rotation(Quat::from_rotation_z(angle)), Visibility::Hidden))
+            .with_children(|p| {
+                p.spawn((Mesh2d(meshes.add(Rectangle::new(len + 2.0, 7.0))), MeshMaterial2d(outline.clone()), Transform::default()));
+                p.spawn((Mesh2d(meshes.add(Rectangle::new(len, 4.6))), MeshMaterial2d(deck.clone()), Transform::from_xyz(0.0, 0.0, 0.01)));
+            })
+            .id();
+        drawn.insert(at, e);
+    }
+    if !added && !fog.is_changed() {
+        return;
+    }
+    for (bridge, mut vis) in &mut shown {
+        let (e0, e1) = bridge.0.ends(map.0.wrap());
+        let wanted = if fog.explored.contains(&e0) && fog.explored.contains(&e1) { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != wanted {
+            *vis = wanted;
         }
     }
 }

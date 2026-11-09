@@ -672,6 +672,14 @@ pub fn bake(layout: &Layout, ground: &dyn Fn(Vec2) -> f32, water: f32, player: R
     b.data
 }
 
+/// Maillage d'un pont construit hors d'une ville (en bois pour l'instant ; les matériaux viendront
+/// avec les ponts à construire). `ground` : hauteur du sol, relative à l'origine du maillage.
+pub fn bake_bridge(bridge: &Bridge, ground: &dyn Fn(Vec2) -> f32) -> MeshData {
+    let mut b = Baker { data: MeshData::default(), ground, player: srgb(0x3373F2), deck: None };
+    b.bridge(bridge, Family::Prairie);
+    b.data
+}
+
 /// Couverture des tentes : la matière du lieu. Seule la tente du chef porte le rouge hostile.
 fn tent_color(f: Family) -> Rgb {
     srgb(match f {

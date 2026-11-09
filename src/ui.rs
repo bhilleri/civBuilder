@@ -1819,7 +1819,7 @@ fn animate_log(
 
 /// Cours d'eau d'une case pour le survol : fleuve, rivières sur ses arêtes, eau douce.
 fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
-    use crate::map::{FLEUVE_MOVE_COST, FRESH_WATER_FOOD, RIVER_CROSSING_COST};
+    use crate::map::{BRIDGE_MOVE_COST, FLEUVE_MOVE_COST, FRESH_WATER_FOOD, RIVER_CROSSING_COST};
     const SIDES: [&str; 6] = ["à l'est", "au nord-est", "au nord-ouest", "à l'ouest", "au sud-ouest", "au sud-est"];
     let flow = |q: f32| format!("≈ {} m³/s", round_flow(q));
     let mut note = String::new();
@@ -1835,6 +1835,14 @@ fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
             "\nFleuve{name} ({}) : une unité à pied y entre à gué ou en barque ({FLEUVE_MOVE_COST} PM) ; pas de ville dans son lit",
             flow(map.discharge(h))
         );
+        if let Some(axis) = map.fleuve_bridge(h) {
+            const BANKS: [&str; 6] = ["est", "nord-est", "nord-ouest", "ouest", "sud-ouest", "sud-est"];
+            note += &format!(
+                "\nPont, de la rive {} à la rive {} : on y monte par un bout ({BRIDGE_MOVE_COST} PM, on peut s'y arrêter) ; on s'y défend mal contre les tirs",
+                BANKS[axis],
+                BANKS[axis + 3]
+            );
+        }
     }
     let rivers: Vec<(usize, f32)> = (0..6).map(|d| (d, map.river_flow(h, d))).filter(|(_, q)| *q > 0.0).collect();
     if !rivers.is_empty() {
@@ -1846,6 +1854,10 @@ fn water_note(map: &crate::map::WorldMap, h: crate::hex::Hex) -> String {
             })
             .collect();
         note += &format!("\nRivière {} : la traverser coûte +{RIVER_CROSSING_COST} PM", sides.join(", "));
+        let bridged: Vec<&str> = rivers.iter().filter(|&&(d, _)| map.bridge_between(h, map.wrap().neighbor(h, d))).map(|&(d, _)| SIDES[d]).collect();
+        if !bridged.is_empty() {
+            note += &format!(" ; pont {} : sans surcoût", bridged.join(", "));
+        }
     }
     if map.small_lake(h) {
         note += "\nPetit lac";

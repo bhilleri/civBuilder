@@ -159,6 +159,12 @@ impl UnitKind {
         matches!(self.class(), UnitClass::Infantry | UnitClass::AntiCavalry)
     }
 
+    /// Porte un bouclier (guerrier à bouclier, lancier) : ne compte pas comme une unité « sans
+    /// bouclier » face aux archers d'un pont.
+    pub fn has_shield(self) -> bool {
+        matches!(self, UnitKind::ShieldWarrior | UnitKind::Spearman)
+    }
+
     /// Charge de cavalerie possible (cavalerie de mêlée uniquement).
     pub fn can_charge(self) -> bool {
         matches!(self, UnitKind::LightCavalry | UnitKind::HeavyCavalry)

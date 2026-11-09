@@ -82,12 +82,15 @@ Pour la famille Marais, la pose change (`marsh_ponds`, `marsh_network`) :
 
 ## Ponts
 
-- **Où** (`find_bridge`) : sur un cours d'eau proche, à l'endroit où l'on arrive le plus près du centre, jamais sur la mer ni un lac (`Site::river_near`, adossé aux lits de `relief.channels`). Largeur d'eau limitée à 18. Il est choisi **avant le ponton**, qui s'en écarte (11 de distance, et 0,8 rad autour du centre, ou 0,4 rad si la place manque) : une rivière qui ne frôle la ville que sur un petit arc n'offre qu'une bonne place, et le ponton, s'il la prenait, ne laissait aucun emplacement au pont.
-- **Forme** : perpendiculaire au courant, d'une terre ferme à l'autre (3,2 de la rive). Tablier bombé sur piles, en pierre sous une muraille de pierre, en bois sinon.
-- **Quand** : le pont n'apparaît qu'au stade Ville, mais sa culée et l'axe de sa porte sont réservés dès le hameau : rien ne bouge quand il arrive.
+Depuis le 08/11/2026, les ponts sont dans les règles (voir `conception-ponts.md`) : **seul un pont construit (ou posé à la
+console) existe**, plus de pont décoratif au stade Ville (« pas de décor qui contredit la réalité »). La pose d'une ville reprend
+un pont construit sur une rivière qui borde sa case (`Site::built_bridge`).
+- **Où** (`span_bridge`) : sur le cours d'eau de l'arête (ou du fleuve), là où le pont a été construit, jamais sur la mer ni un lac (`Site::river_near`, adossé aux lits de `relief.channels`). Il est placé **avant le ponton**, qui s'en écarte (11 de distance, et 0,8 rad autour du centre, ou 0,4 rad si la place manque).
+- **Forme** : perpendiculaire au courant, d'une terre ferme à l'autre (3,2 de la rive), puis chaque bout repoussé vers sa rive tant que le sol y est sous l'eau (+0,8 ; `anchor_bridge`). Tablier bombé sur piles, en pierre sous une muraille de pierre, en bois sinon (et hors des villes).
+- **Quand** : dès qu'il est construit, quel que soit le stade de la ville.
 - **Autre rive** : les cours d'eau suivent souvent le bord de la case. Le pont arrive alors dans la case voisine, et la tête de pont y est posée. Un chemin s'y perd.
 - **Fortifiée** : la porte est là où l'axe du pont coupe la muraille, et une tour à la couleur du joueur garde l'autre rive.
-- **Décor** : aucun effet sur les déplacements ni les combats, à décider plus tard.
+- **Arbres** : ni arbre ni rocher à moins de 4,5 du tablier et de ses bouts (`BRIDGE_CLEARING`).
 
 ## Vérifier
 

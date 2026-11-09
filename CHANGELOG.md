@@ -6,6 +6,12 @@
 - **Mode joueur pilotable** : `CIVBUILDER_PILOTE=<fichier>` (`scripts/pilote.sh`) fait jouer une partie normale, sans mode debug, par des ordres ajoutés au fichier pendant la partie : clics sur la carte, touches, boutons de l'interface, captures. Les réponses ne donnent que ce que le joueur peut savoir. Plusieurs parties peuvent tourner en même temps, la vraie souris n'est pas déplacée.
 - **Taille de la fenêtre au lancement** : `CIVBUILDER_FENETRE=1920x1080`.
 
+### Ponts
+- **Les ponts ont un effet en jeu**, et servent à tout le monde. Par un pont, une rivière se traverse sans surcoût. Sur un fleuve, on monte sur le pont par un de ses bouts pour 1 PM, et l'on peut s'y arrêter ou continuer.
+- **Combat sur le pont** : pas de flanquement ni de charge contre une unité sur le pont ; l'infanterie et les lanciers le tiennent (+3, les lanciers encore +10 face à la cavalerie), les archers aussi face aux unités à pied sans bouclier (+3) ; contre les tirs, on y est exposé (−3). En sortie de pont : −5 en mêlée contre l'infanterie, les lanciers et l'archer-épéiste, −10 et pas de charge pour la cavalerie contre des lanciers, −5 pour tirer depuis le pont ; seuls les alliés déjà sur la rive flanquent ; plus de bonus de rivière à franchir.
+- **Plus de pont décoratif** au stade Ville : seuls les ponts construits existent. Pour l'instant, la console les pose (`pont col lig direction`) ; les villes les construiront.
+- **Dessin** : en 2D, une planche sur l'eau ; en 3D, un pont perpendiculaire au courant, posé sur une berge sèche, sans arbre à ses abords. Infobulle des cases.
+
 ### Climat et rivières
 - **Pluies extrêmes plafonnées** : plus de 35 000 mm/an sur un versant, le maximum tombe vers 10 000 à 15 000 mm. L'eau qui ne tombe pas continue avec le vent : il y a 8 à 21 % de cases de désert en moins. Le monde généré change : pour une même graine, biomes, cours d'eau et noms ne sont plus les mêmes.
 - **Rivières plus nombreuses, qui partent d'un filet** : une rivière se trace dès 100 m³/s, quelle que soit la taille de son bassin, et s'élargit depuis sa source. Plus de rivière qui naît d'un coup à pleine largeur.

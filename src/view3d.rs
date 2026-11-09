@@ -340,6 +340,8 @@ struct ReliefSite<'a> {
     center: Vec2,
     hex: Hex,
     shoreline: crate::relief::Shoreline,
+    /// Pont construit sur une rivière qui borde la case (ville : porte et tête de pont).
+    built: Option<crate::settlements::Bridge>,
 }
 
 /// Rivage dessiné de la mer et des lacs autour d'un point : celui que le joueur voit.
@@ -372,6 +374,166 @@ impl crate::settlements::Site for ReliefSite<'_> {
         let near = self.relief.channels.get(&self.hex)?;
         let (point, dir, half_width) = near.iter().filter_map(|c| c.span_near(q)).min_by(|a, b| a.0.distance(q).total_cmp(&b.0.distance(q)))?;
         (point.distance(q) <= half_width + 2.0).then_some(crate::settlements::RiverAxis { point: point - self.center, dir, half_width })
+    }
+
+    fn built_bridge(&self) -> Option<crate::settlements::Bridge> {
+        self.built
+    }
+}
+
+/// Distance à laquelle on cherche la terre ferme de l'autre rive : rivière, fleuve.
+const BRIDGE_BANK_RIVER: f32 = 14.0;
+const BRIDGE_BANK_FLEUVE: f32 = 40.0;
+/// Rayon dégagé de tout arbre et rocher autour d'un pont (le long du tablier et à ses bouts).
+const BRIDGE_CLEARING: f32 = 4.5;
+/// Un bout de pont repose sur un sol au moins à cette hauteur au-dessus de l'eau ; on le
+/// prolonge vers la terre (de `BRIDGE_EXTEND_STEP` à la fois, jusqu'à `BRIDGE_EXTEND_MAX`) tant
+/// que la berge est plus basse (fleuve dont l'eau monte sur une rive en pente douce).
+const BRIDGE_ABOVE_WATER: f32 = 0.8;
+const BRIDGE_EXTEND_STEP: f32 = 0.5;
+const BRIDGE_EXTEND_MAX: f32 = 40.0;
+
+/// Pose les deux bouts d'un pont sur une berge sèche : chacun est repoussé vers sa rive tant que
+/// le sol y est sous la surface de l'eau (plus `BRIDGE_ABOVE_WATER`).
+fn anchor_bridge(relief: &Relief, hex: Hex, origin: Vec2, mut bridge: crate::settlements::Bridge) -> crate::settlements::Bridge {
+    let level = water_near(relief, hex, origin + (bridge.near + bridge.far) / 2.0);
+    let out = (bridge.far - bridge.near).normalize_or_zero();
+    for (end, dir) in [(&mut bridge.near, -out), (&mut bridge.far, out)] {
+        let mut k = 0.0;
+        while k < BRIDGE_EXTEND_MAX && relief.ground(origin.x + end.x, origin.y + end.y) < level + BRIDGE_ABOVE_WATER {
+            *end += dir * BRIDGE_EXTEND_STEP;
+            k += BRIDGE_EXTEND_STEP;
+        }
+    }
+    bridge
+}
+
+/// Pose d'un pont construit en 3D : centre de la case qui sert d'origine, et pont relatif à ce
+/// centre. Le pont est posé sur la terre ferme de chaque rive (`settlements::span_bridge`), selon
+/// les lits creusés ; à défaut (lits pas encore calculés), un tablier droit par-dessus l'eau.
+fn bridge_pose(map: &crate::map::WorldMap, relief: &Relief, at: crate::map::BridgeAt) -> (Vec2, crate::settlements::Bridge) {
+    let wrap = map.wrap();
+    let world = |h: Hex| {
+        let (x, y) = h.to_world();
+        Vec2::new(x, y)
+    };
+    match at {
+        crate::map::BridgeAt::Edge { hex, dir } => {
+            let c = world(hex);
+            let other = world(wrap.nearest(hex, wrap.neighbor(hex, usize::from(dir))));
+            let site = ReliefSite { relief, center: c, hex, shoreline: shoreline_near(map, relief, c), built: None };
+            let toward = (other - c) / 2.0;
+            let bridge = crate::settlements::span_bridge(&site, toward, None, BRIDGE_BANK_RIVER)
+                .unwrap_or(crate::settlements::Bridge { near: toward * 0.7, far: toward * 1.3, half_width: 1.25, head: false });
+            (c, anchor_bridge(relief, hex, c, bridge))
+        }
+        crate::map::BridgeAt::Fleuve { hex, axis } => {
+            let c = world(hex);
+            let a = world(wrap.nearest(hex, wrap.neighbor(hex, usize::from(axis)))) - c;
+            let site = ReliefSite { relief, center: c, hex, shoreline: shoreline_near(map, relief, c), built: None };
+            // (perpendiculaire au courant, comme sur une rivière ; les rives reliées dans les règles
+            // sont celles de ses deux bouts)
+            let mut bridge = crate::settlements::span_bridge(&site, Vec2::ZERO, None, BRIDGE_BANK_FLEUVE)
+                .unwrap_or(crate::settlements::Bridge { near: a * 0.55, far: -a * 0.55, half_width: 1.25, head: false });
+            // (le bout `near` du côté de la rive `axis`)
+            if bridge.near.dot(a) < bridge.far.dot(a) {
+                std::mem::swap(&mut bridge.near, &mut bridge.far);
+            }
+            (c, anchor_bridge(relief, hex, c, bridge))
+        }
+    }
+}
+
+/// Pont construit sur une rivière qui borde une ville, vu depuis son centre (le premier dans
+/// l'ordre des directions) : la pose de la ville le dessine, avec sa porte et sa tête de pont.
+fn city_bridge(map: &crate::map::WorldMap, relief: &Relief, hex: Hex) -> Option<(usize, crate::settlements::Bridge)> {
+    let dir = (0..6).find(|&d| map.bridge_between(hex, map.wrap().neighbor(hex, d)))?;
+    let at = map.bridge_site(hex, dir)?;
+    let (_, bridge) = bridge_pose(map, relief, at);
+    // (pose rapportée au centre de la ville, si le pont est rangé sous la case voisine)
+    let stored = match at {
+        crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. } => hex,
+    };
+    let ((sx, sy), (x, y)) = (map.wrap().nearest(hex, stored).to_world(), hex.to_world());
+    let shift = Vec2::new(sx - x, sy - y);
+    let (near, far) = (bridge.near + shift, bridge.far + shift);
+    let (near, far) = if near.length() <= far.length() { (near, far) } else { (far, near) };
+    Some((dir, crate::settlements::Bridge { near, far, ..bridge }))
+}
+
+/// Pont construit, dessiné à part (ceux des villes sont dans leur pose).
+#[derive(Component)]
+struct Bridge3d;
+
+/// Ponts construits en 3D : entité et clé de pose de chacun (génération du relief alentour, ville
+/// au bout, rives explorées), et tracé de tous (y compris ceux des villes) pour dégager les arbres.
+#[derive(Resource, Default)]
+struct Bridges3d {
+    drawn: HashMap<crate::map::BridgeAt, (Option<Entity>, (u32, bool))>,
+    /// Bouts de chaque pont (repère 2D du monde).
+    spans: Vec<(Vec2, Vec2)>,
+}
+
+/// Dessine les ponts construits (ou posés à la console) et les refait quand le relief alentour
+/// change. Un pont n'est montré que si ses deux rives sont explorées.
+#[allow(clippy::too_many_arguments)]
+fn sync_bridges_3d(
+    mut commands: Commands,
+    map: Res<GameMap>,
+    relief: Option<Res<Relief>>,
+    fog: Res<ShownFog>,
+    assets: Option<Res<Assets3d>>,
+    cities: Query<&HexPos, With<City>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut state: ResMut<Bridges3d>,
+) {
+    let (Some(relief), Some(a)) = (relief, assets) else { return };
+    let wrap = map.0.wrap();
+    let city_hexes: HashSet<Hex> = cities.iter().map(|p| map.0.canonical(p.0)).collect();
+    let wanted: HashSet<crate::map::BridgeAt> = map.0.bridges().collect();
+    let gone: Vec<crate::map::BridgeAt> = state.drawn.keys().filter(|k| !wanted.contains(*k)).copied().collect();
+    let mut changed = !gone.is_empty();
+    for k in gone {
+        if let Some((Some(e), _)) = state.drawn.remove(&k) {
+            commands.entity(e).despawn();
+        }
+    }
+    for at in wanted {
+        let (e0, e1) = at.ends(wrap);
+        let mid = match at {
+            crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. } => hex,
+        };
+        let generation = [e0, e1, mid].iter().map(|h| relief.generation.get(h).copied().unwrap_or(0)).sum::<u32>();
+        let seen = fog.explored.contains(&e0) && fog.explored.contains(&e1) && fog.explored.contains(&mid);
+        let in_city = matches!(at, crate::map::BridgeAt::Edge { .. }) && (city_hexes.contains(&e0) || city_hexes.contains(&e1));
+        let key = (generation + u32::from(in_city) * 1_000_000, seen);
+        if state.drawn.get(&at).is_some_and(|d| d.1 == key) {
+            continue;
+        }
+        changed = true;
+        if let Some((Some(e), _)) = state.drawn.remove(&at) {
+            commands.entity(e).despawn();
+        }
+        // (le pont d'une ville est dessiné par sa pose)
+        let entity = (seen && !in_city).then(|| {
+            let (origin, bridge) = bridge_pose(&map.0, &relief, at);
+            let base = relief.ground(origin.x, origin.y);
+            let ground = |p: Vec2| relief.ground(origin.x + p.x, origin.y + p.y) - base;
+            let mesh = meshes.add(to_mesh(crate::settlement_mesh::bake_bridge(&bridge, &ground)));
+            commands.spawn((Bridge3d, Mesh3d(mesh), MeshMaterial3d(a.site_body.clone()), Transform::from_xyz(origin.x, base, -origin.y), layer())).id()
+        });
+        state.drawn.insert(at, (entity, key));
+    }
+    if changed {
+        let spans = state
+            .drawn
+            .keys()
+            .map(|&at| {
+                let (o, b) = bridge_pose(&map.0, &relief, at);
+                (o + b.near, o + b.far)
+            })
+            .collect();
+        state.spans = spans;
     }
 }
 
@@ -499,6 +661,7 @@ impl Plugin for View3dPlugin {
             .init_resource::<ReliefPending>()
             .init_gizmo_group::<Gizmos3d>()
             .insert_resource(GlobalAmbientLight { brightness: 420.0, ..default() })
+            .init_resource::<Bridges3d>()
             .add_systems(Startup, setup_3d)
             .add_systems(
                 Update,
@@ -507,6 +670,7 @@ impl Plugin for View3dPlugin {
                     apply_view_mode,
                     camera_3d_controls,
                     update_relief_3d,
+                    sync_bridges_3d,
                     update_decor_3d,
                     spawn_mirrors,
                     sync_mirrors,
@@ -1868,6 +2032,7 @@ fn update_decor_3d(
     layer: Res<MapLayer>,
     mut shown_codes: Local<HashMap<Hex, u8>>,
     map: Res<GameMap>,
+    bridges: Res<Bridges3d>,
 ) {
     let removed = removed_villages.read().count() + removed_camps.read().count() > 0;
     // Clairière de chaque ville : elle grandit avec le stade et va jusqu'à la muraille
@@ -1881,7 +2046,7 @@ fn update_decor_3d(
         }
         clearing.insert(pos.0, if city.state.fortified { [26.0, 28.0, 99.0][stage] } else { [20.5, 24.0, 99.0][stage] });
     }
-    if !fog.is_changed() && added.is_empty() && !removed && !layer.is_changed() && !city_changed {
+    if !fog.is_changed() && added.is_empty() && !removed && !layer.is_changed() && !city_changed && !bridges.is_changed() {
         return;
     }
     for pos in &villages {
@@ -1898,11 +2063,27 @@ fn update_decor_3d(
         clearing.insert(pos.0, if camp.kind == crate::settlements::CampKind::Fort { 99.0 } else { 22.5 });
     }
     let topo = layer.thematic();
+    // Abords des ponts dégagés : ni arbre ni rocher sur le tablier ou à ses bouts (distance au plus
+    // court autour de la planète)
+    let world = map.0.wrap().world_width();
+    let near_bridge = |p: Vec2| {
+        bridges.spans.iter().any(|&(a, b)| {
+            let mut q = p;
+            if world > 0.0 {
+                q.x = a.x + (q.x - a.x + world / 2.0).rem_euclid(world) - world / 2.0;
+            }
+            let ab = b - a;
+            let t = ((q - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+            q.distance(a + ab * t) < BRIDGE_CLEARING
+        })
+    };
     for (d, mut vis) in &mut decor {
+        let (cx, cy) = d.hex.to_world();
         let shown = fog.explored.contains(&d.hex)
             && d.requires.is_none_or(|r| fog.explored.contains(&r))
             && !(topo && d.vegetation)
-            && clearing.get(&d.hex).is_none_or(|&r| d.offset.length() > r);
+            && clearing.get(&d.hex).is_none_or(|&r| d.offset.length() > r)
+            && (bridges.spans.is_empty() || !near_bridge(Vec2::new(cx, cy) + d.offset));
         let wanted = if shown { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != wanted {
             *vis = wanted;
@@ -2104,7 +2285,9 @@ fn sync_mirrors(
         }
         // Stade et fortification d'une ville : ils changent sa pose
         let city = cities.get(mirror.source).ok();
-        let code = city.map_or(0, |c| crate::settlements::stage_of_population(c.state.population) as u8 * 2 + u8::from(c.state.fortified));
+        // (et le pont construit sur une rivière qui la borde : porte et tête de pont)
+        let bridge_dir = city.and_then(|_| (0..6).find(|&d| map.0.bridge_between(hex, map.0.wrap().neighbor(hex, d))));
+        let code = city.map_or(0, |c| crate::settlements::stage_of_population(c.state.population) as u8 * 2 + u8::from(c.state.fortified)) + bridge_dir.map_or(0, |d| 8 * (d as u8 + 1));
         let key = (hex, relief.generation.get(&hex).copied().unwrap_or(0), code);
         if mirror.placed != Some(key) {
             mirror.placed = Some(key);
@@ -2155,7 +2338,8 @@ fn sync_mirrors(
                 // Pose gardée tant que le stade et la fortification ne changent pas
                 if let Some(model) = model.as_mut() {
                     if model.pose.is_none() || model.code != code {
-                        let site = ReliefSite { relief: &relief, center: c, hex, shoreline: shoreline_near(&map.0, &relief, c) };
+                        let built = city.and_then(|_| city_bridge(&map.0, &relief, hex)).map(|b| b.1);
+                        let site = ReliefSite { relief: &relief, center: c, hex, shoreline: shoreline_near(&map.0, &relief, c), built };
                         let family = map.0.get(hex).map_or(crate::settlements::Family::Prairie, crate::settlements::Family::of);
                         let seed = (hex.q as i64 as u64).wrapping_mul(73_856_093) ^ (hex.r as i64 as u64).wrapping_mul(19_349_663);
                         model.pose = Some(if let Ok(state) = camp_states.get(mirror.source) {
