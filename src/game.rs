@@ -527,6 +527,9 @@ fn end_turn(
     // 4) Ponts construits : posés sur la carte (un pont déjà là, posé entre-temps, ne change rien)
     for (city_entity, at, center, name) in new_bridges {
         game_map.0.set_bridge(at, true);
+        if let Ok((_, _, mut city)) = cities.get_mut(city_entity) {
+            city.state.bridges.push(at);
+        }
         let what = match at {
             crate::map::BridgeAt::Edge { .. } => "un pont sur la rivière",
             crate::map::BridgeAt::Fleuve { .. } => "un pont sur le fleuve",

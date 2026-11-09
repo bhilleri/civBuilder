@@ -112,6 +112,33 @@ bonus de hauteur, de l'eau vers le pont sans bonus), pas de mêlée ; une barque
   la recherche de chemin qui la traverse (pas pour s'y arrêter sur le pont) ; l'animation 2D d'un déplacement finit au centre
   de la case avant de reprendre sa place.
 
+## Étape 4 faite (09/11/2026) : matériaux et formes
+Décisions de Benjamin (09/11) : matériau selon le lieu pour l'instant, la pierre partout plus tard (technologies, époques) ;
+trois formes, arches de pierre, tablier de bois sur pilotis, pont haut en gorge ; tous les ponts laissent passer des
+charrettes (un pont de cordes devrait aussi le permettre : pas fait) ; des ponts assez larges pour être bien vus, même hors
+d'échelle, sans cacher la case ; la pierre coûte 1,5 fois le bois ; une tour garde l'autre bout si la ville qui a construit le
+pont est fortifiée.
+- **Matériau** (`WorldMap::bridge_stone`) : bois si l'une des deux rives est d'une famille à muraille de bois (forêt, taïga,
+  jungle, savane, marais, steppe : `Family::wooden_wall`), pierre sinon. Coût (`rules::bridge_cost`) × `BRIDGE_STONE_COST`
+  (1,5) pour la pierre.
+- **Largeur** (`settlements::BRIDGE_HALF_WIDTH`) : tablier de 4,4 de large (2,5 avant), sur une case de 55 ; en 2D, planche
+  de 6,4 bordée de sombre, grise pour la pierre, brune pour le bois.
+- **Formes** (`settlement_mesh`, `Baker::bridge`) : le lit est le sol le plus bas sous le tablier ;
+  - pierre : tablier à parapets, bombé de 0,9, sur une maçonnerie dont le dessous est une voûte par travée (une arche par 9
+    de portée environ), piles jusqu'au lit, culées sur les rives ;
+  - bois : tablier à garde-corps (main courante sur poteaux), bombé de 0,4, sur des rangées de trois pieux sous une traverse
+    tous les 3,5 ;
+  - gorge (rives à plus de 6 au-dessus du lit) : une seule portée presque plate ; une grande arche de pierre, ou des
+    contrefiches de bois depuis chaque rive jusqu'au tiers du tablier. Les bouts montent en haut d'une berge raide
+    (`anchor_bridge` : on remonte tant que le sol s'élève de plus de 0,35 par unité, jusqu'à 14 ; on y pose le bout si la berge
+    s'élève de plus de 3).
+- **Tête de pont** : `CityState::bridges` retient les ponts construits par la ville ; si elle est fortifiée, une tour à la
+  couleur du joueur, du matériau de sa muraille, garde le bout le plus éloigné d'elle.
+- **Vérifié** en captures (graine 777) : bois sur une rivière en forêt (120-121 73) et sur un fleuve de montagne (133 75),
+  pierre sur des fleuves de désert et de plaine (132 71, 136 68), gorge (132 71 avec les deux rives relevées à 1 900 m).
+- **Limites** : la caméra plonge et laisse peu voir les arches et les pieux ; pas de pont de cordes ; un pont construit garde
+  son matériau.
+
 ## Étapes proposées
 1. **Le pont dans les règles** : pont sur une arête de rivière ou une case de fleuve, posé à la console (`pont col lig dir`,
    comme la muraille), déplacement et combat, dessin en 2D et en 3D entre les deux rives, infobulle. Tests des règles.

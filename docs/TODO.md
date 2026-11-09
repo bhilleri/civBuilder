@@ -87,8 +87,9 @@ Correctifs possibles, à essayer et comparer :
 - [x] Marais : pilotis au-dessus des mares, galeries, passerelles, drainage.
 - [x] Structures : ponts et tête de pont d'une ville fortifiée (décor pour l'instant).
 - [ ] **Ponts** (décidé le 08/11, voir `conception/conception-ponts.md`) : étapes 1 (règles, console, dessin 2D et 3D,
-  infobulle), 2 (construits par les villes, 09/11) et 3 (deux niveaux sur un fleuve, 09/11) faites. Reste l'étape 4 (matériaux,
-  formes) ; l'IA hostile ne choisit pas encore entre le pont et l'eau.
+  infobulle), 2 (construits par les villes, 09/11), 3 (deux niveaux sur un fleuve, 09/11) et 4 (matériaux et formes, 09/11)
+  faites. Restent : l'IA hostile ne choisit pas entre le pont et l'eau ; la pierre partout plus tard (technologies, époques) ;
+  un pont de cordes (qui laisse passer les charrettes) ; destruction et prise des ponts.
 - [ ] **Arbres dans les rivières** (remarqué par Benjamin, 08/11) : des arbres du décor 3D sont posés dans le lit des rivières.
 - [ ] Règle de la fortification (production d'un bâtiment, effet en combat) : la muraille ne se pose encore qu'à la console.
 - [x] Banquise jouable (06/11) : calcul, affichage, marche, pas de ville ni de structure, pêche conservée (voir `conception/conception-fonds-marins.md`).

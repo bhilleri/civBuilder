@@ -1043,6 +1043,15 @@ impl WorldMap {
         (0..3).find(|&axis| self.bridges.contains(&BridgeAt::Fleuve { hex, axis: axis as u8 }))
     }
 
+    /// Pont de pierre (sinon de bois), selon le lieu (choix de Benjamin, 09/11/2026) : en bois si l'une
+    /// de ses rives est boisée, ou de famille à muraille de bois (forêt, taïga, jungle, savane,
+    /// marais, steppe), comme les murailles des villes ; en pierre sinon. La pierre sera débloquée
+    /// partout plus tard.
+    pub fn bridge_stone(&self, at: BridgeAt) -> bool {
+        let (a, b) = at.ends(self.wrap);
+        ![a, b].iter().any(|&h| self.get(h).is_some_and(|t| crate::settlements::Family::of(t).wooden_wall()))
+    }
+
     /// `from` est à un bout du pont de la case de fleuve `hex` (on y monte, on en descend).
     pub fn bridge_end(&self, hex: Hex, from: Hex) -> bool {
         match (self.fleuve_bridge(hex), self.wrap.direction(hex, from)) {

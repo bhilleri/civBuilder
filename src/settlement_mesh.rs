@@ -457,55 +457,123 @@ impl Baker<'_> {
         }
     }
 
-    /// Pont : tablier bombé sur piles, en pierre sous une muraille de pierre, en bois sinon.
-    fn bridge(&mut self, b: &Bridge, family: Family) {
-        let stone = !family.wooden_wall();
+    /// Pont (voir `conception-ponts.md`, étape 4) : en pierre, un tablier à parapets sur des arches
+    /// (une par `BRIDGE_ARCH_SPAN` environ) ; en bois, un tablier à garde-corps sur des rangées de
+    /// pieux ; au-dessus d'une gorge (rives à plus de `BRIDGE_GORGE_DROP` au-dessus du lit), une seule
+    /// portée, sans pile dans l'eau : une grande arche de pierre, ou des contrefiches de bois depuis
+    /// les rives. Le lit est le sol le plus bas sous le tablier (pas besoin du niveau de l'eau).
+    fn bridge(&mut self, b: &Bridge, stone: bool, family: Family) {
         let (deck_a, deck_b) = if stone { (srgb(0x9A9488), srgb(0x8E8880)) } else { (srgb(0x7D5C3B), srgb(0x8E6C48)) };
-        let pile = if stone { srgb(0x847F76) } else { srgb(0x6D4D30) };
+        let frame = if stone { srgb(0x847F76) } else { srgb(0x6D4D30) };
         let len = b.near.distance(b.far);
         if len < 0.5 {
             return;
         }
         let t = (b.far - b.near) / len;
         let s = t.perp();
+        let w = b.half_width;
         let (z_near, z_far) = (self.g(b.near) + 0.15, self.g(b.far) + 0.15);
-        let z_at = |d: f32| { let f = d / len; z_near + (z_far - z_near) * f + 1.3 * 4.0 * f * (1.0 - f) };
+        let bed = (1..20).map(|k| self.g(b.near + t * (len * k as f32 / 20.0))).fold(f32::MAX, f32::min);
+        let gorge = z_near.min(z_far) - bed > BRIDGE_GORGE_DROP;
+        let rise = if gorge { 0.3 } else if stone { 0.9 } else { 0.4 };
+        let z_at = |d: f32| {
+            let f = (d / len).clamp(0.0, 1.0);
+            z_near + (z_far - z_near) * f + rise * 4.0 * f * (1.0 - f)
+        };
+        let thick = if stone { 0.8 } else { 0.45 };
+        // Tablier
         let n = ((len / 0.95).round() as usize).max(4);
+        let strip = |d0: f32, d1: f32, a: f32, b2: f32| [b.near + t * d0 + s * a, b.near + t * d1 + s * a, b.near + t * d1 + s * b2, b.near + t * d0 + s * b2];
         for i in 0..n {
             let (d0, d1) = (i as f32 / n as f32 * len, (i + 1) as f32 / n as f32 * len);
-            let (p, q) = (b.near + t * (d0 - 0.02), b.near + t * (d1 + 0.02));
-            let w = s * b.half_width;
-            let ring = [p - w, q - w, q + w, p + w];
+            let ring = strip(d0 - 0.02, d1 + 0.02, -w, w);
             let zs = [z_at(d0), z_at(d1), z_at(d1), z_at(d0)];
             let up: Vec<Vec3> = ring.iter().zip(zs).map(|(&c, z)| p3(c, z)).collect();
-            let low: Vec<Vec3> = ring.iter().zip(zs).map(|(&c, z)| p3(c, z - 0.45)).collect();
+            let low: Vec<Vec3> = ring.iter().zip(zs).map(|(&c, z)| p3(c, z - thick)).collect();
             self.body(&low, &up, if i % 2 == 1 { deck_a } else { deck_b });
-            // Garde-corps bas, le long du tablier
+            // Parapets de pierre, ou garde-corps de bois (main courante sur poteaux)
             for k in [-1.0f32, 1.0] {
-                let side = s * k * (b.half_width - 0.08);
-                let rail: Vec<Vec3> = [p + side - s * 0.08, q + side - s * 0.08, q + side + s * 0.08, p + side + s * 0.08].iter().zip(zs).map(|(&c, z)| p3(c, z + 0.45)).collect();
-                let foot: Vec<Vec3> = [p + side - s * 0.08, q + side - s * 0.08, q + side + s * 0.08, p + side + s * 0.08].iter().zip(zs).map(|(&c, z)| p3(c, z)).collect();
-                self.body(&foot, &rail, pile);
+                let (a, c) = if k < 0.0 { (-w, -w + 0.3) } else { (w - 0.3, w) };
+                let side = strip(d0 - 0.02, d1 + 0.02, a, c);
+                if stone {
+                    let foot: Vec<Vec3> = side.iter().zip(zs).map(|(&p, z)| p3(p, z)).collect();
+                    let top: Vec<Vec3> = side.iter().zip(zs).map(|(&p, z)| p3(p, z + 0.55)).collect();
+                    self.body(&foot, &top, frame);
+                } else {
+                    let rail: Vec<Vec3> = side.iter().zip(zs).map(|(&p, z)| p3(p, z + 0.55)).collect();
+                    let under: Vec<Vec3> = side.iter().zip(zs).map(|(&p, z)| p3(p, z + 0.42)).collect();
+                    self.body(&under, &rail, frame);
+                    if i % 2 == 0 {
+                        let at = b.near + t * d0 + s * (k * (w - 0.15));
+                        self.prism(&circle(at, 0.12, 4), z_at(d0), z_at(d0) + 0.55, frame);
+                    }
+                }
             }
         }
-        // Piles dans le lit
-        let piles = ((len / 4.0) as usize).max(1);
-        for i in 1..=piles {
-            let d = i as f32 / (piles + 1) as f32 * len;
-            let at = b.near + t * d;
-            let top = z_at(d) - 0.4;
-            if stone {
-                self.solid(&rect(at, Vec2::new(0.55, b.half_width * 0.8), t.to_angle()), top, pile);
-            } else {
-                for k in [-0.8f32, 0.8] {
-                    self.post(at + s * k, 0.22, top, pile);
+        if stone {
+            // Arches : sous le tablier, une maçonnerie pleine dont le dessous est une voûte en
+            // plein cintre par travée ; les piles descendent jusqu'au lit
+            let arches = if gorge { 1 } else { ((len / BRIDGE_ARCH_SPAN).round() as usize).max(1) };
+            let span = len / arches as f32;
+            let ground = self.ground;
+            let spring = |d: f32| if gorge { ground(b.near + t * d).max(bed) + 0.5 } else { bed - 0.3 };
+            let steps = 10;
+            for a in 0..arches {
+                for k in 0..steps {
+                    let (u0, u1) = (k as f32 / steps as f32, (k + 1) as f32 / steps as f32);
+                    let (d0, d1) = (a as f32 * span + u0 * span, a as f32 * span + u1 * span);
+                    let crown = |d: f32| z_at(d) - thick - 0.4;
+                    let arch = |d: f32, u: f32| {
+                        let base = spring(d).min(crown(d));
+                        base + (crown(d) - base) * (std::f32::consts::PI * u).sin().powf(0.6)
+                    };
+                    let ring = strip(d0, d1, -w * 0.92, w * 0.92);
+                    let top = [z_at(d0) - thick, z_at(d1) - thick, z_at(d1) - thick, z_at(d0) - thick];
+                    let under = [arch(d0, u0), arch(d1, u1), arch(d1, u1), arch(d0, u0)];
+                    let up: Vec<Vec3> = ring.iter().zip(top).map(|(&c, z)| p3(c, z)).collect();
+                    let low: Vec<Vec3> = ring.iter().zip(under).map(|(&c, z)| p3(c, z.min(z_at(d0) - thick - 0.05))).collect();
+                    self.body(&low, &up, frame);
                 }
+            }
+            // Culées sur chaque rive
+            for (end, dir) in [(b.near, -t), (b.far, t)] {
+                let block = [end - s * w, end + dir * 1.4 - s * w, end + dir * 1.4 + s * w, end + s * w];
+                let top = if dir == -t { z_near - 0.1 } else { z_far - 0.1 };
+                self.solid(&block, top, frame);
+            }
+        } else if gorge {
+            // Pont de bois en gorge : contrefiches depuis chaque rive jusqu'au tiers du tablier
+            for (end, toward) in [(b.near, t), (b.far, -t)] {
+                for k in [-1.0f32, 1.0] {
+                    let foot = end - toward * 0.5 + s * (k * (w - 0.3));
+                    let z_foot = self.g(foot) - 2.5;
+                    let head = end + toward * (len / 3.0) + s * (k * (w - 0.3));
+                    let z_head = z_at(if toward == t { len / 3.0 } else { len * 2.0 / 3.0 }) - thick;
+                    let across = s * 0.18;
+                    let low = [p3(foot - across, z_foot), p3(foot + across, z_foot), p3(foot + across, z_foot + 0.35), p3(foot - across, z_foot + 0.35)];
+                    let up = [p3(head - across, z_head - 0.35), p3(head + across, z_head - 0.35), p3(head + across, z_head), p3(head - across, z_head)];
+                    self.body(&low, &up, frame);
+                }
+            }
+        } else {
+            // Pont de bois : rangées de pieux dans le lit, sous une traverse
+            let rows = ((len / 3.5) as usize).max(1);
+            for i in 1..=rows {
+                let d = i as f32 / (rows + 1) as f32 * len;
+                let at = b.near + t * d;
+                let top = z_at(d) - thick;
+                for k in [-0.75f32, 0.0, 0.75] {
+                    let p = at + s * (k * w);
+                    self.prism(&circle(p, 0.2, 5), bed - 0.4, top, frame);
+                }
+                let beam = [at - t * 0.2 - s * w, at + t * 0.2 - s * w, at + t * 0.2 + s * w, at - t * 0.2 + s * w];
+                self.prism(&beam, top - 0.3, top, frame);
             }
         }
         // Une tour garde l'autre rive
         if b.head {
             let mat = wall_color(family);
-            let at = b.far + t * 1.7;
+            let at = b.far + t * 2.2;
             let z = self.g(at) + 6.5;
             self.solid(&circle(at, 1.9, 8), z, mat);
             let player = self.player;
@@ -663,7 +731,7 @@ pub fn bake(layout: &Layout, ground: &dyn Fn(Vec2) -> f32, water: f32, player: R
         b.pier(p, water);
     }
     if let Some(bridge) = &layout.bridge {
-        b.bridge(bridge, layout.family);
+        b.bridge(bridge, !layout.family.wooden_wall(), layout.family);
     }
     if let Some(limit) = &layout.wall {
         debug_assert_eq!(limit.len(), LIMIT_SAMPLES);
@@ -672,11 +740,17 @@ pub fn bake(layout: &Layout, ground: &dyn Fn(Vec2) -> f32, water: f32, player: R
     b.data
 }
 
-/// Maillage d'un pont construit hors d'une ville (en bois pour l'instant ; les matériaux viendront
-/// avec les ponts à construire). `ground` : hauteur du sol, relative à l'origine du maillage.
-pub fn bake_bridge(bridge: &Bridge, ground: &dyn Fn(Vec2) -> f32) -> MeshData {
+/// Portée d'une arche de pont de pierre, et hauteur des rives au-dessus du lit à partir de laquelle
+/// un pont franchit une gorge d'une seule portée.
+const BRIDGE_ARCH_SPAN: f32 = 9.0;
+const BRIDGE_GORGE_DROP: f32 = 6.0;
+
+/// Maillage d'un pont construit hors d'une ville : pierre ou bois (`map::WorldMap::bridge_stone`),
+/// tour à la couleur du joueur à l'autre bout si `bridge.head` (famille de la tour : `family`).
+/// `ground` : hauteur du sol, relative à l'origine du maillage.
+pub fn bake_bridge(bridge: &Bridge, stone: bool, family: Family, ground: &dyn Fn(Vec2) -> f32) -> MeshData {
     let mut b = Baker { data: MeshData::default(), ground, player: srgb(0x3373F2), deck: None };
-    b.bridge(bridge, Family::Prairie);
+    b.bridge(bridge, stone, family);
     b.data
 }
 

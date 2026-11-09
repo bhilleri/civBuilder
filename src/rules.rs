@@ -455,8 +455,10 @@ pub fn city_yields(map: &WorldMap, center: Hex, worked: &[Hex]) -> Yields {
 
 /// Coût d'un pont (production) : de `BRIDGE_COST.0` sur la plus petite rivière (`RIVER_M3S`) à
 /// `BRIDGE_COST.1` sur les plus grands fleuves (`BRIDGE_COST_TOP_M3S`, l'Amazone), avec le
-/// logarithme du débit (choix de Benjamin, 08/11/2026). Arrondi à 5.
+/// logarithme du débit (choix de Benjamin, 08/11/2026), pour un pont de bois ; `BRIDGE_STONE_COST`
+/// fois plus pour un pont de pierre (09/11/2026). Arrondi à 5.
 pub const BRIDGE_COST: (i32, i32) = (20, 120);
+pub const BRIDGE_STONE_COST: f32 = 1.5;
 pub const BRIDGE_COST_TOP_M3S: f32 = 100_000.0;
 
 /// Coût de production d'un pont, selon le débit du cours d'eau qu'il franchit.
@@ -468,6 +470,7 @@ pub fn bridge_cost(map: &WorldMap, at: crate::map::BridgeAt) -> i32 {
     let lo = crate::hydro::RIVER_M3S;
     let share = ((q.max(lo) / lo).ln() / (BRIDGE_COST_TOP_M3S / lo).ln()).clamp(0.0, 1.0);
     let cost = BRIDGE_COST.0 as f32 + (BRIDGE_COST.1 - BRIDGE_COST.0) as f32 * share;
+    let cost = if map.bridge_stone(at) { cost * BRIDGE_STONE_COST } else { cost };
     ((cost / 5.0).round() * 5.0) as i32
 }
 
@@ -530,6 +533,8 @@ pub struct CityState {
     pub food_stock: i32,
     pub production_stock: i32,
     pub producing: Option<Production>,
+    /// Ponts construits par la ville (une tour garde leur autre bout si elle est fortifiée).
+    pub bridges: Vec<crate::map::BridgeAt>,
     /// Présence d'une fortification : la muraille n'existe que si elle est vraie. La règle de jeu
     /// reste à concevoir ; pour l'instant, seule la console de debug la pose.
     pub fortified: bool,
@@ -546,7 +551,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, population: 1, food_stock: 0, production_stock: 0, producing: Some(Production::Unit(UnitKind::Militia)), fortified: false }
+        Self { name, population: 1, food_stock: 0, production_stock: 0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false }
     }
 
     /// Consommation : 2 nourriture par habitant.

@@ -263,8 +263,15 @@ mod tests {
         // Un pont construit n'est plus un emplacement ; le coût suit le débit
         m.set_bridge(east, true);
         assert!(!rules::bridge_spots(&m, |_| true, m.hexes().collect::<Vec<_>>()).contains(&east));
-        let small = rules::bridge_cost(&m, east);
-        assert!((rules::BRIDGE_COST.0..=rules::BRIDGE_COST.1).contains(&small));
-        assert!((rules::BRIDGE_COST.0..=rules::BRIDGE_COST.1).contains(&rules::bridge_cost(&m, BridgeAt::Fleuve { hex: f, axis: 1 })));
+        // Matériau selon les rives : prairie, pierre (une fois et demie plus chère) ; forêt, bois
+        let top = (rules::BRIDGE_COST.1 as f32 * rules::BRIDGE_STONE_COST) as i32;
+        assert!(m.bridge_stone(east));
+        let stone = rules::bridge_cost(&m, east);
+        assert!((rules::BRIDGE_COST.0..=top).contains(&stone));
+        assert!((rules::BRIDGE_COST.0..=top).contains(&rules::bridge_cost(&m, BridgeAt::Fleuve { hex: f, axis: 1 })));
+        m.set(a, Terrain::Forest);
+        assert!(!m.bridge_stone(east), "une rive boisée : pont de bois");
+        let wood = rules::bridge_cost(&m, east);
+        assert!(wood < stone && (wood as f32 * rules::BRIDGE_STONE_COST - stone as f32).abs() <= 5.0, "{wood} {stone}");
     }
 }

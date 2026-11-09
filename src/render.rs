@@ -1618,7 +1618,7 @@ fn sync_bridges_2d(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut drawn: Local<HashMap<crate::map::BridgeAt, Entity>>,
-    mut paint: Local<Option<(Handle<ColorMaterial>, Handle<ColorMaterial>)>>,
+    mut paint: Local<Option<(Handle<ColorMaterial>, Handle<ColorMaterial>, Handle<ColorMaterial>)>>,
     mut shown: Query<(&Bridge2d, &mut Visibility)>,
 ) {
     let wanted: HashSet<crate::map::BridgeAt> = map.0.bridges().collect();
@@ -1630,7 +1630,10 @@ fn sync_bridges_2d(
         }
         keep
     });
-    let (outline, deck) = paint.get_or_insert_with(|| (materials.add(Color::srgb(0.24, 0.16, 0.09)), materials.add(Color::srgb(0.62, 0.45, 0.27)))).clone();
+    // (bois : planche brune ; pierre : grise)
+    let (outline, deck, stone) = paint
+        .get_or_insert_with(|| (materials.add(Color::srgb(0.24, 0.16, 0.09)), materials.add(Color::srgb(0.62, 0.45, 0.27)), materials.add(Color::srgb(0.66, 0.64, 0.60))))
+        .clone();
     for at in wanted {
         if drawn.contains_key(&at) {
             continue;
@@ -1643,8 +1646,9 @@ fn sync_bridges_2d(
         let e = commands
             .spawn((Bridge2d(at), Transform::from_xyz(mid.x, mid.y, Z_BRIDGE).with_rotation(Quat::from_rotation_z(angle)), Visibility::Hidden))
             .with_children(|p| {
-                p.spawn((Mesh2d(meshes.add(Rectangle::new(len + 2.0, 7.0))), MeshMaterial2d(outline.clone()), Transform::default()));
-                p.spawn((Mesh2d(meshes.add(Rectangle::new(len, 4.6))), MeshMaterial2d(deck.clone()), Transform::from_xyz(0.0, 0.0, 0.01)));
+                p.spawn((Mesh2d(meshes.add(Rectangle::new(len + 2.0, 9.0))), MeshMaterial2d(outline.clone()), Transform::default()));
+                let top = if map.0.bridge_stone(at) { stone.clone() } else { deck.clone() };
+                p.spawn((Mesh2d(meshes.add(Rectangle::new(len, 6.4))), MeshMaterial2d(top), Transform::from_xyz(0.0, 0.0, 0.01)));
             })
             .id();
         drawn.insert(at, e);

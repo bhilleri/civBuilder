@@ -820,11 +820,14 @@ fn cities() -> Article {
             p(format!(
                 "Une ville peut aussi construire un pont sur une rivière ou un fleuve de son territoire (pour une \
                  rivière, une des deux cases suffit). « Pont… » dans le panneau de production surligne les emplacements \
-                 possibles ; un clic sur l'un d'eux le choisit, un clic droit annule. Il coûte de {} (petite rivière) à \
-                 {} de production (grand fleuve), selon le débit ; il est posé à la fin du tour où il est terminé, puis \
-                 la ville revient à la milice.",
+                 possibles ; un clic sur l'un d'eux le choisit, un clic droit annule. Un pont de bois coûte de {} \
+                 (petite rivière) à {} de production (grand fleuve), selon le débit ; un pont de pierre, {} fois plus. \
+                 Le matériau dépend du lieu : bois si une rive est boisée (forêt, taïga, jungle, savane, marais, \
+                 steppe), pierre sinon. Le pont est posé à la fin du tour où il est terminé, puis la ville revient à la \
+                 milice ; si elle est fortifiée, une tour à ses couleurs garde l'autre bout.",
                 crate::rules::BRIDGE_COST.0,
-                crate::rules::BRIDGE_COST.1
+                crate::rules::BRIDGE_COST.1,
+                crate::rules::BRIDGE_STONE_COST
             )),
         ],
     }

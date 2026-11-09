@@ -27,6 +27,10 @@ const INSIDE_MARGIN: f32 = 1.1;
 const PLACE_RADIUS: f32 = 5.5;
 /// Écart entre deux emprises.
 const GAP: f32 = 0.55;
+/// Demi-largeur du tablier d'un pont : de quoi passer une charrette, et bien plus large que
+/// l'échelle pour être vu de loin (choix de Benjamin, 09/11/2026), sans cacher la case.
+pub const BRIDGE_HALF_WIDTH: f32 = 2.2;
+
 /// Largeur de la rive et de la plage, sur laquelle on ne construit pas.
 pub const BANK_WIDTH: f32 = 5.2;
 /// Marge de construction au-delà de la rive.
@@ -746,7 +750,7 @@ pub fn span_bridge(site: &impl Site, toward: Vec2, across: Option<Vec2>, max_ban
     };
     let (a, b) = (bank(1.0)?, bank(-1.0)?);
     let (near, far) = if a.length() < b.length() { (a, b) } else { (b, a) };
-    Some(Bridge { near, far, half_width: 1.25, head: false })
+    Some(Bridge { near, far, half_width: BRIDGE_HALF_WIDTH, head: false })
 }
 
 /// Bout du ponton : une avancée dans l'eau, plus courte sur une rivière (l'eau y est étroite).

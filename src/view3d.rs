@@ -395,17 +395,37 @@ const BRIDGE_CLEARING: f32 = 4.5;
 const BRIDGE_ABOVE_WATER: f32 = 0.8;
 const BRIDGE_EXTEND_STEP: f32 = 0.5;
 const BRIDGE_EXTEND_MAX: f32 = 40.0;
+/// Haut d'une berge raide : on la remonte (jusqu'à `BRIDGE_RIM_SEARCH`) tant que le sol monte de plus
+/// de `BRIDGE_RIM_SLOPE` par unité ; on y pose le bout si elle s'élève de plus de `BRIDGE_RIM_RISE`.
+const BRIDGE_RIM_SEARCH: f32 = 14.0;
+const BRIDGE_RIM_SLOPE: f32 = 0.35;
+const BRIDGE_RIM_RISE: f32 = 3.0;
 
 /// Pose les deux bouts d'un pont sur une berge sèche : chacun est repoussé vers sa rive tant que
 /// le sol y est sous la surface de l'eau (plus `BRIDGE_ABOVE_WATER`).
 fn anchor_bridge(relief: &Relief, hex: Hex, origin: Vec2, mut bridge: crate::settlements::Bridge) -> crate::settlements::Bridge {
     let level = water_near(relief, hex, origin + (bridge.near + bridge.far) / 2.0);
     let out = (bridge.far - bridge.near).normalize_or_zero();
+    let ground = |p: Vec2| relief.ground(origin.x + p.x, origin.y + p.y);
     for (end, dir) in [(&mut bridge.near, -out), (&mut bridge.far, out)] {
         let mut k = 0.0;
-        while k < BRIDGE_EXTEND_MAX && relief.ground(origin.x + end.x, origin.y + end.y) < level + BRIDGE_ABOVE_WATER {
+        while k < BRIDGE_EXTEND_MAX && ground(*end) < level + BRIDGE_ABOVE_WATER {
             *end += dir * BRIDGE_EXTEND_STEP;
             k += BRIDGE_EXTEND_STEP;
+        }
+        // Berge raide (gorge) : le bout monte jusqu'en haut, là où la pente s'adoucit, pour franchir la
+        // gorge d'une seule portée plutôt que de rester au pied des parois
+        let (start, mut rim, mut k) = (ground(*end), *end, 0.0);
+        while k < BRIDGE_RIM_SEARCH {
+            let next = rim + dir * BRIDGE_EXTEND_STEP;
+            if ground(next) - ground(rim) < BRIDGE_RIM_SLOPE * BRIDGE_EXTEND_STEP {
+                break;
+            }
+            rim = next;
+            k += BRIDGE_EXTEND_STEP;
+        }
+        if ground(rim) - start > BRIDGE_RIM_RISE {
+            *end = rim;
         }
     }
     bridge
@@ -427,7 +447,7 @@ fn bridge_pose(map: &crate::map::WorldMap, relief: &Relief, at: crate::map::Brid
             let site = ReliefSite { relief, center: c, hex, shoreline: shoreline_near(map, relief, c), built: None };
             let toward = (other - c) / 2.0;
             let bridge = crate::settlements::span_bridge(&site, toward, None, BRIDGE_BANK_RIVER)
-                .unwrap_or(crate::settlements::Bridge { near: toward * 0.7, far: toward * 1.3, half_width: 1.25, head: false });
+                .unwrap_or(crate::settlements::Bridge { near: toward * 0.7, far: toward * 1.3, half_width: crate::settlements::BRIDGE_HALF_WIDTH, head: false });
             (c, anchor_bridge(relief, hex, c, bridge))
         }
         crate::map::BridgeAt::Fleuve { hex, axis } => {
@@ -437,7 +457,7 @@ fn bridge_pose(map: &crate::map::WorldMap, relief: &Relief, at: crate::map::Brid
             // (perpendiculaire au courant, comme sur une rivière ; les rives reliées dans les règles
             // sont celles de ses deux bouts)
             let mut bridge = crate::settlements::span_bridge(&site, Vec2::ZERO, None, BRIDGE_BANK_FLEUVE)
-                .unwrap_or(crate::settlements::Bridge { near: a * 0.55, far: -a * 0.55, half_width: 1.25, head: false });
+                .unwrap_or(crate::settlements::Bridge { near: a * 0.55, far: -a * 0.55, half_width: crate::settlements::BRIDGE_HALF_WIDTH, head: false });
             // (le bout `near` du côté de la rive `axis`)
             if bridge.near.dot(a) < bridge.far.dot(a) {
                 std::mem::swap(&mut bridge.near, &mut bridge.far);
@@ -495,13 +515,16 @@ fn sync_bridges_3d(
     relief: Option<Res<Relief>>,
     fog: Res<ShownFog>,
     assets: Option<Res<Assets3d>>,
-    cities: Query<&HexPos, With<City>>,
+    cities: Query<(&HexPos, &City)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut state: ResMut<Bridges3d>,
 ) {
     let (Some(relief), Some(a)) = (relief, assets) else { return };
     let wrap = map.0.wrap();
-    let city_hexes: HashSet<Hex> = cities.iter().map(|p| map.0.canonical(p.0)).collect();
+    let city_hexes: HashSet<Hex> = cities.iter().map(|(p, _)| map.0.canonical(p.0)).collect();
+    // Ville qui a construit chaque pont : sa case, et si elle est fortifiée (tour à l'autre bout)
+    let owners: HashMap<crate::map::BridgeAt, (Hex, bool)> =
+        cities.iter().flat_map(|(p, c)| c.state.bridges.iter().map(move |&at| (at, (p.0, c.state.fortified)))).collect();
     let wanted: HashSet<crate::map::BridgeAt> = map.0.bridges().collect();
     let gone: Vec<crate::map::BridgeAt> = state.drawn.keys().filter(|k| !wanted.contains(*k)).copied().collect();
     let mut changed = !gone.is_empty();
@@ -518,7 +541,8 @@ fn sync_bridges_3d(
         let generation = [e0, e1, mid].iter().map(|h| relief.generation.get(h).copied().unwrap_or(0)).sum::<u32>();
         let seen = fog.explored.contains(&e0) && fog.explored.contains(&e1) && fog.explored.contains(&mid);
         let in_city = matches!(at, crate::map::BridgeAt::Edge { .. }) && (city_hexes.contains(&e0) || city_hexes.contains(&e1));
-        let key = (generation + u32::from(in_city) * 1_000_000, seen);
+        let owner = owners.get(&at).copied();
+        let key = (generation + u32::from(in_city) * 1_000_000 + u32::from(owner.is_some_and(|o| o.1)) * 2_000_000, seen);
         if state.drawn.get(&at).is_some_and(|d| d.1 == key) {
             continue;
         }
@@ -528,10 +552,21 @@ fn sync_bridges_3d(
         }
         // (le pont d'une ville est dessiné par sa pose)
         let entity = (seen && !in_city).then(|| {
-            let (origin, bridge) = bridge_pose(&map.0, &relief, at);
+            let (origin, mut bridge) = bridge_pose(&map.0, &relief, at);
+            // Tour de tête de pont : à l'autre bout, vu de la ville fortifiée qui l'a construit
+            if let Some((city, true)) = owner {
+                let (cx, cy) = wrap.nearest(Hex::from_world(origin.x, origin.y), city).to_world();
+                let c = Vec2::new(cx, cy) - origin;
+                if bridge.far.distance(c) < bridge.near.distance(c) {
+                    std::mem::swap(&mut bridge.near, &mut bridge.far);
+                }
+                bridge.head = true;
+            }
             let base = relief.ground(origin.x, origin.y);
             let ground = |p: Vec2| relief.ground(origin.x + p.x, origin.y + p.y) - base;
-            let mesh = meshes.add(to_mesh(crate::settlement_mesh::bake_bridge(&bridge, &ground)));
+            let stone = map.0.bridge_stone(at);
+            let family = owner.and_then(|(h, _)| map.0.get(h)).map_or(crate::settlements::Family::Prairie, crate::settlements::Family::of);
+            let mesh = meshes.add(to_mesh(crate::settlement_mesh::bake_bridge(&bridge, stone, family, &ground)));
             commands.spawn((Bridge3d, Mesh3d(mesh), MeshMaterial3d(a.site_body.clone()), Transform::from_xyz(origin.x, base, -origin.y), layer())).id()
         });
         state.drawn.insert(at, (entity, key));
