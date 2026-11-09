@@ -76,6 +76,99 @@ date historique, météo = moyennes + écarts, lit d'hiver et d'été). Avant le
 - [ ] h. Cyclones (systèmes tropicaux du même moteur), carte du risque.
 - Plus tard : navigation, combat, récolte et stocks, santé, prévisions.
 
+## [ ] 10. Volcans (décidé le 09/11)
+Placés d'après la tectonique déjà simulée (`plates.rs` : subductions, arcs d'îles, rifts,
+dorsales, points chauds et leurs chapelets), avec une forme selon le type. Voir
+`conception/conception-volcans.md` (passage selon le relief généré, sans règle propre).
+- [ ] a. Placement et type selon le contexte tectonique, activité (actif, endormi, éteint) ; bilan `bilan_volcans`.
+- [ ] b. Relief : édifices dans l'altitude de la génération (avant le climat et l'eau), lacs de cratère.
+- [ ] c. Formes 3D selon le type (stratovolcan, bouclier, caldeira, dôme, champ de cônes, plateau de basalte, atoll), matières (basalte, cendres, coulées), fumerolles (après l'étape 8 a).
+- [ ] d. Noms (toponymie), infobulle, wiki, carte thématique.
+- [ ] e. Sols volcaniques fertiles (avec la tâche 11) ; ressources liées (obsidienne, soufre…) plus tard.
+- [ ] f. Éruptions (à décider) : événements et lien avec la météo (hiver volcanique) (après la tâche 9).
+
+## [ ] 11. Fertilité des sols (décidé le 09/11)
+Pas de fertilité qui s'améliore à l'infini (comme dans Civilization). D'abord une recherche sur
+les conditions qui font la fertilité d'un sol (roche mère, climat, relief, eau, âge…), puis les
+sources : sols volcaniques, bassins sédimentaires, plaines alluviales, etc. Règles à décider avec Benjamin.
+
+## Propositions retenues le 09/11
+Ordre conseillé : 12 au plus tôt ; puis 13 → 11 → 14 (chacune prépare la suivante) ; les autres
+avec le sujet voisin (18 avec la navigation, 20 avec la météo). Chaque tâche : conception à
+proposer et à valider avec Benjamin avant de coder.
+
+### [ ] 12. Sauvegarde et chargement
+Enregistrer la graine, l'état de la partie et ce que le joueur a modifié ; le monde se recalcule
+depuis la graine. À faire tôt : plus la simulation s'enrichit (météo, saisons), plus c'est difficile.
+
+### [ ] 13. Géologie de surface (roche mère), avec une carte thématique
+Calcaire, granite, grès, argile, basalte, lœss, alluvions, déduits des plaques, des bassins et
+de l'érosion ; karst (grottes, gouffres, rivières qui disparaissent). Base de la fertilité (11),
+des ressources (14) et des matériaux des structures selon le lieu.
+
+### [ ] 14. Ressources placées par la géologie
+Cuivre et or des subductions, étain des granites, fer des vieux bassins, sel des bassins fermés,
+côtes arides et marais salants, charbon des anciens marais, or alluvial ; obsidienne et soufre
+des volcans (10 e). Le joueur peut raisonner en géologue.
+
+### [ ] 15. Plantes cultivables et animaux domesticables selon le climat
+Blé, orge, riz, maïs, mil, pomme de terre ; chèvres, bovins, chevaux, lamas. Pour la variété,
+**sans trop de conséquences sur le jeu** (décision de Benjamin).
+
+### [ ] 16. Démographie et santé des villes
+Naissances, famines (avec la météo), migrations, croisées avec d'autres indicateurs comme la
+santé de la ville. Exigence : **un système compréhensible** par le joueur.
+
+### [ ] 17. Transport : fleuves et routes
+Le débit dit si un fleuve est navigable et à quelle saison ; les cols deviennent des passages
+stratégiques ; le commerce dépend du coût du trajet (relief, coût des cases, rivières). Il faut
+**construire les aménagements nécessaires** : port fluvial, routes, ponts (déjà là).
+
+### [ ] 18. Littoral détaillé
+Estran (marées), deltas, mangroves, récifs coralliens, côtes rocheuses ou sableuses, abris
+naturels pour les ports (baies, fjords, rias). Complète les fonds marins et la navigation.
+
+### [ ] 19. Glaciers et pergélisol
+Selon le froid et l'altitude, avec la banquise ; les glaciers alimentent les fleuves en été (débit mensuel, 9 f).
+
+### [ ] 20. Risques naturels, intégrés dès le départ
+Séismes et tsunamis aux subductions, feux de forêt en saison sèche (météo), crues, cyclones :
+chacun avec sa carte de risque calculée à la génération et l'infobulle. **Tout intégrer
+directement** dans les systèmes concernés, plutôt que de l'ajouter après coup comme pour les poissons.
+
+### [ ] 21. Faune sauvage et période nomade (à voir)
+Idée de Benjamin : une période de début de partie sans vraie sédentarisation. Gibier selon le
+biome, troupeaux qui migrent avec les saisons, animaux dangereux. Point à étudier : les
+déplacements des animaux compliquent la présence des ressources.
+
+### [ ] 22. Carte du joueur imparfaite
+Lieux nommés et précisés à mesure qu'on les découvre ; le joueur peut renommer un lieu ou fonder un nom.
+
+### [ ] 23. Comparaison automatique des captures
+Comparer les PNG de `CIVBUILDER_CAPTURE` avant et après un changement (utile pour la refonte du rendu 3D, tâche 8).
+
+### [ ] 24. Sons
+Ambiance (vent, mer, pluie selon la météo) et sons des unités, des villes, des actions. Réactiver l'audio de Bevy.
+
+### [ ] 25. Palettes lisibles pour les daltoniens
+Mesurer l'impact visuel pour les joueurs non daltoniens : palettes communes si l'impact est
+faible, sinon un mode pour les daltoniens.
+
+### [ ] 26. Atlas géographique (idée de Benjamin, 09/11)
+Atlas des territoires connus du joueur, avec images et icônes, qui va avec la carte imparfaite (22) :
+- **Plan** : monde, continents et océans, régions naturelles, puis fiches de lieux (fleuves, lacs,
+  mers, chaînes, cols, îles, villes), d'après la géographie déjà nommée (`lands.rs`,
+  `mountains.rs`, `regions.rs`, `toponymy.rs`) et l'index de recherche (`search.rs`).
+- **Fiche d'un lieu** : carte de situation, vignette 3D rendue par le jeu (comme les captures),
+  chiffres réels (débit, longueur, altitude, surface), climat (diagramme des températures et des
+  pluies par mois), origine du nom.
+- **Records du joueur** : plus grand fleuve connu, plus haut sommet, plus grand lac…
+- **Relations** : fleuve qui alimente une ville en eau, axe commercial entre deux villes (après
+  17), col qui relie deux régions, risques connus (20).
+- **Histoire** : découvert au tour N par telle unité, ville fondée, événements (crues, éruptions).
+- Seulement ce que le joueur connaît ; liens vers la carte (vol de la caméra, comme la recherche).
+  Les informations secondaires vont dans l'atlas plutôt que sur la carte.
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,
@@ -87,3 +180,4 @@ date historique, météo = moyennes + écarts, lit d'hiver et d'été). Avant le
 - [x] Toponymie étape 6 (01/11) : barre de lieu (voir `conception/conception-toponymie.md`).
 - [ ] Navigation et unités navales (barques, galères, caravelles), pêcheries.
 - [ ] Police Inter Italic (les noms marins devraient être en italique).
+- [ ] À évaluer (09/11) : aménagement du territoire (défricher, irriguer, terrasses, drainer, digues, canaux) avec ses conséquences (érosion des sols, salinisation). Risque : rendre le jeu trop complexe.
