@@ -352,6 +352,17 @@ expérience militaire et investissement, sur la case d'une unité mais fragiles,
 de combat. Ravitaillement (lignes, fourrage, attrition, hivernage, camps), mer (cabotage puis haute
 mer, tempêtes, transport, blocus, pirates). Le déplacement de groupe peut venir tôt (il sert déjà).
 
+### [ ] 40. Épidémies (décidé le 10/11)
+Voir `conception/conception-monde-vivant.md`. Maladies du milieu et épidémies propagées par le
+commerce et les armées ; les habitants et les personnages tombent malades et en meurent selon leur
+santé ; immunité, quarantaine, Médecine et hygiène. Pas d'effets de l'homme sur l'environnement
+pour le moment.
+
+### [ ] 41. Monuments et merveilles (décidé le 10/11)
+Voir `conception/conception-monde-vivant.md`. Monuments nationaux aux buts variés (bibliothèques,
+phares, temples…), certains demandant des technologies facultatives ; le premier de chaque type
+devient une merveille mondiale (bonus en plus) ; ruines qui gardent une valeur ; score d'héritage.
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,
