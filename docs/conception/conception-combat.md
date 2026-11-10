@@ -139,6 +139,29 @@ malus par type, effectifs, solde).
   travailleurs, qui ne produisent alors pas de Production pour la file ; le joueur règle l'effectif voulu.
 - **Campagnes saisonnières** : voir le besoin de bras saisonnier (`conception-villes.md`).
 
+## Armes et rôles (décisions de Benjamin du 10/11/2026, règles proposées)
+Décisions : les archers restent exposés au corps à corps, même face aux lanciers ; le lancier est
+faible face aux soldats à l'épée ; l'infanterie s'arme d'une **arme à une main avec bouclier** ou
+d'une **arme à deux mains**. Les unités par ère sont dans `conception-recherche.md`, les ressources
+qui les rendent possibles dans `conception-ressources.md`.
+
+**Deux prises pour l'infanterie** :
+| Prise | Exemples | Forces | Faiblesses |
+|---|---|---|---|
+| Une main + bouclier | porteur de bouclier, légionnaire, homme d'armes | défense, résiste aux traits | attaque moyenne |
+| Deux mains | hache, khépesh à deux mains, épée longue, hallebarde | attaque forte, brise les boucliers | défense faible, exposé aux traits |
+
+**Cycle des rôles** (bonus de travail à régler) :
+- **Épée contre lance** : une fois la pointe passée, la lance est gênante. Épéistes (une ou deux
+  mains) : +8 contre lanciers et piquiers. La pique à deux mains, sans bouclier, y est plus
+  exposée que la lance avec bouclier.
+- **Lance contre cavalerie** : bonus actuels (+10 lancier, +20 piquier), charge annulée de face.
+- **Cavalerie contre tireurs et épéistes isolés en terrain ouvert** : charge, poursuite.
+- **Tireurs contre infanterie lente** à distance, surtout les deux mains (sans bouclier).
+- **Tireurs faibles au corps à corps contre toute infanterie**, lanciers compris : défense de
+  mêlée basse (déjà le cas : 6 à 11). Proposition : au contact, un tireur attaqué en mêlée se
+  défend à −25 % ; l'archer-épéiste échappe à ce malus (son épée).
+
 ## Découpage du développement
 - **Étape 1 (fait) :** une unité par case, statistiques, PV, combat au corps à corps avec prévision, charge, dispersion des unités, hostiles qui attaquent.
 - **Étape 2 (fait) :** tir à distance et ligne de vue, zone de contrôle, flanquement, bonus de terrain.

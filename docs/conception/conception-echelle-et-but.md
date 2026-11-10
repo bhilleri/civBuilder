@@ -72,8 +72,8 @@ Table de départ (à régler) :
 | Fer et Antiquité → Moyen Âge | plusieurs villes d'indice 10, monnaie et impôt, institutions sur trois axes |
 
 - Chaque ère débloque des aménagements, des bâtiments, des unités et des institutions.
-- **Recherche** : un arbre court par ère (environ 5 techniques), dans lequel la géographie oriente
-  (pas de métallurgie sans gisement accessible, pas de navigation sans côte).
+- **Recherche** : 10 technologies de base par ère, avec des spécialisations, des conditions de
+  pré-acquisition et un transfert entre voisins (décidé le 10/11, `conception-recherche.md`).
 - Les jalons demandent à la fois de la recherche, de la culture (institutions) et du développement
   des villes : aucune voie unique.
 

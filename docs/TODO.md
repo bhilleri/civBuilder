@@ -142,6 +142,11 @@ des ressources (15) et des matériaux des structures selon le lieu.
 Cuivre et or des subductions, étain des granites, fer des vieux bassins, sel des bassins fermés,
 côtes arides et marais salants, charbon des anciens marais, or alluvial ; obsidienne et soufre
 des volcans (11 e). Le joueur peut raisonner en géologue.
+Décidé le 10/11 (`conception/conception-ressources.md`) : les unités dépendent des ressources
+(fer, cuivre et étain pour le bronze, bois d'œuvre, chevaux, dromadaires, éléphants) ; une
+ressource exploitée rapporte un revenu et approvisionne les troupes comme le matériel militaire ;
+chaque ressource militaire garde un usage civil ; or, pierres précieuses, sel… servent la
+Recherche, la Santé, la Production.
 
 ### [ ] 16. Plantes cultivables et animaux domesticables selon le climat
 Blé, orge, riz, maïs, mil, pomme de terre ; chèvres, bovins, chevaux, lamas. Pour la variété,
@@ -156,6 +161,11 @@ Bien-être de la ville (Santé et Bonheur fusionnés, tâche 28). Exigence : **u
 Le débit dit si un fleuve est navigable et à quelle saison ; les cols deviennent des passages
 stratégiques ; le commerce dépend du coût du trajet (relief, coût des cases, rivières). Il faut
 **construire les aménagements nécessaires** : port fluvial, routes, ponts (déjà là).
+Décidé le 10/11 (`conception/conception-ressources.md`, « Marché entre les villes ») : chaque ville
+couvre son besoin puis vend son surplus aux villes reliées, celles du joueur d'abord ; partenaires
+choisis selon l'empire, la durée du trajet, les relations et la rentabilité ; prix par l'offre et la
+demande ; pas de caravanes, des bâtiments qui favorisent les échanges ; budget national de chevaux
+et de dromadaires pour le transport (arbitrage avec l'armée).
 
 ### [ ] 19. Littoral détaillé
 Estran (marées), deltas, mangroves, récifs coralliens, côtes rocheuses ou sableuses, abris
@@ -237,7 +247,7 @@ Voir `conception/conception-echelle-et-but.md`. Néolithique → Moyen Âge pour
 tour, 4 ères passées par jalons, population en paliers croissants (habitants ↔ indice).
 Ordre (révision du 10/11) : d'abord recaler les règles actuelles (croissance, coûts, soins, PM
 doublés et coûts du relief doublés, rayons de l'IA hostile et de l'exploration), avant 28 et 29 ;
-ensuite l'arbre de recherche court par ère et les jalons, après 28, 32 et 15. Unités réparties par
+ensuite l'arbre de recherche (34) et les jalons, après 28, 32 et 15. Unités réparties par
 ère, améliorées en changeant d'ère (effectif qui grandit). Mode 2 tours par mois : tout réglé en mois.
 Fin de partie à décider avec les IA (31) ; cas d'un peuple qui atteint le Moyen Âge avant le tour 500.
 
@@ -256,6 +266,14 @@ débloquées par des conditions et adoptées avec l'influence ; capacité de gou
 à l'expansion (instabilité au-delà). Territoire par la culture et l'achat en Économie. Doc dédiée à
 écrire. Avant le territoire (28) et les jalons (30).
 
+### [ ] 34. Recherche et technologies (décidé le 10/11)
+Voir `conception/conception-recherche.md`. Arbre avec prérequis, 10 technologies de base par ère
+(peu chères, petit avantage chacune), spécialisations facultatives (bonus sur l'ère, optimisées en
+appliquant la base), conditions de pré-acquisition, légère pénalité de taille d'empire, transfert
+de technologie (diffusion lente et cumulée par les voisins, selon le retard ; commerce qui accélère
+fortement, sans instantané), recherche orientée par le joueur, coût calé sur ≈ 125 tours par ère,
+interface lisible. Fait partie de la tâche 30 (arbre et jalons) ; liste des 40 technologies à écrire.
+
 ### [ ] 33. Mettre le code en accord avec la conception (relevé le 10/11)
 Écarts relevés par la relecture de cohérence, à faire avec les tâches concernées :
 - « Or » → « Économie » (`Yields.gold`, `state.gold`, `CAMP_CAPTURE_GOLD`, `VillageEvent::Trade`,
@@ -266,6 +284,23 @@ débloquées par des conditions et adoptées avec l'influence ; capacité de gou
 - `territory_radius` (villages qui rejoignent une ville, soins, ponts) → nouvelle règle de territoire.
 - Village qui rejoint une ville : « +1 habitant » → en habitants.
 - Stades des villes (`conception-structures.md`, `settlements.rs`) → quartiers sur sous-cases et étalement urbain.
+
+### [ ] 35. Charte graphique et refonte des écrans (décidé le 10/11)
+Voir `conception/conception-interface.md` (« Charte graphique, nouveaux écrans et nouvelles
+cartes »). Interfaces belles, intuitives, fluides, avec une charte commune (module de style,
+composants partagés, une couleur et une icône par grandeur). D'abord la **refonte de l'écran de
+la ville**, trop compliqué aujourd'hui (maquette à valider). Puis les écrans nationaux (économie,
+commerce, démographie, technologie, organisation politique, armée, diplomatie), chacun livré avec
+son système.
+
+### [ ] 36. Nouvelles cartes thématiques (décidé le 10/11)
+Cartes en deux familles (Nature, Peuples). Nouvelles : géologie, institutions politiques,
+avancée technologique, commerce ; carte des ressources reprise (tous les gisements). Chacune avec
+son système (tâches 14, 15, 18, 32, 34).
+
+### [ ] 37. Équilibrage final (décidé le 10/11)
+Une fois les systèmes en place : régler les chiffres (croissance, coûts, recherche, commerce,
+combat, IA) avec les parties sans joueur (`bilan_ia`, `conception-ia.md`).
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

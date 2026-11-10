@@ -345,3 +345,73 @@ pinceau (décor refait), pic ajouté (aiguille), montagne à 2 500 m et lac pos�
 ## Suite
 1. ~~Cohérence~~ : fait (étape 2, ci-dessus).
 2. ~~Simulation~~ : fait (étape 3, ci-dessus ; `riviere tracer` est devenu `fleuve`).
+
+# Charte graphique, nouveaux écrans et nouvelles cartes (10/11/2026)
+
+## Demande de Benjamin
+- Les interfaces doivent être **belles, intuitives, fluides** et suivre une **charte graphique
+  commune**. Certaines sont aujourd'hui trop compliquées, en particulier **celle des villes**.
+- De **nouveaux écrans bien travaillés** : économie, commerce, démographie, technologie,
+  organisation politique, etc.
+- De **nouvelles cartes** : institutions politiques, avancée technologique, commerce, carte des
+  ressources reprise, carte géologique, etc.
+- Un **travail d'équilibrage** à la fin (tâche dédiée).
+
+## Proposition (à valider)
+### Charte graphique commune
+- **Un module de style unique** (couleurs, polices, tailles, marges, coins, ombres, icônes) que
+  tous les écrans utilisent : plus de couleurs ni de tailles écrites en dur dans chaque écran.
+- **Composants partagés** : panneau, onglets, bouton, jauge, barre découpée par source (comme la
+  barre de recherche, `conception-recherche.md`), liste triable, carte d'information (survol),
+  icône de ressource avec sa valeur et sa tendance.
+- **Une couleur et une icône par grandeur**, les mêmes partout (Nourriture, Production, Économie,
+  Recherche, Culture, Bien-être, Eau, chaque ressource) ; lisibles par les daltoniens (forme en
+  plus de la couleur).
+- **Fluidité** : ouvertures et changements d'onglet animés brièvement (vitesse réglée par les
+  paramètres existants), aucun écran qui fige le jeu ; raccourcis clavier pour chaque écran.
+
+### Principes d'ergonomie
+- **Trois niveaux de lecture** : un résumé d'un coup d'œil (quelques chiffres et alertes), le
+  détail sur demande (onglet ou survol), l'explication du calcul au survol (« d'où vient ce +3 »).
+- **Le problème d'abord** : chaque écran commence par ce qui demande une décision (besoin non
+  couvert, famine, ville privée par une ponction).
+- **Agir depuis là où l'on lit** : le panneau qui montre un manque propose l'action (construire,
+  acheter, régler l'intendant).
+- **Relié à la carte** : cliquer une ville, une route ou une ressource dans un écran centre la
+  carte dessus (comme les renvois du journal).
+
+### Écran de la ville (refonte, d'abord)
+Remplace l'actuel, jugé trop compliqué :
+- en tête : nom, population (habitants et indice), Bien-être, et les **alertes** de la ville ;
+- quatre onglets : **Vue d'ensemble** (production des grandeurs, file de construction),
+  **Population** (répartition, intendant), **Marché** (besoins, stock, prix, flux),
+  **Bâtiments et quartiers** ;
+- l'intendant se règle par priorités simples ; les cases forcées sur la carte.
+Avant de coder : une maquette (image) à valider par Benjamin.
+
+### Écrans nationaux (un panneau par thème, même gabarit)
+| Écran | Contenu |
+|---|---|
+| Économie | trésor, recettes et dépenses par source, impôt, entretien |
+| Commerce | flux entre villes et avec l'étranger, prix, douanes, budget de transport, convois attaqués |
+| Démographie | habitants par ville, croissance, migrations, famines, santé |
+| Technologie | arbre en colonnes par ère, barre découpée par source (`conception-recherche.md`) |
+| Organisation politique | institutions, capacité de gouverner, stabilité (tâche 32) |
+| Armée | effectifs, équipement, réquisitions, montures (`conception-combat.md`) |
+| Diplomatie | peuples connus, attitude et raisons (`conception-ia.md`) |
+
+### Nouvelles cartes
+Il y a déjà 13 cartes (`MapLayer`). Pour ne pas s'y perdre, deux familles dans le sélecteur :
+- **Nature** : altitude, relief, climat, bassins, débits, réseau, plaques, courants, marées,
+  houle, géographie, **géologie** (nouvelle : roches, bassins sédimentaires, volcans, tâches 11 et
+  14), **ressources** (reprise : tous les gisements et zones, pas seulement les bancs de poissons).
+- **Peuples** : **institutions politiques**, **avancée technologique** (ère et nombre de
+  technologies par peuple connu), **commerce** (flux, épaisseur selon le volume, convois
+  attaqués), territoires et culture, démographie.
+Chaque carte a sa légende au même format, et respecte le brouillard (rien sur un peuple inconnu).
+
+### Ordre proposé
+1. Charte et composants partagés.
+2. Refonte de l'écran de la ville (maquette d'abord).
+3. Les écrans et cartes au fur et à mesure des systèmes (ressources, commerce, recherche,
+   institutions), chacun livré avec son écran.

@@ -140,6 +140,8 @@ Estimation : moins de 10 ms par tour (à mesurer).
 - **rumeurs comme règle affichée** : un clan apprend l'existence des villes à moins de 8 à 10 cases
   de son camp, plus loin quand elles grandissent (fumées, renommée) ; le wiki le dit ;
 - mémoire des proies vues et des razzias réussies ou ratées ;
+- **routes commerciales** comme proies : piller les convois rapporte un butin (décidé le 10/11,
+  `conception-ressources.md`) ;
 - événements rares liés aux saisons : coalition de clans (horde), migration après une famine ou un
   hiver dur ; les survivants d'un clan détruit rejoignent le clan voisin.
 
