@@ -232,13 +232,13 @@ impl MoveCosts for WorldMap {
 /// à distance égale, les trajets préfèrent le terrain connu à l'inconnu.
 pub struct KnownMap<'a> {
     pub map: &'a WorldMap,
-    pub explored: &'a HashSet<Hex>,
+    pub explored: &'a crate::cases::CaseSet,
     /// Cases occupées par l'ennemi (connues du joueur) : infranchissables tant qu'il n'y a pas de combat.
     pub blocked: Option<&'a HashSet<Hex>>,
 }
 
 impl<'a> KnownMap<'a> {
-    pub fn new(map: &'a WorldMap, explored: &'a HashSet<Hex>) -> Self {
+    pub fn new(map: &'a WorldMap, explored: &'a crate::cases::CaseSet) -> Self {
         Self { map, explored, blocked: None }
     }
 

@@ -89,7 +89,7 @@ pub struct Relief {
     axis_cache: HashMap<Hex, Vec<Channel>>,
     /// Cases explorées : le relief des autres est inconnu (plat, provisoire) et ne doit pas
     /// guider la hauteur de l'eau.
-    explored: HashSet<Hex>,
+    explored: crate::cases::CaseSet,
     /// Hachures posées sur le relief (cases partagées entre deux bassins, carte des bassins).
     hatches: HashMap<Hex, Entity>,
     /// Relief interne (collines, montagnes) des cases explorées, modelé dans le sol (adouci sous
@@ -116,8 +116,8 @@ const SITE_RELIEF: f32 = 0.75;
 fn explored_bumps(map: &crate::map::WorldMap, fog: &ShownFog, sites: &HashSet<Hex>) -> BumpMap {
     fog.explored
         .iter()
-        .filter(|&&h| map.contains(h))
-        .filter_map(|&h| {
+        .filter(|&h| map.contains(h))
+        .filter_map(|h| {
             bumps_for(map, h).map(|b| if sites.contains(&h) { (h, Bumps { amp: b.amp * SITE_RELIEF, summit: b.summit * SITE_RELIEF, ..b }) } else { (h, b) })
         })
         .collect::<BumpMap>()
@@ -966,7 +966,7 @@ fn setup_3d(
     // Relief interne de toutes les cases (pour placer les arbres sous la limite des arbres)
     let wrap = map.0.wrap();
     let all_bumps: BumpMap = map.0.hexes().filter_map(|h| bumps_for(&map.0, h).map(|b| (h, b))).collect::<BumpMap>().with_wrap(wrap);
-    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: HashSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), generation: HashMap::new(), shape: 0, wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
+    let mut relief = Relief { tops: HashMap::new(), tiles: HashMap::new(), decor: HashMap::new(), water: HashMap::new(), channels: HashMap::new(), axis_cache: HashMap::new(), explored: crate::cases::CaseSet::new(), hatches: HashMap::new(), bumps: BumpMap::new().with_wrap(wrap), generation: HashMap::new(), shape: 0, wrap, water_seen: HashSet::new(), water_colors: map.0.hexes().filter_map(|h| map.0.get(h).filter(|t| t.is_water()).map(|t| (h, terrain_color(t)))).collect(), water_hexes: map.0.hexes().filter(|&h| map.0.get(h).is_some_and(|t| t.is_water())).collect() };
     let fresh_water = [
         materials.add(StandardMaterial { base_color: Color::WHITE, perceptual_roughness: 0.25, ..default() }),
         materials.add(StandardMaterial { base_color: Color::srgb(0.45, 0.45, 0.5), perceptual_roughness: 0.25, ..default() }),
@@ -1421,9 +1421,8 @@ fn update_relief_3d(
         let changed: Vec<Hex> = fog
             .explored
             // Symétrique : en quittant le mode debug, des cases redeviennent inconnues
-            .symmetric_difference(&queue.explored)
-            .chain(sites.symmetric_difference(&queue.sites))
-            .copied()
+            .difference_symetrique(&queue.explored)
+            .chain(sites.symmetric_difference(&queue.sites).copied())
             .collect();
         for h in changed.iter().flat_map(|&h| map.0.range(h, 2)).filter(|h| map.0.contains(*h)) {
             queue.geometry.insert(h);
@@ -1479,7 +1478,7 @@ fn update_relief_3d(
             queue.geometry.insert(h);
             queue.levels.insert(h);
         }
-        relief.water_seen = relief.water_hexes.intersection(&fog.explored).copied().collect();
+        relief.water_seen = relief.water_hexes.iter().copied().filter(|h| fog.explored.contains(h)).collect();
         relief.bumps = explored_bumps(&map.0, &fog, &sites);
         relief.shape += 1;
         queue.order_focus = None;
@@ -1491,14 +1490,14 @@ fn update_relief_3d(
     // calculé est réutilisé. La vision peut déborder du bord de la carte : on ne garde que la carte.
     // (carte géographique : aussi quand sa famille ou son niveau changent)
     if layer.is_changed() || (geo.is_changed() && *layer == MapLayer::Geography) {
-        queue.color.extend(fog.explored.iter().copied().filter(|h| map.0.contains(*h)));
+        queue.color.extend(fog.explored.iter().filter(|h| map.0.contains(*h)));
         // (beaucoup de cases d'un coup : l'ordre est refait en une fois)
         queue.order_focus = None;
     }
 
     // Matériaux (case vue, explorée ou inconnue) : peu coûteux, mis à jour aussitôt
     if fog.is_changed() {
-        relief.water_seen = relief.water_hexes.intersection(&fog.explored).copied().collect();
+        relief.water_seen = relief.water_hexes.iter().copied().filter(|h| fog.explored.contains(h)).collect();
         relief.explored = fog.explored.clone();
         for (&hex, &tile) in &relief.tiles {
             // Une case dont le relief reste à refaire garde son aspect jusqu'à sa reconstruction
@@ -1594,7 +1593,7 @@ fn update_relief_3d(
     // Le fondu d'une embouchure vise la couleur affichée de l'eau (carte, banquise), pas toujours la
     // mer de la carte normale
     if layer.is_changed() || fog.is_changed() {
-        let colors: Vec<(Hex, Vec3)> = relief.water_hexes.iter().filter(|h| fog.explored.contains(*h)).map(|&h| (h, hex_color(h))).collect();
+        let colors: Vec<(Hex, Vec3)> = relief.water_hexes.iter().filter(|h| fog.explored.contains(h)).map(|&h| (h, hex_color(h))).collect();
         relief.water_colors.extend(colors);
     }
     // (case, numéro du paquet où elle a été refaite)
@@ -1997,7 +1996,7 @@ fn hatch_mesh(relief: &Relief, hex: Hex, color: Color) -> MeshData {
 /// Cases du relief 3D en attente de mise à jour.
 #[derive(Default)]
 struct ReliefQueue {
-    explored: HashSet<Hex>,
+    explored: crate::cases::CaseSet,
     sites: HashSet<Hex>,
     /// Relief à recalculer (et couleurs).
     geometry: HashSet<Hex>,
@@ -2704,7 +2703,7 @@ fn draw_wind_3d(
     let cache = &mut *cache;
     if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
         let lift = |p: Vec2| relief.on_ground(p.x, p.y, 6.0);
-        let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| wind_arrow(&map.0, hex));
+        let arrows = fog.explored.iter().filter(|&h| wind_arrow_site(h)).filter_map(|hex| wind_arrow(&map.0, hex));
         cache.arrows = arrows.map(|(from, to)| (lift(from), lift(to), Color::srgba(1.0, 1.0, 1.0, 0.85))).collect();
         cache.shape = Some(relief.shape);
     }
@@ -2735,7 +2734,7 @@ fn draw_currents_3d(
     let cache = &mut *cache;
     if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
         let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
-        let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| current_arrow(&map.0, hex));
+        let arrows = fog.explored.iter().filter(|&h| wind_arrow_site(h)).filter_map(|hex| current_arrow(&map.0, hex));
         cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
         cache.shape = Some(relief.shape);
     }
@@ -2766,7 +2765,7 @@ fn draw_waves_3d(
     let cache = &mut *cache;
     if ground_lines_stale(cache.shape, relief.shape, pending.0, time.elapsed_secs(), &mut cache.refreshed) {
         let lift = |p: Vec2| relief.on_ground(p.x, p.y, 2.0);
-        let arrows = fog.explored.iter().filter(|&&h| crate::render::wind_arrow_site(h)).filter_map(|&hex| crate::render::wave_arrow(&map.0, hex));
+        let arrows = fog.explored.iter().filter(|&h| crate::render::wind_arrow_site(h)).filter_map(|hex| crate::render::wave_arrow(&map.0, hex));
         cache.arrows = arrows.map(|(from, to, color)| (lift(from), lift(to), color)).collect();
         cache.shape = Some(relief.shape);
     }
@@ -3010,8 +3009,8 @@ fn plates_3d(m: &crate::map::WorldMap, fog: &ShownFog, relief: &Relief) -> Plate
             lines.push(((0..=4).map(|k| lift(a.lerp(b, k as f32 / 4.0), up)).collect(), Color::srgb(r, g, bl)));
         }
     }
-    let arrows = fog.explored.iter().filter(|&&h| wind_arrow_site(h)).filter_map(|&hex| plate_arrow(m, hex)).map(|(from, to)| (lift(from, 6.0), lift(to, 6.0))).collect();
-    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(*h)) {
+    let arrows = fog.explored.iter().filter(|&h| wind_arrow_site(h)).filter_map(|hex| plate_arrow(m, hex)).map(|(from, to)| (lift(from, 6.0), lift(to, 6.0))).collect();
+    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(h)) {
         let (x, y) = h.to_world();
         for radius in [0.45, 0.2] {
             let points = (0..=24).map(|k| lift(Vec2::new(x, y) + Vec2::from_angle(k as f32 / 24.0 * std::f32::consts::TAU) * HEX_SIZE * radius, 3.0)).collect();

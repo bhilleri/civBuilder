@@ -240,7 +240,7 @@ mod tests {
             map.set(Hex::from_offset(5, row), Terrain::Ocean);
         }
         let (a, b) = (Hex::from_offset(2, 3), Hex::from_offset(8, 3));
-        let mut explored: HashSet<Hex> = a.range(2).collect();
+        let mut explored: crate::cases::CaseSet = a.range(2).collect();
 
         let blind = find_path(&KnownMap::new(&map, &explored), a, b).unwrap();
         assert_eq!(blind.len(), a.distance(b) as usize, "ligne droite à travers l'inconnu");
@@ -257,7 +257,7 @@ mod tests {
         let map = WorldMap::filled(12, 12, Terrain::Plains);
         let (a, b) = (Hex::from_offset(2, 5), Hex::from_offset(8, 5));
         // Bande connue légèrement au nord du trajet direct
-        let mut explored: HashSet<Hex> = a.range(1).collect();
+        let mut explored: crate::cases::CaseSet = a.range(1).collect();
         for col in 2..=9 {
             explored.insert(Hex::from_offset(col, 4));
             explored.insert(Hex::from_offset(col, 3));
@@ -265,14 +265,14 @@ mod tests {
         explored.extend(b.range(1));
         let known = KnownMap::new(&map, &explored);
         let path = find_path(&known, a, b).unwrap();
-        let unknown_steps = path.iter().filter(|h| !explored.contains(*h)).count();
+        let unknown_steps = path.iter().filter(|h| !explored.contains(h)).count();
         assert_eq!(unknown_steps, 0, "le trajet doit emprunter la bande connue : {path:?}");
     }
 
     #[test]
     fn destination_inconnue_acceptee() {
         let map = WorldMap::filled(10, 10, Terrain::Ocean);
-        let explored = HashSet::from([Hex::from_offset(1, 1)]);
+        let explored: crate::cases::CaseSet = [Hex::from_offset(1, 1)].into_iter().collect();
         let known = KnownMap::new(&map, &explored);
         // Tout est de l'eau en réalité, mais rien n'est connu hormis le départ
         assert!(find_path(&known, Hex::from_offset(1, 1), Hex::from_offset(5, 5)).is_some());

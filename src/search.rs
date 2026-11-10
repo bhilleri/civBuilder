@@ -374,7 +374,7 @@ fn thousands(n: u64) -> String {
 
 /// Index des lieux connus : villes du joueur, cours d'eau et lacs dont une partie est explorée,
 /// bassins versants et plaques qui ont une case explorée.
-pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity, String, i32)], sites: &[(Entity, String, bool)]) -> Vec<Entry> {
+pub fn build_entries(map: &WorldMap, explored: &crate::cases::CaseSet, cities: &[(Entity, String, i32)], sites: &[(Entity, String, bool)]) -> Vec<Entry> {
     let mut entries = Vec::new();
     let mut push = |name: &str, category: Category, detail: String, target: MapTarget, importance: f32| {
         entries.push(Entry { name: name.to_string(), norm: normalize(name), category, detail, target, importance });
@@ -477,7 +477,7 @@ pub fn build_entries(map: &WorldMap, explored: &HashSet<Hex>, cities: &[(Entity,
     let plates = map.plates();
     let mut seen_basins: HashSet<usize> = HashSet::new();
     let mut seen_plates: HashSet<usize> = HashSet::new();
-    for &h in explored {
+    for h in explored.iter() {
         if !map.contains(h) {
             continue;
         }
@@ -565,10 +565,10 @@ fn target_hexes(map: &WorldMap, fog: &ShownFog, territory: &Territory, entity_he
         MapTarget::Land(z) => map.lands().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Relief(z) => map.reliefs().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
         MapTarget::Region(z) => map.regions().zones.get(z).map_or_else(Vec::new, |zone| zone.cells.iter().map(|&c| map.hex_at(c)).filter(explored).collect()),
-        MapTarget::Basin(b) => fog.explored.iter().copied().filter(|&h| map.contains(h) && basins.basin_of[map.cell(h)] == Some(b as u32)).collect(),
+        MapTarget::Basin(b) => fog.explored.iter().filter(|&h| map.contains(h) && basins.basin_of[map.cell(h)] == Some(b as u32)).collect(),
         MapTarget::Plate(p) => {
             let plate_of = &map.plates().plate_of;
-            fog.explored.iter().copied().filter(|&h| map.contains(h) && plate_of.get(map.cell(h)).is_some_and(|&q| q as usize == p)).collect()
+            fog.explored.iter().filter(|&h| map.contains(h) && plate_of.get(map.cell(h)).is_some_and(|&q| q as usize == p)).collect()
         }
     };
     hexes.sort_unstable_by_key(|h| (h.q, h.r));
@@ -1368,9 +1368,9 @@ mod tests {
     #[test]
     fn index_des_lieux_connus() {
         let m = WorldMap::generate_in(96, 56, 777, crate::climate::Region::planet(crate::climate::CELL_KM, 56));
-        let none = build_entries(&m, &HashSet::new(), &[], &[]);
+        let none = build_entries(&m, &crate::cases::CaseSet::new(), &[], &[]);
         assert!(none.is_empty(), "rien d'exploré : rien à chercher");
-        let all: HashSet<Hex> = m.hexes().collect();
+        let all: crate::cases::CaseSet = m.hexes().collect();
         let entries = build_entries(&m, &all, &[], &[]);
         let count = |c: Category| entries.iter().filter(|e| e.category == c).count();
         assert_eq!(count(Category::River), m.basins().rivers.len());

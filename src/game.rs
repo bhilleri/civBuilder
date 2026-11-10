@@ -1,5 +1,6 @@
 //! État du jeu côté ECS : composants, ressources, initialisation et fin de tour.
 
+use crate::cases::CaseSet;
 use crate::explore::{self, ExploreOutcome, ExploreWorld};
 use crate::feedback::{Actor, Cue, Cues};
 use crate::hex::Hex;
@@ -143,8 +144,8 @@ impl GameState {
 /// Brouillard de guerre : cases déjà explorées et cases vues ce tour-ci.
 #[derive(Resource, Default)]
 pub struct Fog {
-    pub explored: HashSet<Hex>,
-    pub visible: HashSet<Hex>,
+    pub explored: CaseSet,
+    pub visible: CaseSet,
 }
 
 /// Brouillard tel qu'il est affiché : celui du joueur, ou la carte entière en mode debug.
@@ -152,8 +153,8 @@ pub struct Fog {
 /// joueur ; seul l'affichage lit `ShownFog`.
 #[derive(Resource, Default)]
 pub struct ShownFog {
-    pub explored: HashSet<Hex>,
-    pub visible: HashSet<Hex>,
+    pub explored: CaseSet,
+    pub visible: CaseSet,
 }
 
 /// Mode debug : révèle toute la carte à l'affichage (menu Échap).
@@ -680,7 +681,7 @@ fn sync_shown_fog(fog: Res<Fog>, debug: Res<DebugMode>, map: Res<GameMap>, mut s
         return;
     }
     if debug.0 {
-        let all: HashSet<Hex> = map.0.hexes().collect();
+        let all: CaseSet = map.0.hexes().collect();
         shown.visible = all.clone();
         shown.explored = all;
     } else {
@@ -700,14 +701,14 @@ fn update_fog(
     if changed.is_empty() && removed.read().count() == 0 {
         return;
     }
-    let mut visible = HashSet::new();
+    let mut visible = CaseSet::new();
     for (unit, pos) in &units {
         visible.extend(map.0.range(pos.0, unit.0.kind.sight()));
     }
     for pos in &cities {
         visible.extend(map.0.range(pos.0, 3));
     }
-    fog.explored.extend(visible.iter().copied());
+    fog.explored.extend(visible.iter());
     fog.visible = visible;
 }
 

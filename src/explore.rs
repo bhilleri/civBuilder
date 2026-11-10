@@ -100,7 +100,7 @@ struct Known {
 }
 
 impl Known {
-    fn new(world: &ExploreWorld, explored: &HashSet<Hex>) -> Self {
+    fn new(world: &ExploreWorld, explored: &crate::cases::CaseSet) -> Self {
         let (width, height) = (world.map.width, world.map.height);
         let n = (width * height) as usize;
         let wrap = world.map.wrap();
@@ -123,7 +123,11 @@ impl Known {
                 }
             }
         };
-        fill(&mut known.explored, explored);
+        for h in explored.iter() {
+            if let Some(i) = known_index(width, height, wrap, h) {
+                known.explored[i] = true;
+            }
+        }
         fill(&mut known.reserved, world.reserved);
         fill(&mut known.blocked, world.blocked);
         fill(&mut known.danger, world.danger);
@@ -178,7 +182,7 @@ fn known_index(width: i32, height: i32, wrap: Wrap, h: Hex) -> Option<usize> {
 /// Meilleure cible d'exploration et chemin pour l'atteindre (départ exclu),
 /// ou `None` s'il ne reste rien d'accessible à découvrir ni à visiter.
 #[cfg_attr(not(test), allow(dead_code))]
-pub fn choose_target(world: &ExploreWorld, explored: &HashSet<Hex>, start: Hex, sight: i32) -> Option<(Hex, Vec<Hex>)> {
+pub fn choose_target(world: &ExploreWorld, explored: &crate::cases::CaseSet, start: Hex, sight: i32) -> Option<(Hex, Vec<Hex>)> {
     let mut known = Known::new(world, explored);
     known.mark_near_unknown(sight);
     choose_known(world.map, &known, start, sight)
@@ -297,7 +301,7 @@ pub enum ExploreOutcome {
 /// Dépense les PM de l'unité à explorer, pas à pas, en réévaluant la cible après chaque pas.
 /// `unit.path` reçoit le chemin restant vers la cible courante (pour l'affichage) et
 /// `unit.explore_target` la cible, que les autres explorateurs éviteront.
-pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, explored: &mut HashSet<Hex>) -> ExploreOutcome {
+pub fn explore_step(unit: &mut UnitState, pos: &mut Hex, world: &ExploreWorld, explored: &mut crate::cases::CaseSet) -> ExploreOutcome {
     let map = world.map;
     let sight = unit.kind.sight();
     unit.last_steps.clear();
@@ -355,7 +359,7 @@ mod tests {
     #[test]
     fn rien_a_decouvrir() {
         let map = WorldMap::filled(10, 10, Terrain::Plains);
-        let explored: HashSet<Hex> = map.hexes().collect();
+        let explored: crate::cases::CaseSet = map.hexes().collect();
         assert!(choose_target(&ExploreWorld::new(&map), &explored, Hex::from_offset(5, 5), 2).is_none());
     }
 
@@ -364,7 +368,7 @@ mod tests {
         let map = WorldMap::filled(30, 10, Terrain::Plains);
         let start = Hex::from_offset(10, 5);
         // Tout est connu sauf deux zones : une proche à l'est, une lointaine à l'ouest
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         let near = Hex::from_offset(17, 5);
         let far = Hex::from_offset(1, 5);
         for h in near.range(1).chain(far.range(1)) {
@@ -379,7 +383,7 @@ mod tests {
     fn prefere_un_gain_plus_grand_a_cout_egal() {
         let map = WorldMap::filled(30, 12, Terrain::Plains);
         let start = Hex::from_offset(15, 6);
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         // Est : une seule case inconnue. Ouest, même distance : une grande zone inconnue.
         explored.remove(&Hex::from_offset(21, 6));
         for h in Hex::from_offset(9, 6).range(2) {
@@ -397,7 +401,7 @@ mod tests {
         for h in center.range(2) {
             map.set(h, Terrain::Plains);
         }
-        let explored: HashSet<Hex> = center.range(5).collect();
+        let explored: crate::cases::CaseSet = center.range(5).collect();
         let mut unit = UnitState::new(UnitKind::Scout);
         let mut pos = center;
         let mut explored = explored;
@@ -419,7 +423,7 @@ mod tests {
     fn deux_explorateurs_se_repartissent() {
         let map = WorldMap::filled(40, 12, Terrain::Plains);
         let start = Hex::from_offset(20, 6);
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         for h in Hex::from_offset(30, 6).range(2).chain(Hex::from_offset(10, 6).range(2)) {
             explored.remove(&h);
         }
@@ -435,7 +439,7 @@ mod tests {
     fn zone_reservee_en_dernier_recours() {
         let map = WorldMap::filled(30, 12, Terrain::Plains);
         let start = Hex::from_offset(10, 6);
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         let zone = Hex::from_offset(20, 6);
         for h in zone.range(1) {
             explored.remove(&h);
@@ -449,7 +453,7 @@ mod tests {
     fn detour_pour_un_village() {
         let map = WorldMap::filled(40, 12, Terrain::Plains);
         let start = Hex::from_offset(20, 6);
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         // Petite frontière à 4 cases à l'est ; village connu à 7 cases à l'ouest
         explored.remove(&Hex::from_offset(24, 6));
         let village = Hex::from_offset(13, 6);
@@ -466,7 +470,7 @@ mod tests {
     fn village_reserve_par_un_autre() {
         let map = WorldMap::filled(40, 12, Terrain::Plains);
         let start = Hex::from_offset(20, 6);
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         explored.remove(&Hex::from_offset(26, 6));
         let village = Hex::from_offset(14, 6);
         let villages = HashSet::from([village]);
@@ -481,7 +485,7 @@ mod tests {
     fn evite_la_zone_dangereuse() {
         let map = WorldMap::filled(30, 12, Terrain::Plains);
         let start = Hex::from_offset(5, 6);
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         for h in Hex::from_offset(20, 6).range(2) {
             explored.remove(&h);
         }
@@ -498,7 +502,7 @@ mod tests {
     fn menace_decouverte_en_route() {
         let map = WorldMap::filled(30, 12, Terrain::Plains);
         let start = Hex::from_offset(4, 6);
-        let mut explored: HashSet<Hex> = map.hexes().filter(|h| h.to_offset().0 <= 10).collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().filter(|h| h.to_offset().0 <= 10).collect();
         // Ennemi juste au-delà de la vision de départ, sur la route directe vers l'inconnu
         let enemy = Hex::from_offset(8, 6);
         let threats = HashSet::from([enemy]);
@@ -515,7 +519,7 @@ mod tests {
     fn sortir_de_la_zone_dangereuse() {
         let map = WorldMap::filled(30, 12, Terrain::Plains);
         let start = Hex::from_offset(12, 6);
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         for h in Hex::from_offset(25, 6).range(2) {
             explored.remove(&h);
         }
@@ -532,7 +536,7 @@ mod tests {
             let start = map.find_start().unwrap();
             let mut unit = UnitState::new(UnitKind::Scout);
             let mut pos = start;
-            let mut explored = HashSet::new();
+            let mut explored = crate::cases::CaseSet::new();
             let mut turns = 0;
             while explore_step(&mut unit, &mut pos, &ExploreWorld::new(&map), &mut explored) == ExploreOutcome::Exploring {
                 assert!(map.get(pos).unwrap().move_cost().is_some());
@@ -550,7 +554,7 @@ mod tests {
                     }
                 }
             }
-            let missing = seen.iter().filter(|h| !explored.contains(*h)).count();
+            let missing = seen.iter().filter(|h| !explored.contains(h)).count();
             assert_eq!(missing, 0, "graine {seed} : {missing} cases accessibles non explorées");
         }
     }
@@ -570,7 +574,7 @@ mod bench {
         // Départ : 36 unités sur des cases franchissables autour du départ
         let spots: Vec<Hex> = map.range(start, 8).filter(|&h| map.move_cost(h).is_some()).take(36).collect();
         let mut units: Vec<(UnitState, Hex)> = spots.iter().map(|&h| (UnitState::new(UnitKind::Scout), h)).collect();
-        let mut explored: HashSet<Hex> = map.range(start, 10).collect();
+        let mut explored: crate::cases::CaseSet = map.range(start, 10).collect();
         for turn in 0..40 {
             let t = std::time::Instant::now();
             let mut steps = 0;

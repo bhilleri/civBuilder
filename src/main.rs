@@ -8,6 +8,7 @@ mod basins;
 mod battle;
 mod bridge_build;
 mod capture;
+mod cases;
 mod chrono_tour;
 mod climate;
 mod combat;

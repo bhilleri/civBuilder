@@ -2217,7 +2217,7 @@ fn draw_wind_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, mut
     if *layer != MapLayer::Climate {
         return;
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+    for hex in fog.explored.iter().filter(|&h| wind_arrow_site(h)) {
         if let Some((from, to)) = wind_arrow(&map.0, hex) {
             gizmos.arrow_2d(from, to, WIND_ARROW).with_tip_length(7.0);
         }
@@ -2229,7 +2229,7 @@ fn draw_currents_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>,
     if *layer != MapLayer::Currents {
         return;
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+    for hex in fog.explored.iter().filter(|&h| wind_arrow_site(h)) {
         if let Some((from, to, color)) = current_arrow(&map.0, hex) {
             gizmos.arrow_2d(from, to, color).with_tip_length(6.0);
         }
@@ -2241,7 +2241,7 @@ fn draw_waves_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, mu
     if *layer != MapLayer::Waves {
         return;
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+    for hex in fog.explored.iter().filter(|&h| wind_arrow_site(h)) {
         if let Some((from, to, color)) = wave_arrow(&map.0, hex) {
             gizmos.arrow_2d(from, to, color).with_tip_length(6.0);
         }
@@ -2270,12 +2270,12 @@ fn draw_plates_2d(layer: Res<MapLayer>, map: Res<GameMap>, fog: Res<ShownFog>, v
         let (r, g, b) = e.kind.color();
         lines.line_2d(Vec2::new(ax, ay), Vec2::new(bx, by), Color::srgb(r, g, b));
     }
-    for &hex in fog.explored.iter().filter(|&&h| wind_arrow_site(h)) {
+    for hex in fog.explored.iter().filter(|&h| wind_arrow_site(h)) {
         if let Some((from, to)) = plate_arrow(m, hex) {
             gizmos.arrow_2d(from, to, PLATE_ARROW).with_tip_length(6.0);
         }
     }
-    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(*h)) {
+    for &h in m.plates().hotspots.iter().filter(|h| fog.explored.contains(h)) {
         let (x, y) = h.to_world();
         gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.45, HOTSPOT);
         gizmos.circle_2d(Vec2::new(x, y), HEX_SIZE * 0.2, HOTSPOT);

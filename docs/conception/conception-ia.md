@@ -103,7 +103,7 @@ Jamais de bonus de vision, de combat ni d'unités gratuites.
 - **`AiView`** : l'IA ne reçoit qu'une vue construite depuis son brouillard et sa mémoire, dans un
   module de logique pure. Elle ne lit jamais l'ECS directement ; aujourd'hui `hostile_turn`
   parcourt toutes les unités du joueur, une fuite à corriger.
-- **Brouillard par peuple en tableaux de bits** (`Vec<u64>`) : ≈ 2,7 Ko par carte et par peuple,
+- **Brouillard par peuple en tableaux de bits** (`Vec<u64>`, ensemble de cases `cases::CaseSet` fait le 10/11) : ≈ 2,7 Ko par carte et par peuple,
   mémoire des derniers aperçus ≈ 100 à 200 Ko par peuple ; moins de 3 Mo pour 12 peuples. L'actuel
   `Fog` en `HashSet<Hex>` ne convient pas pour cela.
 - **Chemins dans l'inconnu** : coût moyen supposé, recalcul quand la case se révèle.

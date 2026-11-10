@@ -524,7 +524,7 @@ fn update_basin_legend(
     let mut found: Vec<usize> = fog
         .explored
         .iter()
-        .filter_map(|&h| map.0.contains(h).then(|| basins.basin_of[map.0.cell(h)]).flatten())
+        .filter_map(|h| map.0.contains(h).then(|| basins.basin_of[map.0.cell(h)]).flatten())
         .map(|b| b as usize)
         .filter(|&b| basins.basins[b].major())
         .collect();

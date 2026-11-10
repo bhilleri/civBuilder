@@ -156,7 +156,7 @@ impl UnitState {
         &mut self,
         pos: &mut Hex,
         map: &WorldMap,
-        explored: &mut HashSet<Hex>,
+        explored: &mut crate::cases::CaseSet,
         blocked: &HashSet<Hex>,
         occupied: &HashSet<Hex>,
         zoc: &HashSet<Hex>,
@@ -613,7 +613,7 @@ mod tests {
         map
     }
 
-    fn all_known(map: &WorldMap) -> HashSet<Hex> {
+    fn all_known(map: &WorldMap) -> crate::cases::CaseSet {
         map.hexes().collect()
     }
 
@@ -661,8 +661,8 @@ mod tests {
         map.set_bridge(BridgeAt::Fleuve { hex: f, axis: 0 }, true);
         let (west, east) = (f + crate::hex::DIRECTIONS[3], f + crate::hex::DIRECTIONS[0]);
         let side = f + crate::hex::DIRECTIONS[1];
-        let mut explored: HashSet<Hex> = map.hexes().collect();
-        let go = |unit: &mut UnitState, from: &mut Hex, to: Hex, layer: Option<bool>, occupied: &HashSet<Hex>, explored: &mut HashSet<Hex>| {
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
+        let go = |unit: &mut UnitState, from: &mut Hex, to: Hex, layer: Option<bool>, occupied: &HashSet<Hex>, explored: &mut crate::cases::CaseSet| {
             unit.moves_left = unit.kind.max_moves();
             unit.set_order(*from, vec![to], &map);
             unit.order_layer = layer;
@@ -846,7 +846,7 @@ mod tests {
 
     /// Joue l'ordre tour après tour ; retourne la position finale et la dernière issue.
     fn play_order(map: &WorldMap, start: Hex, dest: Hex) -> (Hex, MoveOutcome) {
-        let mut explored: HashSet<Hex> = start.range(2).collect();
+        let mut explored: crate::cases::CaseSet = start.range(2).collect();
         let mut unit = UnitState::new(UnitKind::Militia);
         let known = KnownMap::new(map, &explored);
         let path = find_path(&known, start, dest).unwrap();
@@ -892,7 +892,7 @@ mod tests {
         let start = Hex::from_offset(2, 4);
         let mut unit = UnitState::new(UnitKind::Militia);
         let mut pos = start;
-        let mut explored = HashSet::new();
+        let mut explored = crate::cases::CaseSet::new();
         explored.extend(start.range(2));
         let known = KnownMap::new(&map, &explored);
         unit.set_order(start, find_path(&known, start, dest).unwrap(), &known);
@@ -917,7 +917,7 @@ mod tests {
         }
         let start = Hex::from_offset(8, 12);
         let mut pos = start;
-        let mut explored: HashSet<Hex> = start.range(3).collect();
+        let mut explored: crate::cases::CaseSet = start.range(3).collect();
         let mut unit = UnitState::new(UnitKind::Scout);
         let known = KnownMap::new(&map, &explored);
         unit.set_order(start, find_path(&known, start, center).unwrap(), &known);
@@ -941,7 +941,7 @@ mod tests {
         let map = WorldMap::filled(12, 12, Terrain::Plains);
         let start = Hex::from_offset(2, 5);
         let dest = Hex::from_offset(5, 5); // 3 cases ; le détour en fait 4 = les PM de la cavalerie légère
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         let known = KnownMap::new(&map, &explored);
         let path = find_path(&known, start, dest).unwrap();
         let obstacle = path[1];
@@ -1035,7 +1035,7 @@ mod tests {
         assert!(zoc_tiles(Wrap::NONE, [(UnitKind::ExpertArcher, enemy)]).is_empty(), "les archers n'en exercent pas");
 
         // Un déplacement qui longe l'ennemi s'arrête en entrant dans sa zone de contrôle
-        let mut explored: HashSet<Hex> = map.hexes().collect();
+        let mut explored: crate::cases::CaseSet = map.hexes().collect();
         let mut unit = UnitState::new(UnitKind::LightCavalry); // 4 PM
         let start = Hex::from_offset(4, 4);
         let dest = Hex::from_offset(10, 4);
@@ -1154,7 +1154,7 @@ mod experience_brouillard {
 
     fn run(cost_unknown: u32, gap: bool) -> (usize, bool, Hex) {
         // On simule un coût d'inconnu différent via un wrapper
-        struct K<'a> { map: &'a WorldMap, explored: &'a HashSet<Hex>, c: u32 }
+        struct K<'a> { map: &'a WorldMap, explored: &'a crate::cases::CaseSet, c: u32 }
         impl MoveCosts for K<'_> {
             fn move_cost(&self, h: Hex) -> Option<u32> {
                 if !self.map.contains(h) { None } else if self.explored.contains(&h) { self.map.move_cost(h) } else { Some(self.c) }
@@ -1163,7 +1163,7 @@ mod experience_brouillard {
         let (map, center) = massif(gap);
         let start = Hex::from_offset(8, 10);
         let mut pos = start;
-        let mut explored: HashSet<Hex> = start.range(3).collect();
+        let mut explored: crate::cases::CaseSet = start.range(3).collect();
         let mut steps = 0;
         let mut path = find_path(&K { map: &map, explored: &explored, c: cost_unknown }, pos, center).unwrap();
         for _ in 0..200 {
