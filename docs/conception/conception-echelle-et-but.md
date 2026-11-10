@@ -93,6 +93,24 @@ Pistes :
 - défaite par effondrement (plus de ville, instabilité totale) ;
 - partie libre après la fin, le score servant de repère.
 
+### Rythme : des événements réguliers (décidé le 10/11/2026)
+Pour éviter les tours vides (12 tours par an, villes en partie automatisées), chaque tour ou
+presque apporte une information ou une décision : récolte, crue, hiver, migration, rumeur,
+découverte, contact avec un peuple. Le journal hiérarchisé existant les porte.
+
+### Révision 2 : cohérence (décisions de Benjamin, 10/11/2026)
+- **Période nomade : l'agriculture est requise.** Le peuple commence nomade ; il ne peut fonder sa
+  première ville qu'après avoir découvert l'agriculture (première technique du Néolithique), en
+  errant et en observant plantes et animaux. Comment se représente le peuple nomade (une ou
+  plusieurs unités) reste à préciser (tâche 22).
+- **Effectifs selon l'ère** : les unités grandissent en s'améliorant d'une ère à l'autre
+  (`conception-combat.md`) ; les colons et les petites bandes du Néolithique restent compatibles
+  avec des villes de quelques centaines d'habitants.
+- **Mode 2 tours par mois** : tout ce qui se compte par tour est réglé en mois (`conception-saisons.md`).
+- **Ordre** : la tâche 30 recale d'abord les chiffres (croissance, PM, coûts du relief, soins) ; les
+  jalons et l'arbre de recherche viennent après les villes (28), la culture et les institutions (32)
+  et les gisements (15).
+
 ## Conséquences sur les autres docs
 - `conception-saisons.md` : taux au tour de jeu ; mode 2 tours par mois avec taux divisés par deux.
 - `conception-villes.md` : population en habitants, table indice ↔ habitants.

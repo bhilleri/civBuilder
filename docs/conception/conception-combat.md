@@ -1,18 +1,18 @@
 # CivBuilder — Conception du combat (décisions)
 
-_Dernière mise à jour : 23 octobre 2026 — étapes 1 et 2 réalisées, altitude ajoutée, collines devenues un relief interne à la case_
+_Dernière mise à jour : 10 novembre 2026 — armée et révisions après l'analyse critique (voir « Armée » et « Révision »). Les chiffres des sections réalisées décrivent le code actuel ; ils seront recalés (tâche 30)._
 
 ## Principes retenus
 - **Une seule unité par case** (alliés compris).
 - **À 0 PV, l'unité est dispersée** (détruite).
-- **Pas de technologies pour l'instant** : toutes les unités sont disponibles d'emblée (à revoir plus tard).
+- **Pas de technologies pour l'instant** : toutes les unités sont disponibles d'emblée. Décidé le 10/11 : chaque type apparaîtra à une ère (voir « Révision »).
 - **Cavalerie dès maintenant.**
 - **Reportés à plus tard :** fortification (doit à terme protéger des charges de cavalerie), armes de siège.
 
 ## Caractéristiques d'une unité
 - Points de vie (100), attaque mêlée, défense mêlée, attaque à distance, portée, défense à distance, PM, coût.
 - **Traits** plutôt que colonnes : bonus anti-cavalerie, bonus contre certaines cibles, charge, zone de contrôle…
-- Pistes encore ouvertes : entretien en or, expérience.
+- Entretien et expérience : voir « Armée » et sa « Révision ».
 
 ## Résolution d'un combat
 - Dégâts ≈ 30 × e^(écart de force ÷ 25) × aléa entre 0,8 et 1,2.
@@ -49,7 +49,7 @@ Les unités capables de tirer attaquent toujours en tirant (y compris au contact
 - Plus tard : une unité fortifiée annule la charge.
 
 ## Altitude (réalisé)
-- 6 niveaux de terre : 1 littoral, 2 plaine basse, 3 plaine haute, 4 plateau, 5 haut plateau, 6 massif (où se dressent les sommets, infranchissables). L'eau est au niveau 0.
+- (Ancien, remplacé par 9 niveaux déduits des mètres, tâche 7 c) 6 niveaux de terre : 1 littoral, 2 plaine basse, 3 plaine haute, 4 plateau, 5 haut plateau, 6 massif (où se dressent les sommets, infranchissables). L'eau est au niveau 0.
 - **Pente** : écart de 1 niveau = coût normal ; montée de 2 niveaux = +1 PM ; écart de 3 niveaux ou plus = **falaise infranchissable** dans les deux sens. Pas de corps à corps ni de flanquement à travers une falaise.
 - But : restrictions de déplacement (cols, plateaux à défendre) et préparation des **fleuves**, qui suivront la pente.
 - Vision selon l'altitude : envisagée, reportée.
@@ -114,6 +114,30 @@ Décisions de Benjamin, avec le système des villes (`conception-villes.md`) :
 
 À décider : chiffres (rythme de formation par type, effet des casernes, besoins d'équipement et
 malus par type, effectifs, solde).
+
+### Révision après l'analyse critique (décisions de Benjamin, 10/11/2026)
+- **Armes produites en continu** par les bâtiments d'armement, chaque tour, selon leurs
+  travailleurs (hors file de construction).
+- **Unités civiles** (colon) produites dans la file de la ville, au prix d'habitants. **L'éclaireur
+  est une unité militaire de faible coût**, recrutée comme les soldats.
+- **Première version réduite** : habitants, armes en stock, entretien (nourriture et Économie),
+  durée de formation fixe par type. L'expérience, l'attrition, l'équipement partiel et le
+  recrutement avant la fin de la formation viendront ensuite, quand les IA sauront s'en servir.
+- « Or » devient « Économie » (solde, butins).
+
+### Révision 2 : cohérence (décisions de Benjamin, 10/11/2026)
+- **Unités par ère, avec amélioration** : chaque type apparaît à une ère (par exemple milice,
+  éclaireur, lancier au Néolithique ; archers et porteurs de bouclier au Bronze ; cavalerie au Fer ;
+  cavalerie lourde au Moyen Âge ; répartition à régler). **En changeant d'ère, une unité existante
+  s'améliore et son effectif grandit** : petites bandes au Néolithique, armées plus grandes ensuite.
+  Les effectifs (500 à 1 000 habitants) écrits plus haut sont remplacés par des effectifs selon
+  l'ère, à chiffrer avec la table de population (`conception-echelle-et-but.md`).
+- **PM doublés et coûts du relief doublés aussi** (montagnes, forêts, fleuves) : le relief reste
+  une barrière, la dette de déplacement garde son rôle. Les rayons de l'IA hostile (`HUNT_RANGE`,
+  `WANDER_RADIUS`) et la zone dangereuse de l'exploration sont à recaler.
+- **Armes** : les bâtiments d'armement sont des **emplois de la ville** ; l'intendant y affecte des
+  travailleurs, qui ne produisent alors pas de Production pour la file ; le joueur règle l'effectif voulu.
+- **Campagnes saisonnières** : voir le besoin de bras saisonnier (`conception-villes.md`).
 
 ## Découpage du développement
 - **Étape 1 (fait) :** une unité par case, statistiques, PV, combat au corps à corps avec prévision, charge, dispersion des unités, hostiles qui attaquent.

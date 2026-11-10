@@ -19,7 +19,8 @@ le joueur (`conception-echelle-et-but.md`). La fin de partie se décidera avec e
 - L'IA fonde des villes, aménage, construit, recherche, passe les ères par les jalons, forme des
   soldats, sans règle à part.
 - **L'intendant des villes sert aux deux** (`conception-villes.md`) : celui d'une ville d'IA est le
-  même que celui du joueur, réglé par l'IA au lieu du joueur.
+  même que celui du joueur, réglé par l'IA au lieu du joueur. Le choix des aménagements, qui revient
+  au joueur, est pour l'IA une décision de niveau opérationnel.
 
 ## Trois niveaux de décision (proposition)
 1. **Stratégique**, une fois par saison ou par an : objectifs (s'étendre, développer, se défendre,

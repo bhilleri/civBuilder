@@ -69,6 +69,11 @@ la météo et les règles de jeu.
 D'abord des volcans géologiques (forme, sols, noms). Les éruptions viendront **plus tard, après
 la météo**, avec les autres risques naturels (tâche 21) : coulées, cendres sur les récoltes, hiver volcanique.
 
+## Fertilité (décidé le 10/11/2026)
+Pour l'instant, un **bonus fixe selon le type de sol** (sols volcaniques, bassins sédimentaires,
+limons déposés par les fleuves…), fondé sur une recherche (tâche 12). Pas d'épuisement ni de
+régénération pour le moment.
+
 ## Questions ouvertes
 - Effets de jeu de la fertilité : attendre la tâche « Fertilité des sols ».
 - Ressources liées aux volcans : à décider avec les ressources.

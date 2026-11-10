@@ -7,7 +7,7 @@ gel) et des effets sur les déplacements. Le rendu suivra (`conception-rendu-3d.
 
 ## Décisions de Benjamin (09/11/2026)
 - **Cycle saisonnier séparé de la date historique** : les saisons tournent toujours au même
-  rythme ; l'année affichée avance plus vite selon l'ère (ères à définir plus tard).
+  rythme ; l'année affichée avance plus vite selon l'ère (voir `conception-echelle-et-but.md`).
 - **1 tour = 1 mois** (12 tours par an) par défaut, avec un **mode à 2 tours par mois**.
   Pourquoi : laisser le temps d'une vraie stratégie militaire (un hiver de trois mois est court :
   une campagne a le temps de se jouer et une saison prend de l'importance), et laisser une place
@@ -37,7 +37,7 @@ gel) et des effets sur les déplacements. Le rendu suivra (`conception-rendu-3d.
 ### Calendrier
 - Le tour porte un mois (12 tours par an, ou 24 en mode « 2 tours par mois », par demi-mois).
 - Barre du haut : mois et **saison locale** de la case visée (les hémisphères sont inversés).
-- Date historique : plus tard, avec les ères.
+- Date historique : selon l'ère du joueur (`conception-echelle-et-but.md`).
 
 ### Climat mensuel
 - **Interpoler les quatre saisons simulées**, sans simuler douze mois : courbe périodique à deux
@@ -168,6 +168,38 @@ Benjamin a retenu une météo en deux couches, avec une exigence : **l'ensemble 
 ## Mois de départ (décidé le 10/11/2026)
 Une partie commence au **printemps de l'hémisphère nord** (mars ou avril, à régler) : la belle
 saison au nord, l'automne au sud.
+
+## Révision après l'analyse critique (décisions de Benjamin, 10/11/2026)
+- **Nourriture lissée** : pas de récolte concentrée ; la saison et la météo ne font que moduler un
+  peu les rendements (`conception-villes.md`). L'idée d'une campagne militaire coûteuse pendant la
+  récolte passe donc par les travailleurs retirés, pas par une récolte perdue.
+- **Cyclones** : la trajectoire tient dans un tour pour l'instant (confirmé) ; plusieurs tours, plus tard.
+
+## Constats techniques de l'analyse critique (10/11/2026)
+- **Données saisonnières à garder** : le vent par saison est jeté après la génération
+  (`mem::take` de `climate.regime_wind` dans `map.rs`) et la température de la mer est annuelle
+  (`Currents::temperature`). Les garder par saison dans `Climate` : c'est la seule source pour la
+  météo et les cyclones.
+- **Étalonnage sur 50 ans** : le climat contient déjà le rail des dépressions ; les systèmes
+  compteraient la pluie deux fois. Les anomalies s'entendent par rapport à la moyenne mesurée
+  sur 50 années fictives, à la génération : c'est l'étalonnage, pas un bilan optionnel
+  (≈ 1 à 3 s en release, 3 à 5 fois plus en dev).
+- **Cyclones et tempêtes sur les cases**, pas sur la grille grossière (≈ 320 km, trop lâche).
+- **Déterminisme** : clé (graine, pas du calendrier) et non le numéro de tour (sinon le mode
+  2 tours par mois change la météo) ; générateur à compteur ; aucun tirage dans l'ordre d'un
+  `HashMap` ; aucune somme de flottants en parallèle ; test : deux générations dans le même
+  processus donnent la même empreinte.
+- **Débit mensuel cohérent avec `hydro.rs`** : un réservoir du sol mensuel, dont la somme annuelle
+  est normalisée sur le ruissellement de `Climate` ; le lit est creusé une fois, à pleins bords,
+  et la largeur d'eau du mois est appliquée dans le shader.
+- **Neige** : degrés-jours attendus selon l'écart type du mois, pas sur la moyenne seule.
+- **Coût réel** : les systèmes coûtent moins d'une milliseconde ; le vrai risque est la tâche 7 g
+  (coupler le moteur à la génération du climat, déjà 8 à 35 s).
+
+## Révision 2 : mode 2 tours par mois (décidé le 10/11/2026)
+Tout ce qui se compte par tour est réglé **en mois** et divisé par deux dans ce mode : PM,
+attaques, soins, formation, armes, croissance, construction, recherche, budget de l'IA.
+La météo reste tirée par pas du calendrier (même météo dans les deux modes).
 
 ## Questions ouvertes
 - Seuils et chiffres des effets sur les déplacements.

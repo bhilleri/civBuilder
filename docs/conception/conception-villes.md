@@ -44,7 +44,7 @@ et ce que la ville doit produire. Le système doit rester **compréhensible** pa
 - **La population se répartit sur plusieurs cases** selon les besoins, et non un habitant par case.
 - **Capacité d'une case** : nombre maximal de personnes affectables, qui dépend des aménagements présents.
 - **Sans aménagement**, la case est exploitée de façon sous-optimale (fermes mal organisées, chasse).
-  **Aménager dope fortement les rendements.** La ville construit elle-même ses aménagements.
+  **Aménager dope fortement les rendements.** (Révision : le joueur choisit les aménagements, voir plus bas.)
 - **Bâtiments**, en plus des aménagements, aux fonctions variées : production d'armes,
   entraînement des soldats, production de ressources, stockage de l'eau, éducation, culture,
   défense… Un bâtiment construit sur une case **ne détruit pas l'aménagement rural** : il réduit
@@ -118,19 +118,19 @@ L'intendant est automatique, mais **guidable par le joueur** :
 
 Fonctionnement proposé :
 1. **Besoins du tour** : nourriture (consommation, soldats compris, + croissance voulue, plus
-   tard réserve d'hiver), économie (entretien), production (ce qui est en construction).
+   tard besoin de bras saisonnier), économie (entretien), production (ce qui est en construction).
 2. **Placement des travailleurs par petits groupes** là où le gain marginal est le plus fort
    (rendements décroissants, paliers des bâtiments). Le poids de chaque ressource **grandit avec
    le manque** : tant que la ville ne se nourrit pas, la nourriture pèse lourd ; une fois couverte,
    son poids retombe et la production ou l'économie prennent le relais. L'eau décide quelles
    cases peuvent être irriguées ; la distance au centre pénalise un peu.
 3. **Consignes du joueur** (priorités par ressource, cases forcées) appliquées d'abord.
-4. **Chômage** : si la population active dépasse la capacité totale, le bonheur et l'attractivité baissent.
+4. **Chômage** : si la population active dépasse la capacité totale, le Bien-être et l'attractivité baissent.
 5. **Manque impossible à combler** : la ville le signale (« Lyon manque de nourriture : 2 habitants
    sans case fertile ») ; plus tard, le commerce pourra combler.
 6. **Explication** : barres besoin / production / écart et raison de chaque choix (« 3 aux champs
    pour nourrir la ville, 1 en forêt pour le bateau en cours »).
-- Avec les saisons, la répartition est recalculée chaque tour (rendements du mois, récolte) ; les stocks lissent l'année.
+- La nourriture est lissée sur l'année (révision) ; l'intendant évite de déplacer les travailleurs d'un mois à l'autre, sauf besoin de bras saisonnier.
 
 ### Types d'aménagements
 - Champ, pâturage, coupe de bois, mine, pêcherie, salines, irrigation, drainage, port fluvial, routes, digues.
@@ -161,6 +161,56 @@ Proposition :
 - **Capacité de gouverner** (autorité ou cohésion) : nombre de villes et étendue que les
   institutions permettent de tenir ; au-delà, de l'instabilité. Elle donne une raison de
   développer la politique en même temps que l'expansion.
+
+## Révision après l'analyse critique (décisions de Benjamin, 10/11/2026)
+Ces décisions **remplacent** ce qui les contredit plus haut.
+- **Indicateurs réduits au départ** :
+  - **Santé et Bonheur fusionnés en « Bien-être »** ; on les séparera plus tard si le jeu le demande ;
+  - **Éducation = simple modificateur de la Recherche**, pas une ressource ;
+  - **Eau affichée seulement quand elle limite** ;
+  - **règle : chaque grandeur agit directement sur 2 autres au plus**, avec des amortisseurs contre
+    les spirales (plancher de population active, saturation de l'attractivité, aide d'urgence).
+- **Aménagements : le joueur choisit quoi aménager**, l'intendant décide comment exploiter les cases
+  aménagées. Pendant le choix, l'interface zoome sur la ville, met en évidence les gains et les
+  pertes et les cases les plus profitables.
+- **« Or » devient « Économie » partout** (code, butins des camps et villages, wiki, interface).
+  **Frein principal à l'expansion : la capacité de gouverner** ; l'entretien en Économie n'est
+  qu'un coût secondaire.
+- **Territoire** (direction donnée par Benjamin, à préciser) : il grandit avec la **culture**,
+  peut **s'acheter case par case en Économie**, et reste borné par la **capacité de gouverner**.
+  Remplace la règle actuelle (rayon 1, puis 2 à partir de 3 habitants, `rules::territory_radius`).
+- **Nourriture : rendements lissés.** Pas de vraie récolte : la nourriture du mois est la moyenne
+  annuelle, à peine modulée par la saison et la météo (sécheresse, hiver rude). Pas de famine
+  mécanique en hiver ; les greniers et la récolte saisonnière restent une idée pour plus tard.
+- **Plantes et animaux (tâche 16)** : leur seul effet est la **variété de la nourriture**, qui
+  améliore le Bien-être ; aucun effet sur les rendements de base.
+- **Unités civiles** : le colon est produit dans la file de construction et coûte des habitants
+  (il fonde une ville). L'éclaireur est une unité militaire de faible coût (voir `conception-combat.md`).
+
+## Révision 2 : cohérence (décisions de Benjamin, 10/11/2026)
+- **Culture, ressource de départ** : produite par les lieux de culte, les monuments, les artisans ;
+  **deux effets directs** : l'influence (institutions, jalons) et le territoire. Le Bien-être n'en
+  dépend qu'indirectement (par des bâtiments). Culture, institutions et capacité de gouverner ont
+  leur tâche (32).
+- **Économie = trésor national** : les villes versent leur Économie dans un trésor commun (comme
+  `state.gold` aujourd'hui), qui paie l'entretien, la solde, les achats, la diplomatie et le territoire.
+- **Besoin de bras saisonnier** : aux mois de semailles et de récolte (selon le climat local), les
+  champs demandent plus de travailleurs ; lever des soldats à ce moment baisse les rendements de
+  l'année. La nourriture reste lissée.
+- **Bâtiments d'armement = emplois** comme les autres (voir `conception-combat.md`).
+- **Tableau et enchaînements plus haut** : lire Santé et Bonheur comme « Bien-être », l'Éducation
+  comme un modificateur de la Recherche (révision précédente). Grandeurs de départ : Population,
+  Nourriture, Production, Économie (nationale), Recherche, Culture ; Eau (capacité) ; Bien-être ;
+  Attractivité calculée.
+
+## Constats techniques de l'analyse critique (10/11/2026)
+- **Géométrie des sous-cases** : sept petits hexagones ne pavent pas l'hexagone parent. Prendre
+  **un centre et six secteurs**, avec une fonction pure `subcell(p) -> 0..6` partagée entre Rust
+  et WGSL ; écrire les invariants (rattachement à la case, voisinage entre cases pour l'étalement).
+- **Quartiers** : leur construction (rues le long des courbes de niveau) est mise en cache par
+  sous-case, déterministe par (graine, ville, sous-case) ; la répartition de la population coûte peu.
+- **État modifiable** : aménagements et sous-cases sont de l'état du monde, à séparer du monde
+  généré et à sauvegarder (tâche 13).
 
 ## Questions ouvertes
 - Culture et politique : détailler les pistes dans une doc dédiée.

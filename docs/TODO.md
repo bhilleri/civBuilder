@@ -1,6 +1,6 @@
 # CivBuilder — prochaines tâches
 
-Décidées avec Benjamin (fin octobre 2026), dans l'ordre conseillé.
+Décidées avec Benjamin (depuis fin octobre 2026). Ordre conseillé pour les tâches 9 à 32 : voir « Propositions retenues le 09/11 ».
 
 ## [x] 1. Plaques océaniques polaires et passage maritime — fait et validé (30/10)
 Voir `conception/conception-plaques.md`.
@@ -73,8 +73,8 @@ Correctifs possibles, à essayer et comparer :
 - [x] **Raccord 3D** (07/11) : unités, bâtiments et rivières visibles des deux côtés (T5-01, T3-02). La paroi sombre en vue tournée (case du bord qui domine sa voisine de l'autre côté) est corrigée (08/11) : la caméra 3D est gardée dans le tour par son œil.
 - [x] **Forêts tempérées à moins de 10 °C en été** (08/11) : limite des arbres à 10 °C en été, prairie d'altitude au-dessus (voir `conception/conception-biomes.md`). Reste : les étés trop frais de la taïga (89 % de ses cases sous 10 °C).
 - [ ] **Sites inaccessibles à pied** : pas par défaut. Éventuellement une option au lancement de la partie pour les autoriser (T0-08, T4-11).
-- [ ] **Or** (plus tard) : acheter des unités et des bâtiments, entretenir le tout, éventuellement un coût structurel de l'État.
-- [ ] **Frein à l'expansion et choix de développement** (plus tard) : à concevoir avec l'or.
+- [ ] **Or** (plus tard) : acheter des unités et des bâtiments, entretenir le tout, éventuellement un coût structurel de l'État. Décidé le 10/11 : devient « Économie » (tâche 28).
+- [ ] **Frein à l'expansion et choix de développement** (plus tard) : à concevoir avec l'or. Décidé le 10/11 : la capacité de gouverner (tâche 28, `conception/conception-villes.md`).
 - [x] **Limite d'habitat selon le climat** (T0-09), **relief moins adouci sous les sites** (T4-18), **fleuves limoneux plus bleus en 3D** (T5-22) : faits (07/11).
 - [x] **Rias perchées** (T0-04, 07/11) : seconde érosion après le climat, par le débit réel, renforcée à l'embouchure par la houle et la marée (voir `conception/conception-erosion.md`). Aucune embouchure à 500 m ou plus sur 8 graines.
 
@@ -116,7 +116,8 @@ dorsales, points chauds et leurs chapelets), avec une forme selon le type. Voir
 ## [ ] 12. Fertilité des sols (décidé le 09/11)
 Pas de fertilité qui s'améliore à l'infini (comme dans Civilization). D'abord une recherche sur
 les conditions qui font la fertilité d'un sol (roche mère, climat, relief, eau, âge…), puis les
-sources : sols volcaniques, bassins sédimentaires, plaines alluviales, etc. Règles à décider avec Benjamin.
+sources : sols volcaniques, bassins sédimentaires, plaines alluviales, etc. Décidé le 10/11 : pour
+l'instant un **bonus fixe selon le type de sol**, fondé sur la recherche ; pas d'épuisement ni de régénération.
 
 ## Propositions retenues le 09/11
 Ordre conseillé (revu le 10/11 après l'analyse critique) : 13 (sauvegarde) au plus tôt, puis 30
@@ -127,6 +128,10 @@ proposer et à valider avec Benjamin avant de coder.
 ### [ ] 13. Sauvegarde et chargement
 Enregistrer la graine, l'état de la partie et ce que le joueur a modifié ; le monde se recalcule
 depuis la graine. À faire tôt : plus la simulation s'enrichit (météo, saisons), plus c'est difficile.
+Analyse critique (10/11) : séparer un `MondeGénéré` immuable d'un `ÉtatDuMonde` sauvegardé (ponts,
+aujourd'hui dans `WorldMap.bridges`, aménagements, sous-cases, météo, neige, débit) ; versionner la
+sauvegarde par la version de la génération et `empreinte_generation` ; tirer le combat et l'IA
+hostile de la graine (`rand::rng()` dans `battle.rs` et `hostile.rs`).
 
 ### [ ] 14. Géologie de surface (roche mère), avec une carte thématique
 Calcaire, granite, grès, argile, basalte, lœss, alluvions, déduits des plaques, des bassins et
@@ -140,11 +145,12 @@ des volcans (11 e). Le joueur peut raisonner en géologue.
 
 ### [ ] 16. Plantes cultivables et animaux domesticables selon le climat
 Blé, orge, riz, maïs, mil, pomme de terre ; chèvres, bovins, chevaux, lamas. Pour la variété,
-**sans trop de conséquences sur le jeu** (décision de Benjamin).
+**sans trop de conséquences sur le jeu** (décision de Benjamin). Décidé le 10/11 : seul effet, la
+**variété de la nourriture**, qui améliore le Bien-être.
 
-### [ ] 17. Démographie et santé des villes
-Naissances, famines (avec la météo), migrations, croisées avec d'autres indicateurs comme la
-santé de la ville. Exigence : **un système compréhensible** par le joueur.
+### [ ] 17. Démographie et Bien-être des villes
+Naissances, famines (avec la météo), migrations, croisées avec d'autres indicateurs comme le
+Bien-être de la ville (Santé et Bonheur fusionnés, tâche 28). Exigence : **un système compréhensible** par le joueur.
 
 ### [ ] 18. Transport : fleuves et routes
 Le débit dit si un fleuve est navigable et à quelle saison ; les cols deviennent des passages
@@ -163,8 +169,10 @@ Séismes et tsunamis aux subductions, feux de forêt en saison sèche (météo),
 chacun avec sa carte de risque calculée à la génération et l'infobulle. **Tout intégrer
 directement** dans les systèmes concernés, plutôt que de l'ajouter après coup comme pour les poissons.
 
-### [ ] 22. Faune sauvage et période nomade (à voir)
-Idée de Benjamin : une période de début de partie sans vraie sédentarisation. Gibier selon le
+### [ ] 22. Faune sauvage et période nomade
+Décidé le 10/11 : tous les peuples partent nomades ; **l'agriculture est requise pour fonder la
+première ville** (`conception/conception-echelle-et-but.md`). À préciser : représentation du peuple
+nomade (une ou plusieurs unités), chasse et cueillette. Idée de Benjamin : une période de début de partie sans vraie sédentarisation. Gibier selon le
 biome, troupeaux qui migrent avec les saisons, animaux dangereux. Point à étudier : les
 déplacements des animaux compliquent la présence des ressources.
 
@@ -207,6 +215,11 @@ pour le rural), passage de rural à urbain, pénalité de distance (von Thünen)
 construction, 7 sous-cases par case portant des quartiers (plan selon les bâtiments dominants),
 population active variable, économie (cases, impôt, surplus, commerce), entraide par envoi de
 production. Culture et politique : pistes retenues comme base, à détailler dans une doc dédiée.
+Révision du 10/11 après l'analyse critique : Santé et Bonheur fusionnés en Bien-être, Éducation
+modificateur de la Recherche, Eau affichée quand elle limite, 2 effets directs au plus par grandeur ;
+**le joueur choisit les aménagements**, l'intendant exploite ; « Or » → « Économie », frein =
+capacité de gouverner ; territoire par la culture et l'achat en Économie ; nourriture lissée ;
+sous-cases = un centre et six secteurs.
 
 ### [ ] 29. Armée : armes, équipement, formation, expérience
 Voir `conception/conception-combat.md` (« Armée »). Soldats formés (pas produits) dans la ville
@@ -214,14 +227,19 @@ ou les casernes avec une formation progressive (accélérée par les casernes, r
 avant la fin avec des malus), armes comme ressource stratégique (production seule ; vendues,
 capturées), taux d'équipement par type, attrition, niveaux d'expérience, effectif selon le type,
 entretien en nourriture, économie et matériel, soldats comptés dans la population de leur ville
-(pertes = population perdue). Après la tâche 28.
+(pertes = population perdue). Après la tâche 28. Révision du 10/11 : **version réduite d'abord**
+(habitants, armes en stock, entretien, formation fixe par type) ; armes produites en continu par
+les bâtiments d'armement ; colon dans la file (coûte des habitants), éclaireur = militaire peu coûteux.
 
 ### [ ] 30. Échelle de temps, progression et but (décidé le 10/11)
 Voir `conception/conception-echelle-et-but.md`. Néolithique → Moyen Âge pour la première phase,
 ≈ 500 tours, temps de jeu abstrait (taux au tour, année historique selon l'ère), 4 à 8 cases par
 tour, 4 ères passées par jalons, population en paliers croissants (habitants ↔ indice).
-À faire avant les tâches 28 et 29 : recaler les règles actuelles (croissance, coûts, soins, PM),
-arbre de recherche court par ère, jalons. Fin de partie à décider avec les IA (31).
+Ordre (révision du 10/11) : d'abord recaler les règles actuelles (croissance, coûts, soins, PM
+doublés et coûts du relief doublés, rayons de l'IA hostile et de l'exploration), avant 28 et 29 ;
+ensuite l'arbre de recherche court par ère et les jalons, après 28, 32 et 15. Unités réparties par
+ère, améliorées en changeant d'ère (effectif qui grandit). Mode 2 tours par mois : tout réglé en mois.
+Fin de partie à décider avec les IA (31) ; cas d'un peuple qui atteint le Moyen Âge avant le tour 500.
 
 ### [ ] 31. IA des peuples rivaux et faction hostile (décidé le 10/11)
 Voir `conception/conception-ia.md`. Nombre de peuples réglable (≈ 8, voire 12), pas de vision à
@@ -230,6 +248,24 @@ simple avec une interface intuitive ; idéalement sans triche (niveaux par levie
 économique affiché seulement en Expert, validé) ; un clan par camp barbare
 (clan → bande → unité, validé). Premier pas : `AiView` à brouillard (tableaux de bits) et
 générateur initialisé par la graine, d'abord pour la faction hostile. Mesure : `bilan_ia`.
+
+### [ ] 32. Culture, institutions et capacité de gouverner (décidé le 10/11)
+Voir `conception/conception-villes.md` (« Culture et politique », « Révision 2 »). Culture =
+ressource de départ, deux effets directs (influence et territoire) ; institutions sur plusieurs axes
+débloquées par des conditions et adoptées avec l'influence ; capacité de gouverner = frein principal
+à l'expansion (instabilité au-delà). Territoire par la culture et l'achat en Économie. Doc dédiée à
+écrire. Avant le territoire (28) et les jalons (30).
+
+### [ ] 33. Mettre le code en accord avec la conception (relevé le 10/11)
+Écarts relevés par la relecture de cohérence, à faire avec les tâches concernées :
+- « Or » → « Économie » (`Yields.gold`, `state.gold`, `CAMP_CAPTURE_GOLD`, `VillageEvent::Trade`,
+  README, wiki) ; attention au mot « or » du métal (tâche 15). Trésor national.
+- Colon : 2 habitants demandés, 1 retiré (`rules.rs`) → habitants selon la table de population.
+- Soldats encore produits dans la file (`Production::Unit`, milice par défaut) → formés à part (29).
+- Éclaireur `Civilian` (`units.rs`) → unité militaire peu coûteuse.
+- `territory_radius` (villages qui rejoignent une ville, soins, ponts) → nouvelle règle de territoire.
+- Village qui rejoint une ville : « +1 habitant » → en habitants.
+- Stades des villes (`conception-structures.md`, `settlements.rs`) → quartiers sur sous-cases et étalement urbain.
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

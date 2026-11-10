@@ -127,7 +127,44 @@ partir de quatre textures :
 Chaque étape se vérifie par captures (`CIVBUILDER_CAPTURE`, graines 777, 4242, 2) avant et après,
 et la fluidité par `travelling` (budget : 60 images/s tenues, comme en 0.3.1).
 
+## Constats techniques de l'analyse critique (10/11/2026)
+Vérifiés sur le code ; à traiter au prototype de l'étape 9 a.
+- **Lits de rivière** (bloquant) : une case mesure ≈ 55 unités (`HEX_SIZE` = 32), 24 points par case
+  donnent un point toutes les 2,3 unités, pour des rivières de 2 unités de large
+  (`RIVER_MIN_HALF_WIDTH` = 1). Doubler la résolution dépasse la limite de 8 192 par texture.
+  Le prototype tranche entre : lits dans une couche à part (segments par bloc lus par le shader,
+  même fonction `relief::carve` côté processeur), ou seuls les fleuves gravés dans les hauteurs.
+- **Textures par bloc** (8 × 8 cases avec une marge pour les normales), pas une seule grande :
+  sinon chaque ville fondée ou modification renvoie 25 à 50 Mo.
+- **Hauteurs indépendantes du brouillard** : aujourd'hui le relief et le niveau de l'eau dépendent
+  des cases explorées (`unexplored_height`, `Relief::water_level`). Calculer sur le relief réel et
+  masquer dans le shader, y compris pour le prépass, les ombres et `ground()`.
+- **Raccord est-ouest** : placer chaque bloc et objet sur sa copie la plus proche de la caméra
+  (une seule copie suffit à la distance maximale), plutôt que des caméras fantômes (`seam.rs`),
+  qui posent problème avec l'occlusion ambiante, l'anticrénelage temporel et les ombres.
+- **Déplacement dans le vertex shader** : prépass à adapter, boîtes englobantes à poser, jupes entre
+  LOD ; objets et gizmos seulement sur le LOD 0 (`ground()` en bilinéaire).
+- **Pas de texture de mélange** : les règles se calculent dans le shader depuis la texture par
+  case ; matières en 1K compressées (BC7, KTX2), ≈ 60 à 90 Mo au lieu d'environ 1 Go.
+- **Exagération verticale** : hauteurs stockées en mètres, exagération passée au shader, décalage
+  des lits à part ; tout ce qui est posé (villes, ponts, labels) se replace quand elle change.
+- **Modèles animés** : Bevy ne recible pas les animations ; un seul squelette humain de référence.
+  Options de Cargo à ajouter en une fois (glTF, animation, KTX2, zstd, LUT de tonemapping pour AgX,
+  `file_watcher`), car elles recompilent.
+- **Crates** : compatibilité de `bevy_hanabi` et des contours avec Bevy 0.20 non garantie ; un
+  système de particules maison suffit (comme `CampSmoke`).
+- **Végétation** : une entité par élément aujourd'hui (`Decor3d`) ; fusionner par bloc au-delà
+  d'environ 100 000 éléments.
+- **Migration sans big bang** : étape 0 = une ressource ou un trait `Ground` (l'API utilisée hors de
+  `view3d` est étroite : `ground`, `on_ground`, `hovered_ground_3d`), bascule entre l'ancien et le
+  nouveau terrain par une option ; **comparaison des captures (tâche 24) avant** ; profil « qualité
+  basse » pour le film et les GIF (rendu logiciel).
+- **Prototype minimal (2 à 3 jours)** : cuire le relief actuel (graine 777) en textures sur
+  4 × 4 blocs autour de la capitale et une zone à cheval sur le raccord ; grille partagée,
+  déplacement en vertex shader, texture par case, grille dessinée ; mesurer images/s
+  (`travelling`), mémoire, temps de cuisson, écart sous les unités, rivières à 24 et 48 points par case.
+
 ## Limites et questions ouvertes
 - Résolution des hauteurs (≈ 24 points par case ≈ 4 600 × 2 700 en 192 × 111) à valider au prototype, avec les cartes plus grandes.
 - Compatibilité avec Bevy 0.20 des crates envisagées (particules, contours) à vérifier avant de s'en servir.
-- Règles de jeu des saisons à définir avec Benjamin avant leur rendu.
+- Règles de jeu des saisons : décidées (`conception-saisons.md`).
