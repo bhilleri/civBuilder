@@ -85,7 +85,33 @@ Deux choses distinctes :
   une ville coûte plus à tenir si elle est loin de la capitale (en temps de trajet), d'une autre
   culture ou d'une autre religion.
 - Autres axes déjà retenus : droit (coutume, loi écrite, codes), économie (troc, monnaie, impôt),
-  armée (milice, levée, armée de métier), religion (laïque ↔ théocratique).
+  armée (milice, levée, armée de métier), religion (laïque ↔ théocratique) : ce sont des **lois**
+  (§6).
+
+**Révision du 10/11 (relecture) : trois niveaux, chacun son rôle** (validé par Benjamin, qui veut
+que **le modèle politique change la façon de jouer**) :
+1. **Découvertes sociétales** : ce qui devient possible. Elles avancent par **paliers de Culture
+   cumulée** (sans dépense) et par des conditions ; les technologies ne font que remplir des
+   conditions. Elles débloquent des régimes et des lois.
+2. **Régime** : le modèle politique, un choix lourd avec ses propres règles :
+
+   | Régime | Comment on joue |
+   |---|---|
+   | Chefferie | décisions rapides et peu coûteuses, capacité de gouverner faible : petit territoire tenu de près |
+   | Royauté | dirigeant fort qui porte l'essentiel des bonus, succession héréditaire (mariages, crises), décrets royaux |
+   | Cité-État avec assemblée | l'assemblée vote les lois et les guerres (elle peut refuser), bonus de commerce et de Culture, mal adaptée aux grands territoires |
+   | Théocratie | le clergé gouverne, la religion est un levier (conversion, guerre sainte, légitimité), lois religieuses à bas prix |
+   | République marchande | les marchands dominent l'assemblée, routes et comptoirs privilégiés, armée surtout mercenaire |
+   | Féodalité | grands vassaux qui lèvent les troupes, territoire étendu mais pouvoir central limité |
+   | Empire | administration et provinces, grande capacité de gouverner, coûteux en légitimité |
+
+   Il fixe le poids des ordres, la place du dirigeant, du gouvernement et de l'assemblée, les lois
+   permises ou interdites. En changer : réforme (influence et stabilité) ou révolution.
+3. **Lois** : les réglages dans le régime (droit, économie, armée, religion, intégration des
+   cultures, autonomie des villes), adoptées en **influence** ; le régime colore leurs effets.
+
+Une seule façon de débloquer (paliers de Culture et conditions), une seule monnaie pour choisir
+(l'influence) ; la Culture garde deux effets à dépenser (influence et territoire).
 
 ### 5. Statut des villes : de l'intégration à la ville fantoche
 | Statut | Ce que verse la ville | Troubles | Capacité de gouverner | Intégration |
@@ -102,9 +128,9 @@ Deux choses distinctes :
 - Une ville fantoche mécontente peut faire sécession plus facilement : l'autonomie n'est pas sans
   risque.
 
-### 6. Lois et découvertes sociétales (payées en Culture)
-- **Découvertes sociétales** : une progression parallèle à la recherche, alimentée par la
-  Culture (au lieu de la Recherche) ; par exemple Loi écrite, Citoyenneté, Tolérance religieuse,
+### 6. Lois et découvertes sociétales
+- **Découvertes sociétales** : une progression parallèle à la recherche, par paliers de Culture
+  cumulée (révision du 10/11, voir §4) ; par exemple Loi écrite, Citoyenneté, Tolérance religieuse,
   Statut d'autonomie, Droit des étrangers, Clergé organisé, Administration provinciale. Chacune est
   débloquée par des conditions (population, écriture, nombre de villes, cultures dans
   l'empire…), comme les institutions.
@@ -122,6 +148,12 @@ Deux choses distinctes :
   stabilité un temps.
 - **Stabilité trop basse** : révoltes, sécession d'une ville ou d'une province (vers son pays de
   culture ou en pays indépendant), guerre civile ; une révolution impose un régime.
+- **Amortisseurs (révision du 10/11, relecture)** : un **plancher de stabilité** ; pas de crise de
+  succession dans les tours qui suivent une épidémie ou une catastrophe.
+- **Élan de solidarité** (validé par Benjamin) : une catastrophe soudaine (séisme, invasion, crue
+  exceptionnelle) fédère d'abord le peuple quelques tours (stabilité en hausse, pas de crise de
+  succession). Si le pouvoir aide (nourriture, Économie envoyées aux villes touchées), la stabilité
+  reste haute ; sinon elle chute quand l'élan retombe.
 
 ### 8. Événements
 Crises et décisions dont les choix dépendent des valeurs et des cultures : famine, querelle
@@ -139,6 +171,8 @@ rythme d'événements réguliers (`conception-echelle-et-but.md`).
   | Marchands | Économie du commerce | routes sûres, libre-échange, monnaie, peu de douanes |
   | Artisans | Production, armes | ateliers, ressources, villes qui grandissent |
   | Paysans | Nourriture | paix, impôt léger, terres, pas de levées aux récoltes |
+- **Décroissance (révision du 10/11)** : le poids d'un ordre décroît s'il n'est pas entretenu par
+  ses richesses, pour éviter qu'un ordre riche verrouille tout.
 - **Poids d'un ordre** = sa part des richesses produites (commerce pour les marchands, Production
   pour les artisans…) × ce que le régime lui accorde. Un commerce florissant enrichit les marchands,
   qui pèsent plus et poussent vers leurs lois (une république marchande devient possible).

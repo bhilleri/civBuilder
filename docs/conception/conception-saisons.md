@@ -198,8 +198,9 @@ saison au nord, l'automne au sud.
 
 ## Révision 2 : mode 2 tours par mois (décidé le 10/11/2026)
 Tout ce qui se compte par tour est réglé **en mois** et divisé par deux dans ce mode : PM,
-attaques, soins, formation, armes, croissance, construction, recherche, budget de l'IA.
+soins, formation, armes, croissance, construction, recherche, budget de l'IA.
 La météo reste tirée par pas du calendrier (même météo dans les deux modes).
+Une seule attaque par tour et par unité, quel que soit le mode (révision du 10/11).
 
 ## Questions ouvertes
 - Seuils et chiffres des effets sur les déplacements.

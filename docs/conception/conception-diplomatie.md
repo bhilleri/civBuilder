@@ -101,10 +101,10 @@ De −100 à +100 pour chaque camp, calculé à chaque tour :
 - **occupation** : villes occupées, pondérées par leur population (davantage pour la capitale) ;
 - **pillages** : convois, aménagements, ressources prises ;
 - **but de guerre** : bonus quand il est atteint et tenu (par exemple +25 après quelques tours) ;
-- **usure de la guerre** : chaque pays accumule une lassitude (pertes, durée, famine, villes
-  occupées) qui pousse à accepter la paix ;
-- **idéologie** : les institutions changent la tolérance à l'usure (un peuple guerrier la supporte
-  mieux).
+- **soutien à la guerre** (qui remplace l'usure, voir « Soutien à la guerre ») : il baisse avec les
+  pertes, la durée, la famine, les villes occupées, et pousse à accepter la paix ;
+- **idéologie** (= les valeurs de la société, `conception-societe.md` §1) : un peuple guerrier
+  supporte mieux la guerre.
 
 ### Traité de paix
 - Chaque clause **coûte des points de score** : une ville selon sa population, une somme selon
@@ -114,7 +114,7 @@ De −100 à +100 pour chaque camp, calculé à chaque tour :
 - Clauses : argent (somme ou rente), ressources (rente en tours), villes (cession, restitution),
   abandon de revendications, interdiction de fonder dans une zone, interdiction d'alliance avec un
   pays, **trêve** imposée (la rompre fait chuter la confiance de tous).
-- L'IA accepte une paix si le score et son usure le justifient, et dit pourquoi.
+- L'IA accepte une paix si le score et son soutien à la guerre le justifient, et dit pourquoi.
 
 ### Accords
 | Accord | Effet | Lien |
@@ -181,7 +181,7 @@ ou partageant des lieux sacrés. Les blocs se forment d'eux-mêmes.
 Benjamin : une notion de soutien à la guerre, peut-être à mêler à l'usure, qui dégraderait le
 Bien-être. Proposition : chaque pays en guerre a une jauge de **soutien à la guerre** :
 - elle part d'un niveau fixé par le motif : élevé pour une défense ou une reconquête, moyen pour
-  un conflit frontalier ou des représailles, bas pour une invasion sans griefs ; l'idéologie
+  un conflit frontalier ou des représailles, bas pour une invasion sans griefs ; l'idéologie (les valeurs)
   (institutions) le déplace ;
 - **l'usure la fait baisser** : pertes, durée, famine, villes occupées, convois pillés ; les
   victoires et le but atteint la font remonter ;

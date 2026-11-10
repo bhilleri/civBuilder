@@ -26,8 +26,10 @@ sur son milieu, les grandes œuvres qui laissent une trace (score d'héritage,
 
 ### Qui tombe malade
 - **La population** : dans une ville touchée, une part des habitants tombe malade ; la mortalité
-  dépend de la **santé de la ville** (part santé du Bien-être, eau, thermes et égouts, plantes
-  médicinales, famine en cours). Une ville en bonne santé résiste mieux.
+  dépend de l'**hygiène** de la ville. **Révision du 10/11** : l'hygiène est une **vraie
+  grandeur** de la ville (pas une part du Bien-être), qui agit sur les épidémies et la mortalité ;
+  elle vient de l'eau, des thermes et égouts, des plantes médicinales, du sel, et baisse avec la
+  famine et l'entassement. Une ville propre résiste mieux.
 - **Les personnages** (dirigeants, membres du gouvernement, chefs d'armée) ont leur propre
   **santé**, qui baisse avec l'âge (horloge des personnages, `conception-societe.md`) : dans une
   ville ou une armée touchée, ils peuvent tomber malades et mourir selon leur santé. Une mort de

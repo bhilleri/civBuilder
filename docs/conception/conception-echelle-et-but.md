@@ -22,8 +22,8 @@ tours de plusieurs années, alors qu'un tour vaut désormais un mois de saison
   peuple avance à son rythme.
 - **Population en paliers croissants** : chaque point d'indice demande plus d'habitants que le
   précédent. Colons, soldats, migrations et famine se comptent tous en habitants.
-- **Le défi viendra des IA** : d'autres peuples joués par l'ordinateur. Elles ne sont pas encore
-  prévues : **il faut les prévoir** (tâche dédiée).
+- **Le défi viendra des IA** : d'autres peuples joués par l'ordinateur (conçues depuis :
+  `conception-ia.md`, tâche 31).
 - **Fin de partie** : décidée le 10/11 (voir « Fin de partie et victoire »).
 
 ## Propositions (chiffres à régler)
@@ -44,7 +44,7 @@ voit l'année avancer moins vite : l'année reste indicative, chaque peuple a sa
   taux par tour (croissance, construction, recherche) sont divisés par deux.
 
 ### Déplacements
-- PM actuels multipliés par environ 2 (milice 4, cavalerie 8), coût des cases inchangé (montagne,
+- PM actuels multipliés par environ 2 (milice 4, cavalerie 8), coûts du relief doublés aussi, voir `conception-combat.md` (montagne,
   forêt, neige et boue ralentissent ; les routes accéléreront).
 - Combat : une attaque par tour et par unité, comme aujourd'hui ; la zone de contrôle garde son
   rôle (elle compte davantage quand les unités vont loin).
@@ -60,16 +60,16 @@ Table de départ (à régler) :
 
 - L'indice sert aux règles de taille (territoire, bâtiments, affichage) ; les flux (naissances,
   famine, migrations, colons, soldats) se comptent en habitants.
-- Un colon emporte un groupe d'habitants (par exemple 300 à 500), une unité militaire selon son
+- Un colon emporte un groupe d'habitants (500, de quoi fonder une ville d'indice 1), une unité militaire selon l'ère et son
   type (`conception-combat.md`).
 - La population active (40 à 60 %, `conception-villes.md`) se calcule sur les habitants.
 
 ### Ères et jalons (exemples)
 | Passage | Conditions possibles (à choisir) |
 |---|---|
-| Néolithique → Bronze | agriculture et élevage, une ville d'indice 3, métallurgie du cuivre et de l'étain (gisements, tâche 15) |
-| Bronze → Fer et Antiquité | écriture, une ville d'indice 8, première institution de droit ou de pouvoir, métallurgie du fer |
-| Fer et Antiquité → Moyen Âge | plusieurs villes d'indice 10, monnaie et impôt, institutions sur trois axes |
+| Néolithique → Bronze | agriculture et élevage, une ville d'indice 3, métallurgie du cuivre (gisements, tâche 15) |
+| Bronze → Fer et Antiquité | bronze, écriture, une ville d'indice 8, première loi de droit ou de pouvoir |
+| Fer et Antiquité → Moyen Âge | plusieurs villes d'indice 10, métallurgie du fer et monnaie, lois sur trois axes |
 
 - Chaque ère débloque des aménagements, des bâtiments, des unités et des institutions.
 - **Recherche** : 10 technologies de base par ère, avec des spécialisations, des conditions de
@@ -77,7 +77,7 @@ Table de départ (à régler) :
 - Les jalons demandent à la fois de la recherche, de la culture (institutions) et du développement
   des villes : aucune voie unique.
 
-### IA des peuples rivaux (à concevoir)
+### IA des peuples rivaux (conçues : `conception-ia.md`)
 - Plusieurs peuples sur la même planète, partis d'endroits différents, qui suivent les mêmes règles
   que le joueur (villes, aménagements, recherche, ères, armée).
 - Besoins : une IA de développement (où fonder, quoi aménager, quoi construire), une IA militaire
@@ -102,7 +102,7 @@ Table de départ (à régler) :
 | Peuplement | habitants, villes, Bien-être moyen |
 | Savoir | technologies, découvertes sociétales, ère atteinte |
 | Culture | monuments, lieux sacrés, Culture produite au total |
-| Rayonnement | habitants du monde parlant sa langue ou une langue qui en descend, religion diffusée |
+| Rayonnement | habitants du monde de sa culture ou d'une culture qui en descend (mixte, fille), religion diffusée |
 | Prospérité | commerce, Économie, routes |
 | Puissance | territoire, vassaux et tributaires, guerres gagnées |
 | Stabilité | durée sans révolte, légitimité |
@@ -137,6 +137,18 @@ découverte, contact avec un peuple. Le journal hiérarchisé existant les porte
   jalons et l'arbre de recherche viennent après les villes (28), la culture et les institutions (32)
   et les gisements (15).
 
+### Dévoilement des systèmes par ère (décidé le 10/11/2026)
+Le joueur découvre la complexité petit à petit, et le développement suit le même ordre (une
+première version jouable plus tôt) :
+| Ère | Systèmes qui apparaissent |
+|---|---|
+| Néolithique | période nomade, villes, recherche, Culture (influence et territoire), barbares, saisons, dirigeant, chefferie et conseil des anciens, contact simple avec les peuples (paix ou guerre) |
+| Âge du bronze | diplomatie complète (accords, griefs, traités), commerce entre villes, religion organisée, lois de droit, **cités-États avec assemblée**, royauté, ambassades |
+| Âge du fer et Antiquité | espionnage, tributaires, ordres au complet, monnaie, république marchande, empire, théocratie, galères |
+| Moyen Âge | féodalité et vassaux, chancelleries et parlements, haute mer, universités |
+Les assemblées existent dès les cités-États (comme à Rome ou à Athènes) ; le Moyen Âge apporte
+les parlements et les chancelleries.
+
 ## Conséquences sur les autres docs
 - `conception-saisons.md` : taux au tour de jeu ; mode 2 tours par mois avec taux divisés par deux.
 - `conception-villes.md` : population en habitants, table indice ↔ habitants.
@@ -144,4 +156,4 @@ découverte, contact avec un peuple. Le journal hiérarchisé existant les porte
 - Règles actuelles (`rules.rs`) à recaler : seuils de croissance, coûts des unités, soins, PM.
 
 ## Questions ouvertes
-- Chiffres : années par ère, table de population, PM, jalons exacts, nombre de techniques.
+- Chiffres : années par ère, table de population, PM, jalons exacts.

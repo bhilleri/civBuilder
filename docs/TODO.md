@@ -1,6 +1,38 @@
 # CivBuilder — prochaines tâches
 
-Décidées avec Benjamin (depuis fin octobre 2026). Ordre conseillé pour les tâches 9 à 32 : voir « Propositions retenues le 09/11 ».
+Décidées avec Benjamin (depuis fin octobre 2026). Ordre de réalisation : voir « Feuille de route »
+ci-dessous (proposée le 10/11 après les relectures).
+
+## Feuille de route (validée le 10/11)
+Chaque étape livre quelque chose de jouable ou de mesurable ; l'ordre suit le dévoilement par ère
+(`conception/conception-echelle-et-but.md`). Les tâches de la planète (7, 8, 9, 10, 11) et de
+l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cours.
+
+1. **Fondations techniques (45)** : RNG déterministe par graine, identifiants stables, peuple
+   propriétaire des unités et des villes, mesure du temps par système (44), brouillard en bits,
+   calcul de chemin en tableaux plats.
+2. **Partie sauvegardable** : état de partie hors de l'ECS, sauvegarde et chargement (13), code de
+   partie et écran de nouvelle partie minimal (42).
+3. **Échelle recalée (30, première partie)** : PM et coûts du relief doublés, croissance, soins,
+   population en habitants ; déplacements de groupe (39, première partie : traverser les alliés,
+   relève, sélection multiple, groupes au clavier) ; écarts code et conception (33).
+4. **Villes du Néolithique (28, 17)** : intendant, aménagements, Bien-être, hygiène, territoire par
+   la Culture ; refonte de l'écran de la ville (35).
+5. **Sol et ressources (14, 12, 15, 16)** : géologie, fertilité, gisements, plantes et animaux.
+6. **Période nomade (22)** et **société de base (32)** : chefferie, conseil, dirigeant, Culture,
+   influence, capacité de gouverner.
+7. **Recherche et jalons (34, 30 seconde partie)** : arbre du Néolithique et du Bronze, passage d'ère.
+8. **Armée réduite (29)** et barbares en clans (31, première partie).
+9. **Peuples rivaux (31)** et **diplomatie, première étape (38)** : contact, relation, confiance,
+   guerre et paix ; `bilan_ia`.
+10. **Âge du bronze** : commerce entre villes, premier temps (18), religion organisée, diplomatie
+    complète, assemblées, ambassades.
+11. **Âge du fer et Antiquité** : espionnage, tributaires, ordres, épidémies (40), monuments (41),
+    galères et ravitaillement (39).
+12. **Moyen Âge** : féodalité, vassaux, haute mer, prix du marché (18, second temps).
+13. **Finitions** : prise en main (43), cartes thématiques (36), atlas (27), sons (25), équilibrage (37).
+
+
 
 ## [x] 1. Plaques océaniques polaires et passage maritime — fait et validé (30/10)
 Voir `conception/conception-plaques.md`.
@@ -120,10 +152,8 @@ sources : sols volcaniques, bassins sédimentaires, plaines alluviales, etc. Dé
 l'instant un **bonus fixe selon le type de sol**, fondé sur la recherche ; pas d'épuisement ni de régénération.
 
 ## Propositions retenues le 09/11
-Ordre conseillé (revu le 10/11 après l'analyse critique) : 13 (sauvegarde) au plus tôt, puis 30
-(échelle et but) ; ensuite 14 → 12 → 15 (chacune prépare la suivante) ; les autres
-avec le sujet voisin (19 avec la navigation, 21 avec la météo). Chaque tâche : conception à
-proposer et à valider avec Benjamin avant de coder.
+Ordre : voir la « Feuille de route » en tête (19 avec la navigation, 21 avec la météo). Chaque
+tâche : conception à proposer et à valider avec Benjamin avant de coder.
 
 ### [ ] 13. Sauvegarde et chargement
 Enregistrer la graine, l'état de la partie et ce que le joueur a modifié ; le monde se recalcule
@@ -281,14 +311,6 @@ dans les villes partagées (plus proches de celle du dirigeant), ordres qui se t
 dirigeants personnages qui vieillissent sur une horloge propre et se succèdent ; gouvernement et assemblée nommés selon le
 régime, bonus partagés entre dirigeant, gouvernement et assemblée selon la centralisation.
 
-### [ ] 34. Recherche et technologies (décidé le 10/11)
-Voir `conception/conception-recherche.md`. Arbre avec prérequis, 10 technologies de base par ère
-(peu chères, petit avantage chacune), spécialisations facultatives (bonus sur l'ère, optimisées en
-appliquant la base), conditions de pré-acquisition, légère pénalité de taille d'empire, transfert
-de technologie (diffusion lente et cumulée par les voisins, selon le retard ; commerce qui accélère
-fortement, sans instantané), recherche orientée par le joueur, coût calé sur ≈ 125 tours par ère,
-interface lisible. Fait partie de la tâche 30 (arbre et jalons) ; liste des 40 technologies à écrire.
-
 ### [ ] 33. Mettre le code en accord avec la conception (relevé le 10/11)
 Écarts relevés par la relecture de cohérence, à faire avec les tâches concernées :
 - « Or » → « Économie » (`Yields.gold`, `state.gold`, `CAMP_CAPTURE_GOLD`, `VillageEvent::Trade`,
@@ -299,6 +321,14 @@ interface lisible. Fait partie de la tâche 30 (arbre et jalons) ; liste des 40 
 - `territory_radius` (villages qui rejoignent une ville, soins, ponts) → nouvelle règle de territoire.
 - Village qui rejoint une ville : « +1 habitant » → en habitants.
 - Stades des villes (`conception-structures.md`, `settlements.rs`) → quartiers sur sous-cases et étalement urbain.
+
+### [ ] 34. Recherche et technologies (décidé le 10/11)
+Voir `conception/conception-recherche.md`. Arbre avec prérequis, 10 technologies de base par ère
+(peu chères, petit avantage chacune), spécialisations facultatives (bonus sur l'ère, optimisées en
+appliquant la base), conditions de pré-acquisition, légère pénalité de taille d'empire, transfert
+de technologie (diffusion lente et cumulée par les voisins, selon le retard ; commerce qui accélère
+fortement, sans instantané), recherche orientée par le joueur, coût calé sur ≈ 125 tours par ère,
+interface lisible. Fait partie de la tâche 30 (arbre et jalons) ; liste des 40 technologies à écrire.
 
 ### [ ] 35. Charte graphique et refonte des écrans (décidé le 10/11)
 Voir `conception/conception-interface.md` (« Charte graphique, nouveaux écrans et nouvelles
@@ -377,6 +407,15 @@ systèmes dévoilés progressivement, wiki ouvert sur le sujet courant.
 ### [ ] 44. Budget de performance (décidé le 10/11)
 Moins de 2 secondes par tour en fin de partie (12 peuples) ; temps par système dans `bilan_ia`,
 alerte au-delà ; taille des sauvegardes surveillée.
+
+### [ ] 45. Fondations techniques (relecture technique du 10/11)
+Avant la sauvegarde, à faible risque : générateur aléatoire par (graine, tour, peuple, système) à la
+place de `rand::rng()` (`battle.rs`, `hostile.rs`) ; identifiants stables (`UniteId`, `VilleId`,
+`PeupleId`) à la place des `Entity` dans l'état, le journal et `Territory` ; propriétaire sur
+chaque unité et ville, trésor par peuple ; brouillard en tableaux de bits par peuple ; calcul de
+chemin en tableaux plats, `Known` construit une fois par tour (`explore.rs`) ; mesure du temps par
+système (44). Ensuite : état de partie (`Partie`, `jouer_tour`) hors de l'ECS, séparation du monde
+généré et du monde modifié, puis la sauvegarde (13).
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

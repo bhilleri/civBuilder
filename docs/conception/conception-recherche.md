@@ -42,9 +42,12 @@ facilement. Première phase : Néolithique → Moyen Âge, 4 ères d'environ 125
   dont certaines obligatoires).
 - **Agriculture**, première technologie du Néolithique, requise pour fonder la première ville
   (tâche 22) : pré-acquise en vivant près de céréales ou d'animaux sauvages (tâche 16).
+  **Révision du 10/11 (relecture)** : la bande nomade produit un peu de Recherche, et la
+  pré-acquisition de l'Agriculture **n'a pas de plafond** (elle « s'observe ») ; sans cela, un
+  peuple nomade ne pourrait jamais fonder de ville.
 
 ### D'où viennent les points d'une technologie
-Une technologie avance par quatre sources, qui se cumulent jusqu'à son coût :
+Une technologie avance par plusieurs sources, qui se cumulent jusqu'à son coût :
 1. **Recherche propre** : les points de Recherche du peuple vont à la technologie choisie.
 2. **Conditions de pré-acquisition** : quand une condition est remplie (ville côtière pour les
    bateaux, mine pour la métallurgie, moulins construits pour leur spécialisation…), la technologie
@@ -54,9 +57,13 @@ Une technologie avance par quatre sources, qui se cumulent jusqu'à son coût :
    selon la proximité (dégressif avec la distance) et les flux (échanges, déplacements), d'autant
    plus que le retard est grand ; les voisins se cumulent.
 4. **Commerce** : une route commerciale avec un peuple qui la connaît multiplie fortement la diffusion.
+5. **Sources diplomatiques** (`conception-diplomatie.md`) : ambassadeur, accord de recherche, vol
+   de technologie, artisans emmenés, transfuges et réfugiés.
 
-**Jamais instantané** : la diffusion et le commerce couvrent au plus **75 % du coût** ; le reste
-vient de la recherche propre ou des conditions.
+**Plafond commun (révision du 10/11, relecture)** : **toutes les sources extérieures réunies**
+(conditions, diffusion, commerce, sources diplomatiques) couvrent au plus **75 % du coût** ; il
+reste toujours **au moins 25 % de Recherche propre**. Seule exception : l'Agriculture (voir plus
+haut).
 
 ### Orientation par le joueur
 - Le joueur choisit la technologie en cours ; **ses points de Recherche y vont**.
@@ -124,7 +131,7 @@ donne des points (plafond 50 %). Les spécialisations sont facultatives.
 | Bronze | Métallurgie du cuivre | armes et outils de bronze, porteurs de bouclier | étain accessible ou importé | Fonte à la cire perdue (Culture) |
 | Roue et chariot | Domestication | charrettes, routes de terre | — | Roue à rayons (char de guerre) |
 | Araire | Agriculture, Domestication | labour à bœufs (rendement des champs) | — | — |
-| Écriture | Poterie | Recherche, institutions de droit, jalon d'ère | ville d'indice 3 ou commerce actif | Calendrier (semailles et récoltes mieux placées) |
+| Écriture | Poterie | bonus de Recherche, conditions des lois de droit, jalon d'ère | ville d'indice 3 ou commerce actif | Calendrier (semailles et récoltes mieux placées) |
 | Arc composite | Domestication | archers | — | Archers d'élite |
 | Voile | Pirogue, Tissage | navires à voile, commerce côtier | ville côtière | Quille et bordé (navires plus grands) |
 | Architecture monumentale | Construction en terre, Rites et mégalithes | temples, remparts de pierre | pierre de taille proche | Remparts de pierre (défense) |
@@ -136,9 +143,9 @@ donne des points (plafond 50 %). Les spécialisations sont facultatives.
 | Technologie | Prérequis | Débloque | Pré-acquisition | Spécialisation |
 |---|---|---|---|---|
 | Métallurgie du fer | Bronze | armes et outils de fer, bas fourneau | gisement de fer accessible | Acier trempé (armes améliorées) |
-| Monnaie | Poids et mesures | impôt, trésor, institution d'économie | commerce actif | Change et crédit |
-| Alphabet | Écriture | Recherche, Éducation | — | Bibliothèques (Recherche) |
-| Mathématiques et arpentage | Alphabet | cadastre, aqueducs, territoire mieux tenu | — | Astronomie (navigation, calendrier précis) |
+| Monnaie | Poids et mesures | impôt plus rentable, commerce facilité, conditions des lois d'économie (l'impôt et le trésor existent dès le départ) | commerce actif | Change et crédit |
+| Alphabet | Écriture | bonus de Recherche et d'Éducation | — | Copistes (Recherche) |
+| Mathématiques et arpentage | Alphabet | cadastre, territoire mieux tenu | — | Astronomie (navigation, calendrier précis) |
 | Ingénierie | Architecture monumentale, Mathématiques et arpentage | arc et voûte, ponts de pierre, aqueducs | — | Béton hydraulique (ports, ponts) |
 | Routes pavées | Roue et chariot, Ingénierie | routes rapides (capacité de gouverner) | — | Poste et relais (capacité de gouverner) |
 | Galères | Voile | navires de guerre et de commerce | ville côtière | Éperon |
@@ -157,7 +164,7 @@ donne des points (plafond 50 %). Les spécialisations sont facultatives.
 | Château | Ingénierie | châteaux, enceintes | relief élevé dans le territoire | Enceinte concentrique |
 | Arbalète | Métallurgie du fer | arbalétriers | — | Arc long |
 | Gouvernail et boussole | Galères, Mathématiques et arpentage | navigation hauturière | ville côtière | Cogue (gros navire de commerce) |
-| Papier et écoles | Alphabet | Recherche, Éducation | — | Universités |
+| Papier et écoles | Alphabet | bonus de Recherche et d'Éducation | — | Écoles savantes |
 | Foires et lettres de change | Monnaie | foires, commerce lointain | routes commerciales | Ligues marchandes |
 
 Remarques :
@@ -177,9 +184,8 @@ Hittites, armées grecques, hellénistiques et romaines, armées médiévales).
   siège, navires. Chaque ère en couvre 7 à 10, avec des forces et des faiblesses croisées (les
   piquiers arrêtent la cavalerie mais souffrent sous les traits, etc.).
 - **Unités régionales** liées à la géographie, comme la personnalité des peuples
-  (`conception-ia.md`) : éléphants (forêt tropicale ou savane), chameliers (désert), archers à
-  cheval (steppe), frondeurs (îles et côtes rocheuses), montagnards (massifs). Elles demandent un
-  animal ou un milieu dans le territoire, ou un échange avec un peuple qui l'a.
+  (`conception-ia.md`) : éléphants (forêt tropicale ou savane), chameliers (désert), cataphractes
+  (steppe). Elles dépendent de ressources (`conception-ressources.md`).
 - **Lignes d'amélioration** (déjà décidées : l'unité s'améliore d'une ère à l'autre et son effectif
   grandit, `conception-combat.md`) : lancier → phalange → hoplite → piquier ; frondeur →
   peltaste ; archer → archer à l'arc composite → arc long ou arbalétrier ; char → cavalerie.

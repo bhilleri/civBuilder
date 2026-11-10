@@ -213,5 +213,4 @@ Ces décisions **remplacent** ce qui les contredit plus haut.
   généré et à sauvegarder (tâche 13).
 
 ## Questions ouvertes
-- Culture et politique : détailler les pistes dans une doc dédiée.
 - Chiffres : consommation, seuils de croissance, conversion habitants → indice, rythme mensuel des rendements.

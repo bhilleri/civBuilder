@@ -2,7 +2,7 @@
 
 ## Objectif
 Donner au jeu son défi : d'autres peuples joués par l'ordinateur, qui suivent les mêmes règles que
-le joueur (`conception-echelle-et-but.md`). La fin de partie se décidera avec eux.
+le joueur (`conception-echelle-et-but.md`). La fin de partie est décidée (score d'héritage).
 
 ## Décisions de Benjamin (10/11/2026)
 - **Nombre de peuples réglable.** Environ 8 joueurs au total, voire 12. Le bon nombre dépendra de
@@ -39,7 +39,9 @@ fortifient leur frontière : armée voisine menaçante »).
 ## Peuples nés de la géographie
 - Chaque peuple naît dans l'aire d'une des huit langues de la toponymie et en porte les noms.
 - Personnalité tirée du lieu et de la graine : marin (côte découpée), montagnard (massif), cavalier
-  (steppe), bâtisseur (plaine fertile) ; plus des traits (expansionniste, prudent, belliqueux, marchand).
+  (steppe), bâtisseur (plaine fertile). **Révision du 10/11** : la personnalité = les **valeurs
+  de la société** (`conception-societe.md` §1) + les **traits du dirigeant** (§10) ; pas de liste
+  de traits propre à l'IA.
 - Des sociétés qui se développent différemment, en accord avec les institutions sans arbre unique.
 
 ## Diplomatie (première version)
@@ -59,7 +61,9 @@ belli, score de guerre, traités, accords, limites des alliances) : `conception-
 - Décisions tirées de la graine : une partie se rejoue à l'identique.
 
 ## Points d'attention
-- **Durée des tours** : un budget par IA et par tour (par exemple moins de 200 ms) ; décisions
+- **Durée des tours** : un budget par IA et par tour (révision du 10/11 : 200 ms × 12 dépassait le
+  but ; viser ≈ 80 ms par IA, ou calculer les IA **en parallèle** sur une vue figée, ordres appliqués
+  dans un ordre fixe ; d'abord en séquentiel, puis mesurer ; tolérance de 4 s par tour) ; décisions
   stratégiques rares. Pour mémoire, l'exploration de 36 éclaireurs prend ≈ 150 ms.
 - **Moteur de tours** à préparer pour plusieurs peuples (aujourd'hui un joueur et une faction hostile).
 - **Ordre** : IA de développement pacifique (après les villes, tâche 28), puis IA militaire, puis diplomatie.
@@ -91,7 +95,7 @@ toute la carte ; Paradox affiche ses modificateurs. Les joueurs acceptent un bon
 | Découverte | bruit fort, réévaluation rare, pas de coordination, IA pacifique |
 | Normal | IA honnête et moyenne |
 | Difficile | tous les leviers au maximum, **aucun bonus** |
-| Expert | Difficile + un **bonus économique affiché** dans le menu (+15 à 25 % de production ou de croissance, ou colons en plus au départ) |
+| Expert | Difficile + un **bonus économique affiché** dans le menu (+15 à 25 % de production ou de croissance, ou bande nomade plus nombreuse au départ) |
 
 Jamais de bonus de vision, de combat ni d'unités gratuites.
 

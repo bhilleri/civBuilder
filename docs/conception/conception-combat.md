@@ -127,8 +127,8 @@ malus par type, effectifs, solde).
 
 ### Révision 2 : cohérence (décisions de Benjamin, 10/11/2026)
 - **Unités par ère, avec amélioration** : chaque type apparaît à une ère (par exemple milice,
-  éclaireur, lancier au Néolithique ; archers et porteurs de bouclier au Bronze ; cavalerie au Fer ;
-  cavalerie lourde au Moyen Âge ; répartition à régler). **En changeant d'ère, une unité existante
+  éclaireur, lancier et archers au Néolithique ; porteurs de bouclier au Bronze ; cavalerie au Fer ;
+  cavalerie lourde au Moyen Âge ; liste complète dans `conception-recherche.md`, « Unités par ère »). **En changeant d'ère, une unité existante
   s'améliore et son effectif grandit** : petites bandes au Néolithique, armées plus grandes ensuite.
   Les effectifs (500 à 1 000 habitants) écrits plus haut sont remplacés par des effectifs selon
   l'ère, à chiffrer avec la table de population (`conception-echelle-et-but.md`).
@@ -138,6 +138,12 @@ malus par type, effectifs, solde).
 - **Armes** : les bâtiments d'armement sont des **emplois de la ville** ; l'intendant y affecte des
   travailleurs, qui ne produisent alors pas de Production pour la file ; le joueur règle l'effectif voulu.
 - **Campagnes saisonnières** : voir le besoin de bras saisonnier (`conception-villes.md`).
+
+### Mise à niveau d'ère (révision du 10/11, relecture, validé par Benjamin)
+Le passage d'ère n'améliore plus les unités d'un coup : la **mise à niveau** se paie en
+**matériel** (armes), en **habitants** (l'effectif grandit, recrues prises dans la ville d'origine)
+et en **expérience** perdue (recrues moins aguerries). Plus tard : des types d'équipement par ère,
+qui rendent le précédent obsolète et demandent d'en produire un nouveau.
 
 ## Armes et rôles (décisions de Benjamin du 10/11/2026, règles proposées)
 Décisions : les archers restent exposés au corps à corps, même face aux lanciers ; le lancier est

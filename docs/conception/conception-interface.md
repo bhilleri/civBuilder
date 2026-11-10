@@ -394,11 +394,11 @@ Avant de coder : une maquette (image) à valider par Benjamin.
 |---|---|
 | Économie | trésor, recettes et dépenses par source, impôt, entretien |
 | Commerce | flux entre villes et avec l'étranger, prix, douanes, budget de transport, convois attaqués |
-| Démographie | habitants par ville, croissance, migrations, famines, santé |
+| Démographie | habitants par ville, croissance, migrations, famines, hygiène et épidémies |
 | Technologie | arbre en colonnes par ère, barre découpée par source (`conception-recherche.md`) |
 | Organisation politique | institutions, capacité de gouverner, stabilité (tâche 32) |
 | Armée | effectifs, équipement, réquisitions, montures (`conception-combat.md`) |
-| Diplomatie | peuples connus, attitude et raisons (`conception-ia.md`) |
+| Diplomatie | peuples connus, attitude et raisons (`conception-diplomatie.md`) |
 
 ### Nouvelles cartes
 Il y a déjà 13 cartes (`MapLayer`). Pour ne pas s'y perdre, deux familles dans le sélecteur :

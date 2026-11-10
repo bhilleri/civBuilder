@@ -15,7 +15,7 @@ usage civil. Fait suite à la discussion sur les unités par ère (`conception-r
   autre la remplace : quand le fer remplace le bronze pour les armes, le bronze reste utile à
   l'économie. On évite ainsi la ressource devenue inutile, comme dans Civilization.
 - **Des ressources sans usage militaire** (or, pierres précieuses…) ont un intérêt pour la
-  Recherche, la Santé, la Production, etc.
+  Recherche, l'hygiène, la Production, etc.
 - Points à voir : le bronze, qui est un alliage ; le bois, la forêt étant partout.
 
 ## Proposition (à valider)
@@ -63,8 +63,8 @@ usage civil. Fait suite à la discussion sur les unités par ère (`conception-r
 |---|---|---|
 | Or, argent | subductions, filons, or alluvial | Économie (monnaie, trésor), Culture (prestige) |
 | Pierres précieuses, ambre | massifs anciens ; ambre des côtes froides | Bien-être (luxe), Culture, commerce |
-| Sel | bassins fermés, marais salants, côtes arides | Santé, conservation des aliments, commerce |
-| Plantes médicinales | forêts, montagnes | Santé |
+| Sel | bassins fermés, marais salants, côtes arides | hygiène, conservation des aliments, commerce |
+| Plantes médicinales | forêts, montagnes | hygiène (épidémies) |
 | Encens et épices | climats chauds et secs ou tropicaux | Bien-être, commerce lointain |
 | Teintures (pourpre, indigo) | côtes, climats chauds | Économie, Culture |
 | Papyrus, roseaux | deltas et marais chauds | Recherche (écrits) |
@@ -72,6 +72,11 @@ usage civil. Fait suite à la discussion sur les unités par ère (`conception-r
 | Argile fine | plaines alluviales | Production (poterie), Culture |
 
 ## Marché entre les villes (décisions de Benjamin, 10/11/2026)
+**Réalisation en deux temps (révision du 10/11, relecture, validé)** : d'abord les surplus envoyés
+aux villes reliées selon la capacité de transport, avec un **dépôt national de l'armée** alimenté
+par la réquisition (les armes vont au stock de la ville qui les produit) ; ensuite les prix par
+l'offre et la demande, quand l'IA saura commercer. La conception ci-dessous reste le but.
+
 - **Chaque ville exprime un besoin pour elle-même**, selon ses bâtiments et sa population ; elle
   **vend son surplus** aux villes reliées, **en priorité à celles du joueur**.
 - **Choix des villes partenaires** selon :
@@ -168,6 +173,5 @@ unités qui la demande.
 ## Questions ouvertes
 - Valider la liste des ressources et leurs usages civils.
 - Chiffres : flux par exploitation, besoin par unité, revenu, prix du commerce.
-- Épuisement des gisements : jamais, ou plus tard ?
 - Commerce entre peuples : avec les IA (`conception-ia.md`).
 - Chiffres : bornes des prix, douane, capacité par monture, rayon du marché.
