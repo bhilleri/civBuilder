@@ -119,7 +119,8 @@ les conditions qui font la fertilité d'un sol (roche mère, climat, relief, eau
 sources : sols volcaniques, bassins sédimentaires, plaines alluviales, etc. Règles à décider avec Benjamin.
 
 ## Propositions retenues le 09/11
-Ordre conseillé : 13 au plus tôt ; puis 14 → 12 → 15 (chacune prépare la suivante) ; les autres
+Ordre conseillé (revu le 10/11 après l'analyse critique) : 13 (sauvegarde) au plus tôt, puis 30
+(échelle et but) ; ensuite 14 → 12 → 15 (chacune prépare la suivante) ; les autres
 avec le sujet voisin (19 avec la navigation, 21 avec la météo). Chaque tâche : conception à
 proposer et à valider avec Benjamin avant de coder.
 
@@ -214,6 +215,21 @@ avant la fin avec des malus), armes comme ressource stratégique (production seu
 capturées), taux d'équipement par type, attrition, niveaux d'expérience, effectif selon le type,
 entretien en nourriture, économie et matériel, soldats comptés dans la population de leur ville
 (pertes = population perdue). Après la tâche 28.
+
+### [ ] 30. Échelle de temps, progression et but (décidé le 10/11)
+Voir `conception/conception-echelle-et-but.md`. Néolithique → Moyen Âge pour la première phase,
+≈ 500 tours, temps de jeu abstrait (taux au tour, année historique selon l'ère), 4 à 8 cases par
+tour, 4 ères passées par jalons, population en paliers croissants (habitants ↔ indice).
+À faire avant les tâches 28 et 29 : recaler les règles actuelles (croissance, coûts, soins, PM),
+arbre de recherche court par ère, jalons. Fin de partie à décider avec les IA (31).
+
+### [ ] 31. IA des peuples rivaux et faction hostile (décidé le 10/11)
+Voir `conception/conception-ia.md`. Nombre de peuples réglable (≈ 8, voire 12), pas de vision à
+travers le brouillard, départ nomade, personnalité née de la géographie et de la langue, diplomatie
+simple avec une interface intuitive ; idéalement sans triche (niveaux par leviers d'habileté, bonus
+économique affiché seulement en Expert, validé) ; un clan par camp barbare
+(clan → bande → unité, validé). Premier pas : `AiView` à brouillard (tableaux de bits) et
+générateur initialisé par la graine, d'abord pour la faction hostile. Mesure : `bilan_ia`.
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
