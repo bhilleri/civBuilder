@@ -1,5 +1,6 @@
 //! Recherche de chemin A* sur la grille hexagonale (logique pure).
 
+use crate::cases::Grille;
 use crate::hex::Hex;
 use crate::map::{MoveCosts, turn_moves};
 use std::cmp::Reverse;
@@ -15,32 +16,24 @@ pub fn find_path(map: &impl MoveCosts, start: Hex, goal: Hex) -> Option<Vec<Hex>
     map.move_cost(goal)?;
 
     let mut open = BinaryHeap::new();
-    let mut came_from: HashMap<Hex, Hex> = HashMap::new();
-    let mut cost: HashMap<Hex, u32> = HashMap::from([(start, 0)]);
+    // (tableaux plats plutôt que tables de hachage : `cases::Grille`)
+    let mut came_from: Grille<Option<Hex>> = Grille::new(None);
+    let mut cost: Grille<u32> = Grille::new(u32::MAX);
+    cost.set(start, 0);
     let wrap = map.wrap();
     open.push(Reverse((wrap.distance(start, goal) as u32, start)));
 
     while let Some(Reverse((_, current))) = open.pop() {
         if current == goal {
-            let mut path = vec![goal];
-            let mut node = goal;
-            while let Some(&prev) = came_from.get(&node) {
-                if prev == start {
-                    break;
-                }
-                path.push(prev);
-                node = prev;
-            }
-            path.reverse();
-            return Some(path);
+            return Some(rebuild(&came_from, start, goal));
         }
-        let current_cost = cost[&current];
+        let current_cost = cost.get(current);
         for next in map.wrap().neighbors(current) {
             let Some(step) = map.step_cost(current, next) else { continue };
             let new_cost = current_cost + step;
-            if cost.get(&next).is_none_or(|&c| new_cost < c) {
-                cost.insert(next, new_cost);
-                came_from.insert(next, current);
+            if new_cost < cost.get(next) {
+                cost.set(next, new_cost);
+                came_from.set(next, Some(current));
                 open.push(Reverse((new_cost + wrap.distance(next, goal) as u32, next)));
             }
         }
@@ -54,8 +47,14 @@ pub fn find_path(map: &impl MoveCosts, start: Hex, goal: Hex) -> Option<Vec<Hex>
 /// moins coûteux en tout. Le terrain plus cher que les PM restants laisse une dette (`debt` au
 /// départ) qui retarde le départ des tours suivants. Même règle que `reachable` et `rules::path_turns`.
 pub fn find_path_turns(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: u32, debt: u32, max_moves: u32) -> Option<Vec<Hex>> {
+    chemin_en_tours(map, start, goal, moves_left, debt, max_moves, true).map(|(path, _)| path)
+}
+
+/// Chemin le plus rapide et sa clé d'arrivée (tours, puis PM dépensés) ; `estimer` : avec la
+/// borne A* (sans elle, Dijkstra : la référence des tests).
+fn chemin_en_tours(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: u32, debt: u32, max_moves: u32, estimer: bool) -> Option<(Vec<Hex>, u64)> {
     if start == goal {
-        return Some(Vec::new());
+        return Some((Vec::new(), 0));
     }
     map.move_cost(goal)?;
     let max_moves = max_moves.max(1);
@@ -71,26 +70,33 @@ pub fn find_path_turns(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: 
         (turn, left)
     };
     let (turn0, left0) = resume(0, moves_left, debt);
-    let mut best: HashMap<Hex, (u64, u32, u32)> = HashMap::from([(start, (key(turn0, left0), turn0, left0))]);
-    let mut came_from: HashMap<Hex, Hex> = HashMap::new();
-    let mut open = BinaryHeap::from([Reverse((key(turn0, left0), start))]);
-    while let Some(Reverse((k, current))) = open.pop() {
-        let (bk, turn, left) = best[&current];
+    // Borne basse de la clé d'arrivée depuis (tour, PM) à `d` cases du but (A*) : chaque pas coûte
+    // au moins 1 PM, et un tour en donne au plus `max_moves`. Elle ne surestime jamais : le chemin
+    // trouvé reste le plus rapide, en explorant bien moins de cases que sans estimation.
+    let wrap = map.wrap();
+    let borne = |turn: u32, left: u32, d: u32| {
+        if !estimer {
+            key(turn, left)
+        } else if d <= left {
+            key(turn, left - d)
+        } else {
+            let reste = d - left;
+            let tours = reste.div_ceil(max_moves);
+            let dernier = reste - (tours - 1) * max_moves;
+            key(turn + tours, max_moves - dernier)
+        }
+    };
+    let mut best: Grille<(u64, u32, u32)> = Grille::new((u64::MAX, 0, 0));
+    best.set(start, (key(turn0, left0), turn0, left0));
+    let mut came_from: Grille<Option<Hex>> = Grille::new(None);
+    let mut open = BinaryHeap::from([Reverse((borne(turn0, left0, wrap.distance(start, goal) as u32), key(turn0, left0), start))]);
+    while let Some(Reverse((_, k, current))) = open.pop() {
+        let (bk, turn, left) = best.get(current);
         if k > bk {
             continue;
         }
         if current == goal {
-            let mut path = vec![goal];
-            let mut node = goal;
-            while let Some(&prev) = came_from.get(&node) {
-                if prev == start {
-                    break;
-                }
-                path.push(prev);
-                node = prev;
-            }
-            path.reverse();
-            return Some(path);
+            return Some((rebuild(&came_from, start, goal), k));
         }
         for next in map.wrap().neighbors(current) {
             let Some(step) = map.step(current, next) else { continue };
@@ -98,14 +104,29 @@ pub fn find_path_turns(map: &impl MoveCosts, start: Hex, goal: Hex, moves_left: 
             // La destination compte à l'arrivée ; une case de passage, au départ suivant
             let (nt, nl) = if next == goal { (turn, after) } else { resume(turn, after, owed) };
             let nk = key(nt, nl);
-            if best.get(&next).is_none_or(|&(b, _, _)| nk < b) {
-                best.insert(next, (nk, nt, nl));
-                came_from.insert(next, current);
-                open.push(Reverse((nk, next)));
+            if nk < best.get(next).0 {
+                best.set(next, (nk, nt, nl));
+                came_from.set(next, Some(current));
+                open.push(Reverse((borne(nt, nl, wrap.distance(next, goal) as u32), nk, next)));
             }
         }
     }
     None
+}
+
+/// Chemin de `start` (exclu) à `goal` (inclus), en remontant les prédécesseurs.
+fn rebuild(came_from: &Grille<Option<Hex>>, start: Hex, goal: Hex) -> Vec<Hex> {
+    let mut path = vec![goal];
+    let mut node = goal;
+    while let Some(prev) = came_from.get(node) {
+        if prev == start {
+            break;
+        }
+        path.push(prev);
+        node = prev;
+    }
+    path.reverse();
+    path
 }
 
 /// Cases atteignables ce tour-ci avec `moves` points de mouvement (départ exclu).
@@ -306,5 +327,65 @@ mod tests {
         map.set_elevation(ramp[1], 150.0);
         map.set_elevation(ramp[0], 150.0);
         assert!(find_path(&map, start, goal).is_none());
+    }
+
+    #[test]
+    fn chemin_en_tours_aussi_rapide_qu_une_recherche_sans_estimation() {
+        // Sur un relief varié, l'estimation A* donne la même arrivée (tour et PM) que la recherche
+        // complète sans estimation : elle ne fait rien perdre
+        let mut map = WorldMap::filled(40, 30, Terrain::Plains);
+        for i in 0..40 {
+            for j in 0..30 {
+                let h = Hex::from_offset(i, j);
+                match (i * 7 + j * 13) % 11 {
+                    0 | 1 => map.set(h, Terrain::Forest),
+                    2 => map.set_relief(h, Relief::Peak),
+                    3 => map.set_relief(h, Relief::Hills),
+                    _ => {}
+                }
+            }
+        }
+        let paires = (0..30).map(|k: i32| ((k * 7 % 40, k * 11 % 30), ((k * 13 + 17) % 40, (k * 5 + 9) % 30)));
+        for (k, (a, b)) in paires.enumerate() {
+            let (a, b) = (Hex::from_offset(a.0, a.1), Hex::from_offset(b.0, b.1));
+            if map.relief(a) == Relief::Peak || map.relief(b) == Relief::Peak || a == b {
+                continue;
+            }
+            for (max, left, debt) in [(2, 2, 0), (4, 4, 0), (4, 1, 0), (3, 2, 2)] {
+                let (_, avec) = chemin_en_tours(&map, a, b, left, debt, max, true).expect("chemin");
+                let (_, sans) = chemin_en_tours(&map, a, b, left, debt, max, false).expect("chemin");
+                assert_eq!(avec, sans, "cas {k}, {max} PM ({left} restants, dette {debt}) : même arrivée");
+            }
+        }
+    }
+
+    /// Durée du calcul de chemin sur une carte de la taille réelle (192 × 111), avec des murs de
+    /// montagnes : `cargo test --no-default-features bilan_chemins -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bilan_chemins() {
+        let mut map = WorldMap::filled(192, 111, Terrain::Plains);
+        // Murs de montagnes percés d'un passage, pour obliger à des détours
+        for col in (20..190).step_by(20) {
+            for row in 0..111 {
+                if row % 50 != 7 {
+                    map.set_relief(Hex::from_offset(col, row), Relief::Peak);
+                }
+            }
+        }
+        let paires: Vec<(Hex, Hex)> = (0..60).map(|i| (Hex::from_offset(2 + i % 10, 5 + i), Hex::from_offset(185 - i % 7, 100 - i))).collect();
+        let t = std::time::Instant::now();
+        let n = paires.iter().filter(|(a, b)| find_path(&map, *a, *b).is_some()).count();
+        let a_star = t.elapsed();
+        let t = std::time::Instant::now();
+        let m = paires.iter().filter(|(a, b)| find_path_turns(&map, *a, *b, 4, 0, 4).is_some()).count();
+        let en_tours = t.elapsed();
+        let t = std::time::Instant::now();
+        let r: usize = paires.iter().map(|(a, _)| reachable(&map, *a, 40).len()).sum();
+        let portee = t.elapsed();
+        println!("find_path : {n} chemins en {:.1} ms ({:.2} ms chacun)", a_star.as_secs_f64() * 1e3, a_star.as_secs_f64() * 1e3 / 60.0);
+        println!("find_path_turns : {m} chemins en {:.1} ms ({:.2} ms chacun)", en_tours.as_secs_f64() * 1e3, en_tours.as_secs_f64() * 1e3 / 60.0);
+        println!("reachable (40 PM) : {r} cases en {:.1} ms", portee.as_secs_f64() * 1e3);
+        assert!(n > 0 && m > 0);
     }
 }

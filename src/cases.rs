@@ -139,6 +139,53 @@ impl PartialEq for CaseSet {
 
 impl Eq for CaseSet {}
 
+/// Valeur attachée à chaque case, rangée ligne par ligne dans des tableaux plats (au lieu d'une
+/// table de hachage) : pour les calculs de chemin, qui lisent et écrivent beaucoup de cases.
+/// Une case jamais écrite vaut `vide` ; les cases hors cadre sont gardées à part.
+#[derive(Clone, Debug)]
+pub struct Grille<T: Copy> {
+    lignes: Vec<Vec<T>>,
+    hors: std::collections::HashMap<Hex, T>,
+    vide: T,
+}
+
+impl<T: Copy> Grille<T> {
+    /// Grille dont toutes les cases valent `vide`.
+    pub fn new(vide: T) -> Self {
+        Self { lignes: Vec::new(), hors: std::collections::HashMap::new(), vide }
+    }
+
+    /// Valeur de la case (`vide` si elle n'a jamais été écrite).
+    #[inline]
+    pub fn get(&self, h: Hex) -> T {
+        let (col, row) = h.to_offset();
+        if col >= 0 && row >= 0 {
+            self.lignes.get(row as usize).and_then(|l| l.get(col as usize)).copied().unwrap_or(self.vide)
+        } else {
+            self.hors.get(&h).copied().unwrap_or(self.vide)
+        }
+    }
+
+    /// Écrit la valeur de la case.
+    #[inline]
+    pub fn set(&mut self, h: Hex, v: T) {
+        let (col, row) = h.to_offset();
+        if col >= 0 && row >= 0 {
+            let (r, c) = (row as usize, col as usize);
+            if self.lignes.len() <= r {
+                self.lignes.resize(r + 1, Vec::new());
+            }
+            let ligne = &mut self.lignes[r];
+            if ligne.len() <= c {
+                ligne.resize(c + 1, self.vide);
+            }
+            ligne[c] = v;
+        } else {
+            self.hors.insert(h, v);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +240,21 @@ mod tests {
         assert_eq!(a, b);
         b.remove(&Hex::from_offset(2, 0));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn grille_lire_ecrire() {
+        let mut g = Grille::new(u32::MAX);
+        let a = Hex::from_offset(3, 4);
+        let loin = Hex::from_offset(150, 90);
+        let negatif = Hex::new(-5, -2);
+        assert_eq!(g.get(a), u32::MAX);
+        g.set(a, 7);
+        g.set(loin, 9);
+        g.set(negatif, 11);
+        assert_eq!((g.get(a), g.get(loin), g.get(negatif)), (7, 9, 11));
+        assert_eq!(g.get(Hex::from_offset(4, 4)), u32::MAX);
+        g.set(a, 1);
+        assert_eq!(g.get(a), 1);
     }
 }

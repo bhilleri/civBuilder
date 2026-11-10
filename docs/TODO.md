@@ -8,7 +8,7 @@ Chaque étape livre quelque chose de jouable ou de mesurable ; l'ordre suit le d
 (`conception/conception-echelle-et-but.md`). Les tâches de la planète (7, 8, 9, 10, 11) et de
 l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cours.
 
-1. **Fondations techniques (45)** : RNG déterministe par graine, identifiants stables, peuple
+1. ~~**Fondations techniques (45)**~~ (faites le 10-11/11, sauf la carte connue partagée, reportée) : RNG déterministe par graine, identifiants stables, peuple
    propriétaire des unités et des villes, mesure du temps par système (44), brouillard en bits,
    calcul de chemin en tableaux plats.
 2. **Partie sauvegardable** : état de partie hors de l'ECS, sauvegarde et chargement (13), code de
@@ -415,8 +415,10 @@ combats, villages et camps, faction hostile) ; ~~identifiants stables~~ (fait le
 `game::Ident` ; restent à passer sur `Ident` le journal et `Territory`, avec l'état de partie) ; ~~propriétaire sur
 chaque unité et ville, trésor par peuple~~ (fait le 10/11 : `peuple.rs` ; le marqueur `Hostile` reste
 pour les requêtes, à remplacer par le peuple avec les peuples rivaux) ; ~~brouillard en tableaux de bits~~
-(fait le 10/11 : `cases.rs` ; un brouillard par peuple viendra avec `AiView`) ; calcul de
-chemin en tableaux plats, `Known` construit une fois par tour (`explore.rs`) ; ~~mesure du temps par
+(fait le 10/11 : `cases.rs` ; un brouillard par peuple viendra avec `AiView`) ; ~~calcul de
+chemin en tableaux plats~~ (fait le 10/11 : `cases::Grille`, et A* pour le chemin en tours, 8,5 → 2,3 ms
+par long trajet) ; `Known` construit une fois par tour (`explore.rs`) : reporté, à mesurer avec
+`bilan_ia` (une carte connue par éclaireur, qui dépend de ses cases réservées) ; ~~mesure du temps par
 système (44)~~ (fait le 10/11 : `chrono_tour.rs`, console `chrono` ; à étendre à `bilan_ia`). Ensuite : état de partie (`Partie`, `jouer_tour`) hors de l'ECS, séparation du monde
 généré et du monde modifié, puis la sauvegarde (13).
 
