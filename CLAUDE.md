@@ -91,6 +91,6 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 
 ## Où trouver quoi
 - `docs/conception/` : une doc par grand sujet (climat, hydrologie, biomes, altitude, plaques,
-  érosion, planète, fonds marins, toponymie, interface, options de carte, combat, rendu 3D, saisons, volcans, villes, échelle et but, IA, recherche, ressources). À lire avant
+  érosion, planète, fonds marins, toponymie, interface, options de carte, combat, rendu 3D, saisons, volcans, villes, échelle et but, IA, recherche, ressources, diplomatie). À lire avant
   de toucher au sujet.
 - `docs/TODO.md` : les prochaines tâches décidées avec Benjamin.

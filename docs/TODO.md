@@ -302,6 +302,26 @@ son système (tâches 14, 15, 18, 32, 34).
 Une fois les systèmes en place : régler les chiffres (croissance, coûts, recherche, commerce,
 combat, IA) avec les parties sans joueur (`bilan_ia`, `conception-ia.md`).
 
+### [ ] 38. Diplomatie, guerre et paix (décidé le 10/11)
+Voir `conception/conception-diplomatie.md`. Quatre indicateurs de pays à pays : relation
+(volatile), confiance (actes passés), expansion agressive, griefs (légitiment une riposte sans
+expansion agressive) ; reconquête presque sans expansion agressive. Casus belli
+(invasion, reconquête, insulte, conflit frontalier…), buts de guerre, score de guerre (pertes,
+occupation, pillages, usure, idéologie, bonus du but atteint), traités de paix (argent, ressources,
+villes, rentes, interdictions, revendications abandonnées). Accords commerciaux, de recherche et
+militaires (garantie, non-agression, alliance), limités pour qu'un pays fort ne garantisse pas tout
+le monde. Coalitions défensives, moins punitives qu'Europa Universalis ; barbares hors de la
+diplomatie. Enrichissements retenus : demandes des peuples, échange de cartes, défense commune
+contre un clan, affinités, soutien à la guerre (fusionné avec l'usure, Bien-être), frontières par
+traité, cadeaux, mariages et otages, États tributaires puis vassaux (guerre d'indépendance),
+réfugiés, réputation globale, messagers (nouvelles retardées ou perdues), histoire commune (avec
+l'atlas, 27) ; médiation à voir. Pas de limite au nombre de guerres simultanées. Écran de la
+guerre (score et sa valeur visée, pertes par cause, forces estimées, soutien), batailles sur
+plusieurs tours nommées d'après la ville ou la zone, historique des guerres, niveau
+d'information sur chaque pays (commerce, frontières, espionnage, découverte, proximité ; baisse
+avec le temps). Effort de guerre : privations mieux tolérées tant que le soutien tient ;
+impôt de guerre payé en influence. Avec les IA (31), par étapes.
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,

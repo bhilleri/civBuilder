@@ -43,6 +43,9 @@ fortifient leur frontière : armée voisine menaçante »).
 - Des sociétés qui se développent différemment, en accord avec les institutions sans arbre unique.
 
 ## Diplomatie (première version)
+Système complet décidé le 10/11/2026 (relation, confiance, expansion agressive, griefs, casus
+belli, score de guerre, traités, accords, limites des alliances) : `conception-diplomatie.md`.
+
 - Contact (on se découvre), paix ou guerre, frontières.
 - **Interface intuitive** : attitude de chaque peuple et ses raisons visibles, intentions annoncées,
   propositions simples (paix, guerre, ouverture des frontières).
