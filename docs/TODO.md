@@ -343,6 +343,15 @@ investissement). Niveau d'information qui tend vers une valeur d'équilibre (app
 perte proportionnelle), traduit en classes de connaissance. Artisans emmenés sans bonus
 multiples ; pas de secret des guildes ; désinformation à voir. Avec les IA (31), par étapes.
 
+### [ ] 39. Campagnes militaires (décidé le 10/11)
+Voir `conception/conception-combat.md` (« Campagnes »). Une unité par case, sans empilement ;
+déplacements de groupe : traverser les alliés, ordre de relève, sélection multiple, cases
+d'arrivée réparties, chemins coopératifs avec réservation dans le temps, allure en ordre ou au plus
+vite ; groupes de soldats associés à un chef, rappelés par raccourci clavier (Ctrl + chiffre). Chefs d'armée et amiraux : personnages en nombre limité, compétence selon bâtiments,
+expérience militaire et investissement, sur la case d'une unité mais fragiles, expérience et bonus
+de combat. Ravitaillement (lignes, fourrage, attrition, hivernage, camps), mer (cabotage puis haute
+mer, tempêtes, transport, blocus, pirates). Le déplacement de groupe peut venir tôt (il sert déjà).
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,

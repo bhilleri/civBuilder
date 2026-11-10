@@ -162,6 +162,89 @@ qui les rendent possibles dans `conception-ressources.md`.
   mêlée basse (déjà le cas : 6 à 11). Proposition : au contact, un tireur attaqué en mêlée se
   défend à −25 % ; l'archer-épéiste échappe à ce malus (son épée).
 
+## Campagnes : déplacements de groupe, chefs, ravitaillement, mer (décidé le 10/11/2026)
+### Décisions de Benjamin
+- **Pas d'empilement** des unités militaires : on garde une unité par case. Le problème des
+  mouvements de troupes et des **relèves** se règle surtout par la **capacité de déplacement
+  doublée** ; il faut en plus **retravailler le calcul de chemin** pour déplacer plusieurs unités en
+  même temps sur plusieurs cases, en tenant compte des déplacements des autres, voire un
+  **déplacement de groupe par sélection multiple**.
+- **Chefs d'armée (généraux, amiraux)** : des personnages en **nombre limité**. Leur compétence
+  de départ dépend des **bâtiments**, de l'**expérience militaire de la nation** et de
+  l'**investissement dans leur formation**. Ils **peuvent partager la case d'une unité militaire**
+  mais restent **fragiles**. Ils **gagnent de l'expérience** et donnent un **bonus de combat** aux
+  unités.
+- **Ravitaillement** (lignes, fourrage, hivernage) et **mer** (cabotage puis haute mer, tempêtes,
+  pirates barbares) : oui, comme proposé.
+
+### Proposition : déplacer plusieurs unités
+1. **Traverser les unités alliées** : un trajet peut passer par une case occupée par un allié, sans
+   s'y arrêter (aujourd'hui les alliés sont des obstacles). C'est le premier gain pour les relèves
+   et les colonnes.
+2. **Relève** : l'échange de place entre alliés adjacents existe ; on l'étend à un ordre
+   « relever » : l'unité fraîche prend la place de l'unité désignée, qui recule sur la case libérée.
+3. **Sélection multiple** : rectangle de sélection, Maj + clic, ou clic sur un chef (sélectionne
+   son armée). Un ordre de déplacement vers une case donne à chaque unité **une case d'arrivée**
+   autour de la cible, en gardant la forme du groupe quand c'est possible (sinon les cases libres
+   les plus proches, réparties pour que la somme des trajets soit faible).
+4. **Chemins coopératifs** : les trajets sont calculés l'un après l'autre (les unités de tête
+   d'abord) avec une **table de réservation dans le temps** (case et tour) : une unité ne prévoit pas
+   de finir son tour sur une case qu'une autre a déjà réservée. Si une case se libère ou se bloque,
+   le trajet est recalculé.
+5. **Deux allures** : « en ordre » (le groupe avance à la vitesse de son unité la plus lente et
+   reste groupé) ou « au plus vite » (chacun à son rythme).
+6. **Ordres sur plusieurs tours** : le groupe garde sa destination d'un tour à l'autre ; il s'arrête
+   et prévient si un ennemi apparaît.
+Coût : un calcul de chemin par unité (`pathfinding.rs`, déjà rapide) plus la table de
+réservation, faible même pour une trentaine d'unités.
+
+**Validé par Benjamin (10/11/2026)**, avec deux ajouts :
+- **Associer des troupes à un chef** forme un **groupe de soldats** (une armée) qui reste
+  constitué : on le sélectionne et on lui donne des ordres d'un seul coup.
+- **Raccourcis clavier comme dans les jeux de stratégie en temps réel** : Ctrl + chiffre range le
+  groupe sélectionné sous ce chiffre, le chiffre seul le sélectionne, deux appuis rapides centrent la
+  carte dessus. Un groupe sans chef reste possible (simple sélection mémorisée), sans bonus.
+
+### Proposition : chefs d'armée et amiraux
+- **Nombre limité** : selon l'ère, les institutions (armée de métier) et les bâtiments (école
+  militaire), par exemple 1 au Néolithique, jusqu'à 4 ou 5 au Moyen Âge.
+- **Compétence de départ** = bâtiments + expérience militaire de la nation (guerres et batailles
+  passées) + investissement (Économie consacrée à leur formation) ; un peu de hasard (talent).
+- **Commandement** : il commande les unités de son armée, jusqu'à un nombre maximal qui grandit
+  avec son expérience ; bonus de combat (attaque, défense, moral) selon sa compétence ; certains
+  traits donnent des bonus particuliers (cavalerie, sièges, défense en montagne).
+- **Fragile** : sur la case d'une unité, il suit son sort ; si elle est battue, il risque d'être
+  tué ou capturé (rançon, monnaie d'échange). Seul, il est pris par la première unité ennemie.
+- **Expérience** : il en gagne à chaque bataille ; un chef réputé peut devenir un personnage
+  politique (gouvernement, `conception-societe.md`).
+- **Amiraux** : les mêmes règles pour les flottes.
+- Ce sont des personnages : ils vieillissent sur l'horloge des personnages et meurent un jour.
+
+### Proposition : ravitaillement
+- **Ligne de ravitaillement** : une armée en territoire ami ou à quelques tours de trajet d'une
+  ville amie est ravitaillée par les flux du marché (`conception-ressources.md`) ; ces convois se
+  pillent, une ligne coupée affame l'armée.
+- **Fourrage** : hors de portée, l'armée prend la nourriture des cases autour d'elle selon le
+  biome et la saison (beaucoup à la récolte, presque rien en hiver) ; une grosse armée vide vite
+  une région, une région pillée nourrit moins.
+- **Attrition** quand la nourriture manque : faim, froid, maladie (camps, sièges), désertion si la
+  solde n'est pas payée ou si le soutien à la guerre s'effondre (causes de pertes de l'écran de
+  guerre, `conception-diplomatie.md`).
+- **Hivernage** : en hiver, rester en campagne coûte cher ; quartiers d'hiver dans une ville ou un
+  camp fortifié.
+- **Camps et dépôts** : un camp fortifié (les légionnaires le construisent vite) relaie le
+  ravitaillement en territoire ennemi.
+
+### Proposition : mer
+- **Cabotage** à une ou deux cases des côtes avec la pirogue et la voile ; **haute mer** avec
+  Gouvernail et boussole, risquée avant.
+- **Courants et houle** (déjà simulés) accélèrent ou ralentissent ; **tempêtes et cyclones**
+  (`conception-saisons.md`) peuvent couler une flotte.
+- **Transport** : capacité par navire ; embarquer et débarquer coûte tous les PM.
+- **Combat** : éperon et abordage pour les galères ; navires plus gros au Moyen Âge.
+- **Blocus** : une flotte devant un port coupe son commerce par mer et aide au siège.
+- **Pirates** : des clans barbares côtiers pillent les routes maritimes (`conception-ia.md`).
+
 ## Découpage du développement
 - **Étape 1 (fait) :** une unité par case, statistiques, PV, combat au corps à corps avec prévision, charge, dispersion des unités, hostiles qui attaquent.
 - **Étape 2 (fait) :** tir à distance et ligne de vue, zone de contrôle, flanquement, bonus de terrain.
