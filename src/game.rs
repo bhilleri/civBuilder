@@ -33,6 +33,37 @@ pub struct City {
     pub worked: Vec<Hex>,
 }
 
+/// Identifiant stable d'un objet de la partie (unité, ville, camp, village). Contrairement à
+/// `Entity`, il ne dépend pas de la façon dont Bevy range ses objets : il fixe l'ordre de jeu, et
+/// une sauvegarde pourra le garder. Donné dans l'ordre de création (`attribuer_identifiants`).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Ident(pub u32);
+
+/// Prochain identifiant stable à donner.
+#[derive(Resource, Default)]
+pub struct ProchainIdent(pub u32);
+
+/// Donne un identifiant stable aux objets de la partie qui n'en ont pas encore (dans l'ordre de
+/// leur création).
+fn attribuer_identifiants(
+    mut commands: Commands,
+    mut prochain: ResMut<ProchainIdent>,
+    nouveaux: Query<Entity, (Without<Ident>, Or<(With<Unit>, With<City>, With<hostile::Camp>, With<hostile::Village>)>)>,
+) {
+    let mut liste: Vec<Entity> = nouveaux.iter().collect();
+    liste.sort();
+    for entity in liste {
+        commands.entity(entity).insert(Ident(prochain.0));
+        prochain.0 += 1;
+    }
+}
+
+/// Clé de l'ordre de jeu : l'identifiant stable (les objets créés dans l'image, qui n'en ont pas
+/// encore, passent après, dans leur ordre de création).
+pub fn rang(idents: &Query<&Ident>, entity: Entity) -> (u32, Entity) {
+    (idents.get(entity).map_or(u32::MAX, |i| i.0), entity)
+}
+
 // ---------------------------------------------------------------- Ressources
 
 #[derive(Resource)]
@@ -251,7 +282,9 @@ impl Plugin for GamePlugin {
             .init_resource::<Selection>()
             .init_resource::<GameLog>()
             .init_resource::<EndTurnRequested>()
+            .init_resource::<ProchainIdent>()
             .add_systems(Startup, spawn_starting_units)
+            .add_systems(PreUpdate, attribuer_identifiants)
             .add_systems(
                 Update,
                 (
@@ -429,15 +462,14 @@ fn end_turn(
     mut territory: ResMut<Territory>,
     mut log: ResMut<GameLog>,
     mut fog: ResMut<Fog>,
-    blocked: Res<Blocked>,
-    occupancy: Res<Occupancy>,
-    enemy_zoc: Res<EnemyZoc>,
+    (blocked, occupancy, enemy_zoc): (Res<Blocked>, Res<Occupancy>, Res<EnemyZoc>),
     danger: Res<Danger>,
     villages: Res<KnownVillages>,
     mut hostile_turn: ResMut<HostileTurnPending>,
     mut cues: ResMut<Cues>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
+    idents: Query<&Ident>,
 ) {
     if !std::mem::take(&mut requested.0) {
         return;
@@ -448,7 +480,7 @@ fn end_turn(
 
     // 1) Économie des villes
     let mut list: Vec<(Entity, Hex, Mut<City>)> = cities.iter_mut().map(|(e, p, c)| (e, p.0, c)).collect();
-    list.sort_by_key(|(e, _, _)| *e);
+    list.sort_by_key(|(e, _, _)| rang(&idents, *e));
     assign_worked_tiles(map, &territory, &mut list);
     let mut new_units = Vec::new();
     let mut new_bridges = Vec::new();
@@ -479,7 +511,7 @@ fn end_turn(
     let mut own = occupancy.own.clone();
     let threats: HashSet<Hex> = occupancy.all.difference(&occupancy.own).copied().collect();
     let mut order: Vec<Entity> = units.iter().map(|(e, _, _)| e).collect();
-    order.sort();
+    order.sort_by_key(|e| rang(&idents, *e));
     for entity in order {
         let reserved = reserved_by_others(map, units.iter().map(|(e, u, _)| (e, &u.0)), entity);
         let Ok((_, mut unit, mut pos)) = units.get_mut(entity) else { continue };
@@ -549,6 +581,7 @@ fn refresh_worked_tiles(
     state: Res<GameState>,
     territory: Res<Territory>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
+    idents: Query<&Ident>,
 ) {
     // Parcourir des `Mut` sans les déréférencer en écriture ne les marque pas « modifiés ».
     let any_added = cities.iter_mut().any(|(_, _, c)| c.is_added());
@@ -556,7 +589,7 @@ fn refresh_worked_tiles(
         return;
     }
     let mut list: Vec<(Entity, Hex, Mut<City>)> = cities.iter_mut().map(|(e, p, c)| (e, p.0, c)).collect();
-    list.sort_by_key(|(e, _, _)| *e);
+    list.sort_by_key(|(e, _, _)| rang(&idents, *e));
     assign_worked_tiles(&map.0, &territory, &mut list);
 }
 

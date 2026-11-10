@@ -7,7 +7,7 @@
 use crate::battle::{self, Side};
 use crate::combat::{self, Fate};
 use crate::feedback::{Actor, Cues, Tone};
-use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, LogText, Selection, Territory, Unit, claim_territory, spawn_unit};
+use crate::game::{City, GameLog, GameMap, GameState, HexPos, Ident, Importance, LogText, Selection, Territory, Unit, claim_territory, rang, spawn_unit};
 use crate::search::MapTarget;
 use crate::hex::Hex;
 use crate::map::MoveCosts;
@@ -173,12 +173,16 @@ pub fn visit_sites(
         }
     }
 
-    for (village, pos, name) in &villages {
+    // Villages dans un ordre fixe (celui de leur case) : le hasard des visites n'en dépend pas
+    let mut village_list: Vec<_> = villages.iter().collect();
+    village_list.sort_by_key(|(_, p, _)| p.0);
+    for (village, pos, name) in village_list {
         if !touched.contains(&pos.0) {
             continue;
         }
         commands.entity(village).despawn();
-        let city_list: Vec<(Entity, Hex)> = cities.iter().map(|(e, p, _)| (e, p.0)).collect();
+        let mut city_list: Vec<(Entity, Hex)> = cities.iter().map(|(e, p, _)| (e, p.0)).collect();
+        city_list.sort_by_key(|(_, h)| *h);
         let event = forced.0.take().filter(|e| *e != VillageEvent::JoinCity || !city_list.is_empty());
         match event.unwrap_or_else(|| sites::roll_village_event(&mut rng, !city_list.is_empty())) {
             VillageEvent::JoinCity => {
@@ -246,6 +250,7 @@ pub fn hostile_turn(
     mut players: Query<(Entity, &mut Unit, &HexPos), (Without<Hostile>, Without<Camp>)>,
     fixed: Query<&HexPos, (Or<(With<City>, With<Village>)>, Without<Hostile>, Without<Unit>)>,
     mut hasard: ResMut<Hasard>,
+    idents: Query<&Ident>,
 ) {
     if !std::mem::take(&mut pending.0) {
         return;
@@ -266,8 +271,10 @@ pub fn hostile_turn(
         unit.0.start_turn(false);
     }
 
-    // Recrutement
-    for (camp_pos, mut camp) in &mut camps {
+    // Recrutement (camps dans un ordre fixe : celui de leur case)
+    let mut camp_list: Vec<(&HexPos, Mut<Camp>)> = camps.iter_mut().collect();
+    camp_list.sort_by_key(|(p, _)| p.0);
+    for (camp_pos, camp) in camp_list.iter_mut() {
         camp.cooldown = camp.cooldown.saturating_sub(1);
         if camp.cooldown > 0 {
             continue;
@@ -290,7 +297,7 @@ pub fn hostile_turn(
 
     // Actions des guerriers, l'un après l'autre
     let mut order: Vec<Entity> = hostiles.iter().map(|(e, ..)| e).collect();
-    order.sort();
+    order.sort_by_key(|e| rang(&idents, *e));
     for entity in order {
         let Ok((_, me, pos, home)) = hostiles.get(entity) else { continue };
         let (mut here, home) = (pos.0, home.0);
@@ -322,7 +329,7 @@ pub fn hostile_turn(
                     && (preview.to_defender.expected >= preview.to_attacker.expected
                         || preview.defender_fate != Fate::Survives)
             })
-            .min_by_key(|(e, u, p)| (map.distance(here, p.0), u.0.hp, *e))
+            .min_by_key(|(e, u, p)| (map.distance(here, p.0), u.0.hp, rang(&idents, *e)))
             .map(|(e, _, p)| (e, p.0));
 
         let Some((prey, prey_pos)) = prey else {
