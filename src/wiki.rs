@@ -747,7 +747,8 @@ fn mechanics() -> Article {
                 "Clic droit sur un ennemi visible : l'unité s'approche si besoin puis attaque ; une prévision du \
                  combat s'affiche au survol. Une attaque par tour ; elle consomme les PM restants. Dégâts ≈ \
                  {} × e^(écart de force ÷ {}) × aléa (0,8 à 1,2). Chaque tranche de 10 PV perdus retire 1 de force. \
-                 À 0 PV, l'unité est dispersée.",
+                 À 0 PV, l'unité est dispersée. L'aléa est tiré de la graine de la partie : une même attaque, \
+                 rejouée dans la même situation, donne le même résultat.",
                 combat::BASE_DAMAGE, combat::STRENGTH_SCALE
             )),
             p("Corps à corps : le défenseur riposte, et le vainqueur avance sur la case libérée. Tir : force de tir \

@@ -357,6 +357,7 @@ fn run_feedback_capture(
     mut debug: ResMut<DebugMode>,
     mut log: ResMut<crate::game::GameLog>,
     mut cues: ResMut<crate::feedback::Cues>,
+    mut hasard: ResMut<crate::hasard::Hasard>,
     mut units: Query<(&mut Unit, &mut HexPos)>,
     camera: Single<(&mut Transform, &mut Projection), (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
     mut exit: MessageWriter<AppExit>,
@@ -431,7 +432,8 @@ fn run_feedback_capture(
             let e = engagement(m, (&ua.0, a.1), (&ud.0, d.1), std::iter::empty(), false);
             let attacker = Side { entity: a.0, at: a.1, unit: &mut ua.0, hostile };
             let defender = Side { entity: d.0, at: d.1, unit: &mut ud.0, hostile: !hostile };
-            fight(&mut commands, &mut log, &mut cues, attacker, defender, &e);
+            let peuple = if hostile { crate::hasard::PEUPLE_HOSTILE } else { crate::hasard::PEUPLE_JOUEUR };
+            fight(&mut commands, &mut log, &mut cues, attacker, defender, &e, &mut hasard.tirage(crate::hasard::Flux::Combat, peuple));
         };
         duel(c[0], c[1], false);
         duel(c[2], c[3], false);

@@ -108,8 +108,8 @@ Jamais de bonus de vision, de combat ni d'unités gratuites.
   `Fog` en `HashSet<Hex>` ne convient pas pour cela.
 - **Chemins dans l'inconnu** : coût moyen supposé, recalcul quand la case se révèle.
 - **Souvenirs qui s'oublient** : une armée vue il y a longtemps compte moins.
-- **Déterminisme** : un générateur par peuple, initialisé par (graine, tour, peuple) ;
-  `rand::rng()` est à retirer de `hostile.rs` et `battle.rs`.
+- **Déterminisme** : fait le 10/11 (`hasard.rs`) : chaque tirage part de la graine, du flux (le
+  système qui tire), du peuple et de son numéro dans ce flux ; `rand::rng()` est retiré.
 - **Exploration** : `Known::new` est reconstruit pour chaque éclaireur (`explore.rs`) ; une fois
   par peuple et par tour suffirait (gain estimé de 5 à 10 fois, à mesurer).
 

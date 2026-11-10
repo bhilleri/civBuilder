@@ -94,11 +94,12 @@ fn retire(commands: &mut Commands, entity: Entity) {
 }
 
 /// Résout un combat, l'inscrit au journal, le fait mettre en scène et disperse les unités à 0 PV.
-pub fn fight(commands: &mut Commands, log: &mut GameLog, cues: &mut Cues, attacker: Side, defender: Side, e: &Engagement) -> FightResult {
+/// Le hasard des dégâts vient de `rng`, tiré de la graine (`hasard.rs`).
+pub fn fight(commands: &mut Commands, log: &mut GameLog, cues: &mut Cues, attacker: Side, defender: Side, e: &Engagement, rng: &mut impl rand::Rng) -> FightResult {
     let (att_name, def_name) = (label(&attacker), label(&defender));
     // Les noms des unités renvoient vers elles (ou vers leur case si elles sont dispersées)
     let (att_link, def_link) = ((MapTarget::Unit(attacker.entity), attacker.at), (MapTarget::Unit(defender.entity), defender.at));
-    let outcome = combat::apply(attacker.unit, defender.unit, e, &mut rand::rng());
+    let outcome = combat::apply(attacker.unit, defender.unit, e, rng);
     let msg = LogText::new().link(capitalize(&att_name), att_link.0, att_link.1);
     let mut msg = match outcome.kind {
         AttackKind::Ranged => msg.text(" tire sur ").link(&def_name, def_link.0, def_link.1).text(format!(" : −{} PV.", outcome.damage_to_defender)),

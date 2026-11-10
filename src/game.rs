@@ -243,6 +243,7 @@ impl Plugin for GamePlugin {
         app.insert_resource(GameMap(map))
             .insert_resource(WorldSeed(seed as u64))
             .insert_resource(GameState { turn: 1, gold: 10, founded_cities: 0 })
+            .insert_resource(crate::hasard::Hasard::new(seed))
             .init_resource::<Fog>()
             .init_resource::<ShownFog>()
             .init_resource::<DebugMode>()

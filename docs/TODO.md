@@ -409,8 +409,9 @@ Moins de 2 secondes par tour en fin de partie (12 peuples) ; temps par système 
 alerte au-delà ; taille des sauvegardes surveillée.
 
 ### [ ] 45. Fondations techniques (relecture technique du 10/11)
-Avant la sauvegarde, à faible risque : générateur aléatoire par (graine, tour, peuple, système) à la
-place de `rand::rng()` (`battle.rs`, `hostile.rs`) ; identifiants stables (`UniteId`, `VilleId`,
+Avant la sauvegarde, à faible risque : ~~générateur aléatoire tiré de la graine à la place de
+`rand::rng()`~~ (fait le 10/11 : `hasard.rs`, par graine, flux, peuple et numéro de tirage ;
+combats, villages et camps, faction hostile) ; identifiants stables (`UniteId`, `VilleId`,
 `PeupleId`) à la place des `Entity` dans l'état, le journal et `Territory` ; propriétaire sur
 chaque unité et ville, trésor par peuple ; brouillard en tableaux de bits par peuple ; calcul de
 chemin en tableaux plats, `Known` construit une fois par tour (`explore.rs`) ; mesure du temps par

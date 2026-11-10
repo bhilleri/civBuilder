@@ -19,6 +19,7 @@ mod feedback;
 mod film;
 mod figures;
 mod game;
+mod hasard;
 mod geography;
 mod hex;
 mod highlight;

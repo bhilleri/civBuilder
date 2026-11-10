@@ -348,7 +348,7 @@ fn mouse_commands(
     mut selection: ResMut<Selection>,
     mut log: ResMut<GameLog>,
     mut cues: ResMut<Cues>,
-    replay: Res<TurnReplay>,
+    (replay, mut hasard): (Res<TurnReplay>, ResMut<crate::hasard::Hasard>),
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
     mut hostiles: Query<(Entity, &mut Unit, &HexPos), With<Hostile>>,
     cities: Query<(Entity, &HexPos), With<City>>,
@@ -445,6 +445,7 @@ fn mouse_commands(
             Side { entity: selected, at: here, unit: &mut unit.0, hostile: false },
             Side { entity: foe, at: target, unit: &mut foe_unit.0, hostile: true },
             &e,
+            &mut hasard.tirage(crate::hasard::Flux::Combat, crate::hasard::PEUPLE_JOUEUR),
         );
         if result.attacker_died {
             selection.0 = None;

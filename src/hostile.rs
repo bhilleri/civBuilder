@@ -12,6 +12,7 @@ use crate::search::MapTarget;
 use crate::hex::Hex;
 use crate::map::MoveCosts;
 use crate::rules::{self, ForUnit, UnitKind};
+use crate::hasard::{Flux, Hasard, PEUPLE_HOSTILE, PEUPLE_JOUEUR};
 use crate::sites::{self, VillageEvent};
 use bevy::prelude::*;
 use rand::Rng;
@@ -149,6 +150,7 @@ pub fn visit_sites(
     camps: Query<(Entity, &HexPos, &SiteName), With<Camp>>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
     others: Query<&HexPos, Or<(With<Unit>, With<Camp>, With<Village>)>>,
+    mut hasard: ResMut<Hasard>,
 ) {
     if movers.is_empty() {
         return;
@@ -159,7 +161,7 @@ pub fn visit_sites(
         .collect();
     // Unité qui est passée sur une case (la récompense s'affiche à son arrivée)
     let visitor = |h: Hex| movers.iter().find(|(_, u, p)| p.0 == h || u.0.last_steps.contains(&h)).map(|(e, ..)| e);
-    let mut rng = rand::rng();
+    let mut rng = hasard.tirage(Flux::Sites, PEUPLE_JOUEUR);
     let mut taken: HashSet<Hex> = others.iter().map(|p| p.0).chain(cities.iter().map(|(_, p, _)| p.0)).collect();
 
     for (camp, pos, name) in &camps {
@@ -243,12 +245,13 @@ pub fn hostile_turn(
     mut hostiles: Query<(Entity, &mut Unit, &mut HexPos, &HostileHome), (With<Hostile>, Without<Camp>)>,
     mut players: Query<(Entity, &mut Unit, &HexPos), (Without<Hostile>, Without<Camp>)>,
     fixed: Query<&HexPos, (Or<(With<City>, With<Village>)>, Without<Hostile>, Without<Unit>)>,
+    mut hasard: ResMut<Hasard>,
 ) {
     if !std::mem::take(&mut pending.0) {
         return;
     }
     let map = &map.0;
-    let mut rng = rand::rng();
+    let mut rng = hasard.tirage(Flux::Hostile, PEUPLE_HOSTILE);
     let cities_and_villages: HashSet<Hex> = fixed.iter().map(|p| p.0).collect();
     let mut taken: HashSet<Hex> = cities_and_villages
         .iter()
@@ -388,6 +391,7 @@ pub fn hostile_turn(
             Side { entity, at: here, unit: &mut attacker.0, hostile: true },
             Side { entity: prey, at: prey_pos, unit: &mut defender.0, hostile: false },
             &e,
+            &mut hasard.tirage(Flux::Combat, PEUPLE_HOSTILE),
         );
         if result.defender_died {
             taken.remove(&prey_pos);
