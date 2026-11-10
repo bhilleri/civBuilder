@@ -320,7 +320,13 @@ guerre (score et sa valeur visée, pertes par cause, forces estimées, soutien),
 plusieurs tours nommées d'après la ville ou la zone, historique des guerres, niveau
 d'information sur chaque pays (commerce, frontières, espionnage, découverte, proximité ; baisse
 avec le temps). Effort de guerre : privations mieux tolérées tant que le soutien tient ;
-impôt de guerre payé en influence. Avec les IA (31), par étapes.
+impôt de guerre payé en influence.
+Espionnage et ambassadeurs : intentions, influence, actes hostiles, vol de technologie (des
+points, jamais une technologie entière) ; ambassadeur qui informe, diffuse un peu les techniques
+et influence sans hostilité ; réseau d'espionnage, missions avec chance et risque, contre-espionnage (bâtiments, politique,
+investissement). Niveau d'information qui tend vers une valeur d'équilibre (apports continus,
+perte proportionnelle), traduit en classes de connaissance. Artisans emmenés sans bonus
+multiples ; pas de secret des guildes ; désinformation à voir. Avec les IA (31), par étapes.
 
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.

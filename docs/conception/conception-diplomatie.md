@@ -328,11 +328,106 @@ Un niveau par pays connu, de 0 à 100, qui fixe la précision de ce qu'on sait d
 | Découverte du territoire | cases vues et villes visitées |
 | Proximité | voisins mieux connus |
 | **Ajouts proposés** | ambassade ou émissaire permanent ; alliés qui partagent ce qu'ils savent ; échange de cartes ; langue de la même famille (affinités) ; combats et prisonniers (on apprend sur l'armée qu'on affronte) ; réfugiés et migrants ; nouvelles par les messagers |
-- **Baisse naturelle avec le temps** : sans source active, le niveau décroît chaque tour ; ce qu'on
-  sait vieillit (date du dernier aperçu affichée).
+- **Une valeur d'équilibre (décision de Benjamin, 10/11/2026)** : le niveau grandit ou se réduit
+  selon des tendances et des actions. Une source (ambassade, commerce, frontières ouvertes,
+  proximité…) ne donne pas un gain ponctuel mais un **apport continu**, contrebalancé par une
+  **perte progressive** proportionnelle au niveau : le niveau **tend vers une valeur** fixée par
+  ses sources. Proposition : chaque tour, niveau += apports − 10 % × niveau ; la valeur
+  d'équilibre vaut donc 10 × apports. Les actions ponctuelles (mission de renseignement,
+  prisonniers, échange de cartes) donnent un saut, qui s'efface ensuite vers l'équilibre.
+- **Classes de connaissance** : le nombre se traduit par un texte (proposition) :
+
+  | Niveau | Texte | Précision des effectifs |
+  |---|---|---|
+  | 0 à 9 | Inconnu | rien |
+  | 10 à 29 | Rumeurs | ordre de grandeur |
+  | 30 à 49 | Connaissance vague | ±50 % |
+  | 50 à 69 | Bonne connaissance | ±25 % |
+  | 70 à 89 | Connaissance détaillée | ±10 % |
+  | 90 à 100 | Connaissance complète | exacte |
+- Ce qu'on sait vieillit : la date du dernier aperçu est affichée.
 - Le niveau s'affiche dans l'écran Diplomatie et au survol des estimations (« environ 2 000 à
   3 000 soldats, information moyenne »).
 - Même règle pour l'IA : elle estime le joueur avec la même précision (`AiView`, `conception-ia.md`).
+
+## Espionnage et ambassadeurs (Benjamin, 10/11/2026)
+### Demande
+L'espionnage et le niveau d'information servent aussi à :
+- **comprendre les intentions** d'une IA ;
+- **influencer ses décisions** ;
+- **commettre des actes hostiles** ;
+- **voler des technologies** : pas une technologie entière, mais la faire progresser plus vite en
+  fournissant des informations.
+Un **ambassadeur** participe aussi un peu au vol de technologie et à l'influence, **sans créer
+d'hostilité** : il est témoin des techniques du pays et fait un peu d'espionnage industriel.
+
+### Proposition : ambassadeur
+- Un ambassadeur par pays au plus, envoyé avec l'accord de l'hôte (accord d'ambassades,
+  réciproque ou non) ; il demande l'**Écriture** (lettres d'Amarna : les ambassades de l'âge du
+  bronze). Avant, de simples émissaires de passage.
+- Effets, sans hostilité :
+  - un **apport continu** au niveau d'information (qui tend alors vers une valeur plus haute, voir
+    « Niveau d'information : une valeur d'équilibre ») ;
+  - **diffusion des technologies** un peu plus forte depuis ce pays (une source de plus dans
+    `conception-recherche.md`, plafonnée comme les autres) ;
+  - relation en légère hausse et propositions mieux acceptées (influence douce) ;
+  - **intentions générales** connues (« prépare une guerre », « cherche à s'étendre »), sans la cible ;
+  - les nouvelles de ce pays arrivent plus vite et sûrement (messagers).
+- L'hôte peut l'**expulser** : signal hostile (relation en baisse), visible de tous.
+
+### Proposition : espions et réseau
+- **Réseau d'espionnage** dans un pays cible (0 à 100) plutôt que des unités sur la carte : on y
+  affecte des agents (nombre limité par l'ère et les institutions, formés dans une ville avec un
+  bâtiment dédié, payés en Économie) ; le réseau grandit chaque tour et retombe sans agents.
+- Les **missions** puisent dans le réseau ; chacune affiche avant d'être lancée sa **chance de
+  réussite** et son **risque d'être découverte**.
+- Le risque dépend du réseau, du contre-espionnage de la cible, de la distance et de la langue
+  (une langue de la même famille aide).
+- **Découverte** : agent perdu, griefs et confiance en baisse chez la victime, réputation en
+  baisse si elle rend l'affaire publique ; l'espion capturé devient une monnaie d'échange.
+
+### Missions
+| Mission | Effet | Hostilité si découverte |
+|---|---|---|
+| Renseignement | niveau d'information en hausse | faible |
+| Percer les intentions | objectif stratégique de l'IA, **sa cible** et ses raisons (ce que l'IA écrit déjà dans son journal) ; plans de guerre | faible |
+| Vol de technologie | points de recherche sur une technologie que la cible connaît (une part de son coût, plafonnée ; jamais la technologie entière) | moyenne |
+| Influence | pousser une décision : accepter un accord, se méfier d'un tiers, renoncer à une guerre | moyenne |
+| Semer la discorde | relation en baisse entre deux autres pays | moyenne |
+| Attiser l'indépendance | désir d'indépendance en hausse chez un vassal ou un tributaire | forte |
+| Sabotage | aménagement, bâtiment ou stock endommagé ; production d'armes ralentie | forte |
+| Agitation | Bien-être en baisse dans une ville, soutien à la guerre en baisse | forte |
+| Corruption de garnison | défense d'une ville réduite pour quelques tours (avant un siège) | forte |
+
+### Autres mécanismes (décisions de Benjamin, 10/11/2026)
+1. **Contre-espionnage (oui)** : découvrir un réseau étranger donne des **griefs**, donc un motif
+   de riposte. **Le joueur agit dessus** : bâtiments (garde, prison), décisions politiques
+   (institutions), investissement financier (Économie dépensée chaque tour). Retourner ou expulser
+   l'agent découvert.
+2. **Désinformation (à voir comment l'implémenter)**. Piste : une mission qui décale la fourchette
+   que l'autre pays voit de nos forces (vers le haut pour dissuader, vers le bas pour tromper),
+   pendant quelques tours ; la fourchette affichée garde sa largeur, seul son centre est faux.
+3. **Artisans et savants emmenés (oui, sans bonus multiples)** : prendre une ville riche donne
+   des points de recherche et compte dans l'expansion agressive. **Une ville prise, reprise puis
+   reprise ne redonne rien** : chaque ville garde la trace des technologies déjà « emmenées » par
+   chaque pays, et le bonus ne porte que sur ce qui est nouveau.
+4. **Transfuges et réfugiés (oui)** : un peu d'information et de savoir-faire de leur pays d'origine.
+5. **Prisonniers interrogés (oui)** : une bataille gagnée renseigne sur l'armée adverse.
+6. **Secret des techniques des guildes : non.**
+7. **Améliorer l'espionnage (oui, élargi)** : bâtiments, recherche, investissement et autres
+   leviers (institutions) améliorent l'espionnage, pas seulement l'Écriture et les chiffres.
+
+### Par ère
+- **Néolithique** : pas d'espions ; éclaireurs et émissaires de passage.
+- **Âge du bronze** : ambassades (Écriture), premiers agents.
+- **Âge du fer et Antiquité** : réseaux, toutes les missions.
+- **Moyen Âge** : chancelleries et contre-espionnage renforcé.
+
+### Règles communes
+- **L'IA suit les mêmes règles** : elle espionne le joueur, avec les mêmes chances et les mêmes
+  risques ; le joueur est averti quand un espion est pris.
+- Interface : dans l'écran Diplomatie, pour chaque pays, le niveau d'information, l'ambassadeur,
+  le réseau et les missions possibles, avec chances et risques.
 
 ## Questions ouvertes
 - Médiation : comment l'implémenter.
