@@ -263,8 +263,20 @@ générateur initialisé par la graine, d'abord pour la faction hostile. Mesure 
 Voir `conception/conception-villes.md` (« Culture et politique », « Révision 2 »). Culture =
 ressource de départ, deux effets directs (influence et territoire) ; institutions sur plusieurs axes
 débloquées par des conditions et adoptées avec l'influence ; capacité de gouverner = frein principal
-à l'expansion (instabilité au-delà). Territoire par la culture et l'achat en Économie. Doc dédiée à
-écrire. Avant le territoire (28) et les jalons (30).
+à l'expansion (instabilité au-delà). Territoire par la culture et l'achat en Économie. Avant le
+territoire (28) et les jalons (30).
+Doc dédiée : `conception/conception-societe.md` (10/11). Trois couches : valeurs (dérive selon le
+vécu, léger coup de pouce des institutions), institutions et organisation politique (régime,
+administration, capacité de gouverner), religion (système complet, proche de la culture). La
+culture fait partie de la démographie : groupes par culture et religion dans chaque ville, avec
+leur relation à l'autorité, assimilation, conversion, diasporas, villes à dominante étrangère.
+Statuts d'autonomie par degrés jusqu'à la ville fantoche ; lois et découvertes sociétales payées en
+Culture. Ordres (guerriers, prêtres, marchands, artisans, paysans) dont la richesse produite
+renforce le pouvoir ; pas de bonus propre à un pays ; nom du pays local au départ, qui peut
+évoluer au fil des âges dans la continuité (ou être gardé), cultures qui évoluent, cultures mixtes
+dans les villes partagées (plus proches de celle du dirigeant), ordres qui se transforment ;
+dirigeants personnages qui vieillissent sur une horloge propre et se succèdent ; gouvernement et assemblée nommés selon le
+régime, bonus partagés entre dirigeant, gouvernement et assemblée selon la centralisation.
 
 ### [ ] 34. Recherche et technologies (décidé le 10/11)
 Voir `conception/conception-recherche.md`. Arbre avec prérequis, 10 technologies de base par ère

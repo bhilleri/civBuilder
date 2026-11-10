@@ -139,7 +139,7 @@ Fonctionnement proposé :
 - Lisibilité à trois niveaux : la carte (aspect rural, bourg, urbain), le panneau de la ville
   (totaux, choix de l'intendant), le détail d'une case au survol (travailleurs, capacité, paliers).
 
-## Culture et politique (pistes retenues comme base le 10/11/2026, à détailler dans une doc dédiée)
+## Culture et politique (pistes retenues comme base le 10/11/2026, détaillées dans `conception-societe.md`)
 Benjamin imagine un **système politique que le joueur développe en parallèle de ses villes**, et
 qu'il doit acquérir. Difficulté : les sociétés humaines se sont développées différemment, une
 seule voie ne conviendrait pas. La culture pourrait être liée au savoir ou générer du bonheur.
