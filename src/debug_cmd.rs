@@ -161,6 +161,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "travelling", args: &[AT[0], AT[1], ("distance", Arg::Number, false), ("images", Arg::Number, true)], help: "Déplace la vue en douceur jusqu'à la case en changeant le zoom (distance comme « camera » ; en 2D, zoom équivalent), sur un nombre d'images (120 par défaut), puis donne les durées d'image : moyenne, pire, nombre d'à-coups (saccades).", group: Group::Camera },
     Spec { name: "aide", args: &[("commande", Arg::Command, true)], help: "Liste des commandes, ou détail d'une commande (valeurs possibles).", group: Group::Console },
     Spec { name: "journal", args: &[("fichier", Arg::Text, true)], help: "Commandes réussies de la séance ; avec un fichier, les y écrit en script à rejouer (graine en tête).", group: Group::Console },
+    Spec { name: "chrono", args: &[("tours", Arg::Number, true)], help: "Durée des derniers passages de tour (10 par défaut) : moyenne et pire, en tout et par étape, et le budget de 2 s par tour.", group: Group::Game },
     Spec { name: "effacer", args: &[], help: "Vide l'affichage de la console.", group: Group::Console },
     Spec { name: "quitter", args: &[], help: "Ferme le jeu (fin d'un script).", group: Group::Console },
 ];
@@ -332,6 +333,8 @@ pub enum Command {
     Help(Option<String>),
     Journal(Option<String>),
     Clear,
+    /// Bilan des n derniers passages de tour.
+    Chrono(usize),
     Quit,
 }
 
@@ -536,6 +539,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
         "aide" => Command::Help((!args.is_empty()).then(|| args.iter().map(|a| token(a)).collect::<Vec<_>>().join(" "))),
         "journal" => Command::Journal(args.first().map(|a| a.to_string())),
         "effacer" => Command::Clear,
+        "chrono" => Command::Chrono(args.first().map_or(Ok(10.0), |a| number(a, "tours"))?.clamp(1.0, 50.0) as usize),
         "quitter" => Command::Quit,
         _ => unreachable!("commande décrite sans décodage : {}", spec.name),
     })
@@ -1138,6 +1142,8 @@ pub enum Effect {
     Travel { to: Hex, distance: f32, frames: u32 },
     SaveJournal(String),
     Clear,
+    /// Bilan des n derniers passages de tour (`chrono`).
+    Chrono(usize),
     Quit,
 }
 
@@ -1424,6 +1430,7 @@ impl Session {
             }
             Command::Journal(Some(path)) => Reply::effect(format!("OK journal de {} commande(s) à écrire : {path}", self.journal.len()), Effect::SaveJournal(path)),
             Command::Clear => Reply::effect("OK".into(), Effect::Clear),
+            Command::Chrono(n) => Reply::effect("OK durée des passages de tour".into(), Effect::Chrono(n)),
             Command::Quit => Reply::effect("OK fermeture".into(), Effect::Quit),
         }
     }

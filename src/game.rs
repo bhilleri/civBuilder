@@ -44,6 +44,45 @@ pub struct City {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ident(pub u32);
 
+/// Mesure du passage de tour en cours et des précédents (`chrono_tour.rs`).
+#[derive(Resource, Default)]
+pub struct ChronoTour {
+    /// Passage de tour en cours : début de l'étape courante et durées déjà mesurées.
+    en_cours: Option<(std::time::Instant, crate::chrono_tour::MesureTour)>,
+    pub historique: crate::chrono_tour::Historique,
+}
+
+/// Début de la mesure, quand le joueur vient de demander la fin du tour.
+fn chrono_debut(requested: Res<EndTurnRequested>, state: Res<GameState>, mut chrono: ResMut<ChronoTour>) {
+    if requested.0 {
+        let mesure = crate::chrono_tour::MesureTour { tour: state.turn, etapes: Vec::new() };
+        chrono.en_cours = Some((std::time::Instant::now(), mesure));
+    }
+}
+
+/// Fin d'une étape du passage de tour : sa durée est notée sous `nom`.
+fn chrono_etape(nom: &'static str) -> impl FnMut(ResMut<ChronoTour>) {
+    move |mut chrono: ResMut<ChronoTour>| {
+        if let Some((debut, mesure)) = chrono.en_cours.as_mut() {
+            let maintenant = std::time::Instant::now();
+            mesure.etapes.push((nom, maintenant - *debut));
+            *debut = maintenant;
+        }
+    }
+}
+
+/// Fin de la mesure : le tour rejoint l'historique ; un tour trop long est signalé dans le terminal.
+fn chrono_fin(mut chrono: ResMut<ChronoTour>) {
+    let Some((_, mesure)) = chrono.en_cours.take() else { return };
+    let total = mesure.total();
+    if total > crate::chrono_tour::BUDGET_TOUR {
+        warn!("Passage de tour trop long (budget {}) : {}", crate::chrono_tour::ms(crate::chrono_tour::BUDGET_TOUR), mesure.texte());
+    } else {
+        debug!("Passage de tour : {}", mesure.texte());
+    }
+    chrono.historique.ajouter(mesure);
+}
+
 /// Prochain identifiant stable à donner.
 #[derive(Resource, Default)]
 pub struct ProchainIdent(pub u32);
@@ -308,17 +347,26 @@ impl Plugin for GamePlugin {
             .init_resource::<GameLog>()
             .init_resource::<EndTurnRequested>()
             .init_resource::<ProchainIdent>()
+            .init_resource::<ChronoTour>()
             .add_systems(Startup, spawn_starting_units)
             .add_systems(PreUpdate, attribuer_identifiants)
             .add_systems(
                 Update,
                 (
+                    chrono_debut,
                     end_turn,
+                    chrono_etape("villes et unités"),
                     hostile::hostile_turn,
+                    chrono_etape("faction hostile"),
                     hostile::visit_sites,
+                    chrono_etape("villages et camps"),
                     refresh_worked_tiles,
+                    chrono_etape("cases exploitées"),
                     update_fog,
+                    chrono_etape("brouillard"),
                     hostile::update_knowledge,
+                    chrono_etape("connaissances"),
+                    chrono_fin,
                 )
                     .chain()
                     .in_set(EndTurnSet),

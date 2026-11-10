@@ -359,6 +359,7 @@ struct ConsoleContext<'w, 's> {
     cities: Query<'w, 's, &'static HexPos, With<City>>,
     city_states: Query<'w, 's, (&'static HexPos, &'static mut City)>,
     units: Query<'w, 's, (Entity, &'static mut Unit, &'static HexPos, Has<Hostile>)>,
+    chrono: Res<'w, crate::game::ChronoTour>,
     /// Cours d'eau ou lac survolés : leurs numéros changent quand l'eau est refaite.
     pointed: (ResMut<'w, crate::highlight::HoveredLabel>, ResMut<'w, crate::highlight::PointedFeature>),
 }
@@ -566,6 +567,7 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
             };
         }
         Some(Effect::Clear) => console.output.clear(),
+        Some(Effect::Chrono(n)) => lines.extend(ctx.chrono.historique.bilan(*n)),
         Some(Effect::Quit) => {
             ctx.exit.write(AppExit::Success);
         }

@@ -415,8 +415,8 @@ combats, villages et camps, faction hostile) ; ~~identifiants stables~~ (fait le
 `game::Ident` ; restent à passer sur `Ident` le journal et `Territory`, avec l'état de partie) ; ~~propriétaire sur
 chaque unité et ville, trésor par peuple~~ (fait le 10/11 : `peuple.rs` ; le marqueur `Hostile` reste
 pour les requêtes, à remplacer par le peuple avec les peuples rivaux) ; brouillard en tableaux de bits par peuple ; calcul de
-chemin en tableaux plats, `Known` construit une fois par tour (`explore.rs`) ; mesure du temps par
-système (44). Ensuite : état de partie (`Partie`, `jouer_tour`) hors de l'ECS, séparation du monde
+chemin en tableaux plats, `Known` construit une fois par tour (`explore.rs`) ; ~~mesure du temps par
+système (44)~~ (fait le 10/11 : `chrono_tour.rs`, console `chrono` ; à étendre à `bilan_ia`). Ensuite : état de partie (`Partie`, `jouer_tour`) hors de l'ECS, séparation du monde
 généré et du monde modifié, puis la sauvegarde (13).
 
 ## Plus tard
