@@ -528,7 +528,7 @@ fn run_film(
                 let hex = at(role.at);
                 let mut e = commands.spawn((Unit(unit), HexPos(hex)));
                 if role.hostile {
-                    e.insert((Hostile, HostileHome(hex)));
+                    e.insert((Hostile, HostileHome(hex), crate::peuple::Peuple::HOSTILE));
                 }
                 spawned.push(e.id());
             }

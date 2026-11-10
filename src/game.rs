@@ -5,6 +5,7 @@ use crate::feedback::{Actor, Cue, Cues};
 use crate::hex::Hex;
 use crate::hostile::{self, Blocked, Danger, EnemyZoc, Hostile, HostileTurnPending, KnownVillages, Occupancy, WorldSeed};
 use crate::map::WorldMap;
+use crate::peuple::{Peuple, Tresors};
 use crate::rules::{self, CityState, MoveOutcome, UnitKind, UnitState};
 use crate::search::MapTarget;
 use bevy::prelude::*;
@@ -24,10 +25,14 @@ const CITY_NAMES: &[&str] = &[
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HexPos(pub Hex);
 
+/// Unité ; son peuple (`Peuple`) est le joueur sauf mention contraire.
 #[derive(Component, Debug)]
+#[require(Peuple)]
 pub struct Unit(pub UnitState);
 
+/// Ville ; son peuple (`Peuple`) est le joueur sauf mention contraire.
 #[derive(Component, Debug)]
+#[require(Peuple)]
 pub struct City {
     pub state: CityState,
     pub worked: Vec<Hex>,
@@ -72,8 +77,28 @@ pub struct GameMap(pub WorldMap);
 #[derive(Resource, Default)]
 pub struct GameState {
     pub turn: u32,
-    pub gold: i32,
+    /// Trésor de chaque peuple.
+    pub tresors: Tresors,
     pub founded_cities: usize,
+}
+
+impl GameState {
+    /// État d'une nouvelle partie : premier tour, trésor de départ du joueur.
+    pub fn new() -> Self {
+        let mut state = Self { turn: 1, ..Default::default() };
+        *state.tresors.get_mut(Peuple::JOUEUR) = 10;
+        state
+    }
+
+    /// Trésor du joueur.
+    pub fn tresor_joueur(&self) -> i32 {
+        self.tresors.get(Peuple::JOUEUR)
+    }
+
+    /// Trésor d'un peuple, à modifier.
+    pub fn tresor_mut(&mut self, peuple: Peuple) -> &mut i32 {
+        self.tresors.get_mut(peuple)
+    }
 }
 
 /// Brouillard de guerre : cases déjà explorées et cases vues ce tour-ci.
@@ -273,7 +298,7 @@ impl Plugin for GamePlugin {
         );
         app.insert_resource(GameMap(map))
             .insert_resource(WorldSeed(seed as u64))
-            .insert_resource(GameState { turn: 1, gold: 10, founded_cities: 0 })
+            .insert_resource(GameState::new())
             .insert_resource(crate::hasard::Hasard::new(seed))
             .init_resource::<Fog>()
             .init_resource::<ShownFog>()
@@ -487,7 +512,8 @@ fn end_turn(
     for (entity, center, city) in list.iter_mut() {
         let yields = rules::city_yields(map, *center, &city.worked);
         let report = city.state.process_turn(yields);
-        state.gold += report.gold;
+        // (seul le joueur a des villes pour l'instant)
+        *state.tresor_mut(Peuple::JOUEUR) += report.gold;
         let name = city.state.name.clone();
         if report.grew {
             log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(" gagne un habitant."));

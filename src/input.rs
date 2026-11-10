@@ -445,7 +445,7 @@ fn mouse_commands(
             Side { entity: selected, at: here, unit: &mut unit.0, hostile: false },
             Side { entity: foe, at: target, unit: &mut foe_unit.0, hostile: true },
             &e,
-            &mut hasard.tirage(crate::hasard::Flux::Combat, crate::hasard::PEUPLE_JOUEUR),
+            &mut hasard.tirage(crate::hasard::Flux::Combat, crate::peuple::Peuple::JOUEUR),
         );
         if result.attacker_died {
             selection.0 = None;

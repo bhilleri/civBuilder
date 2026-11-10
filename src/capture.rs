@@ -388,7 +388,7 @@ fn run_feedback_capture(
         let player = |commands: &mut Commands, kind: UnitKind, hex: Hex| (spawn_unit(commands, kind, hex), hex);
         let hostile = |commands: &mut Commands, hex: Hex| {
             let e = spawn_unit(commands, UnitKind::Militia, hex);
-            commands.entity(e).insert((crate::hostile::Hostile, crate::hostile::HostileHome(hex)));
+            crate::hostile::marquer_hostile(commands, e, hex);
             (e, hex)
         };
         cast.push(player(&mut commands, UnitKind::HeavyCavalry, at(h, -2, 0)));
@@ -432,7 +432,7 @@ fn run_feedback_capture(
             let e = engagement(m, (&ua.0, a.1), (&ud.0, d.1), std::iter::empty(), false);
             let attacker = Side { entity: a.0, at: a.1, unit: &mut ua.0, hostile };
             let defender = Side { entity: d.0, at: d.1, unit: &mut ud.0, hostile: !hostile };
-            let peuple = if hostile { crate::hasard::PEUPLE_HOSTILE } else { crate::hasard::PEUPLE_JOUEUR };
+            let peuple = if hostile { crate::peuple::Peuple::HOSTILE } else { crate::peuple::Peuple::JOUEUR };
             fight(&mut commands, &mut log, &mut cues, attacker, defender, &e, &mut hasard.tirage(crate::hasard::Flux::Combat, peuple));
         };
         duel(c[0], c[1], false);

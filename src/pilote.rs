@@ -402,7 +402,7 @@ impl PlayerView<'_, '_> {
         let mut lines = vec![format!(
             "OK tour={} or={} attente={waiting} passage-tour={} vue={} carte={} explorees={} fenetre={}x{} echelle={scale}",
             self.state.turn,
-            self.state.gold,
+            self.state.tresor_joueur(),
             if replay.playing { "oui" } else { "non" },
             if self.mode.is_3d { "3d" } else { "2d" },
             token(self.layer.short_name()),

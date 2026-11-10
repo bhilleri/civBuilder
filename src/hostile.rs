@@ -12,7 +12,8 @@ use crate::search::MapTarget;
 use crate::hex::Hex;
 use crate::map::MoveCosts;
 use crate::rules::{self, ForUnit, UnitKind};
-use crate::hasard::{Flux, Hasard, PEUPLE_HOSTILE, PEUPLE_JOUEUR};
+use crate::hasard::{Flux, Hasard};
+use crate::peuple::Peuple;
 use crate::sites::{self, VillageEvent};
 use bevy::prelude::*;
 use rand::Rng;
@@ -106,7 +107,12 @@ impl Plugin for HostilePlugin {
 /// Crée un guerrier hostile rattaché à `home`.
 fn spawn_hostile(commands: &mut Commands, at: Hex, home: Hex) {
     let entity = spawn_unit(commands, UnitKind::Militia, at);
-    commands.entity(entity).insert((Hostile, HostileHome(home)));
+    marquer_hostile(commands, entity, home);
+}
+
+/// Fait passer une unité à la faction hostile, rattachée au camp (ou à la case) `home`.
+pub fn marquer_hostile(commands: &mut Commands, entity: Entity, home: Hex) {
+    commands.entity(entity).insert((Hostile, HostileHome(home), Peuple::HOSTILE));
 }
 
 fn spawn_sites(mut commands: Commands, map: Res<GameMap>, seed: Res<WorldSeed>) {
@@ -161,13 +167,13 @@ pub fn visit_sites(
         .collect();
     // Unité qui est passée sur une case (la récompense s'affiche à son arrivée)
     let visitor = |h: Hex| movers.iter().find(|(_, u, p)| p.0 == h || u.0.last_steps.contains(&h)).map(|(e, ..)| e);
-    let mut rng = hasard.tirage(Flux::Sites, PEUPLE_JOUEUR);
+    let mut rng = hasard.tirage(Flux::Sites, Peuple::JOUEUR);
     let mut taken: HashSet<Hex> = others.iter().map(|p| p.0).chain(cities.iter().map(|(_, p, _)| p.0)).collect();
 
     for (camp, pos, name) in &camps {
         if touched.contains(&pos.0) {
             commands.entity(camp).despawn();
-            state.gold += CAMP_CAPTURE_GOLD;
+            *state.tresor_mut(Peuple::JOUEUR) += CAMP_CAPTURE_GOLD;
             log.notify(Importance::Success, LogText::new().link(&name.0, MapTarget::Site(camp), pos.0).text(format!(" dispersé : +{CAMP_CAPTURE_GOLD} or.")));
             cues.reward(pos.0, visitor(pos.0), format!("+{CAMP_CAPTURE_GOLD} or"), Tone::Gold);
         }
@@ -203,7 +209,7 @@ pub fn visit_sites(
                 cues.reward(pos.0, visitor(pos.0), format!("+1 habitant à {}", city.state.name), Tone::Growth);
             }
             VillageEvent::Trade { gold } => {
-                state.gold += gold;
+                *state.tresor_mut(Peuple::JOUEUR) += gold;
                 log.notify(Importance::Success, LogText::new().text("Village de ").link(&name.0, MapTarget::Site(village), pos.0).text(format!(" : échanges commerciaux, +{gold} or.")));
                 cues.reward(pos.0, visitor(pos.0), format!("+{gold} or"), Tone::Gold);
             }
@@ -256,7 +262,7 @@ pub fn hostile_turn(
         return;
     }
     let map = &map.0;
-    let mut rng = hasard.tirage(Flux::Hostile, PEUPLE_HOSTILE);
+    let mut rng = hasard.tirage(Flux::Hostile, Peuple::HOSTILE);
     let cities_and_villages: HashSet<Hex> = fixed.iter().map(|p| p.0).collect();
     let mut taken: HashSet<Hex> = cities_and_villages
         .iter()
@@ -398,7 +404,7 @@ pub fn hostile_turn(
             Side { entity, at: here, unit: &mut attacker.0, hostile: true },
             Side { entity: prey, at: prey_pos, unit: &mut defender.0, hostile: false },
             &e,
-            &mut hasard.tirage(Flux::Combat, PEUPLE_HOSTILE),
+            &mut hasard.tirage(Flux::Combat, Peuple::HOSTILE),
         );
         if result.defender_died {
             taken.remove(&prey_pos);

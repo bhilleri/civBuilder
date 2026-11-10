@@ -20,7 +20,7 @@ use crate::debug_cmd::{self, Effect, Reply, Session, UnitChange};
 use crate::rules::MAX_HP;
 use crate::feedback::TurnReplay;
 use crate::game::{City, DebugMode, EndTurnRequested, GameMap, GameState, HexPos, Selection, ShownFog, Territory, Unit, found_city, spawn_unit};
-use crate::hostile::{Hostile, HostileHome};
+use crate::hostile::Hostile;
 use crate::hex::Hex;
 use crate::hostile::WorldSeed;
 use crate::input::HoveredHex;
@@ -398,7 +398,7 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
             } else {
                 let e = spawn_unit(&mut ctx.commands, *kind, *at);
                 if *hostile {
-                    ctx.commands.entity(e).insert((Hostile, HostileHome(*at)));
+                    crate::hostile::marquer_hostile(&mut ctx.commands, e, *at);
                 }
             }
         }

@@ -1173,7 +1173,7 @@ fn update_top_bar(
         format!(
             "Tour {}   |   Or : {} (+{})   |   Villes : {}   |   Unités : {} ({} en attente)",
             state.turn,
-            state.gold,
+            state.tresor_joueur(),
             gold_income,
             cities.iter().count(),
             units.iter().count(),

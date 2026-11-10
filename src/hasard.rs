@@ -7,6 +7,7 @@
 //! recharger une sauvegarde sans changer la suite, de rejouer un bug et de comparer des parties
 //! d'IA (`docs/conception/conception-ia.md`, « Déterminisme »).
 
+use crate::peuple::Peuple;
 use bevy::prelude::Resource;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -35,11 +36,6 @@ impl Flux {
     }
 }
 
-/// Peuple de la faction hostile (en attendant les peuples rivaux).
-pub const PEUPLE_HOSTILE: u32 = 1;
-/// Peuple du joueur.
-pub const PEUPLE_JOUEUR: u32 = 0;
-
 /// Mélange 64 bits (SplitMix64) : deux entrées voisines donnent des sorties sans rapport.
 fn melanger(mut x: u64) -> u64 {
     x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -49,10 +45,10 @@ fn melanger(mut x: u64) -> u64 {
 }
 
 /// Générateur d'un tirage précis : même graine, flux, peuple et numéro, même générateur.
-pub fn generateur(graine: u32, flux: Flux, peuple: u32, numero: u64) -> StdRng {
+pub fn generateur(graine: u32, flux: Flux, peuple: Peuple, numero: u64) -> StdRng {
     let mut x = melanger(graine as u64);
     x = melanger(x ^ flux.code());
-    x = melanger(x ^ peuple as u64);
+    x = melanger(x ^ peuple.0 as u64);
     x = melanger(x ^ numero);
     StdRng::seed_from_u64(x)
 }
@@ -62,7 +58,7 @@ pub fn generateur(graine: u32, flux: Flux, peuple: u32, numero: u64) -> StdRng {
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub struct Hasard {
     graine: u32,
-    tirages: BTreeMap<(Flux, u32), u64>,
+    tirages: BTreeMap<(Flux, Peuple), u64>,
 }
 
 impl Hasard {
@@ -72,7 +68,7 @@ impl Hasard {
     }
 
     /// Générateur du tirage suivant dans ce flux, pour ce peuple.
-    pub fn tirage(&mut self, flux: Flux, peuple: u32) -> StdRng {
+    pub fn tirage(&mut self, flux: Flux, peuple: Peuple) -> StdRng {
         let numero = self.tirages.entry((flux, peuple)).or_insert(0);
         let rng = generateur(self.graine, flux, peuple, *numero);
         *numero += 1;
@@ -85,38 +81,38 @@ mod tests {
     use super::*;
     use rand::Rng;
 
-    fn suite(h: &mut Hasard, flux: Flux, peuple: u32) -> Vec<u32> {
+    fn suite(h: &mut Hasard, flux: Flux, peuple: Peuple) -> Vec<u32> {
         (0..5).map(|_| h.tirage(flux, peuple).random()).collect()
     }
 
     #[test]
     fn meme_graine_memes_tirages() {
         let (mut a, mut b) = (Hasard::new(777), Hasard::new(777));
-        assert_eq!(suite(&mut a, Flux::Combat, PEUPLE_JOUEUR), suite(&mut b, Flux::Combat, PEUPLE_JOUEUR));
+        assert_eq!(suite(&mut a, Flux::Combat, Peuple::JOUEUR), suite(&mut b, Flux::Combat, Peuple::JOUEUR));
         assert_eq!(a, b);
     }
 
     #[test]
     fn graines_differentes_tirages_differents() {
         let (mut a, mut b) = (Hasard::new(777), Hasard::new(778));
-        assert_ne!(suite(&mut a, Flux::Combat, PEUPLE_JOUEUR), suite(&mut b, Flux::Combat, PEUPLE_JOUEUR));
+        assert_ne!(suite(&mut a, Flux::Combat, Peuple::JOUEUR), suite(&mut b, Flux::Combat, Peuple::JOUEUR));
     }
 
     #[test]
     fn les_flux_ne_se_decalent_pas() {
         // Un tirage de plus dans un flux ne change pas la suite d'un autre
         let (mut a, mut b) = (Hasard::new(5), Hasard::new(5));
-        a.tirage(Flux::Sites, PEUPLE_JOUEUR);
-        a.tirage(Flux::Hostile, PEUPLE_HOSTILE);
-        assert_eq!(suite(&mut a, Flux::Combat, PEUPLE_JOUEUR), suite(&mut b, Flux::Combat, PEUPLE_JOUEUR));
+        a.tirage(Flux::Sites, Peuple::JOUEUR);
+        a.tirage(Flux::Hostile, Peuple::HOSTILE);
+        assert_eq!(suite(&mut a, Flux::Combat, Peuple::JOUEUR), suite(&mut b, Flux::Combat, Peuple::JOUEUR));
     }
 
     #[test]
     fn flux_et_peuples_distincts() {
         let mut h = Hasard::new(2);
-        let combat = suite(&mut h, Flux::Combat, PEUPLE_JOUEUR);
-        let sites = suite(&mut h, Flux::Sites, PEUPLE_JOUEUR);
-        let hostile = suite(&mut h, Flux::Combat, PEUPLE_HOSTILE);
+        let combat = suite(&mut h, Flux::Combat, Peuple::JOUEUR);
+        let sites = suite(&mut h, Flux::Sites, Peuple::JOUEUR);
+        let hostile = suite(&mut h, Flux::Combat, Peuple::HOSTILE);
         assert_ne!(combat, sites);
         assert_ne!(combat, hostile);
     }
@@ -124,7 +120,7 @@ mod tests {
     #[test]
     fn tirages_successifs_differents() {
         let mut h = Hasard::new(9);
-        let s = suite(&mut h, Flux::Hostile, PEUPLE_HOSTILE);
+        let s = suite(&mut h, Flux::Hostile, Peuple::HOSTILE);
         assert!(s.windows(2).all(|w| w[0] != w[1]));
     }
 }

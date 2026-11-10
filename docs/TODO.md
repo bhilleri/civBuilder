@@ -412,8 +412,9 @@ alerte au-delà ; taille des sauvegardes surveillée.
 Avant la sauvegarde, à faible risque : ~~générateur aléatoire tiré de la graine à la place de
 `rand::rng()`~~ (fait le 10/11 : `hasard.rs`, par graine, flux, peuple et numéro de tirage ;
 combats, villages et camps, faction hostile) ; ~~identifiants stables~~ (fait le 10/11 pour l'ordre de jeu :
-`game::Ident` ; restent à passer sur `Ident` le journal et `Territory`, avec l'état de partie) ; propriétaire sur
-chaque unité et ville, trésor par peuple ; brouillard en tableaux de bits par peuple ; calcul de
+`game::Ident` ; restent à passer sur `Ident` le journal et `Territory`, avec l'état de partie) ; ~~propriétaire sur
+chaque unité et ville, trésor par peuple~~ (fait le 10/11 : `peuple.rs` ; le marqueur `Hostile` reste
+pour les requêtes, à remplacer par le peuple avec les peuples rivaux) ; brouillard en tableaux de bits par peuple ; calcul de
 chemin en tableaux plats, `Known` construit une fois par tour (`explore.rs`) ; mesure du temps par
 système (44). Ensuite : état de partie (`Partie`, `jouer_tour`) hors de l'ECS, séparation du monde
 généré et du monde modifié, puis la sauvegarde (13).

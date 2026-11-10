@@ -34,6 +34,7 @@ mod menu;
 mod mountains;
 mod mouths;
 mod pathfinding;
+mod peuple;
 mod pilote;
 mod plates;
 mod pointer;
