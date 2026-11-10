@@ -47,6 +47,7 @@ plutôt que de conquête. Développé par Benjamin, seul, pour l'instant en solo
 - Mode debug (carte révélée) : menu Échap → Paramètres, bouton « Mode debug ». Wiki en jeu : F1.
 - **Mode joueur pilotable** (jouer une partie sans mode debug, brouillard actif, en réagissant à ce qu'on voit ; plusieurs parties possibles en même temps) :
   `scripts/pilote.sh lancer <scratchpad>/partie 777`, puis `scripts/pilote.sh <scratchpad>/partie "etat" "clic 66 39" "touche b"` envoie les ordres et rend les réponses ; `aide` les liste (`etat`, `alentours`, `survol`, `clic`, `clic-droit`, `touche`, `interface`, `bouton`, `capture`…). Module `pilote.rs`. Pour préparer une scène (unités, ponts…), lancer avec `CIVBUILDER_PILOTE_DEBUG=1` : toutes les commandes de la console sont alors permises.
+- **Sauvegarde** : menu Échap ou console `sauver [fichier]` / `charger [fichier]` ; reprendre une partie au lancement : `CIVBUILDER_CHARGER=<fichier>` ; dossier des sauvegardes : `CIVBUILDER_SAUVEGARDES` (pour les tests, un dossier du scratchpad).
 - **Taille de la fenêtre** : `CIVBUILDER_FENETRE=1920x1080` (1400 × 860 par défaut). Hors de cargo, définir aussi `BEVY_ASSET_ROOT=<racine du dépôt>`, sinon les icônes manquent.
 - **Scripts de commandes** (préparer un cas à tester sans toucher au code) :
   `CIVBUILDER_SEED=777 CIVBUILDER_SCRIPT=<scratchpad>/cas.txt cargo run --release --no-default-features` exécute les commandes

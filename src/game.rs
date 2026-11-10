@@ -39,6 +39,10 @@ pub struct City {
     pub worked: Vec<Hex>,
 }
 
+/// Ensemble du système qui donne les identifiants stables (les systèmes qui en ont besoin passent après).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IdentSet;
+
 /// Identifiant stable d'un objet de la partie (unité, ville, camp, village). Contrairement à
 /// `Entity`, il ne dépend pas de la façon dont Bevy range ses objets : il fixe l'ordre de jeu, et
 /// une sauvegarde pourra le garder. Donné dans l'ordre de création (`attribuer_identifiants`).
@@ -88,16 +92,17 @@ fn chrono_fin(mut chrono: ResMut<ChronoTour>) {
 #[derive(Resource, Default)]
 pub struct ProchainIdent(pub u32);
 
-/// Donne un identifiant stable aux objets de la partie qui n'en ont pas encore (dans l'ordre de
-/// leur création).
+/// Donne un identifiant stable aux objets de la partie qui n'en ont pas encore. Ceux apparus dans
+/// la même image sont rangés par case, puis villes avant unités : surtout pas par `Entity`, dont
+/// l'ordre dépend des objets supprimés auparavant (il diffère après le chargement d'une partie).
 fn attribuer_identifiants(
     mut commands: Commands,
     mut prochain: ResMut<ProchainIdent>,
-    nouveaux: Query<Entity, (Without<Ident>, Or<(With<Unit>, With<City>, With<hostile::Camp>, With<hostile::Village>)>)>,
+    nouveaux: Query<(Entity, Option<&HexPos>, Has<City>), (Without<Ident>, Or<(With<Unit>, With<City>, With<hostile::Camp>, With<hostile::Village>)>)>,
 ) {
-    let mut liste: Vec<Entity> = nouveaux.iter().collect();
+    let mut liste: Vec<(Option<Hex>, bool, Entity)> = nouveaux.iter().map(|(e, p, ville)| (p.map(|p| p.0), !ville, e)).collect();
     liste.sort();
-    for entity in liste {
+    for (_, _, entity) in liste {
         commands.entity(entity).insert(Ident(prochain.0));
         prochain.0 += 1;
     }
@@ -308,8 +313,18 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        // Partie à charger (`CIVBUILDER_CHARGER`, voir `sauvegarde.rs`) : sa graine et sa taille
+        // priment ; illisible, on part sur un nouveau monde
+        let charge = match crate::sauvegarde::sauvegarde_au_lancement() {
+            Some(Ok(s)) => Some(s),
+            Some(Err(e)) => {
+                error!("Chargement impossible : {e}");
+                None
+            }
+            None => None,
+        };
         // Graine imposée par la variable d'environnement CIVBUILDER_SEED (pour rejouer une carte)
-        let seed = std::env::var("CIVBUILDER_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or_else(rand::random::<u32>);
+        let seed = charge.as_ref().map(|s| s.graine).or_else(|| std::env::var("CIVBUILDER_SEED").ok().and_then(|s| s.parse().ok())).unwrap_or_else(rand::random::<u32>);
         // Une planète entière, d'un pôle à l'autre, avec des cases de 40 km
         // (taille imposée par CIVBUILDER_MAP, par exemple « 128x74 »)
         let (width, height) = std::env::var("CIVBUILDER_MAP")
@@ -320,6 +335,7 @@ impl Plugin for GamePlugin {
             })
             .filter(|&(w, h)| w >= 16 && h >= 10)
             .unwrap_or((MAP_WIDTH, MAP_HEIGHT));
+        let (width, height) = charge.as_ref().map_or((width, height), |s| (s.largeur, s.hauteur));
         let region = crate::climate::Region::planet(crate::climate::CELL_KM, height);
         let started = std::time::Instant::now();
         let map = WorldMap::generate_in(width, height, seed, region);
@@ -349,8 +365,9 @@ impl Plugin for GamePlugin {
             .init_resource::<EndTurnRequested>()
             .init_resource::<ProchainIdent>()
             .init_resource::<ChronoTour>()
+            .insert_resource(crate::sauvegarde::ChargementEnAttente(charge))
             .add_systems(Startup, spawn_starting_units)
-            .add_systems(PreUpdate, attribuer_identifiants)
+            .add_systems(PreUpdate, attribuer_identifiants.in_set(IdentSet))
             .add_systems(
                 Update,
                 (

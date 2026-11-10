@@ -1164,7 +1164,7 @@ fn circle(c: Vec2, r: f32) -> Vec<Vec2> {
 }
 
 /// Type d'un camp hostile, d'après sa case. Il décide de son allure et du début de son nom.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CampKind {
     /// Tentes basses et pieux en arc, partout ailleurs.
     Encampment,

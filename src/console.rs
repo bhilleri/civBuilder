@@ -360,6 +360,7 @@ struct ConsoleContext<'w, 's> {
     city_states: Query<'w, 's, (&'static HexPos, &'static mut City)>,
     units: Query<'w, 's, (Entity, &'static mut Unit, &'static HexPos, Has<Hostile>)>,
     chrono: Res<'w, crate::game::ChronoTour>,
+    sauvegarde: ResMut<'w, crate::sauvegarde::DemandeSauvegarde>,
     /// Cours d'eau ou lac survolés : leurs numéros changent quand l'eau est refaite.
     pointed: (ResMut<'w, crate::highlight::HoveredLabel>, ResMut<'w, crate::highlight::PointedFeature>),
 }
@@ -568,6 +569,18 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
         }
         Some(Effect::Clear) => console.output.clear(),
         Some(Effect::Chrono(n)) => lines.extend(ctx.chrono.historique.bilan(*n)),
+        Some(Effect::Sauver(f)) => ctx.sauvegarde.0 = Some(f.as_ref().map(std::path::PathBuf::from)),
+        Some(Effect::Charger(f)) => {
+            match f.as_ref().map(std::path::PathBuf::from).or_else(crate::sauvegarde::derniere).filter(|p| p.exists()) {
+                None => refuse(&mut lines, "aucune partie enregistrée à ce nom".to_string()),
+                Some(p) => match crate::sauvegarde::relancer_sur(&p) {
+                    Ok(()) => {
+                        ctx.exit.write(AppExit::Success);
+                    }
+                    Err(e) => refuse(&mut lines, format!("relance impossible : {e}")),
+                },
+            }
+        }
         Some(Effect::Quit) => {
             ctx.exit.write(AppExit::Success);
         }

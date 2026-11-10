@@ -1,6 +1,7 @@
 //! Menu du jeu (touche Échap), en pages courtes pour qu'il reste lisible à mesure que les
 //! options s'ajoutent :
-//! - page principale : reprendre, paramètres, nouveau monde, quitter ;
+//! - page principale : reprendre, sauvegarder la partie, charger la dernière partie (`sauvegarde.rs`),
+//!   paramètres, nouveau monde, quitter ;
 //! - **Paramètres** : vitesse des animations, mode debug (enregistrés aussitôt, voir `settings.rs`) ;
 //! - **Nouveau monde** : graine du monde (regénérer le même monde ou un nouveau).
 //!
@@ -57,6 +58,10 @@ enum MenuButton {
     CopySeed,
     /// Coller le presse-papiers dans le champ (remplace la graine).
     PasteSeed,
+    /// Enregistrer la partie (`sauvegarde.rs`).
+    Save,
+    /// Reprendre la dernière partie enregistrée (le jeu se relance dessus).
+    Load,
     Quit,
 }
 /// Case du sélecteur de vitesse des animations.
@@ -208,6 +213,8 @@ fn setup_menu(mut commands: Commands) {
         children![
             title("Menu"),
             button(MenuButton::Resume, "Reprendre (Échap)", BUTTON_BG),
+            button(MenuButton::Save, "Sauvegarder la partie", BUTTON_BG),
+            button(MenuButton::Load, "Charger la dernière partie", BUTTON_BG),
             button(MenuButton::Open(MenuPage::Settings), "Paramètres", BUTTON_BG),
             button(MenuButton::Open(MenuPage::NewWorld), "Nouveau monde…", BUTTON_BG),
             spacer(),
@@ -407,6 +414,7 @@ fn menu_buttons(
     mut log: ResMut<GameLog>,
     mut buttons: Query<(Ref<UiPointer>, &MenuButton, &mut BackgroundColor)>,
     mut exit: MessageWriter<AppExit>,
+    mut save: ResMut<crate::sauvegarde::DemandeSauvegarde>,
 ) {
     for (interaction, kind, mut bg) in &mut buttons {
         if interaction.is_changed() && *interaction == UiPointer::Pressed {
@@ -431,6 +439,19 @@ fn menu_buttons(
                     focus.set(field.0, FocusCause::Navigated);
                 }
                 MenuButton::NewWorld => regenerate(None, &mut log, &mut exit),
+                MenuButton::Save => {
+                    save.0 = Some(None);
+                    menu.open = false;
+                }
+                MenuButton::Load => match crate::sauvegarde::derniere().filter(|f| f.exists()) {
+                    None => log.push("Aucune partie enregistrée."),
+                    Some(f) => match crate::sauvegarde::relancer_sur(&f) {
+                        Ok(()) => {
+                            exit.write(AppExit::Success);
+                        }
+                        Err(e) => log.push(format!("Impossible de relancer le jeu : {e}")),
+                    },
+                },
                 MenuButton::Quit => {
                     exit.write(AppExit::Success);
                 }

@@ -8,7 +8,7 @@ use bevy::prelude::Component;
 
 /// Peuple propriétaire d'une unité ou d'une ville (un numéro stable, qui sert aussi au hasard,
 /// voir `hasard.rs`). Par défaut, le joueur : toute unité ou ville créée sans peuple est à lui.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub struct Peuple(pub u32);
 
 impl Peuple {
@@ -24,7 +24,7 @@ impl Peuple {
 }
 
 /// Trésor de chaque peuple, en or (bientôt « Économie », tâche 33).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tresors(Vec<i32>);
 
 impl Tresors {

@@ -26,7 +26,7 @@ pub struct UnitStats {
     pub class: UnitClass,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum UnitKind {
     Settler,
     Scout,

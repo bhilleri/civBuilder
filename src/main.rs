@@ -44,6 +44,7 @@ mod render;
 mod regions;
 mod relief;
 mod rules;
+mod sauvegarde;
 mod seam;
 mod search;
 mod seas;
@@ -91,5 +92,6 @@ fn main() {
         .add_plugins(feedback::FeedbackPlugin)
         .add_plugins(film::FilmPlugin)
         .add_plugins(pointer::PointerPlugin)
+        .add_plugins(sauvegarde::SauvegardePlugin)
         .run();
 }

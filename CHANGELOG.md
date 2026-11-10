@@ -2,6 +2,10 @@
 
 ## Prochaine version (en cours)
 
+### Sauvegarde
+- **Sauvegarder et charger une partie** : menu Échap → « Sauvegarder la partie » et « Charger la dernière partie » ; console `sauver [fichier]` et `charger [fichier]`. Le monde se regénère depuis sa graine ; la partie (tour, trésor, hasard, unités, villes, camps et villages, cases explorées, territoire, ponts) est remise en place. Une partie rechargée continue exactement comme l'originale (vérifié sur 10 tours avec une ville, des barbares et de l'exploration). Une sauvegarde d'une version du jeu qui génère un autre monde est refusée avec un message clair. Fichiers texte (RON) dans `%APPDATA%\CivBuilder\sauvegardes`. Le journal n'est pas gardé.
+- **Correctifs de déterminisme** : le hasard des villages n'est plus tiré à chaque déplacement mais à chaque visite ; les objets apparus dans une même image reçoivent leur identifiant dans l'ordre de leur case.
+
 ### Fondations techniques
 - **Hasard tiré de la graine pendant la partie** (module `hasard.rs`) : les dégâts des combats, les visites des villages et des camps, et les décisions de la faction hostile ne dépendent plus du hasard du système. Même graine et mêmes ordres, mêmes résultats : c'est la base de la sauvegarde, de la reproduction des bugs et des parties d'IA comparables. Recharger avant une attaque ne changera pas son résultat. Chaque système a sa propre suite de tirages, par peuple.
 - **Identifiants stables** (`game::Ident`) pour les unités, les villes, les camps et les villages, donnés dans l'ordre de création : les villes, les unités et les guerriers hostiles jouent dans l'ordre de ces identifiants, les camps et les villages dans l'ordre de leur case, et non plus dans l'ordre interne de Bevy, qui pourra changer au chargement d'une sauvegarde.

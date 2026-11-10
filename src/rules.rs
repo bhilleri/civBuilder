@@ -14,7 +14,7 @@ pub use crate::units::UnitKind;
 pub const MAX_HP: i32 = 100;
 
 /// État d'une unité (sans sa position, stockée à part).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct UnitState {
     pub kind: UnitKind,
     pub moves_left: u32,
@@ -501,7 +501,7 @@ pub fn bridge_spots(map: &WorldMap, owned: impl Fn(Hex) -> bool, cells: impl Int
 }
 
 /// Ce que produit une ville : une unité, ou un pont à un emplacement choisi (au coût fixé au choix).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Production {
     Unit(UnitKind),
     Bridge { at: crate::map::BridgeAt, cost: i32 },
@@ -526,7 +526,7 @@ impl Production {
 }
 
 /// État économique d'une ville.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CityState {
     pub name: String,
     pub population: i32,

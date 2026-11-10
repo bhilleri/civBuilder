@@ -546,6 +546,8 @@ fn terrain() -> Article {
             p("Une case inexplorée est noire. Une fois découverte, elle reste connue mais apparaît assombrie hors de \
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \
                la cavalerie légère et l'archer monté)."),
+            h("Sauvegarde"),
+            p("Menu Échap → « Sauvegarder la partie » enregistre la partie ; « Charger la dernière partie » la                reprend (le jeu se relance et regénère le monde depuis sa graine, puis remet la partie en place).                Une partie rechargée continue exactement comme elle l'aurait fait : le hasard vient de la graine.                Une sauvegarde faite avec une version du jeu qui générait un autre monde est refusée. Le journal                n'est pas gardé."),
             h("Cartes et vues"),
             p("Le bouton « Carte » (touche T) choisit la carte : normale, de l'altitude (couleur selon les mètres), du \
                relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau, du réseau hydrographique, \

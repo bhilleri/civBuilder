@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 /// Système qui tire au hasard : chacun a sa propre suite de tirages, pour qu'un tirage de plus
 /// dans l'un ne décale pas les autres.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Flux {
     /// Dégâts des combats.
     Combat,
@@ -55,7 +55,7 @@ pub fn generateur(graine: u32, flux: Flux, peuple: Peuple, numero: u64) -> StdRn
 
 /// Hasard de la partie : la graine et le nombre de tirages déjà faits dans chaque flux, pour
 /// chaque peuple (c'est cet état qu'une sauvegarde devra garder).
-#[derive(Resource, Clone, Debug, PartialEq, Eq)]
+#[derive(Resource, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Hasard {
     graine: u32,
     tirages: BTreeMap<(Flux, Peuple), u64>,

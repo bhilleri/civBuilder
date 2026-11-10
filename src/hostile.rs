@@ -167,7 +167,6 @@ pub fn visit_sites(
         .collect();
     // Unité qui est passée sur une case (la récompense s'affiche à son arrivée)
     let visitor = |h: Hex| movers.iter().find(|(_, u, p)| p.0 == h || u.0.last_steps.contains(&h)).map(|(e, ..)| e);
-    let mut rng = hasard.tirage(Flux::Sites, Peuple::JOUEUR);
     let mut taken: HashSet<Hex> = others.iter().map(|p| p.0).chain(cities.iter().map(|(_, p, _)| p.0)).collect();
 
     for (camp, pos, name) in &camps {
@@ -187,6 +186,9 @@ pub fn visit_sites(
             continue;
         }
         commands.entity(village).despawn();
+        // Un tirage par visite (et non par déplacement) : la suite des tirages ne dépend que des
+        // visites, pas des images où une unité bouge (ni du chargement d'une partie)
+        let mut rng = hasard.tirage(Flux::Sites, Peuple::JOUEUR);
         let mut city_list: Vec<(Entity, Hex)> = cities.iter().map(|(e, p, _)| (e, p.0)).collect();
         city_list.sort_by_key(|(_, h)| *h);
         let event = forced.0.take().filter(|e| *e != VillageEvent::JoinCity || !city_list.is_empty());

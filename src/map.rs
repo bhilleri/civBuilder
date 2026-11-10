@@ -453,7 +453,7 @@ const BRIDGE_SLOT_ROWS: i32 = 1 << 20;
 /// Pont construit (voir `conception/conception-ponts.md`) : sur l'arête d'une rivière, ou en
 /// travers d'une case de fleuve, d'une rive à la rive opposée. Toujours rangé sous une seule
 /// écriture (`WorldMap::bridge_site`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum BridgeAt {
     /// Arête `dir` de la case `hex` (rivière d'arête).
     Edge { hex: Hex, dir: u8 },

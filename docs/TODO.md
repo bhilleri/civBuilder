@@ -11,7 +11,7 @@ l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cou
 1. ~~**Fondations techniques (45)**~~ (faites le 10-11/11, sauf la carte connue partagée, reportée) : RNG déterministe par graine, identifiants stables, peuple
    propriétaire des unités et des villes, mesure du temps par système (44), brouillard en bits,
    calcul de chemin en tableaux plats.
-2. **Partie sauvegardable** : état de partie hors de l'ECS, sauvegarde et chargement (13), code de
+2. **Partie sauvegardable** : ~~sauvegarde et chargement (13)~~ (fait le 11/11) ; état de partie hors de l'ECS (reporté aux peuples rivaux) ; code de
    partie et écran de nouvelle partie minimal (42).
 3. **Échelle recalée (30, première partie)** : PM et coûts du relief doublés, croissance, soins,
    population en habitants ; déplacements de groupe (39, première partie : traverser les alliés,
@@ -155,7 +155,12 @@ l'instant un **bonus fixe selon le type de sol**, fondé sur la recherche ; pas 
 Ordre : voir la « Feuille de route » en tête (19 avec la navigation, 21 avec la météo). Chaque
 tâche : conception à proposer et à valider avec Benjamin avant de coder.
 
-### [ ] 13. Sauvegarde et chargement
+### [x] 13. Sauvegarde et chargement — fait le 11/11 (`sauvegarde.rs`)
+Fait : sauvegarde texte (RON) versionnée, empreinte du monde, chargement par relance du jeu
+(`CIVBUILDER_CHARGER`), menu et console, partie rechargée identique. Reste : journal non gardé ;
+retouches de la carte à la console non gardées (sauf les ponts) ; `Partie` hors de l'ECS (pour
+`bilan_ia` sans écran) quand les peuples rivaux arriveront ; plusieurs emplacements de sauvegarde
+(liste, noms) avec la refonte des écrans (35).
 Enregistrer la graine, l'état de la partie et ce que le joueur a modifié ; le monde se recalcule
 depuis la graine. À faire tôt : plus la simulation s'enrichit (météo, saisons), plus c'est difficile.
 Analyse critique (10/11) : séparer un `MondeGénéré` immuable d'un `ÉtatDuMonde` sauvegardé (ponts,

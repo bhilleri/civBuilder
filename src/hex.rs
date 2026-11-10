@@ -11,7 +11,7 @@ pub const HEX_SIZE: f32 = 32.0;
 const SQRT_3: f32 = 1.732_050_8;
 
 /// Coordonnée axiale (q, r). La troisième coordonnée cubique est s = -q - r.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default, serde::Serialize, serde::Deserialize)]
 pub struct Hex {
     pub q: i32,
     pub r: i32,
