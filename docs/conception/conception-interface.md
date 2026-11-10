@@ -415,3 +415,66 @@ Chaque carte a sa légende au même format, et respecte le brouillard (rien sur 
 2. Refonte de l'écran de la ville (maquette d'abord).
 3. Les écrans et cartes au fur et à mesure des systèmes (ressources, commerce, recherche,
    institutions), chacun livré avec son écran.
+
+# Nouvelle partie, graines et prise en main (10/11/2026)
+
+## Décisions de Benjamin
+- **Écran de nouvelle partie** : monde (taille, graine, réglages de génération), peuples (nombre
+  d'IA, difficulté), règles (mode 2 tours par mois, hégémonie, durée, barbares), aperçu du monde.
+- **Taille de la carte** : à voir avec la génération (comment elle s'adapte à d'autres tailles).
+- **Graines** : tirage au hasard, **copier-coller**, accès aux **graines déjà utilisées**,
+  **favoris** et **notes** sur les graines.
+- **Réglages de génération** (part des terres, climat plus chaud ou plus froid, relief plus ou
+  moins marqué) : oui, **associés à la sauvegarde des graines**, pour que le joueur voie les
+  réglages qui ont produit une carte.
+- **Variables d'environnement** : l'idéal serait de ne plus en dépendre ; choix laissé à Claude.
+- **Prise en main** : premiers tours guidés, conseillers, notifications hiérarchisées, systèmes
+  dévoilés progressivement, wiki ouvert sur le sujet courant : validé.
+- **Performance** : moins de 2 secondes par tour en fin de partie : validé.
+
+## Proposition
+### Code de partie
+- Graine et réglages tiennent dans un **code de partie** court, lisible et copiable, par exemple
+  `777-M-T35-C+1-R2` (graine, taille, part des terres, climat, relief) ; le coller dans l'écran
+  de nouvelle partie remplit tous les champs. Deux joueurs qui partagent un code ont le même monde.
+- Le code est rappelé dans le menu Échap et dans le nom des captures.
+
+### Bibliothèque des graines
+- Chaque monde généré s'enregistre automatiquement : code, date, réglages, **miniature de la
+  carte**, nombre de parties jouées.
+- Le joueur peut le marquer en **favori**, lui écrire des **notes** (« beau continent, départ
+  difficile »), le renommer, l'effacer.
+- Fichier dans le dossier des données du joueur (hors du dépôt), au même format que les réglages.
+
+### Taille de la carte
+- Quelques tailles proposées (petite, moyenne, grande), la moyenne étant l'actuelle 192 × 111 ;
+  le nombre d'IA conseillé suit la taille. Les tailles exactes dépendent de ce que la génération
+  supporte (bilans `bilan_tectonique`, `bilan_terres` à refaire sur chaque taille) : à mesurer.
+
+### Variables d'environnement
+Proposition de Claude : elles deviennent une simple porte d'entrée vers les mêmes réglages.
+- Le jeu lit d'abord les **arguments de la ligne de commande** (`--code 777-M-T35`, `--capture
+  <dossier>`, `--script <fichier>`…), puis, à défaut, les variables d'environnement actuelles, qui
+  restent pour ne pas casser les scripts (captures, pilote, GIF).
+- Le joueur, lui, n'en a jamais besoin : tout passe par l'écran de nouvelle partie.
+
+### Prise en main (validée)
+- **Premiers tours guidés** pendant la période nomade (« trouve une terre fertile près d'un fleuve »,
+  « découvre l'agriculture »), qu'on peut désactiver.
+- **Conseillers** par domaine (économie, armée, diplomatie, société) : seulement le problème le
+  plus urgent de chacun.
+- **Notifications hiérarchisées** (décision, important, information), réglables, appuyées sur le
+  journal existant.
+- **Systèmes dévoilés progressivement** : diplomatie, espionnage, religions, commerce lointain
+  apparaissent quand ils deviennent utiles (premier contact, Écriture…).
+- **Wiki (F1)** ouvert sur le sujet survolé ou l'écran courant.
+
+### Performance (validée)
+- Objectif : **moins de 2 secondes par tour en fin de partie** (12 peuples, centaines de villes),
+  idéalement moins d'une seconde.
+- `bilan_ia` mesure le temps par système et par tour (tours 100, 250, 500) et alerte si un système
+  dépasse sa part.
+- Méthodes : calculer rarement ce qui change lentement (trajets entre villes, valeurs, cultures),
+  étaler les décisions des IA, tableaux de bits pour le brouillard, calcul parallèle sur une vue
+  figée puis application dans un ordre fixe (déterminisme).
+- Taille des sauvegardes à surveiller.

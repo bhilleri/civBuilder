@@ -363,6 +363,21 @@ Voir `conception/conception-monde-vivant.md`. Monuments nationaux aux buts vari�
 phares, temples…), certains demandant des technologies facultatives ; le premier de chaque type
 devient une merveille mondiale (bonus en plus) ; ruines qui gardent une valeur ; score d'héritage.
 
+### [ ] 42. Nouvelle partie et bibliothèque des graines (décidé le 10/11)
+Voir `conception/conception-interface.md` (« Nouvelle partie, graines et prise en main »). Écran
+de nouvelle partie (monde, peuples, règles, aperçu) ; code de partie copiable (graine et
+réglages) ; graines déjà utilisées, favoris, notes, miniatures ; réglages de génération (terres,
+climat, relief) ; tailles de carte à mesurer avec la génération ; arguments de ligne de commande
+devant les variables d'environnement (gardées pour les scripts).
+
+### [ ] 43. Prise en main (décidé le 10/11)
+Premiers tours guidés, conseillers par domaine, notifications hiérarchisées et réglables,
+systèmes dévoilés progressivement, wiki ouvert sur le sujet courant.
+
+### [ ] 44. Budget de performance (décidé le 10/11)
+Moins de 2 secondes par tour en fin de partie (12 peuples) ; temps par système dans `bilan_ia`,
+alerte au-delà ; taille des sauvegardes surveillée.
+
 ## Plus tard
 - [x] Console de debug, étape 2 (01/11) : modifications locales (`~`) et `verifier`.
 - [x] Console de debug, étape 3 (01/11) : `regenerer eau|climat`, `fleuve`, unités, villes, tours,
