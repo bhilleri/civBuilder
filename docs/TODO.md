@@ -250,6 +250,9 @@ doublés et coûts du relief doublés, rayons de l'IA hostile et de l'exploratio
 ensuite l'arbre de recherche (34) et les jalons, après 28, 32 et 15. Unités réparties par
 ère, améliorées en changeant d'ère (effectif qui grandit). Mode 2 tours par mois : tout réglé en mois.
 Fin de partie à décider avec les IA (31) ; cas d'un peuple qui atteint le Moyen Âge avant le tour 500.
+Fin de partie décidée le 10/11 : victoire au meilleur score d'héritage (piliers non pondérés,
+dont le rayonnement culturel ; ambitions par ère qui l'augmentent), fin au bout de 500 tours, hégémonie anticipée à 80 % de la
+population mondiale, partie libre ensuite.
 
 ### [ ] 31. IA des peuples rivaux et faction hostile (décidé le 10/11)
 Voir `conception/conception-ia.md`. Nombre de peuples réglable (≈ 8, voire 12), pas de vision à

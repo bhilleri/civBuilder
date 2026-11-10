@@ -24,7 +24,7 @@ tours de plusieurs années, alors qu'un tour vaut désormais un mois de saison
   précédent. Colons, soldats, migrations et famine se comptent tous en habitants.
 - **Le défi viendra des IA** : d'autres peuples joués par l'ordinateur. Elles ne sont pas encore
   prévues : **il faut les prévoir** (tâche dédiée).
-- **Fin de partie** : pas encore décidée ; elle se définira avec les IA.
+- **Fin de partie** : décidée le 10/11 (voir « Fin de partie et victoire »).
 
 ## Propositions (chiffres à régler)
 ### Année historique affichée
@@ -86,12 +86,38 @@ Table de départ (à régler) :
   diplomatie, commerce, attractivité et migrations entre pays.
 - En attendant, la faction hostile reste l'adversaire ; elle pourra grandir avec le temps.
 
-### Fin de partie (à décider avec les IA)
-Pistes :
-- score de développement à la fin des 500 tours ou à la fin de l'ère médiévale ;
-- jalons ou ambitions à atteindre (comme dans Old World) ;
-- défaite par effondrement (plus de ville, instabilité totale) ;
-- partie libre après la fin, le score servant de repère.
+### Fin de partie et victoire (décidé le 10/11/2026)
+**Décisions de Benjamin** :
+- **Victoire : le meilleur score d'héritage** à la fin de la partie.
+- **Ambitions par ère : gardées.** Elles ajoutent des objectifs intéressants et **augmentent le
+  score**.
+- **Fin au bout de 500 tours**, pour le moment.
+- **Hégémonie** : victoire anticipée, mais à **80 %** (et non 50 %) de la population mondiale sous
+  son autorité, directe ou par ses vassaux et tributaires.
+- **Les piliers du score ne sont pas pondérés** selon les valeurs du peuple : mêmes règles pour tous.
+
+**Score d'héritage (proposition à chiffrer)**, visible pendant toute la partie :
+| Pilier | Ce qui compte |
+|---|---|
+| Peuplement | habitants, villes, Bien-être moyen |
+| Savoir | technologies, découvertes sociétales, ère atteinte |
+| Culture | monuments, lieux sacrés, Culture produite au total |
+| Rayonnement | habitants du monde parlant sa langue ou une langue qui en descend, religion diffusée |
+| Prospérité | commerce, Économie, routes |
+| Puissance | territoire, vassaux et tributaires, guerres gagnées |
+| Stabilité | durée sans révolte, légitimité |
+- Le **rayonnement** prolonge les cultures qui évoluent (`conception-societe.md`) : un peuple
+  disparu laisse un héritage dans les cultures mixtes et les cultures filles.
+- **Défaites** : effondrement (plus de ville) ; absorption (toutes ses villes à d'autres), son
+  héritage culturel restant compté.
+- **Ambitions (proposition)** : à chaque ère, quelques ambitions tirées selon la situation du
+  peuple (géographie, valeurs, voisins), par exemple « fonder une cité de 20 000 habitants »,
+  « relier cinq villes par le commerce », « faire de sa religion celle de trois peuples », « tenir
+  un col contre toute invasion pendant une génération ». Le joueur en garde quelques-unes (par
+  exemple trois) ; chacune réussie donne des points d'héritage et un peu de légitimité. Une ambition
+  non réalisée à la fin de l'ère est perdue, sans pénalité. Les IA ont les leurs.
+- **Partie libre après la fin**, le score servant de repère.
+- L'écran de nouvelle partie permet de désactiver l'hégémonie (proposition).
 
 ### Rythme : des événements réguliers (décidé le 10/11/2026)
 Pour éviter les tours vides (12 tours par an, villes en partie automatisées), chaque tour ou
@@ -118,5 +144,4 @@ découverte, contact avec un peuple. Le journal hiérarchisé existant les porte
 - Règles actuelles (`rules.rs`) à recaler : seuils de croissance, coûts des unités, soins, PM.
 
 ## Questions ouvertes
-- Fin de partie (avec les IA).
 - Chiffres : années par ère, table de population, PM, jalons exacts, nombre de techniques.

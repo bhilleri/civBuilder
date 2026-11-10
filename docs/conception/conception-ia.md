@@ -154,4 +154,4 @@ initialisé par la graine ; cette base servira ensuite aux IA des peuples.
 ## Questions ouvertes
 - Nombre de peuples par taille de carte (à mesurer sur les cartes générées).
 - Chiffres : bruit, fréquences, horizons par niveau ; bonus de l'Expert ; rayon des rumeurs.
-- Fin de partie.
+- Fin de partie : décidée le 10/11 (`conception-echelle-et-but.md`) ; l'IA vise aussi le score d'héritage.
