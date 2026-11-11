@@ -646,8 +646,12 @@ signalée), NN/g (mouvement avec parcimonie).
 **File interactive (11/11/2026, demande de Benjamin)** : chaque ligne de la file nomme sa case et son
 apport (gain à pleine capacité et valeur pour un aménagement, caractéristiques pour une unité) ; survol
 ou clic : la case est cerclée sur la carte (couleur de la production) ; glisser-déposer pour réordonner
-(appui, déplacement de plus de 6 px, trait bleu au-dessus de la ligne d'arrivée, relâché) ; « avancer »
-et « retirer » restent. Pilote : `glisser x1 y1 x2 y2`.
+(appui, déplacement de plus de 6 px ; la ligne suit le pointeur, soulevée et cerclée de blanc, les
+autres s'écartent en douceur d'une hauteur de ligne ; relâché) ; « avancer » et « retirer » restent ;
+sans animation si la vitesse des animations est « instantanée ». Pilote : `glisser x1 y1 x2 y2`, et
+`appuyer` / `deplacer` / `relacher` pour capturer un geste en cours. Leçon : un système qui écrit
+dans `EcranVille` à chaque image (même la même valeur, par `std::mem::take`) le marque modifié et fait
+refaire tout l'écran à chaque image ; n'écrire que si la valeur change.
 Limite connue : en mode pilote, l'infobulle de la carte disparaît à la fin d'un ordre, parce que le
 pilote ramène alors le pointeur à sa position d'avant (`Input::Move(last_cursor)`) ; elle n'apparaît
 donc pas sur les captures.

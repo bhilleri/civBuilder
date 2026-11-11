@@ -2593,17 +2593,18 @@ fn placement(g: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
     });
 }
 
-/// Glisser-déposer dans la file : appuyer sur une ligne, la glisser (un trait bleu marque où elle
-/// ira), relâcher ; un clic sans glisser choisit la ligne (sa case est cerclée sur la carte).
-#[allow(clippy::type_complexity)]
+/// Glisser-déposer dans la file : appuyer sur une ligne et la glisser. La ligne suit le pointeur
+/// (soulevée, contour blanc), les autres s'écartent en douceur pour lui faire place ; relâcher la
+/// pose. Un clic sans glisser choisit la ligne (sa case est cerclée sur la carte).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn glisser_file(
+    mut commands: Commands,
     mut ecran: ResMut<EcranVille>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    replay: Res<crate::feedback::TurnReplay>,
+    (mouse, replay, time, settings): (Res<ButtonInput<MouseButton>>, Res<crate::feedback::TurnReplay>, Res<Time>, Res<crate::settings::Settings>),
     pointeurs: Query<(&PointerId, &PointerLocation)>,
-    mut lignes: Query<(&LigneFile, &UiPointer, &ComputedNode, &UiGlobalTransform, &mut BorderColor, &mut BackgroundColor)>,
+    mut lignes: Query<(Entity, &LigneFile, &UiPointer, &ComputedNode, &UiGlobalTransform, &mut Node, &mut BorderColor, &mut BackgroundColor)>,
     mut cities: Query<&mut City>,
-    mut glisse: Local<Option<(usize, f32, bool)>>,
+    mut glisse: Local<Option<Glisse>>,
 ) {
     let Some(v) = ecran.ville else {
         *glisse = None;
@@ -2612,48 +2613,71 @@ fn glisser_file(
     let y = pointeurs.iter().find(|(id, _)| **id == PointerId::Mouse).and_then(|(_, l)| l.location.as_ref()).map(|l| l.position.y);
     if mouse.just_pressed(MouseButton::Left)
         && let Some(y) = y
-        && let Some((l, ..)) = lignes.iter().find(|(_, p, ..)| **p != UiPointer::None)
+        && let Some((_, l, ..)) = lignes.iter().find(|(_, _, p, ..)| **p != UiPointer::None)
     {
-        *glisse = Some((l.0, y, false));
+        // Centres et hauteurs des lignes au départ (les décalages ne doivent pas les fausser)
+        let mut lignes_depart: Vec<(usize, f32, f32)> = lignes.iter().map(|(_, l, _, n, t, ..)| (l.0, t.translation.y * n.inverse_scale_factor(), n.size().y * n.inverse_scale_factor())).collect();
+        lignes_depart.sort_by_key(|(i, ..)| *i);
+        *glisse = Some(Glisse { de: l.0, y0: y, bouge: false, lignes: lignes_depart, decalages: Default::default() });
     }
-    let Some((de, y0, mut bouge)) = *glisse else { return };
-    // Centres des lignes (pixels logiques), dans l'ordre de la file
-    let mut centres: Vec<(usize, f32)> = lignes.iter().map(|(l, _, n, t, ..)| (l.0, t.translation.y * n.inverse_scale_factor())).collect();
-    centres.sort_by_key(|(i, _)| *i);
+    let Some(g) = glisse.as_mut() else { return };
     if let Some(y) = y
-        && (y - y0).abs() > 6.0
+        && (y - g.y0).abs() > 6.0
+        && !g.bouge
     {
-        bouge = true;
+        g.bouge = true;
+        // (la ligne soulevée passe au-dessus des autres)
+        if let Some((e, ..)) = lignes.iter().find(|(_, l, ..)| l.0 == g.de) {
+            commands.entity(e).insert(GlobalZIndex(96));
+        }
     }
-    // Rang d'arrivée : parmi les autres lignes, combien sont au-dessus du pointeur
-    let autres: Vec<&(usize, f32)> = centres.iter().filter(|(i, _)| *i != de).collect();
-    let vers = y.map_or(de, |y| autres.iter().filter(|(_, c)| *c < y).count());
-    for (l, _, _, _, mut bord, mut fond) in &mut lignes {
-        let glissee = bouge && l.0 == de;
-        let marque = bouge && autres.get(vers).is_some_and(|(i, _)| *i == l.0);
-        let haut = if marque { charte::ACTION_FOND } else { charte::TRAIT };
-        if bord.top != haut {
-            bord.top = haut;
+    // Rang d'arrivée : parmi les autres lignes, combien ont leur centre au-dessus du pointeur
+    let autres: Vec<(usize, f32, f32)> = g.lignes.iter().copied().filter(|(i, ..)| *i != g.de).collect();
+    let vers = y.map_or(g.de, |y| autres.iter().filter(|(_, c, _)| *c < y).count());
+    let hauteur = g.lignes.iter().find(|(i, ..)| *i == g.de).map_or(40.0, |(_, _, h)| *h + 4.0);
+    // Décalage voulu de chaque ligne : la glissée suit le pointeur ; les autres se poussent d'une ligne
+    let instant = settings.animation == crate::settings::AnimationSpeed::Instant;
+    let k = if instant { 1.0 } else { (time.delta_secs() * 14.0).min(1.0) };
+    for (_, l, _, _, _, mut node, mut bord, mut fond) in &mut lignes {
+        let voulu = if !g.bouge {
+            0.0
+        } else if l.0 == g.de {
+            y.map_or(0.0, |y| y - g.y0)
+        } else {
+            let rang = autres.iter().position(|(i, ..)| *i == l.0).unwrap_or(0);
+            let nouveau = if rang < vers { rang } else { rang + 1 };
+            let ancien = if l.0 < g.de { rang } else { rang + 1 };
+            (nouveau as f32 - ancien as f32) * hauteur
+        };
+        let d = g.decalages.entry(l.0).or_insert(0.0);
+        // (la ligne glissée colle au pointeur ; les autres glissent en douceur)
+        *d = if l.0 == g.de { voulu } else { *d + (voulu - *d) * k };
+        let top = Val::Px(*d);
+        if node.top != top {
+            node.top = top;
+        }
+        let glissee = g.bouge && l.0 == g.de;
+        let contour = if glissee { charte::SELECTION } else { Color::NONE };
+        if glissee || bord.left == charte::SELECTION && !glissee && ecran.file_choisie != Some(l.0) {
+            *bord = BorderColor { top: if glissee { charte::SELECTION } else { charte::TRAIT }, ..BorderColor::all(contour) };
         }
         let f = if glissee { charte::SURFACE2 } else { Color::NONE };
         if glissee || fond.0 == charte::SURFACE2 {
             fond.0 = f;
         }
     }
-    *glisse = Some((de, y0, bouge));
     if !mouse.just_released(MouseButton::Left) {
         return;
     }
+    let (de, bouge) = (g.de, g.bouge);
     *glisse = None;
     if !bouge {
         // Clic : choisir la ligne (ou la quitter)
         ecran.file_choisie = if ecran.file_choisie == Some(de) { None } else { Some(de) };
         return;
     }
-    if replay.playing {
-        return;
-    }
-    if let Ok(mut city) = cities.get_mut(v)
+    if !replay.playing
+        && let Ok(mut city) = cities.get_mut(v)
         && de < city.state.file.len()
         && vers != de
     {
@@ -2662,9 +2686,19 @@ fn glisser_file(
         city.state.file.insert(vers, k);
         ecran.file_choisie = Some(vers);
     } else {
-        // (relâché à sa place : l'écran se refait pour effacer les marques)
+        // (relâché à sa place : l'écran se refait, les lignes reviennent)
         ecran.set_changed();
     }
+}
+
+/// Glissement en cours dans la file : ligne prise, hauteur du pointeur au départ, a-t-elle bougé,
+/// lignes au départ (rang, centre, hauteur), décalages affichés.
+struct Glisse {
+    de: usize,
+    y0: f32,
+    bouge: bool,
+    lignes: Vec<(usize, f32, f32)>,
+    decalages: std::collections::HashMap<usize, f32>,
 }
 
 /// Actions qui changent la ville : mettre en file, avancer, retirer, unités et projets du catalogue.
@@ -2685,7 +2719,9 @@ fn construire_actions(
     let appui = |i: &Ref<UiPointer>| i.is_changed() && **i == UiPointer::Pressed;
     // (pas d'ordre pendant que le tour se joue)
     if replay.playing {
-        ecran.confirmer = false;
+        if ecran.confirmer {
+            ecran.confirmer = false;
+        }
         return;
     }
     let Ok((mut city, centre)) = cities.get_mut(v) else { return };
@@ -2693,7 +2729,12 @@ fn construire_actions(
     let nom = city.state.name.clone();
     let mut journal = |t: String| log.push(crate::game::LogText::new().city(&nom, v, centre).text(t));
     // Mettre en file l'aménagement placé (bouton, double-clic, Entrée)
-    let confirmer = std::mem::take(&mut ecran.confirmer) || mettre.iter().any(|i| appui(&i));
+    // (ne toucher à l'état que s'il change : sinon tout l'écran se refait à chaque image)
+    let demande = ecran.confirmer;
+    if demande {
+        ecran.confirmer = false;
+    }
+    let confirmer = demande || mettre.iter().any(|i| appui(&i));
     if confirmer && let Some(a) = ecran.placement {
         let cases = cases_vues(&map.0, centre, v, &city, &territoire, &amenagements);
         let cible = ecran.cible.or_else(|| conseil(&map.0, &cases, a, &Bareme::de(&city)));
