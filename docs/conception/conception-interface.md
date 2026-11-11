@@ -500,6 +500,22 @@ Résultat (dernière version) :
     emplois, répartition des habitants. **Onglet Histoire** : frise des moments marquants (population,
     constructions, catastrophes, commerce, guerres, batailles, pillages des barbares, culture), avec
     filtres et lieux sur la carte.
+  - **Troisième revue par agents (11/11/2026), décisions de Benjamin** :
+    - **Programmes de ville** pour les aménagements de bonus (égouts, fontaines, rues pavées…) : un
+      seul ordre « dans tous les quartiers éligibles », que l'intendant échelonne ; l'ordre quartier
+      par quartier reste possible.
+    - **Tout afficher, même dans un bourg** : un onglet ou une partie sans contenu le dit (« aucun axe
+      de commerce pour l'instant ») plutôt que de disparaître.
+    - **Ordres de la société** : gardés dans la maquette, pas codés avant la tâche 32.
+    - Retenus aussi : un bloc « Ce qui freine la croissance » dans l'en-tête (diagnostic unique et
+      classé, pas de palier promis au-delà d'une limite) ; des remèdes chiffrés dans les alertes,
+      qui ouvrent le placement déjà rempli ; le goulot actuel affiché dans le catalogue ; les
+      commandes de la carte au-dessus d'elle dans tous les onglets, avec « Carte simple » ;
+      l'infobulle selon le mode de la carte ; le survol d'une ligne de liste qui éclaire sa case ;
+      la confirmation du placement sur la carte (double-clic, Entrée) ; une couleur de relation hors
+      de la palette des grandeurs ; des indicateurs inertes d'un style distinct ; l'intendant
+      expliqué (emplois non pourvus, prochain bloc) ; l'Histoire triée et filtrée par lieu ; un seul
+      mot par notion (« aménagement »).
   - **Plus tard** : une vue nationale détaillée pour gérer les villes et leurs problèmes (« ville
     suivante en alerte », file proposée par l'intendant) ; une vraie simulation pour les prévisions.
   - Implémentation dans Bevy : un seul état de sélection (pile), des nœuds d'interface persistants
