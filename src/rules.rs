@@ -635,6 +635,22 @@ pub struct CityState {
     /// Consignes du joueur à l'intendant (priorités, cases forcées).
     #[serde(default)]
     pub consignes: Consignes,
+    /// Rendements et habitants des derniers tours (`HISTORIQUE_TOURS` au plus, le plus récent à la
+    /// fin) : graphiques de l'écran de la ville.
+    #[serde(default)]
+    pub historique: std::collections::VecDeque<Releve>,
+}
+
+/// Tours gardés dans l'historique d'une ville.
+pub const HISTORIQUE_TOURS: usize = 40;
+
+/// Relevé d'un tour de la ville : ce qu'elle a produit, et ses habitants à la fin du tour.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Releve {
+    pub nourriture: f64,
+    pub production: f64,
+    pub deniers: f64,
+    pub habitants: u64,
 }
 
 /// Ce qui s'est passé dans une ville pendant la fin de tour.
@@ -648,7 +664,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, production_stock: 0.0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false, consignes: Consignes::default() }
+        Self { name, habitants: HABITANTS_COLON, production_stock: 0.0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -675,6 +691,10 @@ impl CityState {
             self.habitants += variation as u64;
         }
         report.grew = self.palier() > palier;
+        self.historique.push_back(Releve { nourriture: yields.nourriture, production: yields.production, deniers: yields.deniers, habitants: self.habitants });
+        while self.historique.len() > HISTORIQUE_TOURS {
+            self.historique.pop_front();
+        }
 
         // Production
         if let Some(item) = self.producing {
@@ -701,6 +721,18 @@ impl CityState {
 mod tests {
     use super::*;
     use crate::map::{Relief, Terrain};
+
+    #[test]
+    fn l_historique_garde_les_quarante_derniers_tours() {
+        let mut c = CityState::new("Essai".into());
+        for i in 0..45 {
+            c.process_turn(Rendements::new(2.0, f64::from(i), 1.0));
+        }
+        assert_eq!(c.historique.len(), HISTORIQUE_TOURS);
+        assert_eq!(c.historique.back().map(|r| r.production), Some(44.0));
+        assert_eq!(c.historique.front().map(|r| r.production), Some(5.0));
+        assert_eq!(c.historique.back().map(|r| r.habitants), Some(c.habitants));
+    }
 
     /// Couloir horizontal sur la ligne `row`, entouré de montagnes : le trajet est imposé.
     fn corridor(width: i32, row: i32) -> WorldMap {
