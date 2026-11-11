@@ -866,9 +866,20 @@ fn cities() -> Article {
             p("Le territoire s'étend à 1 case autour de la ville, puis à 2 cases à partir du palier 3. Il sert \
                aux cases exploitées et aux soins (+20 PV par tour en territoire ami)."),
             h("Production"),
-            p("La production s'accumule pour l'unité choisie dans le panneau de la ville. L'unité apparaît sur la \
-               ville ou sur une case voisine libre ; si tout est occupé, la production attend. Un colon coûte en plus \
-               1 000 habitants."),
+            p("Chaque ville a une file de construction : unités, ponts et aménagements, chacun avec la production \
+               déjà investie (perdue s'il est retiré) ; le surplus d'un élément fini passe au suivant. Une nouvelle \
+               ville commence avec une file vide : à vous d'indiquer quoi produire (panneau de production ou écran \
+               de la ville, touche B). Une unité apparaît sur la ville ou sur une case voisine libre ; si tout est \
+               occupé, elle attend en tête de file. Un colon coûte en plus 1 000 habitants."),
+            p("Quand la file est vide, la ville suit son projet de ville, sans fin : « Peupler la ville » ajoute la \
+               production au surplus de nourriture pour croître (2 production = 1 nourriture, jamais pour le \
+               besoin) ; « Grands jeux », « Projet de recherche » et « Développement de l'art et de la culture » ne \
+               sont pas encore dans le jeu. Le journal le rappelle tous les 10 tours. Sans projet ni construction, la \
+               production est perdue, et le journal le dit à chaque tour."),
+            p("Aménager une case : dans l'écran de la ville, Construire puis un aménagement ; la carte de la ville \
+               montre le gain de chaque case à pleine capacité (anneau doré : le conseil de l'intendant). Clic pour \
+               choisir la case, double-clic ou Entrée pour mettre en file. La fiche d'une case propose aussi ses \
+               aménagements possibles."),
             p(format!(
                 "Une ville peut aussi construire un pont sur une rivière ou un fleuve de son territoire (pour une \
                  rivière, une des deux cases suffit). « Pont… » dans le panneau de production surligne les emplacements \

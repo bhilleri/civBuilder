@@ -585,6 +585,15 @@ est dessinée avec l'interface Bevy, un hexagone par case.
   triée par la grandeur ; fiche de case : gain de 100 travailleurs de plus (ou « case pleine ») ;
 - pas encore : réglages de l'intendant dans le détail (lot 4), repères d'événements sur les
   graphiques (lot 6, avec l'histoire).
+**Lot 3 fait le 11/11/2026** (règles dans `rules.rs`, écran dans `ecran_ville.rs`) : file de
+construction et projets de ville (voir `conception-villes.md`, 4b) ; bouton « Construire (B) » : le
+catalogue remplace la liste de droite (aménagements avec leur case conseillée et leur gain, projets,
+unités ; les ponts restent choisis sur la carte du monde) ; placement : carte des gains à pleine
+capacité, cases impossibles en sombre, anneau doré du conseil, case choisie en blanc ; fiche du
+placement en trois étapes ; mise en file par bouton, double-clic ou Entrée ; file dans la colonne de
+gauche (avancer, retirer, projet). Écart avec la maquette : pas de fenêtre « Tout comparer » (avec
+trois aménagements, le catalogue donne déjà la meilleure case et le gain de chacun) ; elle viendra
+avec les bâtiments. Le panneau de production de la carte du monde met lui aussi en file.
 Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
 l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
 

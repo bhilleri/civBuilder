@@ -282,7 +282,7 @@ choix à l'écran viennent en 4b.
 - Conditions de départ : champ sur relief plat ou collines, avec assez de pluie ou une rivière
   voisine ; pâturage sur prairie, plaine, steppe, savane, broussailles, toundra, collines ; coupe
   de bois en forêt, jungle, taïga, savane arborée.
-- Construits par la file unique de la ville ; pendant le choix, la vue zoome sur la ville et montre
+- Construits par la file unique de la ville (**fait le 11/11/2026**, lot 3 de l'écran de la ville) ; pendant le choix, la vue zoome sur la ville et montre
   le gain de chaque case et de chaque aménagement possible.
 - Irrigation, drainage, mines : plus tard, avec la recherche.
 - **Deux sortes d'aménagements, en plus des bâtiments (Benjamin, 11/11/2026)** :
