@@ -70,7 +70,20 @@ pub struct EcranVille {
     pub histoire_genre: Option<rules::GenreEvenement>,
     /// Élément de la file choisi (sa case est cerclée sur la carte).
     pub file_choisie: Option<usize>,
+    /// Groupe montré par le catalogue (aménagements, projets, unités) : tout tient à l'écran.
+    pub catalogue_groupe: GroupeCatalogue,
 }
+
+/// Groupes du catalogue de construction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GroupeCatalogue {
+    #[default]
+    Amenagements,
+    Projets,
+    Unites,
+}
+#[derive(Component)]
+struct ChoixGroupe(GroupeCatalogue);
 
 /// Case où se construit un élément de la file (aménagement, pont), s'il en a une.
 fn case_de(objet: &rules::Production) -> Option<Hex> {
@@ -315,11 +328,11 @@ fn frein(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue]) -> Frein {
         }
     };
     remedes.truncate(3);
-    // Autres alertes
-    let mut alertes = Vec::new();
-    if c.file.is_empty() && c.projet.is_none() {
-        alertes.push((Etat::Alerte, "Rien à produire : à choisir pour finir le tour".to_string(), Remede::Construire));
+    if etat == Etat::Ok {
+        remedes.clear();
     }
+    // Autres alertes (« rien à produire » est déjà dans l'en-tête et sur la carte de la production)
+    let mut alertes = Vec::new();
     if city.travail.chomeurs > 0 {
         let a = if cases.iter().any(|x| gain_amenagement(map, x, Amenagement::Champ).is_ok()) { Remede::Placer(Amenagement::Champ) } else { Remede::Construire };
         alertes.push((Etat::Alerte, format!("{} sans emploi : aménager des cases (plus de place)", rules::milliers(city.travail.chomeurs.into())), a));
@@ -376,6 +389,9 @@ fn gain_amenagement(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> 
     }
     if c.amenagement == Some(a) {
         return Err("déjà aménagée ainsi");
+    }
+    if c.en_file {
+        return Err("un aménagement y est déjà en file");
     }
     a.possible(map, c.hex)?;
     let max = intendant::rendement_max(map, c.hex, Some(a));
@@ -585,6 +601,10 @@ struct CaseVue {
     amenagement: Option<Amenagement>,
     /// Habitants de la case : pour l'instant, chacun vit là où il travaille (les sans-emploi au centre).
     habitants: f64,
+    /// Un aménagement de la case est déjà dans la file de construction.
+    en_file: bool,
+    /// Effectif forcé par le joueur (l'intendant ne le change plus).
+    force: Option<u32>,
 }
 
 impl CaseVue {
@@ -612,7 +632,7 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
     let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == ville).map(|(h, _)| *h).collect();
     let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
     let rc = Rendements::from(rules::center_yields(map, centre));
-    let mut cases = vec![CaseVue { hex: centre, local: Hex::new(0, 0), centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, rendement: rc, amenagement: None, habitants: 0.0 }];
+    let mut cases = vec![CaseVue { hex: centre, local: Hex::new(0, 0), centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, rendement: rc, amenagement: None, habitants: 0.0, en_file: false, force: None }];
     for c in dispo {
         let w = city.travail.sur(c.hex);
         let near = wrap.nearest(centre, c.hex);
@@ -620,13 +640,20 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
             hex: c.hex,
             local: Hex::new(near.q - centre.q, near.r - centre.r),
             centre: false,
-            nom: nom_de_case(map, c.hex),
+            nom: {
+                // (un champ ou un pâturage sur une forêt l'a défrichée)
+                let a = amenagements.0.get(&c.hex).copied();
+                let defrichee = matches!(a, Some(Amenagement::Champ | Amenagement::Paturage)) && map.get(c.hex).is_some_and(|t| t.is_wooded());
+                if defrichee { format!("{} défrichée", nom_de_case(map, c.hex)) } else { nom_de_case(map, c.hex) }
+            },
             travailleurs: w,
             capacite: c.capacite,
             max: c.max,
             rendement: intendant::rendement(c.max, w, c.capacite),
             amenagement: amenagements.0.get(&c.hex).copied(),
             habitants: 0.0,
+            en_file: city.state.file.iter().any(|k| matches!(k.objet, rules::Production::Amenagement { hex, .. } if hex == c.hex)),
+            force: city.state.consignes.forcees.iter().find(|(h, _)| *h == c.hex).map(|(_, n)| *n),
         });
     }
     // Habitants répartis comme les emplois (les sans-emploi vivent au centre)
@@ -702,18 +729,21 @@ fn construire(mut commands: Commands, images: Res<Images>) {
                             .with_children(|c| {
                                 c.spawn((Plan, Node { position_type: PositionType::Absolute, ..default() }));
                                 c.spawn((BarreValidation, Node { position_type: PositionType::Absolute, left: Val::Px(0.0), right: Val::Px(0.0), bottom: Val::Px(10.0), justify_content: JustifyContent::Center, display: Display::None, ..default() }));
-                                c.spawn(Node { position_type: PositionType::Absolute, right: Val::Px(8.0), top: Val::Px(8.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), ..default() }).with_children(|b| {
+                                c.spawn(Node { position_type: PositionType::Absolute, right: Val::Px(8.0), top: Val::Px(8.0), flex_direction: FlexDirection::Column, align_items: AlignItems::FlexEnd, row_gap: Val::Px(4.0), ..default() }).with_children(|b| {
                                     for (sens, signe) in [(1, "+"), (-1, "−"), (0, "")] {
                                         let mut bouton = b.spawn((
                                             BoutonZoom(sens),
                                             UiPointer::default(),
-                                            Node { width: Val::Px(30.0), height: Val::Px(28.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
+                                            Node { width: Val::Px(if sens == 0 { 76.0 } else { 30.0 }), height: Val::Px(28.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, column_gap: Val::Px(4.0), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
                                             BackgroundColor(charte::SURFACE),
                                             BorderColor::all(charte::TRAIT2),
                                         ));
                                         if sens == 0 {
                                             // Recentrer : un petit hexagone
-                                            bouton.with_child((Node { width: Val::Px(12.0), height: Val::Px(14.0), ..default() }, ImageNode::new(hexagone.clone()).with_color(charte::TEXTE)));
+                                            bouton.with_children(|r| {
+                                                r.spawn((Node { width: Val::Px(10.0), height: Val::Px(12.0), ..default() }, ImageNode::new(hexagone.clone()).with_color(charte::TEXTE)));
+                                                r.spawn(texte("Recentrer", 11.5, charte::TEXTE));
+                                            });
                                         } else {
                                             bouton.with_child(texte(signe, 16.0, charte::TEXTE));
                                         }
@@ -750,10 +780,12 @@ fn fin_de_tour_joueur(
     mut ecran: ResMut<EcranVille>,
     mut log: ResMut<crate::game::GameLog>,
     cities: Query<(Entity, &City, &HexPos)>,
+    mut vue: ResMut<VueCarte>,
 ) {
-    if !std::mem::take(&mut demande.0) {
+    if !demande.0 {
         return;
     }
+    demande.0 = false;
     let mut oisives: Vec<(Entity, &City, &HexPos)> = cities.iter().filter(|(_, c, _)| c.state.file.is_empty() && c.state.projet.is_none()).collect();
     oisives.sort_by(|a, b| a.1.state.name.cmp(&b.1.state.name));
     let Some((e, city, pos)) = oisives.first().copied() else {
@@ -773,6 +805,9 @@ fn fin_de_tour_joueur(
     ecran.catalogue = true;
     ecran.placement = None;
     ecran.cible = None;
+    ecran.file_choisie = None;
+    ecran.forcer = None;
+    *vue = VueCarte::default();
 }
 
 /// Ouvre l'écran (touche C, bouton) pour la ville sélectionnée ; le ferme (Échap, bouton, plus de
@@ -787,9 +822,16 @@ fn ouvrir_fermer(
     mut vue: ResMut<VueCarte>,
     ouvrir: Query<Ref<UiPointer>, With<BoutonEcranVille>>,
     fermer: Query<Ref<UiPointer>, With<Fermer>>,
+    (state, mut tour_vu): (Res<GameState>, Local<u32>),
 ) {
     let appui = |i: &Ref<UiPointer>| i.is_changed() && **i == UiPointer::Pressed;
     let ville = selection.0.filter(|e| cities.contains(*e));
+    if *tour_vu != state.turn {
+        *tour_vu = state.turn;
+        if ecran.file_choisie.is_some() {
+            ecran.file_choisie = None;
+        }
+    }
     if ecran.ouvert() {
         let echap = keys.just_pressed(KeyCode::Escape) && !wiki.open;
         if echap || fermer.iter().any(|i| appui(&i)) || ville != ecran.ville || keys.just_pressed(KeyCode::KeyC) && !wiki.open {
@@ -840,7 +882,8 @@ fn ouvrir_fermer(
         }
         // 1 à 3 : détail de la nourriture, de la production, des deniers
         for (i, k) in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3].into_iter().enumerate() {
-            if keys.just_pressed(k) && !wiki.open {
+            // (pendant la construction, elles choisiraient une grandeur cachée)
+            if keys.just_pressed(k) && !wiki.open && !ecran.catalogue {
                 let g = DETAILLABLES[i];
                 ecran.grandeur = if ecran.grandeur == Some(g) && ecran.onglet == Onglet::Rendements { None } else { Some(g) };
                 ecran.onglet = Onglet::Rendements;
@@ -858,6 +901,8 @@ fn ouvrir_fermer(
         ecran.catalogue = false;
         ecran.placement = None;
         ecran.cible = None;
+        ecran.file_choisie = None;
+        ecran.forcer = None;
         *vue = VueCarte::default();
     }
 }
@@ -875,8 +920,8 @@ fn commandes(
     couches: Query<Ref<UiPointer>, With<BasculeAmenagements>>,
     (grandeurs, periodes, fils): (Query<(Ref<UiPointer>, &ChoixGrandeur)>, Query<(Ref<UiPointer>, &ChoixPeriode)>, Query<(Ref<UiPointer>, &Fil)>),
     (catalogue, construire, ici): (Query<(Ref<UiPointer>, &ChoixCatalogue)>, Query<Ref<UiPointer>, With<BoutonConstruire>>, Query<(Ref<UiPointer>, &AmenagerIci)>),
-    (cartes_pop, genres, remedes): (Query<(Ref<UiPointer>, &ChoixCartePop)>, Query<(Ref<UiPointer>, &ChoixGenre)>, Query<(Ref<UiPointer>, &BoutonRemede)>),
-    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>, With<ChoixGenre>, With<BoutonRemede>)>, Changed<UiPointer>)>,
+    (cartes_pop, genres, remedes, groupes): (Query<(Ref<UiPointer>, &ChoixCartePop)>, Query<(Ref<UiPointer>, &ChoixGenre)>, Query<(Ref<UiPointer>, &BoutonRemede)>, Query<(Ref<UiPointer>, &ChoixGroupe)>),
+    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>, With<BoutonRemede>)>, Changed<UiPointer>)>,
 ) {
     if !ecran.ouvert() {
         return;
@@ -885,6 +930,9 @@ fn commandes(
     for (i, b, mut bord, enfants) in &mut onglets {
         if appui(&i) && ecran.onglet != b.0 {
             ecran.onglet = b.0;
+            ecran.catalogue = false;
+            ecran.placement = None;
+            ecran.cible = None;
         }
         let actif = ecran.onglet == b.0;
         let c = if actif { charte::TEXTE } else { Color::NONE };
@@ -958,6 +1006,11 @@ fn commandes(
             ecran.case = None;
         }
     }
+    for (i, gr) in &groupes {
+        if appui(&i) && ecran.catalogue_groupe != gr.0 {
+            ecran.catalogue_groupe = gr.0;
+        }
+    }
     for (i, r) in &remedes {
         if !appui(&i) {
             continue;
@@ -968,6 +1021,7 @@ fn commandes(
         match r.0 {
             Remede::Placer(a) => {
                 ecran.catalogue = true;
+                ecran.catalogue_groupe = GroupeCatalogue::Amenagements;
                 ecran.placement = Some(a);
             }
             Remede::Detail(g) => {
@@ -1105,6 +1159,9 @@ fn carte_souris(
         if *bouge || d.length() > 4.0 {
             *bouge = true;
             vue.decalage += d;
+            // (bornée : la ville ne sort pas du cadre)
+            let borne = taille * vue.zoom / 2.0;
+            vue.decalage = vue.decalage.clamp(-borne, borne);
             *depart = c;
         }
     }
@@ -1126,7 +1183,7 @@ fn carte_souris(
                     *dernier_clic = (maintenant, Some(x.hex));
                     ecran.cible = Some(x.hex);
                 }
-            } else {
+            } else if !ecran.catalogue {
                 ecran.case = if hex.is_some() && hex == ecran.case { None } else { hex };
             }
         }
@@ -1293,7 +1350,7 @@ fn reconstruire(
     (cadre, largeur_gauche, barre): (Single<&ComputedNode, With<Cadre>>, Single<&ComputedNode, With<Gauche>>, Single<(Entity, &mut Node), With<BarreValidation>>),
     mut textes: Query<&mut Text>,
     mut assets: ResMut<Assets<Image>>,
-    mut derniere: Local<(Vec2, f32, u32, f32)>,
+    (mut derniere, mut en_attente): (Local<(Vec2, f32, u32, f32)>, Local<bool>),
     mut graphique: Local<Option<Handle<Image>>>,
 ) {
     let Some(v) = ecran.ville else { return };
@@ -1302,9 +1359,15 @@ fn reconstruire(
     let large = largeur_gauche.size().x * largeur_gauche.inverse_scale_factor();
     let cle = (taille, vue.zoom, state.turn, large);
     let change = ecran.is_changed() || city.is_changed() || amenagements.is_changed() || territoire.is_changed() || *derniere != cle;
-    if !change || taille.x < 10.0 {
+    if taille.x < 10.0 {
+        // (écran pas encore mis en page : refaire dès qu'il le sera)
+        *en_attente |= change;
         return;
     }
+    if !change && !*en_attente {
+        return;
+    }
+    *en_attente = false;
     *derniere = cle;
     let cases = cases_vues(&map.0, centre.0, v, &city, &territoire, &amenagements);
     let choisie = ecran.case.and_then(|h| cases.iter().find(|c| c.hex == h));
@@ -1440,14 +1503,12 @@ fn reconstruire(
                 ));
             }
         };
-        // Placement : défrichements et risques de famine cerclés, conseil cerclé d'or (il pulse)
+        // Placement : risques de famine cerclés de rouge, conseil cerclé d'or (il pulse)
         for (c, g) in cases.iter().zip(&gains) {
-            if let Some((g, e)) = g {
-                if matches!(e.risque, Risque::Famine(_) | Risque::BordDeFamine(_)) {
-                    anneau(p, c.hex, charte::GRAVE);
-                } else if g.defriche {
-                    anneau(p, c.hex, charte::ALERTE);
-                }
+            if let Some((_, e)) = g
+                && matches!(e.risque, Risque::Famine(_) | Risque::BordDeFamine(_))
+            {
+                anneau(p, c.hex, charte::GRAVE);
             }
         }
         if let Some(h) = conseillee
@@ -1471,7 +1532,8 @@ fn reconstruire(
         if let Some(h) = ecran.cible {
             anneau(p, h, charte::SELECTION);
         }
-        if let Some(h) = ecran.file_choisie.and_then(|i| city.state.file.get(i)).and_then(|k| case_de(&k.objet)) {
+        let file_visible = ecran.onglet == Onglet::Rendements && ecran.case.is_none() && if ecran.catalogue { ecran.placement.is_none() } else { ecran.grandeur.is_none() };
+        if let Some(h) = ecran.file_choisie.filter(|_| file_visible).and_then(|i| city.state.file.get(i)).and_then(|k| case_de(&k.objet)) {
             anneau(p, map.0.canonical(h), Grandeur::Production.couleur());
         }
 
@@ -1504,13 +1566,13 @@ fn reconstruire(
                     b.spawn(texte(format!("Ce qui freine {} :", city.state.name), 13.0, CONSEIL));
                     b.spawn(texte(diagnostic.texte.clone(), 13.0, CONSEIL));
                 });
-            catalogue(l, &map.0, &city, &cases, ecran.placement);
+            catalogue(l, &map.0, &city, &cases, ecran.placement, ecran.catalogue_groupe);
         });
         return;
     }
     let titre_liste: String = match (ecran.onglet, ecran.grandeur) {
         (Onglet::Rendements, Some(g)) => format!("Cases · {}", g.nom().to_lowercase()),
-        (Onglet::Rendements, None) => "Cases travaillées".into(),
+        (Onglet::Rendements, None) => format!("Cases travaillées ({})", cases.iter().filter(|c| !c.centre && c.travailleurs > 0).count()),
         (Onglet::Population, _) if ecran.carte_habitants => "Cases par habitants".into(),
         (Onglet::Population, _) => "Cases par remplissage".into(),
         (Onglet::Commerce, _) => "Axes de commerce".into(),
@@ -1626,6 +1688,13 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, mode: ModeCarte, 
         } else if grand {
             h.spawn(centre(texte(if c.centre { "centre".to_string() } else { c.nom.clone() }, petit, charte::DOUX)));
         }
+        if let Some(n) = c.force {
+            h.spawn((
+                Node { position_type: PositionType::Absolute, bottom: Val::Px(s * 0.12), padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(4.0)), ..default() },
+                BackgroundColor(Color::srgba(0.04, 0.05, 0.08, 0.85)),
+                children![texte(format!("forcé {}", rules::milliers(n.into())), (s * 0.2).clamp(9.0, 12.0), charte::DOUX)],
+            ));
+        }
         if let Some(i) = en_file {
             h.spawn((
                 Node { position_type: PositionType::Absolute, top: Val::Px(s * 0.3), padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(4.0)), ..default() },
@@ -1708,7 +1777,7 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         pastille(l, melange(charte::SURFACE, charte::AMENAGEMENT, 0.6), "forte");
         pastille(l, Color::srgb(0.06, 0.075, 0.11), "impossible");
         pastille(l, CONSEIL, "conseil de l'intendant");
-        pastille(l, charte::ALERTE, "défrichement");
+        pastille(l, charte::SURFACE, "hache : défrichement");
         pastille(l, charte::GRAVE, "risque de famine");
         pastille(l, charte::SELECTION, "case choisie");
         l.spawn(texte(if bareme.poids_nourriture > 1.0 { "chiffres : valeur (nourriture ×1,5 + production + deniers), puis ce qui la compose" } else { "chiffres : valeur (nourriture + production + deniers), puis ce qui la compose" }, 12.0, charte::MUET));
@@ -1738,7 +1807,7 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         BorderColor::all(charte::TRAIT2),
         children![
             (Node { width: Val::Px(12.0), height: Val::Px(12.0), border: UiRect::all(Val::Px(1.5)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() }, BackgroundColor(charte::AMENAGEMENT_FOND), BorderColor::all(charte::AMENAGEMENT)),
-            texte(if caches { "Aménagements : masqués" } else { "Aménagements" }, 13.0, if caches { charte::MUET } else { charte::TEXTE }),
+            texte("Aménagements", 13.0, if caches { charte::MUET } else { charte::TEXTE }),
         ],
     ));
 }
@@ -1757,7 +1826,7 @@ fn en_tete(e: &mut ChildSpawnerCommands, city: &City, images: &Images, catalogue
                 let (t, couleur) = if variation > 0 {
                     let suivant = rules::habitants_du_palier(c.palier() + 1);
                     let tours = (suivant.saturating_sub(c.habitants) as f64 / variation as f64).ceil();
-                    (format!("+{} par tour · palier {} dans {} tours", rules::milliers(variation as u64), c.palier() + 1, tours), charte::OK)
+                    (format!("+{} par tour · palier {} dans {tours} tour{}", rules::milliers(variation as u64), c.palier() + 1, if tours > 1.0 { "s" } else { "" }), charte::OK)
                 } else if variation == 0 {
                     ("population stable".into(), charte::ALERTE)
                 } else {
@@ -2060,6 +2129,13 @@ fn couleur_genre(g: rules::GenreEvenement) -> Color {
 
 /// Fiche d'une case choisie sur la carte ou dans la liste.
 fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::WorldMap, images: &Images, seule: Option<Grandeur>, forcage: Option<&VueForcage>) {
+    fiche_case_corps(g, c, map, images, seule);
+    if let (Some(f), false) = (forcage, c.centre) {
+        g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| effectif(p, c, f));
+    }
+}
+
+fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::WorldMap, images: &Images, seule: Option<Grandeur>) {
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() }).with_children(|t| {
             t.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(c.nom.clone(), 17.0, charte::TEXTE)]));
@@ -2074,9 +2150,6 @@ fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::World
                 l.spawn(texte(format!("{} / {}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())), 13.5, charte::TEXTE));
                 l.spawn(barre(c.remplissage(), 90.0, if c.remplissage() >= 0.9 { charte::ALERTE } else { charte::OK }));
             });
-            if let Some(f) = forcage {
-                effectif(p, c, f);
-            }
         }
         let part = if c.capacite > 0 { (c.remplissage() as f64).powf(intendant::EXPOSANT) } else { 1.0 };
         // Gain de 100 travailleurs de plus (l'intendant place des blocs de 100)
@@ -2103,7 +2176,9 @@ fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::World
         }
         if !c.centre {
             let possibles: Vec<Amenagement> = Amenagement::possibles(map, c.hex).into_iter().filter(|a| Some(*a) != c.amenagement).collect();
-            if possibles.is_empty() {
+            if c.en_file {
+                p.spawn(texte("Un aménagement de cette case est déjà dans la file de construction.", 12.5, charte::MUET));
+            } else if possibles.is_empty() {
                 p.spawn(texte("Aucun autre aménagement possible ici.", 12.5, charte::MUET));
             } else {
                 p.spawn(texte("Aménager cette case (un aménagement par case : il remplace l'actuel) :", 13.0, charte::TEXTE));
@@ -2192,8 +2267,19 @@ fn poser_graphique(p: &mut ChildSpawnerCommands, image: Handle<Image>, cb: &crat
             let t = if cb.log { rules::milliers(v.round() as u64) } else { rules::decimal(v) };
             poser(gph, 0.0, tr.y(v) - 8.0, MARGE_GAUCHE - 6.0, true, t, charte::MUET);
         }
-        for s in &cb.seuils {
-            poser(gph, MARGE_GAUCHE, tr.y(s.valeur) - 17.0, tr.taille.x - MARGE_GAUCHE - MARGE_DROITE - 4.0, true, s.libelle.clone(), s.couleur);
+        // (deux seuils proches : le second à gauche, pour que les libellés ne se chevauchent pas)
+        let mut seuils: Vec<&crate::graphique::Seuil> = cb.seuils.iter().collect();
+        seuils.sort_by(|a, b| tr.y(a.valeur).total_cmp(&tr.y(b.valeur)));
+        let mut dernier: Option<(f32, bool)> = None;
+        for s in seuils {
+            let y = tr.y(s.valeur);
+            let droite = !matches!(dernier, Some((y0, true)) if (y - y0).abs() < 16.0);
+            let gauche = if droite { MARGE_GAUCHE } else { MARGE_GAUCHE + 4.0 };
+            gph.spawn((
+                Node { position_type: PositionType::Absolute, left: Val::Px(gauche), top: Val::Px(y - 17.0), width: Val::Px(tr.taille.x - MARGE_GAUCHE - MARGE_DROITE - 8.0), justify_content: if droite { JustifyContent::FlexEnd } else { JustifyContent::FlexStart }, ..default() },
+                children![texte(s.libelle.clone(), 11.5, s.couleur)],
+            ));
+            dernier = Some((y, droite));
         }
         let bas = tr.taille.y - 18.0;
         let n = cb.passe.len();
@@ -2241,6 +2327,10 @@ fn courbe_population(city: &City, cases: &[CaseVue]) -> crate::graphique::Courbe
 /// Détail d'une grandeur : graphique (passé, prévision, seuils), d'où elle vient, où elle va.
 #[allow(clippy::too_many_arguments)]
 fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[CaseVue], images: &Images, image: Handle<Image>, cb: &crate::graphique::Courbe, tr: &crate::graphique::Trace, periode: usize, reglages: &[(Reglage, Rendements, i64)]) {
+    // (les réglages de l'intendant d'abord : ce sont les décisions, ils doivent tenir à l'écran)
+    if !reglages.is_empty() {
+        reglages_intendant(g, gr, city, reglages);
+    }
     let c = &city.state;
     let total = valeur(&city.travail.rendements, gr);
     let centre = cases.iter().find(|c| c.centre).map_or(0.0, |c| valeur(&c.rendement, gr));
@@ -2326,9 +2416,6 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
         });
         p.spawn(texte("Sur la carte : la grandeur de chaque case.", 12.5, charte::MUET));
     });
-    if !reglages.is_empty() {
-        reglages_intendant(g, gr, city, reglages);
-    }
 }
 
 /// Réglage de l'intendant pour une grandeur, avec l'effet de chaque choix sur toute la ville.
@@ -2390,9 +2477,14 @@ fn effectif(p: &mut ChildSpawnerCommands, c: &CaseVue, f: &VueForcage) {
     let depart = f.propose.map_or(c.travailleurs, |(n, _)| n);
     p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
         l.spawn(texte("Forcer l'effectif :", 13.0, charte::TEXTE));
-        l.spawn((Forcage::Proposer(c.hex, depart.saturating_sub(100)), bouton(Color::NONE), children![texte("−100", 13.0, charte::TEXTE)]));
-        l.spawn(texte(rules::milliers(depart.into()), 13.5, charte::TEXTE));
-        l.spawn((Forcage::Proposer(c.hex, (depart + 100).min(c.capacite)), bouton(Color::NONE), children![texte("+100", 13.0, charte::TEXTE)]));
+        // (on ne propose que ce qui change quelque chose : pas de −100 à zéro, pas de +100 case pleine)
+        if depart > 0 {
+            l.spawn((Forcage::Proposer(c.hex, depart.saturating_sub(100)), bouton(Color::NONE), children![texte("−100", 13.0, charte::TEXTE)]));
+        }
+        l.spawn(texte(format!("{} / {}", rules::milliers(depart.into()), rules::milliers(c.capacite.into())), 13.5, charte::TEXTE));
+        if depart < c.capacite {
+            l.spawn((Forcage::Proposer(c.hex, (depart + 100).min(c.capacite)), bouton(Color::NONE), children![texte("+100", 13.0, charte::TEXTE)]));
+        }
     });
     if let Some((n, d)) = f.propose {
         p.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::axes(Val::Px(9.0), Val::Px(7.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(7.0)), ..default() }, BorderColor::all(charte::TRAIT2))).with_children(|a| {
@@ -2439,6 +2531,9 @@ fn benefice(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], objet: &
                 format!("unité : tir {} (portée {}), défense {}, {} PM", st.ranged_attack, st.range, st.melee_defense, st.moves)
             } else if k.is_military() {
                 format!("unité : attaque {}, défense {}, {} PM", st.melee_attack, st.melee_defense, st.moves)
+            } else if k == rules::UnitKind::Settler {
+                let apres = rules::palier_de(city.state.habitants.saturating_sub(rules::HABITANTS_COLON));
+                format!("unité : {} PM · emmène {} habitants (palier {} → {})", st.moves, rules::milliers(rules::HABITANTS_COLON), city.state.palier(), apres)
             } else {
                 format!("unité : {} PM", st.moves)
             }
@@ -2502,8 +2597,22 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, ma
 }
 
 /// Catalogue : conseils de l'intendant, aménagements, unités, projets de ville, ponts.
-fn catalogue(l: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], placement: Option<Amenagement>) {
+fn catalogue(l: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], placement: Option<Amenagement>, groupe_vu: GroupeCatalogue) {
     let prod = city.travail.rendements.production;
+    // Onglets du catalogue : un seul groupe à la fois (tout tient à l'écran)
+    l.spawn(Node { column_gap: Val::Px(6.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|o| {
+        for (gr, t) in [(GroupeCatalogue::Amenagements, "Aménagements"), (GroupeCatalogue::Projets, "Projets de ville"), (GroupeCatalogue::Unites, "Unités")] {
+            let actif = gr == groupe_vu;
+            o.spawn((
+                ChoixGroupe(gr),
+                UiPointer::default(),
+                Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(3.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
+                BackgroundColor(if actif { charte::TEXTE } else { Color::NONE }),
+                BorderColor::all(charte::TRAIT2),
+                children![texte(t, 13.0, if actif { charte::FOND } else { charte::DOUX })],
+            ));
+        }
+    });
     let groupe = |l: &mut ChildSpawnerCommands, t: &str| {
         l.spawn((Node { margin: UiRect::top(Val::Px(6.0)), ..default() }, children![texte(t, 13.5, charte::DOUX)]));
     };
@@ -2524,6 +2633,7 @@ fn catalogue(l: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
         });
     };
     // Aménagements, avec leur meilleure case
+    if groupe_vu == GroupeCatalogue::Amenagements {
     groupe(l, "Aménagements de production : un par case, l'intendant y met ensuite les travailleurs");
     for a in Amenagement::ALL {
         let meilleure = conseil(map, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|c| c.hex == h));
@@ -2534,19 +2644,24 @@ fn catalogue(l: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
         let titre = if placement == Some(a) { format!("{} — en placement : choisissez une case sur la carte", capitale(a.nom())) } else { capitale(a.nom()) };
         item(l, Element::Amenagement(a), titre, detail, meilleure.is_some(), placement == Some(a));
     }
+    }
     // Projets de ville
+    if groupe_vu == GroupeCatalogue::Projets {
     groupe(l, "Projets de ville : sans fin, ils reçoivent la production quand la file est vide");
     for pj in crate::rules::Projet::TOUS {
         let detail = if pj.disponible() { pj.effet().to_string() } else { format!("{} : pas encore dans le jeu", pj.effet()) };
         item(l, Element::Projet(pj), pj.nom().into(), detail, pj.disponible(), city.state.projet == Some(pj));
     }
+    }
     // Unités
-    groupe(l, "Unités : ajoutées à la fin de la file");
+    if groupe_vu == GroupeCatalogue::Unites {
+    groupe(l, "Unités : ajoutées à la fin de la file ; ponts : leur emplacement se choisit sur la carte du monde");
     for k in crate::rules::UnitKind::ALL {
         let tours = rules::tours_restants(k.cost(), 0.0, prod).map_or("—".to_string(), |t| format!("{t} tour(s) seule"));
-        item(l, Element::Unite(k), k.name().into(), format!("{} production · {tours}", k.cost()), true, false);
+        let colon = if k == crate::rules::UnitKind::Settler { format!(" · emmène {} habitants", rules::milliers(rules::HABITANTS_COLON)) } else { String::new() };
+        item(l, Element::Unite(k), k.name().into(), format!("{} production · {tours}{colon}", k.cost()), true, false);
     }
-    groupe(l, "Ponts : l'emplacement se choisit sur la carte du monde (bouton « Pont… » du panneau de production)");
+    }
 }
 
 /// Fiche du placement d'un aménagement sur une case.
@@ -2630,14 +2745,19 @@ fn glisser_file(
     let y = pointeurs.iter().find(|(id, _)| **id == PointerId::Mouse).and_then(|(_, l)| l.location.as_ref()).map(|l| l.position.y);
     if mouse.just_pressed(MouseButton::Left)
         && let Some(y) = y
-        && let Some((_, l, ..)) = lignes.iter().find(|(_, _, p, ..)| **p != UiPointer::None)
+        && let Some((entite, l, ..)) = lignes.iter().find(|(_, _, p, ..)| **p != UiPointer::None)
     {
         // Centres et hauteurs des lignes au départ (les décalages ne doivent pas les fausser)
         let mut lignes_depart: Vec<(usize, f32, f32)> = lignes.iter().map(|(_, l, _, n, t, ..)| (l.0, t.translation.y * n.inverse_scale_factor(), n.size().y * n.inverse_scale_factor())).collect();
         lignes_depart.sort_by_key(|(i, ..)| *i);
-        *glisse = Some(Glisse { de: l.0, y0: y, bouge: false, lignes: lignes_depart, decalages: Default::default() });
+        *glisse = Some(Glisse { de: l.0, entite, y0: y, bouge: false, lignes: lignes_depart, decalages: Default::default() });
     }
     let Some(g) = glisse.as_mut() else { return };
+    if !lignes.iter().any(|(e, ..)| e == g.entite) {
+        // (l'écran s'est refait pendant le geste : on l'abandonne)
+        *glisse = None;
+        return;
+    }
     if let Some(y) = y
         && (y - g.y0).abs() > 6.0
         && !g.bouge
@@ -2717,6 +2837,7 @@ fn glisser_file(
 /// lignes au départ (rang, centre, hauteur), décalages affichés.
 struct Glisse {
     de: usize,
+    entite: Entity,
     y0: f32,
     bouge: bool,
     lignes: Vec<(usize, f32, f32)>,
@@ -2768,11 +2889,13 @@ fn construire_actions(
                 let n = city.state.file.len();
                 journal(format!(" met en file : {} ({}), position {n} ; à pleine capacité : {}.", a.nom(), c.nom.to_lowercase(), ecarts(&g.plein)));
                 anim.flash_file = Some((n - 1, time.elapsed_secs_f64()));
+                ecran.placement = None;
+                ecran.cible = None;
             } else {
+                // (refus : on reste en placement pour choisir une autre case)
                 journal(format!(" : un aménagement est déjà en file sur {}.", c.nom.to_lowercase()));
+                ecran.cible = None;
             }
-            ecran.placement = None;
-            ecran.cible = None;
         }
     }
     for (i, e) in &catalogue {

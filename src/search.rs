@@ -978,9 +978,11 @@ fn open_search(
     mut button: Query<(Ref<UiPointer>, &mut BackgroundColor), With<SearchButton>>,
     mut input: Single<(Entity, &mut EditableText), With<SearchInput>>,
     mut root: Single<&mut Node, With<SearchRoot>>,
+    ecran: Res<crate::ecran_ville::EcranVille>,
 ) {
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
-    let mut open = ctrl && keys.just_pressed(KeyCode::KeyF);
+    // (pas par-dessus l'écran de la ville : la recherche y serait invisible et garderait le clavier)
+    let mut open = ctrl && keys.just_pressed(KeyCode::KeyF) && !ecran.ouvert();
     for (interaction, mut bg) in &mut button {
         if interaction.is_changed() && *interaction == UiPointer::Pressed {
             open = !search.open;
