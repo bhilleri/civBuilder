@@ -250,6 +250,9 @@ habitants en 60 tours).
 - **Capacité** de chaque case en travailleurs ; **rendements décroissants** :
   rendement = maximum × (travailleurs / capacité)^0,7 (la moitié de la capacité donne ≈ 62 %).
 - Consignes du joueur : une priorité par ressource (normale, prioritaire, maximale) et des cases forcées.
+  **Changé le 11/11/2026** (maquette v19, lot 4) : la nourriture n'a plus de priorité mais un **objectif**
+  (1 ; 1,25 ; 1,5 ; 2 fois le besoin) que l'intendant vise d'abord ; la production et les deniers gardent
+  leur priorité ; grandeurs au même niveau = même poids.
 - **Chômage** : les actifs au-delà de la capacité totale sont signalés (et pèseront sur le Bien-être, 4c).
 
 | Case | Capacité | Rendement maximal | Coût |

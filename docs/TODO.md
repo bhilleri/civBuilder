@@ -350,7 +350,7 @@ son système. Maquette interactive de l'écran de la ville et de la construction
 **Maquette retenue le 11/11 (version 18)** : `docs/conception/maquettes/ecran-ville.html`, point de
 départ du développement de l'écran de la ville.
 Découpage en 7 lots (`conception-interface.md`, « Développement de l'écran de la ville ») ; **lot 1 fait
-le 11/11** (écran plein écran, charte, carte des cases, deniers). **Lot 2 fait le 11/11** (détail des grandeurs, graphiques, historique). **Lot 3 fait le 11/11** (file de construction, projets de ville, aménagements construits depuis l'écran). Suite : lot 4 (intendant à l'écran).
+le 11/11** (écran plein écran, charte, carte des cases, deniers). **Lot 2 fait le 11/11** (détail des grandeurs, graphiques, historique). **Lot 3 fait le 11/11** (file de construction, projets de ville, aménagements construits depuis l'écran). **Lot 4 fait le 11/11** (objectif de nourriture, priorités et forçage avec aperçu). Suite : lot 5 (onglet Population).
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :
 nom tiré de la langue) : renommer « Économie » en deniers dans le code, l'interface et le wiki.

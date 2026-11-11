@@ -594,6 +594,14 @@ placement en trois étapes ; mise en file par bouton, double-clic ou Entrée ; f
 gauche (avancer, retirer, projet). Écart avec la maquette : pas de fenêtre « Tout comparer » (avec
 trois aménagements, le catalogue donne déjà la meilleure case et le gain de chacun) ; elle viendra
 avec les bâtiments. Le panneau de production de la carte du monde met lui aussi en file.
+**Lot 4 fait le 11/11/2026** (`intendant::ObjectifNourriture`) : l'objectif de nourriture remplace
+la priorité de la nourriture dans le modèle (poids de la nourriture : 4 sous le besoin, 2 jusqu'à
+l'objectif, 0,3 au-delà ; défaut : croissance maximale = comportement d'avant) ; les réglages
+s'affichent sous le détail de la grandeur, une ligne par choix avec son effet calculé en refaisant la
+répartition (aperçu exact, pas d'estimation) et la croissance qui en résulte ; le choix actuel est
+encadré de blanc. Forcer l'effectif : ±100 depuis l'effectif actuel, aperçu de l'effet sur toute la
+ville, confirmer ou annuler. Pas encore : le « pourquoi » des emplois non pourvus (il viendra avec
+les bâtiments).
 Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
 l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
 
