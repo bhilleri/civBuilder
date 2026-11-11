@@ -477,6 +477,18 @@ Résultat (dernière version) :
     sélection (blanc). **Icônes de bâtiments** au lieu des codes à lettres ; pas d'abréviations ;
     une unité fixe par grandeur ; texte d'au moins 11 px ; carte d'au moins 40 % de l'écran.
   - **Clavier** : 1 à 4 pour les grandeurs, B pour construire, Échap pour remonter.
+  - **Maquette plein écran (grand écran, 1920 × 1080)**, après les retours de Benjamin : onglets
+    Rendements, Population, Commerce sur toute la largeur, au-dessus de la zone qu'ils commandent
+    (ils ne dépendent pas de la grandeur choisie) ; vue d'ensemble complète des huit grandeurs à
+    l'ouverture ; grandeurs secondaires cliquables comme les autres ; carte de la ville sur environ
+    la moitié de l'écran. **Construction** : chaque élément du catalogue dit en une ligne ce qu'il
+    fait ; une fenêtre « Tout comparer » liste bâtiments et aménagements possibles avec leur effet à
+    la meilleure case de la ville, leur coût et un bouton Construire ; bâtiments, aménagements de
+    production et aménagements de bonus forment trois groupes distincts. **Case choisie** : la
+    colonne de droite montre son activité, ses bonus, ses bâtiments, les bâtiments voisins qui
+    l'améliorent et ce qu'on peut y construire. **Chantiers en file** : en pointillé blanc sur leur
+    case ; au survol, avancement, délai et effet ; au clic, leur fiche (avancer, changer de case,
+    retirer).
   - **Plus tard** : une vue nationale détaillée pour gérer les villes et leurs problèmes (« ville
     suivante en alerte », file proposée par l'intendant) ; une vraie simulation pour les prévisions.
   - Implémentation dans Bevy : un seul état de sélection (pile), des nœuds d'interface persistants

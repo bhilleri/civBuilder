@@ -279,6 +279,19 @@ choix à l'écran viennent en 4b.
 - Construits par la file unique de la ville ; pendant le choix, la vue zoome sur la ville et montre
   le gain de chaque case et de chaque aménagement possible.
 - Irrigation, drainage, mines : plus tard, avec la recherche.
+- **Deux sortes d'aménagements, en plus des bâtiments (Benjamin, 11/11/2026)** :
+  - **aménagement de production** : l'activité de la case, **un par case** (il remplace l'ancien) :
+    champ, pâturage, coupe de bois, ferme… et en ville des **quartiers de production** (quartier
+    d'artisans pour les guildes et les ateliers privés, quartier marchand) ; il fixe le rendement
+    de la case et sa capacité en travailleurs ;
+  - **aménagement de bonus** : ne prend pas la place d'un bâtiment ni de l'activité, **plusieurs
+    par case**, chacun une fois : égouts, irrigation (sur un champ), drainage, rues pavées,
+    fontaines publiques, jardins publics… ; il donne un bonus à la case (hygiène, nourriture,
+    deniers, bien-être) ;
+  - **bâtiment** : s'ajoute sur une case et améliore aussi les cases voisines (moulin, atelier…).
+  Les trois familles se distinguent partout (catalogue, carte, fiches) : bâtiment en carré violet,
+  aménagement de production en rond vert (avec un motif sur la case : sillons du champ, points du
+  pâturage), aménagement de bonus en losange turquoise. Pas de champs dans les quartiers.
 
 ### 4c. Bien-être et hygiène (0 à 100)
 - **Bien-être** (60 au départ) : + nourriture couverte (jusqu'à +10 avec un surplus), − famine
