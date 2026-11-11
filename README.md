@@ -188,6 +188,7 @@ src/
 ├── game.rs         ECS : composants, ressources, fin de tour, brouillard
 ├── render.rs       Affichage des cases, unités, villes, frontières
 ├── input.rs        Caméra, sélection, ordres
+├── groupes.rs      Groupes d'unités : Maj + clic, cases d'arrivée réparties (testé), Ctrl + chiffre
 ├── ui.rs           Interface (barre du haut, panneaux, journal hiérarchisé, boutons)
 ├── wiki.rs         Wiki du jeu : contenu tiré des données et des règles, fenêtre de lecture
 ├── labels.rs       Étiquettes ancrées sur la carte (bannières des villes, tours d'arrivée en 3D)

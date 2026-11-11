@@ -9,6 +9,8 @@
 - La console `ville population` règle le palier. Les sauvegardes passent au format 2 (les anciennes sont refusées).
 - **« Or » devient « Économie »** partout (trésor, rendements des cases, butin des camps, échanges des villages, panneau de la ville, wiki) : le mot « or » reste pour le métal à venir. Le pilote écrit `economie=` au lieu de `or=`.
 - **Traverser ses propres unités** : un trajet passe par la case d'une unité alliée, à condition d'en repartir dans le même tour vers une case libre (hors zone de contrôle) ; sinon il la contourne. Le trajet affiché au survol suit la même règle.
+- **Groupes d'unités** (module `groupes.rs`) : Maj + clic ajoute une unité au groupe sélectionné (ou l'en retire) ; un clic droit envoie l'unité principale sur la case visée et les autres sur les cases libres les plus proches autour d'elle (chacune vers la plus proche d'elle-même). Ctrl + chiffre range le groupe, le chiffre le rappelle (sauf ville choisie), deux appuis rapides centrent la vue. Les autres membres du groupe ont un anneau plus pâle, en 2D et en 3D.
+- Pilote : `maj+clic col lig`, `ctrl+clic col lig` et `touche ctrl+1` (clic ou touche en tenant Maj ou Ctrl).
 - **L'éclaireur devient une unité militaire** légère et peu coûteuse (famille « reconnaissance »), sans zone de contrôle.
 
 ### Nouvelle partie

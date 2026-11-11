@@ -201,6 +201,13 @@ qui les rendent possibles dans `conception-ressources.md`.
    son armée). Un ordre de déplacement vers une case donne à chaque unité **une case d'arrivée**
    autour de la cible, en gardant la forme du groupe quand c'est possible (sinon les cases libres
    les plus proches, réparties pour que la somme des trajets soit faible).
+   **Fait le 11/11/2026, première forme** (`groupes.rs`) : Maj + clic seulement ; l'unité
+   principale va sur la cible, les autres sur les cases libres explorées à 3 cases au plus,
+   les plus proches de la cible d'abord, et parmi elles la plus proche de l'unité (les unités les
+   plus proches de la cible choisissent d'abord). Les trajets sont calculés l'un après l'autre en
+   tenant l'occupation à jour, sans réservation dans le temps ; l'ordre vaut pour le trajet de
+   chaque unité (pas encore d'ordre de groupe qui se suit d'un tour à l'autre). Un ennemi visible
+   sur la cible : seule l'unité principale attaque.
 4. **Chemins coopératifs** : les trajets sont calculés l'un après l'autre (les unités de tête
    d'abord) avec une **table de réservation dans le temps** (case et tour) : une unité ne prévoit pas
    de finir son tour sur une case qu'une autre a déjà réservée. Si une case se libère ou se bloque,
@@ -218,6 +225,9 @@ réservation, faible même pour une trentaine d'unités.
 - **Raccourcis clavier comme dans les jeux de stratégie en temps réel** : Ctrl + chiffre range le
   groupe sélectionné sous ce chiffre, le chiffre seul le sélectionne, deux appuis rapides centrent la
   carte dessus. Un groupe sans chef reste possible (simple sélection mémorisée), sans bonus.
+  **Fait le 11/11/2026** pour les groupes sans chef (dix groupes, 0 à 9 ; double appui en moins
+  de 0,4 s). Une ville choisie garde les chiffres pour sa production ; Ctrl + chiffre range
+  toujours le groupe.
 
 ### Proposition : chefs d'armée et amiraux
 - **Nombre limité** : selon l'ère, les institutions (armée de métier) et les bâtiments (école

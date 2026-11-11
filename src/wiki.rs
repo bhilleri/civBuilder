@@ -754,6 +754,12 @@ fn mechanics() -> Article {
             p("Une case ne peut accueillir qu'une unité. Vos unités se traversent : un trajet passe par la case \
                d'une de vos unités s'il reste assez de PM pour en repartir dans le même tour, sinon il la contourne. \
                Un clic droit sur une de vos unités adjacentes échange leurs places (sauf à travers une falaise)."),
+            h("Groupes d'unités"),
+            p("Maj + clic sur une de vos unités l'ajoute au groupe sélectionné (ou l'en retire) ; un clic simple \
+               revient à une seule unité. Clic droit avec un groupe : l'unité principale (anneau jaune vif) va sur \
+               la case visée, les autres (anneau pâle) sur les cases libres les plus proches autour d'elle. \
+               Ctrl + chiffre range le groupe sous ce chiffre, le chiffre seul le rappelle (quand aucune ville \
+               n'est choisie : les chiffres y choisissent la production), deux appuis rapides centrent la vue dessus."),
             h("Exploration automatique"),
             p("Touche E (unités militaires et éclaireur) : l'unité part vers la zone qui révèle le plus de cases \
                inconnues pour le moindre trajet, fait un détour pour visiter les villages et évite les abords des \

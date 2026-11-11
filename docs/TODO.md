@@ -15,7 +15,7 @@ l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cou
    partie et écran de nouvelle partie minimal (42).
 3. **Échelle recalée (30, première partie)** (population en habitants, paliers, PM et relief doublés : faits le 11/11) : PM et coûts du relief doublés, croissance, soins,
    population en habitants ; déplacements de groupe (39, première partie : traverser les alliés,
-   relève, sélection multiple, groupes au clavier) ; écarts code et conception (33).
+   sélection multiple et groupes au clavier faits le 11/11 ; relève à venir) ; écarts code et conception (33).
 4. **Villes du Néolithique (28, 17)** : intendant, aménagements, Bien-être, hygiène, territoire par
    la Culture ; refonte de l'écran de la ville (35).
 5. **Sol et ressources (14, 12, 15, 16)** : géologie, fertilité, gisements, plantes et animaux.
@@ -389,6 +389,9 @@ vite ; groupes de soldats associés à un chef, rappelés par raccourci clavier 
 expérience militaire et investissement, sur la case d'une unité mais fragiles, expérience et bonus
 de combat. Ravitaillement (lignes, fourrage, attrition, hivernage, camps), mer (cabotage puis haute
 mer, tempêtes, transport, blocus, pirates). Le déplacement de groupe peut venir tôt (il sert déjà).
+Fait le 11/11 (`groupes.rs`) : traverser les alliés, Maj + clic, cases d'arrivée réparties autour
+de la cible, Ctrl + chiffre / chiffre / double appui. Reste : ordre de relève, rectangle de
+sélection, réservation dans le temps, allures, ordres de groupe sur plusieurs tours, chefs.
 
 ### [ ] 40. Épidémies (décidé le 10/11)
 Voir `conception/conception-monde-vivant.md`. Maladies du milieu et épidémies propagées par le

@@ -120,8 +120,14 @@ impl Plugin for InputPlugin {
                     update_hovered_hex,
                     update_hover_path,
                     // Commandes de jeu suspendues pendant la lecture du wiki ou le menu Échap
-                    mouse_commands.run_if(no_overlay).run_if(crate::bridge_build::not_placing),
+                    // (groupes : avant les commandes, qui consomment le clic du pilote ; puis l'unité
+                    // principale ramenée dans le groupe)
+                    (crate::groupes::selection_de_groupe, crate::groupes::ordre_de_groupe, mouse_commands, crate::groupes::corriger_principale)
+                        .chain()
+                        .run_if(no_overlay)
+                        .run_if(crate::bridge_build::not_placing),
                     keyboard_commands.run_if(no_overlay),
+                    crate::groupes::groupes_au_clavier.run_if(no_overlay),
                 )
                     .chain()
                     .in_set(InputSet)
@@ -622,7 +628,9 @@ fn keyboard_commands(
     }
 
     // --- Commandes de ville : choix de la production
-    if let Ok((mut city, center)) = cities.get_mut(selected) {
+    // (Ctrl + chiffre range un groupe d'unités : voir `groupes.rs`)
+    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    if !ctrl && let Ok((mut city, center)) = cities.get_mut(selected) {
         let choices = [
             (KeyCode::Digit1, KeyCode::Numpad1),
             (KeyCode::Digit2, KeyCode::Numpad2),

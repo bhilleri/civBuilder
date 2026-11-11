@@ -42,12 +42,13 @@ const MAX_RADIUS: i32 = 6;
 const MAX_FRAMES: u32 = 6000;
 
 const HELP: &str = "Ordres du joueur :\n\
-etat : tour, or, unités, villes, ennemis en vue, villages et camps connus, derniers messages\n\
+etat : tour, économie, unités, villes, ennemis en vue, villages et camps connus, derniers messages\n\
 alentours [col lig] [rayon] : cases explorées autour d'une case (par défaut la sélection, rayon 2, 6 au plus)\n\
 survol col lig : place la souris sur la case et rend le texte de l'infobulle et le trajet prévu\n\
 clic col lig [côté] : clic gauche sur la case (sélection) ; avec un côté (e, ne, no, o, so, se), près de ce bord (arête d'une rivière, emplacement d'un pont)\n\
 clic-droit col lig : clic droit sur la case (ordre : déplacer, attaquer)\n\
-touche nom : appui sur une touche (a à z, 0 à 9, entree, tab, espace, echap, haut, bas, gauche, droite, f1 à f12)\n\
+maj+clic col lig, ctrl+clic col lig : clic en tenant Maj ou Ctrl (Maj + clic : ajouter une unité au groupe)\n\
+touche nom : appui sur une touche (a à z, 0 à 9, entree, tab, espace, echap, haut, bas, gauche, droite, f1 à f12 ; ctrl+nom, maj+nom en tenant Ctrl ou Maj)\n\
 interface : boutons visibles de l'interface, avec leur numéro et leur position\n\
 bouton numéro|texte : clic sur un bouton de l'interface\n\
 clic-ecran x y : clic gauche sur un point de l'écran, en pixels\n\
@@ -91,6 +92,15 @@ fn key_of(name: &str) -> Option<(KeyCode, Key)> {
     }
 }
 
+/// Préfixe « maj+ » ou « ctrl+ » d'un ordre ou d'une touche : la touche tenue et le reste.
+fn modificateur(nom: &str) -> Option<(KeyCode, &str)> {
+    if let Some(reste) = nom.strip_prefix("maj+") {
+        Some((KeyCode::ShiftLeft, reste))
+    } else {
+        nom.strip_prefix("ctrl+").map(|reste| (KeyCode::ControlLeft, reste))
+    }
+}
+
 /// Ordre du joueur décodé.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Order {
@@ -105,6 +115,8 @@ pub enum Order {
     Button(String),
     ScreenClick(Vec2),
     Zoom(f32),
+    /// Ordre joué en tenant une touche (Maj, Ctrl).
+    Avec(KeyCode, Box<Order>),
 }
 
 /// Destination d'une ligne du fichier d'ordres.
@@ -135,6 +147,14 @@ pub fn route(map: &WorldMap, line: &str) -> Route {
     }
     let refuse = |message: String| Route::Answer(vec![format!("ERREUR {message}")]);
     let head = token(first);
+    // « maj+clic 66 39 » : le même ordre, Maj tenue
+    if let Some((touche, reste)) = modificateur(&head).filter(|(_, r)| r.starts_with("clic")) {
+        let ligne = std::iter::once(reste).chain(words[1..].iter().copied()).collect::<Vec<_>>().join(" ");
+        return match route(map, &ligne) {
+            Route::Game(o) => Route::Game(Order::Avec(touche, Box::new(o))),
+            r => r,
+        };
+    }
     let cell = |usage: &str| match words[1..] {
         [c, r] => parse_cell(map, c, r),
         _ => Err(format!("usage : {usage}")),
@@ -161,7 +181,20 @@ pub fn route(map: &WorldMap, line: &str) -> Route {
             }
         }
         "touche" => match words[1..] {
-            [name] => key_of(name).map(|(code, key)| Order::Key(code, key)).ok_or(format!("touche inconnue : {name} (aide)")),
+            [name] => {
+                let nom = token(name);
+                let (tenue, nom) = match modificateur(&nom) {
+                    Some((t, reste)) => (Some(t), reste.to_string()),
+                    None => (None, nom.clone()),
+                };
+                key_of(&nom)
+                    .map(|(code, key)| Order::Key(code, key))
+                    .map(|o| match tenue {
+                        Some(t) => Order::Avec(t, Box::new(o)),
+                        None => o,
+                    })
+                    .ok_or(format!("touche inconnue : {name} (aide)"))
+            }
             _ => Err("usage : touche nom".to_string()),
         },
         "interface" => Ok(Order::Buttons),
@@ -549,10 +582,21 @@ pub fn run_orders(
     let frame = run.frame;
     let order = run.order.clone();
     let mut inputs: Vec<Input> = Vec::new();
+    // Ordre joué avec une touche tenue : elle est pressée à la première image, l'ordre suit
+    let (tenue, order, frame) = match order {
+        Order::Avec(t, o) => (Some(t), *o, frame - 1),
+        o => (None, o, frame),
+    };
+    let nom_tenue = |t: KeyCode| if t == KeyCode::ShiftLeft { Key::Shift } else { Key::Control };
+    if let Some(t) = tenue
+        && frame == 0
+    {
+        inputs.push(Input::KeyDown(t, nom_tenue(t)));
+    }
     let mut done_after = 0;
     let mut failure = None;
     match &order {
-        Order::State | Order::Around(..) | Order::Buttons | Order::Zoom(_) => {}
+        Order::State | Order::Around(..) | Order::Buttons | Order::Zoom(_) | Order::Avec(..) => {}
         Order::Hover(h) => {
             if frame == 1 {
                 pilot.cursor = Some(*h);
@@ -605,6 +649,11 @@ pub fn run_orders(
             done_after = 10;
         }
     }
+    if let Some(t) = tenue
+        && frame + 1 == done_after
+    {
+        inputs.push(Input::KeyUp(t, nom_tenue(t)));
+    }
     orders.inputs.extend(inputs);
     let settled = !end_turn.0 && !replay.playing;
     if failure.is_none() && (frame < done_after || (!settled && frame < MAX_FRAMES)) {
@@ -636,7 +685,7 @@ pub fn run_orders(
             lines
         }
         (Order::Click(h, button, _), _) => vec![format!("OK clic {} sur {}", if *button == MouseButton::Left { "gauche" } else { "droit" }, view.place(*h)), view.selection_line()],
-        (Order::Key(..), _) | (Order::Button(_), _) | (Order::ScreenClick(_), _) => vec![format!("OK tour={}", view.state.turn), view.selection_line()],
+        (Order::Avec(..), _) | (Order::Key(..), _) | (Order::Button(_), _) | (Order::ScreenClick(_), _) => vec![format!("OK tour={}", view.state.turn), view.selection_line()],
     };
     // Messages parus depuis la réponse précédente (`etat` donne déjà tout le journal)
     let seen = orders.log_seen;

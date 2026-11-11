@@ -2162,6 +2162,7 @@ fn draw_overlays(
     cities: Query<&City>,
     motions: Query<&Motion>,
     time: Res<Time>,
+    groupe: Res<crate::groupes::Groupe>,
 ) {
     // Frontières : arêtes entre une case possédée et une case non possédée (ou d'une autre ville)
     for (&hex, &owner) in &territory.0 {
@@ -2176,9 +2177,17 @@ fn draw_overlays(
     let Some(selected) = selection.0 else { return };
     let Ok(pos) = positions.get(selected) else { return };
     // (l'anneau suit l'unité pendant son déplacement mis en scène)
-    let (x, y) = pos.0.to_world();
-    let ring = motions.get(selected).ok().and_then(|m| m.sample(time.elapsed_secs_f64())).map_or(Vec2::new(x, y), |p| p.at);
-    gizmos.circle_2d(ring, HEX_SIZE * 0.85, Color::srgb(1.0, 0.9, 0.2));
+    let anneau = |e: Entity, h: Hex| {
+        let (x, y) = h.to_world();
+        motions.get(e).ok().and_then(|m| m.sample(time.elapsed_secs_f64())).map_or(Vec2::new(x, y), |p| p.at)
+    };
+    gizmos.circle_2d(anneau(selected, pos.0), HEX_SIZE * 0.85, Color::srgb(1.0, 0.9, 0.2));
+    // Autres unités du groupe : anneau plus pâle
+    for &e in groupe.0.iter().filter(|&&e| e != selected) {
+        if let Ok(p) = positions.get(e) {
+            gizmos.circle_2d(anneau(e, p.0), HEX_SIZE * 0.78, Color::srgba(1.0, 0.9, 0.2, 0.55));
+        }
+    }
 
     if let Ok(city) = cities.get(selected) {
         for h in &city.worked {

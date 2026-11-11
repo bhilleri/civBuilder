@@ -23,6 +23,7 @@ mod feedback;
 mod film;
 mod figures;
 mod game;
+mod groupes;
 mod hasard;
 mod geography;
 mod hex;
@@ -104,6 +105,6 @@ fn main() {
         .add_plugins(feedback::FeedbackPlugin)
         .add_plugins(film::FilmPlugin)
         .add_plugins(pointer::PointerPlugin)
-        .add_plugins(sauvegarde::SauvegardePlugin)
+        .add_plugins((sauvegarde::SauvegardePlugin, groupes::GroupesPlugin))
         .run();
 }

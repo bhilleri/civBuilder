@@ -2601,6 +2601,7 @@ fn draw_overlays_3d(
     hover: Res<HoverPath>,
     order: Res<OrderPath>,
     positions: Query<&HexPos>,
+    groupe: Res<crate::groupes::Groupe>,
 ) {
     let Some(relief) = relief else { return };
     if !mode.is_3d {
@@ -2647,6 +2648,12 @@ fn draw_overlays_3d(
     let Some(selected) = selection.0 else { return };
     let Ok(pos) = positions.get(selected) else { return };
     ground_circle(&mut gizmos, pos.0, 2.0, HEX_SIZE * 0.85, Color::srgb(1.0, 0.9, 0.2));
+    // Autres unités du groupe : anneau plus pâle
+    for &e in groupe.0.iter().filter(|&&e| e != selected) {
+        if let Ok(p) = positions.get(e) {
+            ground_circle(&mut gizmos, p.0, 2.0, HEX_SIZE * 0.78, Color::srgba(1.0, 0.9, 0.2, 0.55));
+        }
+    }
     let path_line = |gizmos: &mut Gizmos<Gizmos3d>, path: &[Hex], color: Color| {
         // Chaque case prise du côté du raccord le plus proche de la précédente (tracé continu)
         let mut prev = pos.0;
