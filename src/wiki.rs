@@ -8,7 +8,7 @@ use crate::map::{
     CLIMB_GENTLE_M, CLIMB_STEEP_M, HILL_MOVE_COST, HILL_PRODUCTION, MOUNTAIN_MIN_M, MOUNTAIN_MOVE_MAX, MOUNTAIN_MOVE_MIN, MOUNTAIN_STEP_M,
     MOUNTAIN_YIELDS, RELIEF_MOVE_CAP, RUGGED_MOVE_COST, Relief, Terrain, UNKNOWN_MOVE_COST,
 };
-use crate::rules::{DETOUR_TOLERANCE_PERCENT, MAX_HP, MIN_CITY_DISTANCE, growth_threshold};
+use crate::rules::{DETOUR_TOLERANCE_PERCENT, HABITANTS_COLON, MAX_HP, MIN_CITY_DISTANCE, habitants_du_palier};
 use crate::sites::{CAMP_MIN_FROM_START, LAND_PER_CAMP, LAND_PER_VILLAGE, VILLAGE_MIN_FROM_START};
 use crate::units::{UnitClass, UnitKind};
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
@@ -475,7 +475,7 @@ fn terrain() -> Article {
                 "Le relief est interne à la case et s'ajoute au terrain : une forêt peut être vallonnée, une toundra \
                  montagneuse. Il dépend de la dénivelée avec les cases voisines et de l'altitude. Les coûts d'un relief \
                  vallonné ou accidenté s'ajoutent au terrain sans dépasser {RELIEF_MOVE_CAP} PM. Une montagne coûte \
-                 {MOUNTAIN_MOVE_MIN} PM jusqu'à {} m, puis 1 PM de plus par tranche de {MOUNTAIN_STEP_M:.0} m, jusqu'à \
+                 {MOUNTAIN_MOVE_MIN} PM jusqu'à {} m, puis 2 PM de plus par tranche de {MOUNTAIN_STEP_M:.0} m, jusqu'à \
                  {MOUNTAIN_MOVE_MAX} PM : les cols et les vallées, plus bas que les crêtes, sont les passages les plus \
                  rapides (la cavalerie paie le double, l'éclaireur les deux tiers). Ce qui dépasse les PM de l'unité \
                  est dû sur les tours suivants (voir « Mécaniques »). Collines, relief accidenté et montagne empêchent la charge de \
@@ -487,8 +487,8 @@ fn terrain() -> Article {
             h("Altitude"),
             p(format!(
                 "Chaque case de terre a une altitude en mètres (carte de l'altitude). Pente : monter de moins de \
-                 {CLIMB_GENTLE_M:.0} m vers une case voisine ne coûte rien de plus, jusqu'à {CLIMB_STEEP_M:.0} m +1 PM, \
-                 au-delà +2 PM ; descendre est gratuit. Entre deux cases dont l'altitude diffère de 1 000 m ou plus (la \
+                 {CLIMB_GENTLE_M:.0} m vers une case voisine ne coûte rien de plus, jusqu'à {CLIMB_STEEP_M:.0} m +2 PM, \
+                 au-delà +4 PM ; descendre est gratuit. Entre deux cases dont l'altitude diffère de 1 000 m ou plus (la \
                  plus basse sous 1 500 m), une falaise est infranchissable dans les deux sens : on ne peut ni y combattre au corps à corps \
                  ni flanquer à travers. Être plus haut d'au moins {} m donne +{HIGHER_GROUND_DEFENSE} en défense de \
                  mêlée et +{HIGH_GROUND_PERCENT} % de force de tir ; un tireur plus bas d'autant perd 1 de portée.",
@@ -624,7 +624,7 @@ fn terrain() -> Article {
             p("Le relief a ses noms : les chaînes de montagnes (montagnes et pics d'un seul tenant), découpées en \
                massifs d'une vingtaine de cases quand elles sont longues ; les cols, passages moins chers entre deux \
                montagnes, là où les deux côtés de la chaîne ne se rejoignent pas de près (franchir une montagne \
-               coûte de 4 à 8 PM selon son altitude, un pic ne se franchit pas : le col fait gagner des PM, il est à \
+               coûte de 8 à 16 PM selon son altitude, un pic ne se franchit pas : le col fait gagner des PM, il est à \
                tenir ; la recherche donne son altitude) ; les plateaux (terres plates ou vallonnées au-dessus de 1 500 m) et les \
                collines (amas de cases vallonnées, bonnes à défendre). Les noms s'écrivent en brun clair : \
                chaînes en capitales de loin, massifs, plateaux et collines en s'approchant, cols de près. \
@@ -806,7 +806,7 @@ fn mechanics() -> Article {
 }
 
 fn cities() -> Article {
-    let thresholds = (1..=6).map(|pop| vec![pop.to_string(), growth_threshold(pop).to_string()]).collect();
+    let paliers = [1, 2, 3, 5, 10, 15, 20, 25, 30].iter().map(|&p| vec![p.to_string(), habitants_du_palier(p).to_string()]).collect();
     Article {
         title: "Villes",
         icon: "icons/wiki_cities.png",
@@ -815,18 +815,23 @@ fn cities() -> Article {
             p(format!(
                 "Un colon fonde une ville sur sa case (touche B), sur n'importe quel terrain franchissable, à {MIN_CITY_DISTANCE} \
                  cases au moins d'une autre ville. Elle naît en hameau : quelques maisons, un grand toit et un mât à vos couleurs, sans \
-                 enceinte. Elle devient bourg à 3 habitants, puis ville à 6, en ajoutant des bâtiments. Ses matériaux viennent du lieu, et \
+                 enceinte. Elle devient bourg au palier 3, puis ville au palier 6, en ajoutant des bâtiments. Ses matériaux viennent du lieu, et \
                  elle s'adapte à la case : rien sur les rives, maisons dans le sens de la pente, ponton si l'eau est proche. Une ville \
                  fortifiée a une muraille et plusieurs portes, qui suivent le terrain. La garnison se tient sur la place. Dans un marais, les \
                  maisons sont sur pilotis, reliées par des passerelles, et les mares se réduisent quand la ville grandit. Au stade Ville, une                  ville sur un cours d'eau jette un pont vers l'autre rive, gardé par une tour si elle est fortifiée (décor pour l'instant :                  il ne change pas les déplacements)."
             )),
             h("Rendements"),
-            p("La case centrale rapporte au moins 2 nourriture, 2 production et 1 or. Chaque habitant exploite en \
-               plus une case du territoire, choisie automatiquement parmi les meilleures."),
+            p("La case centrale rapporte au moins 2 nourriture, 2 production et 1 or. Chaque palier de population \
+               exploite en plus une case du territoire, choisie automatiquement parmi les meilleures."),
             h("Croissance"),
-            p("Chaque habitant consomme 2 nourriture. Le surplus s'accumule ; quand le stock atteint le seuil, la \
-               ville gagne un habitant. En cas de famine, elle en perd un."),
-            table(&["Population", "Nourriture pour grandir"], thresholds),
+            p(format!(
+                "La population compte les habitants de toute l'aire de la ville, ses campagnes comprises. Un point de \
+                 nourriture nourrit 1 000 habitants. Avec un surplus, la population grandit de 1,5 % par tour au plus \
+                 (atteint avec 50 % de nourriture en plus du besoin) ; en famine, elle perd de 2 à 5 % par tour. Le palier \
+                 résume la taille : il fixe le territoire, le stade de la ville et le nombre de cases exploitées. Un colon \
+                 emporte {HABITANTS_COLON} habitants, d'une ville qui en compte au moins le double."
+            )),
+            table(&["Palier", "Habitants de l'aire"], paliers),
             h("Territoire"),
             p("Le territoire s'étend à 1 case autour de la ville, puis à 2 cases à partir de 3 habitants. Il sert \
                aux cases exploitées et aux soins (+20 PV par tour en territoire ami)."),

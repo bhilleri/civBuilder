@@ -2,6 +2,12 @@
 
 ## Prochaine version (en cours)
 
+### Échelle de la partie (étape 3 de la feuille de route)
+- **Population en habitants de toute l'aire** (ville et campagnes) : une ville naît avec 1 000 habitants ; le **palier** (1 à 30) résume sa taille, de 1 000 à 2 500 000 habitants (repères : 10 000 au palier 5, 50 000 au 10, 150 000 au 15, 400 000 au 20, 1 000 000 au 25), et règle le territoire, le stade de la ville et les cases exploitées. **1 point de nourriture nourrit 1 000 habitants** ; croissance naturelle de 1,5 % par tour au plus (atteinte avec 50 % de nourriture en plus du besoin), famine de 2 à 5 % par tour. Plus de stock de nourriture ni de seuil.
+- **Colon** : il emporte 1 000 habitants, d'une ville qui en compte au moins 2 000. Un village qui rejoint une ville lui apporte 1 000 habitants.
+- **Points de mouvement doublés** (milice 4, cavalerie légère 8), **coûts des terrains difficiles doublés** (forêt 4, marais 6, collines +2, relief accidenté +4, montagne 8 à 16, rivière +4, fleuve 6, banquise 4, montée +2 ou +4) ; plaine et pont inchangés (1 PM) : on va deux fois plus loin en plaine, le relief reste une barrière. L'archer monté garde ses PM moins 2 après un tir. La faction hostile chasse à 4 cases et erre à 6 cases de sa base.
+- La console `ville population` règle le palier. Les sauvegardes passent au format 2 (les anciennes sont refusées).
+
 ### Nouvelle partie
 - **Écran de nouvelle partie** au lancement du jeu (maquette v4 validée) :
   - **Code du monde** (`777-M-T29-C0-R0` : graine, taille, terres, climat, relief) avec Hasard, Copier, Coller (Entrée l'applique, un code illisible est signalé) ;

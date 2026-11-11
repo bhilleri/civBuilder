@@ -2098,7 +2098,7 @@ fn update_decor_3d(
     let mut clearing: HashMap<Hex, f32> = HashMap::new();
     let mut city_changed = false;
     for (pos, city) in &cities {
-        let stage = crate::settlements::stage_of_population(city.state.population);
+        let stage = crate::settlements::stage_of_population(city.state.palier());
         let code = stage as u8 * 2 + u8::from(city.state.fortified);
         if shown_codes.insert(pos.0, code) != Some(code) {
             city_changed = true;
@@ -2347,7 +2347,7 @@ fn sync_mirrors(
         let city = cities.get(mirror.source).ok();
         // (et le pont construit sur une rivière qui la borde : porte et tête de pont)
         let bridge_dir = city.and_then(|_| (0..6).find(|&d| map.0.bridge_between(hex, map.0.wrap().neighbor(hex, d))));
-        let code = city.map_or(0, |c| crate::settlements::stage_of_population(c.state.population) as u8 * 2 + u8::from(c.state.fortified)) + bridge_dir.map_or(0, |d| 8 * (d as u8 + 1));
+        let code = city.map_or(0, |c| crate::settlements::stage_of_population(c.state.palier()) as u8 * 2 + u8::from(c.state.fortified)) + bridge_dir.map_or(0, |d| 8 * (d as u8 + 1));
         // Unité sur une case de fleuve avec pont : sur le tablier (1) ou dans l'eau, à côté (2)
         let deck = bridges.deck(hex).filter(|_| mirror.is_unit);
         let code = match (deck, unit) {
@@ -2430,7 +2430,7 @@ fn sync_mirrors(
                             SitePose::Camp(crate::settlements::camp_layout(&site, family, state.kind, seed))
                         } else {
                             SitePose::Town(match city {
-                                Some(city) => crate::settlements::city_layout(&site, family, crate::settlements::stage_of_population(city.state.population), city.state.fortified, seed),
+                                Some(city) => crate::settlements::city_layout(&site, family, crate::settlements::stage_of_population(city.state.palier()), city.state.fortified, seed),
                                 // (été frais : un village d'éleveurs plutôt qu'un village de culture)
                                 None => crate::settlements::village_layout(&site, map.0.warmest_season(hex).map_or(family, |t| crate::settlements::village_family(family, t)), seed),
                             })

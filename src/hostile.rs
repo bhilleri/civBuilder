@@ -25,11 +25,13 @@ pub const CAMP_SPAWN_INTERVAL: u32 = 6;
 /// Nombre maximal de guerriers rattachés à un même camp.
 pub const CAMP_MAX_UNITS: usize = 2;
 /// Rayon d'errance des guerriers hostiles autour de leur base.
-pub const WANDER_RADIUS: i32 = 3;
+pub const WANDER_RADIUS: i32 = 6;
 /// Distance à laquelle un guerrier hostile repère et va attaquer une unité du joueur.
-pub const HUNT_RANGE: i32 = 2;
+pub const HUNT_RANGE: i32 = 4;
 /// En dessous de ces PV, un guerrier hostile sans cible favorable reste sur place pour se soigner.
 pub const WOUNDED_HP: i32 = 60;
+/// Habitants qu'un village apporte en rejoignant une ville (un clan et ses terres).
+pub const VILLAGE_HABITANTS: u64 = 1_000;
 /// Or obtenu en dispersant un camp.
 pub const CAMP_CAPTURE_GOLD: i32 = 25;
 
@@ -196,8 +198,8 @@ pub fn visit_sites(
             VillageEvent::JoinCity => {
                 let target = sites::nearest(&map.0, pos.0, &city_list).expect("au moins une ville");
                 let (entity, center, mut city) = cities.get_mut(target).unwrap();
-                city.state.population += 1;
-                let radius = rules::territory_radius(city.state.population);
+                city.state.habitants += VILLAGE_HABITANTS;
+                let radius = rules::territory_radius(city.state.palier());
                 claim_territory(&mut territory.0, entity, center.0, radius, &map.0);
                 log.notify(
                     Importance::Success,

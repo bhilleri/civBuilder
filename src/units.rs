@@ -97,19 +97,20 @@ impl UnitKind {
     pub fn stats(self) -> UnitStats {
         use UnitClass::*;
         // (coût, att. mêlée, déf. mêlée, att. distance, portée, déf. distance, PM, vision, famille)
+        // (PM doublés le 11/11/2026, avec les coûts du relief : `conception-combat.md`, révision 2)
         let (cost, ma, md, ra, range, rd, moves, sight, class) = match self {
-            UnitKind::Settler => (40, 0, 2, 0, 0, 2, 2, 2, Civilian),
-            UnitKind::Scout => (15, 4, 5, 0, 0, 5, 3, 3, Civilian),
-            UnitKind::Militia => (15, 8, 8, 0, 0, 6, 2, 2, Infantry),
-            UnitKind::ShieldWarrior => (30, 10, 16, 0, 0, 18, 2, 2, Infantry),
-            UnitKind::HeavyWarrior => (35, 20, 10, 0, 0, 8, 2, 2, Infantry),
-            UnitKind::Spearman => (30, 12, 15, 0, 0, 14, 2, 2, AntiCavalry),
-            UnitKind::Pikeman => (35, 12, 13, 0, 0, 6, 2, 2, AntiCavalry),
-            UnitKind::ArcherSwordsman => (35, 12, 11, 12, 2, 9, 2, 2, Ranged),
-            UnitKind::ExpertArcher => (40, 5, 6, 20, 2, 7, 2, 2, Ranged),
-            UnitKind::LightCavalry => (45, 16, 9, 0, 0, 8, 4, 3, Cavalry),
-            UnitKind::HeavyCavalry => (60, 24, 16, 0, 0, 14, 3, 2, Cavalry),
-            UnitKind::HorseArcher => (50, 8, 8, 10, 1, 9, 4, 3, Cavalry),
+            UnitKind::Settler => (40, 0, 2, 0, 0, 2, 4, 2, Civilian),
+            UnitKind::Scout => (15, 4, 5, 0, 0, 5, 6, 3, Civilian),
+            UnitKind::Militia => (15, 8, 8, 0, 0, 6, 4, 2, Infantry),
+            UnitKind::ShieldWarrior => (30, 10, 16, 0, 0, 18, 4, 2, Infantry),
+            UnitKind::HeavyWarrior => (35, 20, 10, 0, 0, 8, 4, 2, Infantry),
+            UnitKind::Spearman => (30, 12, 15, 0, 0, 14, 4, 2, AntiCavalry),
+            UnitKind::Pikeman => (35, 12, 13, 0, 0, 6, 4, 2, AntiCavalry),
+            UnitKind::ArcherSwordsman => (35, 12, 11, 12, 2, 9, 4, 2, Ranged),
+            UnitKind::ExpertArcher => (40, 5, 6, 20, 2, 7, 4, 2, Ranged),
+            UnitKind::LightCavalry => (45, 16, 9, 0, 0, 8, 8, 3, Cavalry),
+            UnitKind::HeavyCavalry => (60, 24, 16, 0, 0, 14, 6, 2, Cavalry),
+            UnitKind::HorseArcher => (50, 8, 8, 10, 1, 9, 8, 3, Cavalry),
         };
         UnitStats {
             cost,

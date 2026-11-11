@@ -354,14 +354,14 @@ pub fn resolve(e: &Engagement, rng: &mut impl Rng) -> Outcome {
 }
 
 /// Applique un combat aux deux unités : PV, indicateurs, PM de l'attaquant (l'archer monté
-/// garde ses PM moins 1 pour se replier après un tir ; les autres terminent leur tour).
+/// garde ses PM moins 2 pour se replier après un tir ; les autres terminent leur tour).
 /// L'avance sur la case libérée et la dispersion (PV à 0) sont gérées par l'appelant.
 pub fn apply(attacker: &mut UnitState, defender: &mut UnitState, e: &Engagement, rng: &mut impl Rng) -> Outcome {
     let outcome = resolve(e, rng);
     attacker.hp = outcome.attacker_hp;
     defender.hp = outcome.defender_hp;
     attacker.moves_left = if e.kind == AttackKind::Ranged && attacker.kind == UnitKind::HorseArcher {
-        attacker.moves_left.saturating_sub(1)
+        attacker.moves_left.saturating_sub(2)
     } else {
         0
     };
@@ -593,7 +593,7 @@ mod tests {
         let mut att = UnitState::new(HorseArcher);
         let mut def = UnitState::new(Militia);
         apply(&mut att, &mut def, &Engagement::ranged(f(HorseArcher), f(Militia)), &mut rng);
-        assert_eq!(att.moves_left, 3);
+        assert_eq!(att.moves_left, 6);
         assert_eq!(att.hp, MAX_HP);
         assert!(!can_attack_now(&att), "une seule attaque par tour");
         let mut expert = UnitState::new(ExpertArcher);

@@ -1073,7 +1073,7 @@ fn build_index(
     }
     let site_list: Vec<(Entity, String, bool)> =
         sites.iter().filter(|(_, _, p, _)| fog.explored.contains(&p.0)).map(|(e, n, _, camp)| (e, n.0.clone(), camp)).collect();
-    let mut list: Vec<(Entity, String, i32)> = cities.iter().map(|(e, c)| (e, c.state.name.clone(), c.state.population)).collect();
+    let mut list: Vec<(Entity, String, i32)> = cities.iter().map(|(e, c)| (e, c.state.name.clone(), c.state.palier())).collect();
     list.sort_by(|a, b| a.1.cmp(&b.1));
     search.entries = build_entries(&map.0, &fog.explored, &list, &site_list);
     search.stale = false;

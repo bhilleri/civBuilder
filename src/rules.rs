@@ -387,9 +387,60 @@ pub fn territory_radius(population: i32) -> i32 {
     if population >= 3 { 2 } else { 1 }
 }
 
-/// Nourriture à accumuler pour passer à la population suivante.
-pub fn growth_threshold(population: i32) -> i32 {
-    15 + 6 * (population - 1)
+// ---------------------------------------------------------------- Population de l'aire
+
+/// Habitants emportés par un colon ; une ville en forme un à partir du double.
+pub const HABITANTS_COLON: u64 = 1_000;
+/// Habitants nourris par un point de nourriture.
+pub const HABITANTS_PAR_NOURRITURE: f64 = 1_000.0;
+/// Croissance naturelle par tour d'une aire bien nourrie (1,5 %).
+pub const CROISSANCE_NATURELLE: f64 = 0.015;
+/// Surplus de nourriture (part du besoin) qui donne toute la croissance naturelle.
+pub const SURPLUS_POUR_CROITRE: f64 = 0.5;
+/// Perte par tour en famine : de 2 % (léger manque) à 5 % (plus rien à manger).
+pub const FAMINE_MIN: f64 = 0.02;
+pub const FAMINE_MAX: f64 = 0.05;
+/// Population en dessous de laquelle une famine ne fait plus baisser une ville.
+pub const HABITANTS_PLANCHER: u64 = 500;
+/// Palier le plus haut de la table.
+pub const PALIER_MAX: i32 = 30;
+/// Paliers repères et habitants de toute l'aire (ville et campagnes), validés le 11/11/2026
+/// (`docs/conception/conception-echelle-et-but.md`) ; les autres paliers s'en déduisent.
+const REPERES: [(i32, f64); 8] = [(1, 1_000.0), (3, 3_000.0), (5, 10_000.0), (10, 50_000.0), (15, 150_000.0), (20, 400_000.0), (25, 1_000_000.0), (30, 2_500_000.0)];
+
+/// Habitants de l'aire au début d'un palier (progression géométrique entre les repères).
+pub fn habitants_du_palier(palier: i32) -> u64 {
+    let p = palier.clamp(1, PALIER_MAX);
+    let (mut a, mut b) = (REPERES[0], REPERES[1]);
+    for w in REPERES.windows(2) {
+        if p >= w[0].0 && p <= w[1].0 {
+            (a, b) = (w[0], w[1]);
+            break;
+        }
+    }
+    let t = f64::from(p - a.0) / f64::from(b.0 - a.0);
+    let h = a.1 * (b.1 / a.1).powf(t);
+    // Arrondi à la centaine (au millier au-delà de 100 000)
+    let pas = if h >= 100_000.0 { 1_000.0 } else { 100.0 };
+    ((h / pas).round() * pas) as u64
+}
+
+/// Palier d'une aire d'après ses habitants (1 au moins).
+pub fn palier_de(habitants: u64) -> i32 {
+    (1..=PALIER_MAX).rev().find(|&p| habitants >= habitants_du_palier(p)).unwrap_or(1)
+}
+
+/// Variation des habitants en un tour selon la nourriture produite : croissance naturelle quand
+/// la nourriture dépasse le besoin (pleine à 50 % de surplus), famine quand elle manque.
+pub fn variation_des_habitants(habitants: u64, nourriture: i32) -> i64 {
+    let besoin = (habitants as f64 / HABITANTS_PAR_NOURRITURE).max(0.001);
+    let couverture = f64::from(nourriture.max(0)) / besoin;
+    let taux = if couverture >= 1.0 {
+        CROISSANCE_NATURELLE * ((couverture - 1.0) / SURPLUS_POUR_CROITRE).min(1.0)
+    } else {
+        -(FAMINE_MIN + (FAMINE_MAX - FAMINE_MIN) * (1.0 - couverture))
+    };
+    (habitants as f64 * taux).round() as i64
 }
 
 pub fn can_found_city(map: &WorldMap, at: Hex, cities: &[Hex]) -> Result<(), &'static str> {
@@ -529,8 +580,8 @@ impl Production {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CityState {
     pub name: String,
-    pub population: i32,
-    pub food_stock: i32,
+    /// Habitants de toute l'aire de la ville (ville et campagnes).
+    pub habitants: u64,
     pub production_stock: i32,
     pub producing: Option<Production>,
     /// Ponts construits par la ville (une tour garde leur autre bout si elle est fortifiée).
@@ -551,40 +602,43 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, population: 1, food_stock: 0, production_stock: 0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false }
+        Self { name, habitants: HABITANTS_COLON, production_stock: 0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false }
     }
 
     /// Consommation : 2 nourriture par habitant.
-    pub fn food_surplus(&self, yields: Yields) -> i32 {
-        yields.food - 2 * self.population
+    /// Palier de la ville (ce que voit le joueur et ce que lisent les règles de taille).
+    pub fn palier(&self) -> i32 {
+        palier_de(self.habitants)
+    }
+
+    /// Nourriture nécessaire à la population de l'aire ce tour-ci.
+    pub fn besoin_nourriture(&self) -> f64 {
+        self.habitants as f64 / HABITANTS_PAR_NOURRITURE
     }
 
     pub fn process_turn(&mut self, yields: Yields) -> CityTurnReport {
         let mut report = CityTurnReport { gold: yields.gold, ..Default::default() };
 
-        // Croissance
-        self.food_stock += self.food_surplus(yields);
-        if self.food_stock >= growth_threshold(self.population) {
-            self.food_stock -= growth_threshold(self.population);
-            self.population += 1;
-            report.grew = true;
-        } else if self.food_stock < 0 {
-            if self.population > 1 {
-                self.population -= 1;
-                report.starved = true;
-            }
-            self.food_stock = 0;
+        // Croissance (ou famine) en habitants ; « a grandi » : nouveau palier atteint
+        let palier = self.palier();
+        let variation = variation_des_habitants(self.habitants, yields.food);
+        if variation < 0 {
+            report.starved = true;
+            self.habitants = self.habitants.saturating_sub(variation.unsigned_abs()).max(HABITANTS_PLANCHER.min(self.habitants));
+        } else {
+            self.habitants += variation as u64;
         }
+        report.grew = self.palier() > palier;
 
         // Production
         if let Some(item) = self.producing {
             self.production_stock += yields.production;
             let settler = item == Production::Unit(UnitKind::Settler);
-            let pop_ok = !settler || self.population >= 2;
+            let pop_ok = !settler || self.habitants >= 2 * HABITANTS_COLON;
             if self.production_stock >= item.cost() && pop_ok {
                 self.production_stock -= item.cost();
                 if settler {
-                    self.population -= 1;
+                    self.habitants -= HABITANTS_COLON;
                 }
                 report.built = Some(item);
                 // (un pont n'est construit qu'une fois : la ville revient à la milice)
@@ -637,18 +691,18 @@ mod tests {
         let mut map = WorldMap::filled(12, 12, Terrain::Plains);
         let path: Vec<Hex> = (2..8).map(|c| Hex::from_offset(c, 2)).collect();
         let from = Hex::from_offset(1, 2);
-        // 6 cases de plaine à 2 PM/tour : 2 cases par tour
-        assert_eq!(path_turns(&map, from, &path, 2, 0, 2), vec![1, 1, 2, 2, 3, 3]);
+        // 6 cases de plaine à 4 PM/tour : 4 cases par tour
+        assert_eq!(path_turns(&map, from, &path, 4, 0, 4), vec![1, 1, 1, 1, 2, 2]);
         // unité ayant déjà bougé (0 PM) : départ au tour suivant
-        assert_eq!(path_turns(&map, from, &path, 0, 0, 2), vec![2, 2, 3, 3, 4, 4]);
-        // une forêt avec 1 PM restant reste accessible, mais le PM qui manque est dû au tour suivant
+        assert_eq!(path_turns(&map, from, &path, 0, 0, 4), vec![2, 2, 2, 2, 3, 3]);
+        // une forêt (4 PM) avec 3 PM restants reste accessible, mais le PM qui manque est dû au tour suivant
         map.set(path[1], Terrain::Forest);
-        assert_eq!(path_turns(&map, from, &path, 2, 0, 2), vec![1, 1, 2, 3, 3, 4]);
+        assert_eq!(path_turns(&map, from, &path, 4, 0, 4), vec![1, 1, 2, 2, 2, 3]);
         map.set(path[0], Terrain::Forest);
-        assert_eq!(path_turns(&map, from, &path, 2, 0, 2), vec![1, 2, 3, 3, 4, 4]);
-        // dette de départ : 3 PM dus, à 2 PM par tour → immobile au tour 2, 1 PM au tour 3
+        assert_eq!(path_turns(&map, from, &path, 4, 0, 4), vec![1, 2, 3, 3, 3, 3]);
+        // dette de départ : 6 PM dus, à 4 PM par tour → immobile au tour 2, 2 PM au tour 3
         let plain = WorldMap::filled(12, 12, Terrain::Plains);
-        assert_eq!(path_turns(&plain, from, &path, 0, 3, 2), vec![3, 4, 4, 5, 5, 6]);
+        assert_eq!(path_turns(&plain, from, &path, 0, 6, 4), vec![3, 3, 4, 4, 4, 4]);
     }
 
     /// Fleuve avec pont : deux niveaux, le pont (par ses bouts) ou l'eau, au choix de l'ordre.
@@ -672,22 +726,23 @@ mod tests {
         let mut unit = UnitState::new(UnitKind::Militia);
         let mut at = west;
         go(&mut unit, &mut at, f, None, &HashSet::new(), &mut explored);
-        assert!(at == f && unit.on_bridge && unit.moves_left == 1);
+        assert!(at == f && unit.on_bridge && unit.moves_left == unit.kind.max_moves() - 1);
         // Depuis le pont, vers une case qui n'est pas un bout : on passe par un bout
         go(&mut unit, &mut at, side, None, &HashSet::new(), &mut explored);
         assert!(unit.last_steps.first().is_some_and(|h| *h == east || *h == west), "{:?}", unit.last_steps);
         assert!(!unit.on_bridge);
-        // Par un bout, mais l'ordre vise l'eau : dans le fleuve (3 PM, arrêt)
+        // Par un bout, mais l'ordre vise l'eau : dans le fleuve (6 PM, arrêt)
         let mut unit = UnitState::new(UnitKind::Militia);
         let mut at = west;
         go(&mut unit, &mut at, f, Some(false), &HashSet::new(), &mut explored);
         assert!(at == f && !unit.on_bridge && unit.moves_left == 0);
-        assert_eq!(FLEUVE_MOVE_COST, 3);
-        // Le pont occupé : l'unité peut aller dans l'eau dessous
+        assert_eq!(FLEUVE_MOVE_COST, 6);
+        // Le pont occupé : l'unité peut aller dans l'eau dessous (avec 4 PM, sans consigne, elle
+        // viserait le pont par un bout, moins cher ; l'ordre vise donc l'eau)
         let taken = HashSet::from([slot(f, true)]);
         let mut unit = UnitState::new(UnitKind::Militia);
         let mut at = side;
-        go(&mut unit, &mut at, f, None, &taken, &mut explored);
+        go(&mut unit, &mut at, f, Some(false), &taken, &mut explored);
         assert!(at == f && !unit.on_bridge, "dans l'eau, sous le pont occupé");
         // Viser le pont depuis le côté : on monte par un bout
         let mut unit = UnitState::new(UnitKind::Scout);
@@ -710,19 +765,19 @@ mod tests {
         map.set_relief(b, Relief::Mountain);
         let mut unit = UnitState::new(UnitKind::Militia);
         unit.pay(ForUnit::new(&map, unit.kind).step(a, b).unwrap());
-        assert_eq!((unit.moves_left, unit.move_debt), (0, MOUNTAIN_MOVE_MIN - 2));
-        assert_eq!(unit.stuck_turns(), 2, "4 PM à 2 PM par tour : un tour immobilisé, repart dans 2 tours");
+        assert_eq!((unit.moves_left, unit.move_debt), (0, MOUNTAIN_MOVE_MIN - 4));
+        assert_eq!(unit.stuck_turns(), 2, "8 PM à 4 PM par tour : un tour immobilisé, repart dans 2 tours");
         unit.start_turn(false);
         assert!(unit.immobilized && unit.moves_left == 0 && unit.stuck_turns() == 1);
         unit.start_turn(false);
-        assert!(!unit.immobilized && unit.moves_left == 2 && unit.stuck_turns() == 0);
+        assert!(!unit.immobilized && unit.moves_left == 4 && unit.stuck_turns() == 0);
         // Rivière et fleuve : arrêt sans dette
         let river = StepCost { terrain: 1, water: 2, ..StepCost::default() };
         assert_eq!(river.spend(1), (0, 0));
         // Cavalerie : double ; éclaireur : deux tiers
         let cav = ForUnit::new(&map, UnitKind::LightCavalry).step(a, b).unwrap();
         let scout = ForUnit::new(&map, UnitKind::Scout).step(a, b).unwrap();
-        assert_eq!((cav.terrain, scout.terrain), (2 * MOUNTAIN_MOVE_MIN, 3));
+        assert_eq!((cav.terrain, scout.terrain), (2 * MOUNTAIN_MOVE_MIN, 6));
     }
 
     /// La pastille d'unité immobilisée baisse de 1 à chaque tour jusqu'au départ, quelle que soit la dette.
@@ -806,7 +861,7 @@ mod tests {
         use crate::map::{MOUNTAIN_MOVE_MAX, MOUNTAIN_MOVE_MIN, mountain_move_cost};
         assert_eq!(mountain_move_cost(1_500.0), MOUNTAIN_MOVE_MIN);
         assert_eq!(mountain_move_cost(1_999.0), MOUNTAIN_MOVE_MIN);
-        assert_eq!(mountain_move_cost(2_600.0), MOUNTAIN_MOVE_MIN + 2);
+        assert_eq!(mountain_move_cost(2_600.0), MOUNTAIN_MOVE_MIN + 4);
         assert_eq!(mountain_move_cost(6_000.0), MOUNTAIN_MOVE_MAX);
     }
 
@@ -819,7 +874,7 @@ mod tests {
         // Une montagne : la dette immobilise l'unité, la prévision doit le savoir
         map.set_relief(Hex::from_offset(8, 3), Relief::Mountain);
         let path: Vec<Hex> = (2..11).map(|c| Hex::from_offset(c, 3)).collect();
-        let expected = path_turns(&map, Hex::from_offset(1, 3), &path, 1, 0, 2);
+        let expected = path_turns(&map, Hex::from_offset(1, 3), &path, 1, 0, UnitKind::Militia.max_moves());
         let mut unit = UnitState::new(UnitKind::Militia);
         unit.moves_left = 1;
         unit.path = path.clone();
@@ -973,7 +1028,7 @@ mod tests {
         u.moved_this_turn = true;
         u.start_turn(false);
         assert_eq!(u.hp, 50, "pas de soin après un déplacement");
-        assert_eq!(u.moves_left, 2);
+        assert_eq!(u.moves_left, 4);
         u.start_turn(false);
         assert_eq!(u.hp, 60);
         u.start_turn(true);
@@ -988,12 +1043,12 @@ mod tests {
         let mut map = WorldMap::filled(12, 12, Terrain::Plains);
         let none = HashSet::new();
         let from = Hex::from_offset(2, 5);
-        let target = Hex::from_offset(5, 5);
-        // 4 PM (cavalerie légère) : 2 cases d'approche en plaine, il reste des PM pour attaquer
+        let target = Hex::from_offset(7, 5);
+        // 8 PM (cavalerie légère) : 4 cases d'approche en plaine, il reste des PM pour attaquer
         let cav = UnitState::new(UnitKind::LightCavalry);
         let path = attack_approach(&map, &map, &cav, from, target, &none).unwrap();
         assert_eq!(path.last().unwrap().distance(target), 1);
-        // 2 PM (milice) : arrivée à côté avec 0 PM → impossible ce tour-ci
+        // 4 PM (milice) : arrivée à côté avec 0 PM → impossible ce tour-ci
         let militia = UnitState::new(UnitKind::Militia);
         assert!(attack_approach(&map, &map, &militia, from, target, &none).is_none());
         // Déjà adjacent : pas de déplacement
@@ -1084,33 +1139,64 @@ mod tests {
     }
 
     #[test]
-    fn croissance_et_production() {
-        let mut city = CityState::new("Test".into());
-        // 6 nourriture => surplus 4 ; 5 production
-        let y = Yields::new(6, 5, 2);
-        let mut grew_at = None;
-        let mut built = Vec::new();
-        for turn in 1..=10 {
-            let r = city.process_turn(y);
-            if r.grew && grew_at.is_none() {
-                grew_at = Some(turn);
-            }
-            built.extend(r.built);
+    fn paliers_de_la_table() {
+        // Les repères validés
+        for (p, h) in [(1, 1_000), (3, 3_000), (5, 10_000), (10, 50_000), (15, 150_000), (20, 400_000), (25, 1_000_000), (30, 2_500_000)] {
+            assert_eq!(habitants_du_palier(p), h, "palier {p}");
+            assert_eq!(palier_de(h), p);
         }
-        assert_eq!(grew_at, Some(4)); // 4 tours × 4 = 16 >= 15
-        // 50 de production sur 10 tours, milice à 15 : une unité tous les 3 tours
-        assert_eq!(built, vec![Production::Unit(UnitKind::Militia); 3]);
+        // Croissants, et le palier d'une valeur intermédiaire est celui d'en dessous
+        for p in 1..PALIER_MAX {
+            assert!(habitants_du_palier(p + 1) > habitants_du_palier(p), "palier {p}");
+        }
+        assert_eq!(palier_de(600), 1);
+        assert_eq!(palier_de(49_999), 9);
+        assert_eq!(palier_de(10_000_000), PALIER_MAX);
     }
 
     #[test]
-    fn colon_exige_deux_habitants() {
+    fn croissance_famine_et_production() {
+        // 1 000 habitants mangent 1 : avec 1,5 de nourriture (50 % de surplus), pleine croissance
+        assert_eq!(variation_des_habitants(1_000, 2), 15);
+        assert_eq!(variation_des_habitants(10_000, 15), 150);
+        // Juste le besoin : pas de croissance ; un surplus de 25 % : la moitié
+        assert_eq!(variation_des_habitants(10_000, 10), 0);
+        assert_eq!(variation_des_habitants(20_000, 25), 150);
+        // Famine : 2 % pour un léger manque, 5 % sans rien
+        assert_eq!(variation_des_habitants(10_000, 0), -500);
+        assert!((-260..=-200).contains(&variation_des_habitants(10_000, 9)));
+        let mut city = CityState::new("Test".into());
+        assert_eq!(city.habitants, HABITANTS_COLON);
+        let y = Yields::new(6, 5, 2);
+        let mut built = Vec::new();
+        let mut grew = 0;
+        for _ in 0..10 {
+            let r = city.process_turn(y);
+            grew += usize::from(r.grew);
+            built.extend(r.built);
+        }
+        // 1,5 % par tour : 1 000 → ≈ 1 160 en 10 tours (palier 1 encore)
+        assert!((1_150..=1_170).contains(&city.habitants), "{}", city.habitants);
+        assert_eq!(grew, 0);
+        // 50 de production sur 10 tours, milice à 15 : une unité tous les 3 tours
+        assert_eq!(built, vec![Production::Unit(UnitKind::Militia); 3]);
+        // Une famine ne descend pas sous le plancher
+        let mut affame = CityState::new("Faim".into());
+        for _ in 0..100 {
+            affame.process_turn(Yields::new(0, 0, 0));
+        }
+        assert_eq!(affame.habitants, HABITANTS_PLANCHER);
+    }
+
+    #[test]
+    fn colon_exige_deux_mille_habitants() {
         let mut city = CityState::new("Test".into());
         city.producing = Some(Production::Unit(UnitKind::Settler));
         city.production_stock = 100;
-        assert_eq!(city.process_turn(Yields::new(2, 0, 0)).built, None);
-        city.population = 2;
-        assert_eq!(city.process_turn(Yields::new(4, 0, 0)).built, Some(Production::Unit(UnitKind::Settler)));
-        assert_eq!(city.population, 1);
+        assert_eq!(city.process_turn(Yields::new(1, 0, 0)).built, None);
+        city.habitants = 2 * HABITANTS_COLON;
+        assert_eq!(city.process_turn(Yields::new(2, 0, 0)).built, Some(Production::Unit(UnitKind::Settler)));
+        assert_eq!(city.habitants, HABITANTS_COLON);
     }
 
     #[test]

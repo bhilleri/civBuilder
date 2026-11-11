@@ -99,16 +99,17 @@ pub fn is_cliff(from_m: f32, to_m: f32) -> bool {
 }
 
 /// Surcoût d'un pas selon la dénivelée réelle (m) : montée de moins de `CLIMB_GENTLE_M`
-/// gratuite, jusqu'à `CLIMB_STEEP_M` +1 PM, au-delà +2 PM ; la descente est gratuite. (À 40 km
+/// gratuite, jusqu'à `CLIMB_STEEP_M` +2 PM, au-delà +4 PM ; la descente est gratuite (coûts du
+/// relief doublés avec les PM, 11/11/2026). (À 40 km
 /// entre deux centres de cases, c'est surtout le relief interne à la case qui gêne : voir `Relief`.)
 pub fn climb_cost(from_m: f32, to_m: f32) -> u32 {
     let up = to_m - from_m;
     if up < CLIMB_GENTLE_M {
         0
     } else if up < CLIMB_STEEP_M {
-        1
-    } else {
         2
+    } else {
+        4
     }
 }
 pub const CLIMB_GENTLE_M: f32 = 400.0;
@@ -248,7 +249,7 @@ impl<'a> KnownMap<'a> {
     }
 }
 
-pub const UNKNOWN_MOVE_COST: u32 = 2;
+pub const UNKNOWN_MOVE_COST: u32 = 4;
 
 impl MoveCosts for KnownMap<'_> {
     fn move_cost(&self, hex: Hex) -> Option<u32> {
@@ -298,24 +299,25 @@ pub const MOUNTAIN_MIN_M: f32 = 1_500.0;
 pub const PEAK_MIN_M: f32 = 2_400.0;
 /// Un pic peut avoir une voisine un peu plus haute que lui (crête), de cet écart au plus (m).
 const PEAK_TOLERANCE_M: f32 = 200.0;
-/// Montagne : `MOUNTAIN_MOVE_MIN` PM jusqu'à `MOUNTAIN_MIN_M` + `MOUNTAIN_STEP_M`, puis +1 PM par
+/// Montagne : `MOUNTAIN_MOVE_MIN` PM jusqu'à `MOUNTAIN_MIN_M` + `MOUNTAIN_STEP_M`, puis +2 PM par
 /// tranche de `MOUNTAIN_STEP_M`, jusqu'à `MOUNTAIN_MOVE_MAX` PM : les cols et les vallées, plus bas
-/// que les crêtes, sont les passages les plus rapides.
-pub const MOUNTAIN_MOVE_MIN: u32 = 4;
-pub const MOUNTAIN_MOVE_MAX: u32 = 8;
+/// que les crêtes, sont les passages les plus rapides. (Coûts du relief doublés avec les PM des
+/// unités, 11/11/2026 : on avance deux fois plus loin en plaine, le relief reste une barrière.)
+pub const MOUNTAIN_MOVE_MIN: u32 = 8;
+pub const MOUNTAIN_MOVE_MAX: u32 = 16;
 pub const MOUNTAIN_STEP_M: f32 = 500.0;
-/// Plafond des autres reliefs (terrain + collines ou relief accidenté) ; relief accidenté +2 PM.
-pub const RELIEF_MOVE_CAP: u32 = 3;
-pub const RUGGED_MOVE_COST: u32 = 2;
+/// Plafond des autres reliefs (terrain + collines ou relief accidenté) ; relief accidenté +4 PM.
+pub const RELIEF_MOVE_CAP: u32 = 6;
+pub const RUGGED_MOVE_COST: u32 = 4;
 
 /// Coût d'une case de montagne selon son altitude (m).
 pub fn mountain_move_cost(elevation_m: f32) -> u32 {
     let steps = ((elevation_m - MOUNTAIN_MIN_M) / MOUNTAIN_STEP_M).floor().max(0.0) as u32;
-    (MOUNTAIN_MOVE_MIN + steps).min(MOUNTAIN_MOVE_MAX)
+    (MOUNTAIN_MOVE_MIN + 2 * steps).min(MOUNTAIN_MOVE_MAX)
 }
 /// Rendements d'une montagne (pâturages d'altitude, pierre).
 pub const MOUNTAIN_YIELDS: Yields = Yields::new(0, 1, 0);
-/// Collines : +1 de production et +1 PM par rapport au terrain de base.
+/// Collines : +1 de production et +2 PM par rapport au terrain de base.
 pub const HILL_PRODUCTION: i32 = 1;
 /// Températures moyennes annuelles (°C) sous lesquelles la terre est enneigée, ou en toundra.
 pub const SNOW_BELOW: f32 = -15.0;
@@ -412,7 +414,7 @@ pub fn biome(c: BiomeClimate) -> Terrain {
         Terrain::Forest
     }
 }
-pub const HILL_MOVE_COST: u32 = 1;
+pub const HILL_MOVE_COST: u32 = 2;
 /// Altitudes (m) des limites entre niveaux voisins : 9 niveaux, serrés en basse altitude
 /// (choix de Benjamin, 01/11/2026), et altitude des plus hauts pics (repère du relief).
 pub const LEVEL_BOUNDS_M: [f32; 8] = [100.0, 250.0, 500.0, 750.0, 1_000.0, 1_300.0, 1_700.0, 2_300.0];
@@ -434,10 +436,10 @@ fn piecewise(knots: &[(f64, f32)], x: f64) -> f32 {
 pub fn level_of_meters(m: f32) -> u8 {
     1 + LEVEL_BOUNDS_M.iter().filter(|&&b| m > b).count() as u8
 }
-/// Traverser une rivière (arête) : +2 PM, ce qui arrête la plupart des unités sur l'autre rive.
-pub const RIVER_CROSSING_COST: u32 = 2;
-/// Entrer dans un fleuve (à gué ou en barque) : 3 PM, l'unité s'y arrête.
-pub const FLEUVE_MOVE_COST: u32 = 3;
+/// Traverser une rivière (arête) : +4 PM, ce qui arrête la plupart des unités sur l'autre rive.
+pub const RIVER_CROSSING_COST: u32 = 4;
+/// Entrer dans un fleuve (à gué ou en barque) : 6 PM, l'unité s'y arrête.
+pub const FLEUVE_MOVE_COST: u32 = 6;
 /// Monter sur le pont d'un fleuve par un de ses bouts : 1 PM, sans arrêt (choix de Benjamin, 08/11/2026).
 pub const BRIDGE_MOVE_COST: u32 = 1;
 
@@ -557,7 +559,7 @@ const DELTA_TWO_CELLS_KG_S: f32 = 800.0;
 const DELTA_MAX_LAND_AROUND: usize = 2;
 
 /// Marcher sur la banquise : 2 PM, comme une forêt.
-pub const ICE_MOVE_COST: u32 = 2;
+pub const ICE_MOVE_COST: u32 = 4;
 /// Banquise : température de la mer du jeu (°C) en dessous de laquelle elle est gelée toute
 /// l'année. Cette température suit celle de l'air vers les pôles (voir
 /// `climate::sea_level_temperature` : −10 °C à 70°, −18 °C à 80°) : le seuil met la limite vers 76° en moyenne.
@@ -634,8 +636,8 @@ impl Terrain {
     pub fn move_cost(self) -> Option<u32> {
         match self {
             Terrain::Ocean | Terrain::Coast | Terrain::Lake => None,
-            Terrain::Forest | Terrain::Jungle | Terrain::Taiga => Some(2),
-            Terrain::Marsh => Some(3),
+            Terrain::Forest | Terrain::Jungle | Terrain::Taiga => Some(4),
+            Terrain::Marsh => Some(6),
             _ => Some(1),
         }
     }
@@ -3312,8 +3314,8 @@ mod tests {
     fn pente() {
         assert_eq!(climb_cost(450.0, 800.0), 0, "pente douce");
         assert_eq!(climb_cost(800.0, 450.0), 0);
-        assert_eq!(climb_cost(450.0, 1_100.0), 1, "montée raide");
-        assert_eq!(climb_cost(450.0, 1_500.0), 2, "très raide");
+        assert_eq!(climb_cost(450.0, 1_100.0), 2, "montée raide");
+        assert_eq!(climb_cost(450.0, 1_500.0), 4, "très raide");
         assert_eq!(climb_cost(1_500.0, 450.0), 0, "descente gratuite");
         assert!(is_cliff(150.0, 1_300.0), "falaise");
         assert!(is_cliff(1_300.0, 150.0), "falaise dans les deux sens");
@@ -3323,15 +3325,15 @@ mod tests {
         let mut map = WorldMap::filled(5, 5, Terrain::Plains);
         let (a, b) = (Hex::from_offset(1, 1), Hex::from_offset(2, 1));
         map.set_elevation(b, 850.0);
-        assert_eq!(map.step_cost(a, b), Some(2), "1 PM + 1 de montée");
+        assert_eq!(map.step_cost(a, b), Some(3), "1 PM + 2 de montée");
         assert_eq!(map.step_cost(b, a), Some(1));
         map.set_elevation(b, 1_300.0);
         assert_eq!(map.step_cost(a, b), None);
-        // 150 → 500 m gratuit, 150 → 1 000 m +1 (dénivelée sous la falaise)
+        // 150 → 500 m gratuit, 150 → 1 000 m +2 (dénivelée sous la falaise)
         map.set_elevation(b, 500.0);
         assert_eq!(map.step_cost(a, b), Some(1));
         map.set_elevation(b, 1_000.0);
-        assert_eq!(map.step_cost(a, b), Some(2));
+        assert_eq!(map.step_cost(a, b), Some(3));
     }
 
     #[test]
@@ -3347,7 +3349,7 @@ mod tests {
         let h = Hex::from_offset(1, 1);
         m.set_hills(h, true);
         assert_eq!(m.yields(h), Some(Yields::new(1, 3, 0)));
-        assert_eq!(m.move_cost(h), Some(3));
+        assert_eq!(m.move_cost(h), Some(RELIEF_MOVE_CAP), "forêt (4) + collines (2)");
         assert_eq!(m.describe(h), "Forêt tempérée vallonnée");
         m.set_relief(h, Relief::Mountain);
         assert_eq!(m.move_cost(h), Some(MOUNTAIN_MOVE_MIN), "montagne franchissable");

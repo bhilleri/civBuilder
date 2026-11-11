@@ -1948,7 +1948,7 @@ fn update_entity_visibility(
 fn add_city_visuals(mut commands: Commands, palette: Res<Palette>, cities: Query<(Entity, &HexPos, &City, Option<&CitySymbol>)>) {
     let k = &palette.city;
     for (entity, pos, city, symbol) in &cities {
-        let stage = crate::settlements::stage_of_population(city.state.population);
+        let stage = crate::settlements::stage_of_population(city.state.palier());
         let code = stage as u8 * 2 + u8::from(city.state.fortified);
         if symbol.is_some_and(|s| s.0 == code) {
             continue;

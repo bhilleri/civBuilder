@@ -224,7 +224,7 @@ fn spawn_city_banners(mut commands: Commands, cities: Query<(Entity, &City, &Hex
                     BackgroundColor(PLAYER_COLOR),
                     children![(
                         BannerPop,
-                        Text::new(city.state.population.to_string()),
+                        Text::new(city.state.palier().to_string()),
                         TextFont::from_font_size(12.0),
                         TextColor(Color::WHITE),
                     )],
@@ -1038,7 +1038,7 @@ fn update_city_banners(
             }
             for grandchild in pop_boxes.get(child).into_iter().flatten() {
                 if let Ok(mut pop) = pops.get_mut(*grandchild) {
-                    let wanted = city.state.population.to_string();
+                    let wanted = city.state.palier().to_string();
                     if pop.0 != wanted {
                         pop.0 = wanted;
                     }

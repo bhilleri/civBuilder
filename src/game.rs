@@ -566,7 +566,7 @@ pub fn assign_worked_tiles(map: &WorldMap, territory: &Territory, cities: &mut [
     let mut taken: HashSet<Hex> = HashSet::new();
     for (entity, center, city) in cities.iter_mut() {
         let owned: Vec<Hex> = territory.0.iter().filter(|(_, e)| *e == entity).map(|(h, _)| *h).collect();
-        let worked = rules::choose_worked_tiles(map, *center, city.state.population, &owned, &taken);
+        let worked = rules::choose_worked_tiles(map, *center, city.state.palier(), &owned, &taken);
         taken.extend(worked.iter().copied());
         city.worked = worked;
     }
@@ -610,7 +610,7 @@ fn end_turn(
         let name = city.state.name.clone();
         if report.grew {
             log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(" gagne un habitant."));
-            claim_territory(&mut territory.0, *entity, *center, rules::territory_radius(city.state.population), map);
+            claim_territory(&mut territory.0, *entity, *center, rules::territory_radius(city.state.palier()), map);
         }
         if report.starved {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" souffre de famine !"));
@@ -668,7 +668,7 @@ fn end_turn(
                 if let Ok((_, _, mut city)) = cities.get_mut(city_entity) {
                     city.state.production_stock += kind.cost();
                     if kind == UnitKind::Settler {
-                        city.state.population += 1;
+                        city.state.habitants += rules::HABITANTS_COLON;
                     }
                 }
                 log.notify(Importance::Warning, LogText::new().city(&name, city_entity, center).text(format!(" : pas de place pour {}, la production attend.", kind.name())));

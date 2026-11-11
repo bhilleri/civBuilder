@@ -373,11 +373,11 @@ impl PlayerView<'_, '_> {
     fn city_line(&self, c: &City, at: Hex) -> String {
         let s = &c.state;
         format!(
-            "ville {} en {} habitants={} nourriture={} production={} produit={}",
+            "ville {} en {} palier={} habitants={} production={} produit={}",
             s.name,
             self.place(at),
-            s.population,
-            s.food_stock,
+            s.palier(),
+            s.habitants,
             s.production_stock,
             s.producing.map_or("rien".to_string(), |k| token(k.name()))
         )

@@ -1301,13 +1301,8 @@ fn update_selection_panel(
             let (city, pos) = cities.get(e).unwrap();
             let c = &city.state;
             let y = rules::city_yields(&map.0, pos.0, &city.worked);
-            let surplus = c.food_surplus(y);
-            let growth = rules::growth_threshold(c.population);
-            let turns_to_grow = if surplus > 0 {
-                format!("{} tours", ((growth - c.food_stock) as f32 / surplus as f32).ceil() as i32)
-            } else {
-                "—".into()
-            };
+            let variation = rules::variation_des_habitants(c.habitants, y.food);
+            let croissance = if variation >= 0 { format!("+{variation} habitants/tour") } else { format!("famine : {variation} habitants/tour") };
             let production = match c.producing {
                 Some(k) => {
                     let turns = if y.production > 0 {
@@ -1320,13 +1315,13 @@ fn update_selection_panel(
                 None => "rien".into(),
             };
             format!(
-                "{} — population {}\nNourriture : {}/{} ({:+}/tour, croissance : {})\nProduction : +{}/tour   Or : +{}/tour\nEn cours : {}\n\n{}",
+                "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {:.1} ({})\nProduction : +{}/tour   Or : +{}/tour\nEn cours : {}\n\n{}",
                 c.name,
-                c.population,
-                c.food_stock,
-                growth,
-                surplus,
-                turns_to_grow,
+                c.palier(),
+                c.habitants,
+                y.food,
+                c.besoin_nourriture(),
+                croissance,
                 y.production,
                 y.gold,
                 production,

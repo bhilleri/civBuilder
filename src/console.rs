@@ -427,8 +427,8 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
                             format!("OK {} {} ({place})", city.state.name, if *yes { "fortifiée" } else { "sans fortification" })
                         }
                         debug_cmd::CityChange::Population(n) => {
-                            city.state.population = *n;
-                            format!("OK {} : {n} habitant(s) ({place})", city.state.name)
+                            city.state.habitants = crate::rules::habitants_du_palier(*n);
+                            format!("OK {} : palier {n}, {} habitants ({place})", city.state.name, city.state.habitants)
                         }
                     }];
                 }

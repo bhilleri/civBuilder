@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Version du format : à augmenter quand le contenu change (avec une conversion des anciennes).
-pub const VERSION_FORMAT: u32 = 1;
+pub const VERSION_FORMAT: u32 = 2;
 
 /// Unité enregistrée.
 #[derive(Clone, Debug, Serialize, Deserialize)]

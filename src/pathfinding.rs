@@ -210,12 +210,12 @@ mod tests {
     fn portee_avec_forets() {
         let mut map = WorldMap::filled(20, 20, Terrain::Forest);
         let c = Hex::from_offset(10, 10);
-        // Forêt partout (2 PM) avec 2 PM : on entre dans une forêt et on s'arrête
-        assert_eq!(reachable(&map, c, 2).len(), 6);
-        // Avec 3 PM : forêt (reste 1) puis une seconde forêt
-        assert_eq!(reachable(&map, c, 3).len(), 18);
+        // Forêt partout (4 PM) avec 4 PM : on entre dans une forêt et on s'arrête
+        assert_eq!(reachable(&map, c, 4).len(), 6);
+        // Avec 5 PM : forêt (reste 1) puis une seconde forêt
+        assert_eq!(reachable(&map, c, 5).len(), 18);
         map.set_relief(c.neighbors()[0], Relief::Peak);
-        assert!(!reachable(&map, c, 3).contains(&c.neighbors()[0]));
+        assert!(!reachable(&map, c, 5).contains(&c.neighbors()[0]));
     }
 
     /// Traverser une rivière d'un coup (on entre avec 1 PM) arrive plus tôt que le détour,

@@ -147,7 +147,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
     Spec { name: "pont", args: &[AT[0], AT[1], ("e|ne|no|o|so|se", Arg::Direction, false), ("oui|non", Arg::Switch, true)], help: "Pose (ou retire, « non ») un pont : sur la rivière de l'arête de la case dans cette direction, ou, si la case est un fleuve, en travers d'elle, de la rive de cette direction à la rive opposée (terre ferme des deux côtés). Rivière : traversée sans surcoût ; fleuve : on monte sur le pont par un bout pour 1 PM, sans s'arrêter. Voir le wiki, « Cours d'eau et lacs », Ponts.", group: Group::Game },
     Spec { name: "ville fortifier", args: &[AT[0], AT[1], ("oui|non", Arg::Switch, false)], help: "Pose ou retire la fortification de la ville de la case : sa muraille, ses portes.", group: Group::Game },
-    Spec { name: "ville population", args: &[AT[0], AT[1], ("habitants", Arg::Number, false)], help: "Population de la ville de la case (1 à 99) : son stade (hameau, bourg, ville) suit. Le territoire n'est pas recalculé.", group: Group::Game },
+    Spec { name: "ville population", args: &[AT[0], AT[1], ("palier", Arg::Number, false)], help: "Palier de population de la ville de la case (1 à 30) : ses habitants deviennent ceux du début du palier, son stade (hameau, bourg, ville) suit. Le territoire n'est pas recalculé.", group: Group::Game },
     Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
@@ -511,7 +511,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             Command::Bridge(at()?, dir, args.get(3).map(|w| yes_no(w)).transpose()?.unwrap_or(true))
         }
         "ville fortifier" => Command::CitySet(at()?, CityChange::Fortified(yes_no(args[2])?)),
-        "ville population" => Command::CitySet(at()?, CityChange::Population(number(args[2], "habitants")?.round().clamp(1.0, 99.0) as i32)),
+        "ville population" => Command::CitySet(at()?, CityChange::Population(number(args[2], "palier")?.round().clamp(1.0, crate::rules::PALIER_MAX as f32) as i32)),
         "tour" => Command::Turns(args.first().map(|n| number(n, "nombre")).transpose()?.map_or(1, |n| n.round().clamp(1.0, 100.0) as u32)),
         "pinceau" => Command::Brush((number(args[0], "rayon")?.round() as i32).clamp(0, BRUSH_MAX)),
         "annuler" => Command::Undo,

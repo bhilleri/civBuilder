@@ -28,18 +28,18 @@ _Dernière mise à jour : 10 novembre 2026 — armée et révisions après l'ana
 ## Unités (chiffres de travail)
 | Unité | Coût | Att. mêlée | Déf. mêlée | Att. distance (portée) | Déf. distance | PM | Particularité |
 |---|---|---|---|---|---|---|---|
-| Milice | 15 | 8 | 8 | — | 6 | 2 | Zone de contrôle |
-| Guerrier bouclier | 30 | 10 | 16 | — | 18 | 2 | Résiste aux flèches, zone de contrôle |
-| Guerrier arme lourde | 35 | 20 | 10 | — | 8 | 2 | Attaquant de choc, zone de contrôle |
-| Lancier (lance + bouclier) | 30 | 12 | 15 | — | 14 | 2 | +10 contre cavalerie, zone de contrôle |
-| Piquier (lance à deux mains) | 35 | 12 | 13 | — | 6 | 2 | +20 contre cavalerie, zone de contrôle |
-| Archer-épéiste | 35 | 12 | 11 | 12 (2) | 9 | 2 | Polyvalent |
-| Archer expert | 40 | 5 | 6 | 20 (2) | 7 | 2 | Ne tire pas après s'être déplacé |
-| Cavalerie légère | 45 | 16 | 9 | — | 8 | 4 | +10 contre archers et milice |
-| Cavalerie lourde | 60 | 24 | 16 | — | 14 | 3 | Contrée par les lances |
-| Archer monté | 50 | 8 | 8 | 10 (1) | 9 | 4 | Tir puis repli |
+| Milice | 15 | 8 | 8 | — | 6 | 4 | Zone de contrôle |
+| Guerrier bouclier | 30 | 10 | 16 | — | 18 | 4 | Résiste aux flèches, zone de contrôle |
+| Guerrier arme lourde | 35 | 20 | 10 | — | 8 | 4 | Attaquant de choc, zone de contrôle |
+| Lancier (lance + bouclier) | 30 | 12 | 15 | — | 14 | 4 | +10 contre cavalerie, zone de contrôle |
+| Piquier (lance à deux mains) | 35 | 12 | 13 | — | 6 | 4 | +20 contre cavalerie, zone de contrôle |
+| Archer-épéiste | 35 | 12 | 11 | 12 (2) | 9 | 4 | Polyvalent |
+| Archer expert | 40 | 5 | 6 | 20 (2) | 7 | 4 | Ne tire pas après s'être déplacé |
+| Cavalerie légère | 45 | 16 | 9 | — | 8 | 8 | +10 contre archers et milice |
+| Cavalerie lourde | 60 | 24 | 16 | — | 14 | 6 | Contrée par les lances |
+| Archer monté | 50 | 8 | 8 | 10 (1) | 9 | 8 | Tir puis repli |
 
-Hors combat : colon (40, 2 PM, ne peut pas attaquer), éclaireur (15, 3 PM, vision 3, attaque 4 / défense 5).
+Hors combat : colon (40, 4 PM, ne peut pas attaquer), éclaireur (15, 6 PM, vision 3, attaque 4 / défense 5). (PM doublés le 11/11/2026, avec les coûts du terrain difficile.)
 Les bonus anti-cavalerie s'appliquent à toute la cavalerie, archer monté compris.
 Les unités capables de tirer attaquent toujours en tirant (y compris au contact).
 
@@ -133,7 +133,10 @@ malus par type, effectifs, solde).
   Les effectifs (500 à 1 000 habitants) écrits plus haut sont remplacés par des effectifs selon
   l'ère, à chiffrer avec la table de population (`conception-echelle-et-but.md`).
 - **PM doublés et coûts du relief doublés aussi** (montagnes, forêts, fleuves) : le relief reste
-  une barrière, la dette de déplacement garde son rôle. Les rayons de l'IA hostile (`HUNT_RANGE`,
+  une barrière, la dette de déplacement garde son rôle. **Fait le 11/11/2026** : PM ×2 ; forêt 4, marais 6, collines
+  +2, accidenté +4 (plafond 6), montagne 8 à 16, rivière +4, fleuve 6, banquise 4, montée +2/+4,
+  case inconnue 4 ; plaine et pont 1 ; `HUNT_RANGE` 4, `WANDER_RADIUS` 6 ; archer monté : PM − 2
+  après un tir. Les rayons de l'IA hostile (`HUNT_RANGE`,
   `WANDER_RADIUS`) et la zone dangereuse de l'exploration sont à recaler.
 - **Armes** : les bâtiments d'armement sont des **emplois de la ville** ; l'intendant y affecte des
   travailleurs, qui ne produisent alors pas de Production pour la file ; le joueur règle l'effectif voulu.

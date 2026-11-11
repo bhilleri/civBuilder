@@ -13,7 +13,7 @@ l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cou
    calcul de chemin en tableaux plats.
 2. **Partie sauvegardable** : ~~sauvegarde et chargement (13)~~ (fait le 11/11) ; état de partie hors de l'ECS (reporté aux peuples rivaux) ; code de
    partie et écran de nouvelle partie minimal (42).
-3. **Échelle recalée (30, première partie)** : PM et coûts du relief doublés, croissance, soins,
+3. **Échelle recalée (30, première partie)** (population en habitants, paliers, PM et relief doublés : faits le 11/11) : PM et coûts du relief doublés, croissance, soins,
    population en habitants ; déplacements de groupe (39, première partie : traverser les alliés,
    relève, sélection multiple, groupes au clavier) ; écarts code et conception (33).
 4. **Villes du Néolithique (28, 17)** : intendant, aménagements, Bien-être, hygiène, territoire par
