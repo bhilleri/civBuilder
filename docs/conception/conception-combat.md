@@ -140,6 +140,9 @@ malus par type, effectifs, solde).
 - **Campagnes saisonnières** : voir le besoin de bras saisonnier (`conception-villes.md`).
 
 ### Mise à niveau d'ère (révision du 10/11, relecture, validé par Benjamin)
+**Précision du 11/11/2026 (Benjamin)** : les armées dépendent aussi des **technologies** ; la mise
+à niveau d'une unité est ouverte par la technologie de son nouveau type (ex. Métallurgie du fer
+pour les hoplites), pas par l'ère seule.
 Le passage d'ère n'améliore plus les unités d'un coup : la **mise à niveau** se paie en
 **matériel** (armes), en **habitants** (l'effectif grandit, recrues prises dans la ville d'origine)
 et en **expérience** perdue (recrues moins aguerries). Plus tard : des types d'équipement par ère,

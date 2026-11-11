@@ -92,7 +92,9 @@ Deux choses distinctes :
 que **le modèle politique change la façon de jouer**) :
 1. **Découvertes sociétales** : ce qui devient possible. Elles avancent par **paliers de Culture
    cumulée** (sans dépense) et par des conditions ; les technologies ne font que remplir des
-   conditions. Elles débloquent des régimes et des lois.
+   conditions. Elles débloquent des régimes et des lois. **Benjamin (11/11/2026) les appelle des
+   dogmes** : les régimes et les lois dépendent des **dogmes débloqués par la culture**, pas de
+   l'ère.
 2. **Régime** : le modèle politique, un choix lourd avec ses propres règles :
 
    | Régime | Comment on joue |

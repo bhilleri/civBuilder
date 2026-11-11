@@ -40,6 +40,10 @@ d'un nombre d'années qui dépend de **l'ère du joueur** :
 
 Départ vers −8 500, arrivée vers 1 400. Comme les ères se passent par jalons, un peuple en avance
 voit l'année avancer moins vite : l'année reste indicative, chaque peuple a sa propre date.
+- **Révision du 11/11/2026 (Benjamin) : l'année est commune à tous les peuples.** Elle ne dépend
+  plus de l'ère d'un peuple : elle avance avec le **numéro du tour**, selon le même barème pour
+  tout le monde (≈ 125 tours par tranche : −8 500 → −3 500, puis → −1 200, → 500, → 1 400).
+  Un peuple en avance ou en retard le voit à ses techniques, pas à sa date.
 - **Mode 2 tours par mois** (révision du 11/11/2026, remplace la règle précédente) : **500 tours
   dans les deux modes**, mêmes taux par tour ; seul le calendrier avance deux fois moins vite
   (≈ 21 années de saisons). Voir `conception-saisons.md`, révision 3.
@@ -151,6 +155,10 @@ découverte, contact avec un peuple. Le journal hiérarchisé existant les porte
   et les gisements (15).
 
 ### Dévoilement des systèmes par ère (décidé le 10/11/2026)
+**Révision du 11/11/2026 (Benjamin)** : les systèmes ne sont **pas débloqués par l'ère**, mais par
+la **recherche** (technologies) et par la **culture** (dogmes et lois). Le tableau ci-dessous dit
+seulement à quelle époque ils apparaissent en général ; chacun aura sa technologie, son dogme ou
+sa loi de déblocage.
 Le joueur découvre la complexité petit à petit, et le développement suit le même ordre (une
 première version jouable plus tôt) :
 | Ère | Systèmes qui apparaissent |
