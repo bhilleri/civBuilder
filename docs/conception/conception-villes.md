@@ -116,14 +116,15 @@ reconnaître. Réponse retenue :
 **faubourgs nommés** (espaces urbanisés détachés de la ville) peuvent apparaître.
 
 **Proposition** :
-- **Part urbaine** : 5 % au début, jusqu'à 15 à 20 % pour une grande cité (commerce, artisans,
-  administration) ; affichée dans le panneau de la ville (« 48 000 habitants · 12 % en ville »).
-  Les urbains peuplent les quartiers (sous-cases urbaines), les ruraux les champs et les pâtures.
-- **Faubourg** : une agglomération urbaine dans une **autre case de l'aire**, séparée de la ville.
-  Il naît quand la ville déborde (sous-cases urbaines pleines) près d'un atout : gué ou pont, port,
-  carrefour de routes, mine, sanctuaire. Il est **nommé** dans la langue de la ville (toponymie,
-  « Kaldra-sur-Vesse », « Port-de-Kaldra », ou un nom propre), visible sur la carte à son niveau
-  de zoom, et compte dans la population urbaine de la ville.
+- **Urbains et ruraux : pas de règle nouvelle** (Benjamin, 11/11/2026). La répartition se lit dans
+  ce qui existe : la population est **affectée aux cases** de l'aire, et une case est **urbaine ou
+  rurale** selon la règle déjà décidée (« la case passe de rurale à urbaine », sous-cases et
+  quartiers). Population urbaine = habitants des cases urbaines ; rurale = le reste. Le panneau de la
+  ville l'affiche (« 48 000 habitants · 12 % en ville »).
+- **Faubourg** : une **case urbaine détachée** de la ville (non contiguë à ses cases urbaines), là où
+  la règle des cases urbaines la fait naître, souvent près d'un atout (gué ou pont, port, carrefour,
+  mine, sanctuaire). Il est **nommé** dans la langue de la ville (toponymie : « Kaldra-sur-Vesse »,
+  « Port-de-Kaldra », ou un nom propre), visible sur la carte à son niveau de zoom.
 - Question ouverte : un faubourg très peuplé peut-il devenir une **ville à part entière** (par une
   loi, une décision, ou une sécession) ?
 
