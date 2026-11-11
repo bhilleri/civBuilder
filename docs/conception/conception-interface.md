@@ -516,6 +516,19 @@ Résultat (dernière version) :
       de la palette des grandeurs ; des indicateurs inertes d'un style distinct ; l'intendant
       expliqué (emplois non pourvus, prochain bloc) ; l'Histoire triée et filtrée par lieu ; un seul
       mot par notion (« aménagement »).
+    - **Appliqué dans la maquette (version 17)** : bloc « Ce qui freine la croissance » sous le nom
+      de la ville (Paris : l'eau, limite 2 914 habitants dans ~19 tours, palier 3 hors de portée ;
+      Lugdun : la population baisse) avec ses remèdes, qui ouvrent le placement au conseil de
+      l'intendant ; même diagnostic en tête du catalogue, remèdes parmi les conseils ; programme de
+      ville dans le placement des égouts, fontaines, rues pavées et jardins (un ordre, coût total,
+      gain une fois fini) ; double-clic ou Entrée pour mettre en file ; légende et couches au-dessus
+      de la carte, bouton « Carte simple » ; infobulle selon la carte affichée ; survol d'une ligne
+      de liste qui éclaire sa case (bâtiment : sa case ; catalogue : la case conseillée) ; chantiers
+      en pointillé orangé (le blanc reste la sélection) ; « Pourquoi » des emplois non pourvus et
+      « Forcer l'effectif… » avec aperçu puis confirmation (bâtiment et case) ; Histoire triée par
+      tour et filtrée par lieu (clic sur une case cerclée), repères des graphiques liés à l'Histoire ;
+      période du graphique 10 / 20 tours / toute la partie ; « Ouvrir un axe… » qui propose des
+      partenaires ; listes vides qui le disent ; indicateurs inertes sans fond.
   - **Plus tard** : une vue nationale détaillée pour gérer les villes et leurs problèmes (« ville
     suivante en alerte », file proposée par l'intendant) ; une vraie simulation pour les prévisions.
   - Implémentation dans Bevy : un seul état de sélection (pile), des nœuds d'interface persistants
