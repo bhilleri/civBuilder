@@ -646,7 +646,7 @@ signalée), NN/g (mouvement avec parcimonie).
 **File interactive (11/11/2026, demande de Benjamin)** : chaque ligne de la file nomme sa case et son
 apport (gain à pleine capacité et valeur pour un aménagement, caractéristiques pour une unité) ; survol
 ou clic : la case est cerclée sur la carte (couleur de la production) ; glisser-déposer pour réordonner
-(appui, déplacement de plus de 6 px ; la ligne suit le pointeur, soulevée avec un liseré orange, les
+(appui, déplacement de plus de 6 px ; la ligne suit le pointeur, soulevée avec un liseré orange, bornée entre la première et la dernière place, les
 autres s'écartent en douceur d'une hauteur de ligne ; relâché) ; « avancer » et « retirer » restent ;
 sans animation si la vitesse des animations est « instantanée ». Pilote : `glisser x1 y1 x2 y2`, et
 `appuyer` / `deplacer` / `relacher` pour capturer un geste en cours. Leçon : un système qui écrit

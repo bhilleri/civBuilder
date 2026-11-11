@@ -2642,7 +2642,11 @@ fn glisser_file(
         let voulu = if !g.bouge {
             0.0
         } else if l.0 == g.de {
-            y.map_or(0.0, |y| y - g.y0)
+            // (bornée : la ligne ne sort pas de la file, de la place de la première à celle de la dernière)
+            let centre = g.lignes.iter().find(|(i, ..)| *i == g.de).map_or(0.0, |(_, c, _)| *c);
+            let haut = g.lignes.first().map_or(centre, |(_, c, _)| *c) - centre;
+            let bas = g.lignes.last().map_or(centre, |(_, c, _)| *c) - centre;
+            y.map_or(0.0, |y| (y - g.y0).clamp(haut, bas))
         } else {
             let rang = autres.iter().position(|(i, ..)| *i == l.0).unwrap_or(0);
             let nouveau = if rang < vers { rang } else { rang + 1 };
