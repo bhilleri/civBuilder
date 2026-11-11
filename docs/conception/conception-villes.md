@@ -121,6 +121,12 @@ reconnaître. Réponse retenue :
   rurale** selon la règle déjà décidée (« la case passe de rurale à urbaine », sous-cases et
   quartiers). Population urbaine = habitants des cases urbaines ; rurale = le reste. Le panneau de la
   ville l'affiche (« 48 000 habitants · 12 % en ville »).
+- **Les habitants vivent là où ils travaillent, pour l'instant** (Benjamin, 11/11/2026) : les
+  habitants d'une case se répartissent comme ses emplois (travailleurs de la case et emplois de ses
+  bâtiments ; un actif pour deux habitants) ; les sans-emploi vivent au centre. Le **taux
+  d'urbanisation** en découle (part des habitants des cases urbaines) ; l'écran de la ville l'affiche
+  sous ce nom, et une carte de l'onglet Population montre la répartition des habitants (l'autre, les
+  emplois). Un logement distinct de l'emploi (quartiers d'habitation, trajets) pourra venir plus tard.
 - **Faubourg** : une **case urbaine détachée** de la ville (non contiguë à ses cases urbaines), là où
   la règle des cases urbaines la fait naître, souvent près d'un atout (gué ou pont, port, carrefour,
   mine, sanctuaire). Il est **nommé** dans la langue de la ville (toponymie : « Kaldra-sur-Vesse »,

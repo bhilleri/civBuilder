@@ -489,6 +489,17 @@ Résultat (dernière version) :
     l'améliorent et ce qu'on peut y construire. **Chantiers en file** : en pointillé blanc sur leur
     case ; au survol, avancement, délai et effet ; au clic, leur fiche (avancer, changer de case,
     retirer).
+  - **Compléments (11/11/2026)** : légende graphique sous la carte, qui porte aussi les filtres des
+    couches (activités, bonus, bâtiments, chantiers : clic pour masquer) ; zoom à la molette et aux
+    boutons, déplacement en glissant ; carte de l'eau (fleuve tracé, prélevé / prélevable par source)
+    et cartes des grandeurs secondaires (apport de chaque case ; bien-être par quartier et par
+    campagne). **Onglet Population** : taux d'urbanisation, actifs, sans-emploi, mouvement du dernier
+    tour (naissances, décès, migrations), évolution de la population avec les limites de la ville
+    (nourriture, eau, emplois) sur une échelle logarithmique, cultures et religions (part, relation
+    avec la ville, évolution), ordres de la société (à venir, tâche 32) ; deux cartes au choix :
+    emplois, répartition des habitants. **Onglet Histoire** : frise des moments marquants (population,
+    constructions, catastrophes, commerce, guerres, batailles, pillages des barbares, culture), avec
+    filtres et lieux sur la carte.
   - **Plus tard** : une vue nationale détaillée pour gérer les villes et leurs problèmes (« ville
     suivante en alerte », file proposée par l'intendant) ; une vraie simulation pour les prévisions.
   - Implémentation dans Bevy : un seul état de sélection (pile), des nœuds d'interface persistants
