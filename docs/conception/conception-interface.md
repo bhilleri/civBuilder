@@ -616,6 +616,15 @@ dispersée) sont notés par `battle::fight` dans le journal (`GameLog.combats`) 
 dont le territoire contient la case. Onglet Histoire comme la maquette (frise, filtres, lieux cerclés
 d'or, filtre par lieu). Pas encore : pillages (les barbares ne pillent pas encore), commerce, guerres,
 culture ; repères numérotés sur les graphiques (ils viendront quand la chronique sera plus riche).
+**Lot 7 fait le 11/11/2026** : diagnostic `frein` (un seul, le plus grave : famine ; objectif de
+l'intendant sous la croissance pleine ; sinon limite de la nourriture, tour où la croissance s'y arrête
+par simulation sur 60 tours, palier suivant hors de portée) ; remèdes : champ et pâturage à leur case
+conseillée (gain de nourriture et habitants portés en plus), ou « changer l'objectif » ; alertes :
+rien à produire, sans-emploi, projet depuis 10 tours et plus ; bandeau doré en tête du catalogue. Pas
+encore : eau et emplois comme freins (l'eau n'est pas dans le jeu ; les emplois ne bornent pas la
+croissance, ils font des sans-emploi, signalés en alerte).
+**Les sept lots de l'écran de la ville sont faits (11/11/2026).** Suite : bâtiments, eau, bien-être (4c),
+culture (4d), commerce, chacun avec sa place déjà prévue dans l'écran.
 Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
 l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
 

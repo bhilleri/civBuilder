@@ -867,6 +867,10 @@ fn cities() -> Article {
                habitants que sa nourriture nourrit (la croissance s'y arrête) et ceux qui trouvent un emploi (au-delà : \
                des sans-emploi). Sa carte montre au choix le remplissage des cases en travailleurs ou la répartition \
                des habitants (pour l'instant, chacun vit là où il travaille ; les sans-emploi au centre)."),
+            p("Sous l'en-tête, « Ce qui freine la croissance » donne une seule cause (famine, objectif de \
+               l'intendant, limite de la nourriture et le tour où elle sera atteinte) et des remèdes chiffrés : un \
+               clic ouvre le placement de l'aménagement à la case conseillée, ou le réglage de l'intendant. Les \
+               autres alertes suivent (rien à produire, sans-emploi, long projet)."),
             p("L'onglet Histoire raconte la ville : fondation, paliers atteints, famines, ponts et aménagements \
                achevés, projets lancés, combats décisifs sur son territoire. Les lieux des événements sont cerclés \
                d'or sur la carte ; un clic sur une case ne garde que son histoire."),
