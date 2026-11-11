@@ -535,7 +535,7 @@ fn animer(
         let f = if statique { 0.0 } else { (1.0 - (t - debut) / 1.2).max(0.0) as f32 };
         for (l, mut fond) in &mut lignes {
             if l.0 == i {
-                fond.0 = Grandeur::Production.couleur().with_alpha(0.35 * f);
+                fond.0 = melange(charte::SURFACE, Grandeur::Production.couleur(), 0.35 * f);
             }
         }
         if f <= 0.0 {
@@ -2406,6 +2406,23 @@ fn effectif(p: &mut ChildSpawnerCommands, c: &CaseVue, f: &VueForcage) {
 }
 
 /// File de construction (avancer, retirer) et projet suivi quand elle est vide.
+/// Fond d'une carte de la file : claire au repos, plus claire choisie, plus encore glissée.
+fn fond_ligne(choisie: bool, glissee: bool) -> Color {
+    if glissee {
+        Color::srgb(0.20, 0.24, 0.33)
+    } else if choisie {
+        charte::SURFACE2
+    } else {
+        charte::SURFACE
+    }
+}
+
+/// Bord d'une carte de la file : fin tout autour, liseré à gauche (orange si choisie ou glissée).
+fn bord_ligne(choisie: bool, glissee: bool) -> BorderColor {
+    let lisere = if choisie || glissee { Grandeur::Production.couleur() } else { charte::TRAIT2 };
+    BorderColor { left: lisere, ..BorderColor::all(if glissee { Grandeur::Production.couleur() } else { charte::TRAIT2 }) }
+}
+
 /// Ce qu'apporte un élément de la file, en une ligne, et où il se construit.
 fn benefice(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], objet: &rules::Production) -> (Option<String>, String) {
     let lieu = case_de(objet).map(|h| cases.iter().find(|c| c.hex == h).map_or_else(|| map.describe(h).to_lowercase(), |c| c.nom.to_lowercase()));
@@ -2451,9 +2468,9 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, ma
             p.spawn((
                 LigneFile(i),
                 UiPointer::default(),
-                BackgroundColor(if choisi { charte::SURFACE } else { Color::NONE }),
-                Node { column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), border: UiRect::left(Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(6.0)), align_items: AlignItems::Center, ..default() },
-                BorderColor::all(if choisi { Grandeur::Production.couleur() } else { charte::TRAIT }),
+                BackgroundColor(fond_ligne(choisi, false)),
+                Node { column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)), border: UiRect { left: Val::Px(3.0), top: Val::Px(1.0), right: Val::Px(1.0), bottom: Val::Px(1.0) }, border_radius: BorderRadius::all(Val::Px(6.0)), align_items: AlignItems::Center, ..default() },
+                bord_ligne(choisi, false),
             ))
             .with_children(|l| {
                 l.spawn(texte(format!("{}.", i + 1), 13.0, charte::MUET));
@@ -2662,11 +2679,11 @@ fn glisser_file(
         }
         let glissee = g.bouge && l.0 == g.de;
         let choisie = ecran.file_choisie == Some(l.0);
-        let lisere = if glissee || choisie { Grandeur::Production.couleur() } else { charte::TRAIT };
-        if bord.left != lisere {
-            *bord = BorderColor::all(lisere);
+        let b = bord_ligne(choisie, glissee);
+        if *bord != b {
+            *bord = b;
         }
-        let f = if glissee { charte::SURFACE2 } else if choisie { charte::SURFACE } else { Color::NONE };
+        let f = fond_ligne(choisie, glissee);
         if fond.0 != f {
             fond.0 = f;
         }
