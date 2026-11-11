@@ -28,6 +28,8 @@ pub const ALERTE: Color = rgb(0xf0, 0xa0, 0x3c);
 pub const GRAVE: Color = rgb(0xf0, 0x8a, 0x8a);
 /// Sélection (seul usage du blanc pur sur la carte).
 pub const SELECTION: Color = Color::WHITE;
+/// Bouton d'action principal (construire, mettre en file).
+pub const ACTION_FOND: Color = rgb(0x3b, 0x6f, 0xe0);
 /// Aménagement de production (rond vert).
 pub const AMENAGEMENT: Color = rgb(0xa6, 0xdc, 0x8e);
 pub const AMENAGEMENT_FOND: Color = rgb(0x1f, 0x33, 0x20);

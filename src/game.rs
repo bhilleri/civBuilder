@@ -719,7 +719,7 @@ fn end_turn(
     // 5) Aménagements construits : la case change (l'intendant y place ensuite les travailleurs)
     for (city_entity, hex, kind, center, name) in new_amenagements {
         amenagements.0.insert(hex, kind);
-        log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(format!(" a aménagé un {} : {}.", kind.nom().to_lowercase(), map_name(&game_map.0, hex))));
+        log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(format!(" a fini l'aménagement : {} ({}).", kind.nom(), map_name(&game_map.0, hex))));
     }
 
     // 6) Puis la faction hostile joue (système suivant)
