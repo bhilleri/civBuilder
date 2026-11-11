@@ -127,6 +127,11 @@ pub fn fight(commands: &mut Commands, log: &mut GameLog, cues: &mut Cues, attack
         defender_hp: outcome.defender_hp,
         defender_is_player: !defender.hostile,
     }));
+    if result.defender_died || result.attacker_died {
+        let vaincu = if result.defender_died { &def_name } else { &att_name };
+        let texte = format!("Combat : {} attaque {}, {} est dispersé(e)", capitalize(&att_name), def_name, vaincu).replace("votre ", "notre ");
+        log.combats.push((defender.at, texte));
+    }
     if result.defender_died {
         msg = msg.text(" ").link(capitalize(&def_name), def_link.0, def_link.1).text(" est dispersé(e) !");
         retire(commands, defender.entity);

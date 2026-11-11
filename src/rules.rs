@@ -708,6 +708,48 @@ pub struct CityState {
     /// fin) : graphiques de l'écran de la ville.
     #[serde(default)]
     pub historique: std::collections::VecDeque<Releve>,
+    /// Histoire de la ville : ses moments marquants, dans l'ordre.
+    #[serde(default)]
+    pub chronique: Vec<Evenement>,
+    /// La ville était-elle en famine au tour précédent (début et fin de famine dans la chronique) ?
+    #[serde(default)]
+    pub en_famine: bool,
+}
+
+/// Genre d'un moment de l'histoire d'une ville.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum GenreEvenement {
+    Fondation,
+    Population,
+    Construction,
+    Famine,
+    Bataille,
+    Projet,
+}
+
+impl GenreEvenement {
+    pub const TOUS: [GenreEvenement; 6] = [GenreEvenement::Fondation, GenreEvenement::Population, GenreEvenement::Construction, GenreEvenement::Famine, GenreEvenement::Bataille, GenreEvenement::Projet];
+
+    /// Nom du filtre.
+    pub const fn nom(self) -> &'static str {
+        match self {
+            GenreEvenement::Fondation => "Fondation",
+            GenreEvenement::Population => "Population",
+            GenreEvenement::Construction => "Constructions",
+            GenreEvenement::Famine => "Famines",
+            GenreEvenement::Bataille => "Batailles",
+            GenreEvenement::Projet => "Projets",
+        }
+    }
+}
+
+/// Moment marquant de l'histoire d'une ville (le lieu : une case, s'il en a une).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Evenement {
+    pub tour: u32,
+    pub genre: GenreEvenement,
+    pub texte: String,
+    pub lieu: Option<Hex>,
 }
 
 /// Tours gardés dans l'historique d'une ville.
@@ -737,7 +779,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -749,6 +791,11 @@ impl CityState {
     /// Nourriture nécessaire à la population de l'aire ce tour-ci.
     pub fn besoin_nourriture(&self) -> f64 {
         self.habitants as f64 / HABITANTS_PAR_NOURRITURE
+    }
+
+    /// Inscrit un moment dans l'histoire de la ville.
+    pub fn noter(&mut self, tour: u32, genre: GenreEvenement, texte: impl Into<String>, lieu: Option<Hex>) {
+        self.chronique.push(Evenement { tour, genre, texte: texte.into(), lieu });
     }
 
     /// Projet qui reçoit la production ce tour-ci (la file est vide).

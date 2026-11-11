@@ -66,6 +66,8 @@ pub struct EcranVille {
     forcer: Option<(Hex, u32)>,
     /// Onglet Population : carte de la répartition des habitants (sinon : des emplois).
     pub carte_habitants: bool,
+    /// Onglet Histoire : genre d'événements montré (tous si aucun).
+    pub histoire_genre: Option<rules::GenreEvenement>,
 }
 
 /// Violet des habitants, du moins au plus peuplé (le plus foncé : beaucoup d'habitants ; Benjamin).
@@ -116,6 +118,8 @@ enum ModeCarte {
     Placement(Amenagement, f64),
     /// Habitants par case, du moins au plus peuplé (bornes, en logarithme).
     Habitants(f64, f64),
+    /// Lieux de l'histoire (couleurs de la grandeur principale, anneaux dorés).
+    Histoire,
 }
 
 /// Anneau de la case conseillée par l'intendant (or : le conseil).
@@ -222,6 +226,9 @@ struct ChoixReglage(Reglage);
 /// Onglet Population : carte des emplois (faux) ou des habitants (vrai).
 #[derive(Component)]
 struct ChoixCartePop(bool);
+/// Onglet Histoire : filtre par genre (aucun : tout).
+#[derive(Component)]
+struct ChoixGenre(Option<rules::GenreEvenement>);
 /// Forcer l'effectif d'une case : proposer un autre effectif, confirmer, annuler, rendre à l'intendant.
 #[derive(Component, Clone, Copy)]
 enum Forcage {
@@ -586,8 +593,8 @@ fn commandes(
     couches: Query<Ref<UiPointer>, With<BasculeAmenagements>>,
     (grandeurs, periodes, fils): (Query<(Ref<UiPointer>, &ChoixGrandeur)>, Query<(Ref<UiPointer>, &ChoixPeriode)>, Query<(Ref<UiPointer>, &Fil)>),
     (catalogue, construire, ici): (Query<(Ref<UiPointer>, &ChoixCatalogue)>, Query<Ref<UiPointer>, With<BoutonConstruire>>, Query<(Ref<UiPointer>, &AmenagerIci)>),
-    cartes_pop: Query<(Ref<UiPointer>, &ChoixCartePop)>,
-    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>)>, Changed<UiPointer>)>,
+    (cartes_pop, genres): (Query<(Ref<UiPointer>, &ChoixCartePop)>, Query<(Ref<UiPointer>, &ChoixGenre)>),
+    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>, With<ChoixGenre>)>, Changed<UiPointer>)>,
 ) {
     if !ecran.ouvert() {
         return;
@@ -664,6 +671,11 @@ fn commandes(
             ecran.placement = if ecran.placement == Some(a) { None } else { Some(a) };
             ecran.cible = None;
             ecran.case = None;
+        }
+    }
+    for (i, g) in &genres {
+        if appui(&i) && ecran.histoire_genre != g.0 {
+            ecran.histoire_genre = g.0;
         }
     }
     for (i, c) in &cartes_pop {
@@ -843,6 +855,16 @@ fn carte_souris(
                 let placement = ecran.placement.map(|a| (a, gain_amenagement(&map.0, c, a)));
                 commands.entity(bulle_e).with_children(|b| match placement {
                     Some((a, g)) => infobulle_placement(b, c, a, g),
+                    None if ecran.onglet == Onglet::Histoire => {
+                        b.spawn(texte(c.nom.clone(), 14.0, charte::TEXTE));
+                        let ev: Vec<&rules::Evenement> = city.1.state.chronique.iter().filter(|e| e.lieu == Some(c.hex)).collect();
+                        if ev.is_empty() {
+                            b.spawn(texte("aucun événement ici", 12.5, charte::MUET));
+                        }
+                        for e in ev {
+                            b.spawn(texte(format!("tour {} : {}", e.tour, e.texte), 12.5, charte::DOUX));
+                        }
+                    }
                     None => infobulle(b, c, ecran.onglet, ecran.carte_habitants),
                 });
             }
@@ -1027,14 +1049,15 @@ fn reconstruire(
                 }
             }
         }
+        (Onglet::Histoire, c) => histoire(g, &city, ecran.histoire_genre, c),
         (_, Some(c)) => fiche_case(g, c, &map.0, &images, None, forcage.as_ref()),
         (Onglet::Population, None) => population(g, &city, &cases, &images, courbe.as_ref()),
         (Onglet::Commerce, None) => vide(g, "Commerce", "Aucun axe de commerce : les échanges entre villes ne sont pas encore dans le jeu."),
-        (Onglet::Histoire, None) => vide(g, "Histoire", "Aucun événement enregistré : la chronique des villes n'est pas encore tenue."),
     });
     let gains: Vec<Option<GainAmenagement>> = cases.iter().map(|c| ecran.placement.and_then(|a| gain_amenagement(&map.0, c, a).ok())).collect();
     let conseillee = ecran.placement.and_then(|a| conseil(&map.0, &cases, a));
     let mode = match (ecran.onglet, ecran.grandeur) {
+        (Onglet::Histoire, _) => ModeCarte::Histoire,
         _ if let Some(a) = ecran.placement => ModeCarte::Placement(a, gains.iter().flatten().map(|g| g.plein.total()).fold(0.01, f64::max)),
         (Onglet::Population, _) if ecran.carte_habitants => {
             let v: Vec<f64> = cases.iter().map(|c| c.habitants).filter(|v| *v > 0.5).collect();
@@ -1061,6 +1084,14 @@ fn reconstruire(
         };
         if let Some(h) = conseillee {
             anneau(p, h, CONSEIL);
+        }
+        if ecran.onglet == Onglet::Histoire {
+            let mut lieux: Vec<Hex> = city.state.chronique.iter().filter_map(|e| e.lieu).collect();
+            lieux.sort();
+            lieux.dedup();
+            for h in lieux {
+                anneau(p, h, CONSEIL);
+            }
         }
         if let Some(h) = ecran.cible {
             anneau(p, h, charte::SELECTION);
@@ -1103,7 +1134,7 @@ fn reconstruire(
         t.0 = titre_liste;
     }
     let gr = if ecran.onglet == Onglet::Rendements { ecran.grandeur } else { None };
-    commands.entity(*liste).despawn_related::<Children>().with_children(|l| liste_droite(l, ecran.onglet, &cases, ecran.case, gr, ecran.carte_habitants));
+    commands.entity(*liste).despawn_related::<Children>().with_children(|l| liste_droite(l, ecran.onglet, &cases, ecran.case, gr, ecran.carte_habitants, &city.state.chronique));
 }
 
 fn melange(a: Color, b: Color, t: f32) -> Color {
@@ -1133,7 +1164,7 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, mode: ModeCarte, 
             let part = c.remplissage();
             melange(charte::SURFACE, if part >= 0.9 { charte::ALERTE } else { charte::OK }, 0.15 + 0.45 * part)
         }
-        ModeCarte::Dominante => match c.dominante() {
+        ModeCarte::Dominante | ModeCarte::Histoire => match c.dominante() {
             Some(g) => melange(charte::SURFACE, g.couleur(), if c.travailleurs > 0 { 0.45 } else { 0.18 }),
             None => charte::SURFACE,
         },
@@ -1230,6 +1261,12 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool) {
                 children![texte(t, 12.5, if actif { charte::FOND } else { charte::DOUX })],
             ));
         }
+    }
+    if mode == ModeCarte::Histoire {
+        pastille(l, CONSEIL, "lieu d'un événement");
+        pastille(l, charte::SELECTION, "lieu choisi");
+        l.spawn(texte("clic sur une case : ne garder que son histoire", 12.5, charte::MUET));
+        return;
     }
     if let ModeCarte::Habitants(lo, hi) = mode {
         l.spawn(texte(format!("{} hab.", rules::milliers(lo.round() as u64)), 12.5, charte::TEXTE));
@@ -1511,6 +1548,61 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], imag
     });
     vide(g, "Cultures et religions", "Une seule culture pour l'instant : les cultures et les religions ne sont pas encore dans le jeu.");
     vide(g, "Ordres de la société", "Paysans, artisans, marchands, prêtres, guerriers : pas encore dans le jeu.");
+}
+
+/// Onglet Histoire : les moments marquants de la ville, triés par tour, filtrés par genre et par lieu.
+fn histoire(g: &mut ChildSpawnerCommands, city: &City, genre: Option<rules::GenreEvenement>, lieu: Option<&CaseVue>) {
+    let c = &city.state;
+    let mut liste: Vec<&rules::Evenement> = c.chronique.iter().filter(|e| genre.is_none_or(|x| e.genre == x)).filter(|e| lieu.is_none_or(|l| e.lieu == Some(l.hex))).collect();
+    liste.sort_by_key(|e| e.tour);
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        titre(p, &format!("Histoire de {}", c.name));
+        p.spawn(texte("Les moments marquants de la ville ; ceux qui ont un lieu sont cerclés d'or sur la carte.", 12.5, charte::MUET));
+        p.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|f| {
+            for (x, t) in std::iter::once((None, "Tout")).chain(rules::GenreEvenement::TOUS.into_iter().map(|x| (Some(x), x.nom()))) {
+                let actif = genre == x;
+                f.spawn((
+                    ChoixGenre(x),
+                    UiPointer::default(),
+                    Node { padding: UiRect::axes(Val::Px(9.0), Val::Px(3.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
+                    BackgroundColor(if actif { charte::TEXTE } else { Color::NONE }),
+                    BorderColor::all(charte::TRAIT2),
+                    children![texte(t, 12.5, if actif { charte::FOND } else { charte::DOUX })],
+                ));
+            }
+        });
+        if let Some(l) = lieu {
+            p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|r| {
+                r.spawn(texte(format!("Lieu : {}", l.nom), 13.5, charte::TEXTE));
+                r.spawn((FermerFiche, bouton(Color::NONE), children![texte("× tous les lieux", 12.5, charte::DOUX)]));
+            });
+        }
+        if liste.is_empty() {
+            p.spawn(texte(if lieu.is_some() { "Aucun événement de ce genre en ce lieu." } else { "Aucun événement de ce genre pour l'instant." }, 13.0, charte::MUET));
+        }
+        for e in liste {
+            p.spawn((Node { column_gap: Val::Px(10.0), padding: UiRect::vertical(Val::Px(5.0)), border: UiRect::left(Val::Px(2.0)), ..default() }, BorderColor::all(couleur_genre(e.genre)))).with_children(|l| {
+                l.spawn(Node { flex_direction: FlexDirection::Column, margin: UiRect::left(Val::Px(10.0)), ..default() }).with_children(|n| {
+                    n.spawn(texte(format!("tour {} · {}", e.tour, e.genre.nom().to_lowercase()), 12.0, couleur_genre(e.genre)));
+                    n.spawn(texte(e.texte.clone(), 13.5, charte::TEXTE));
+                });
+            });
+        }
+        p.spawn(texte("Pas encore inscrits : commerce, guerres, culture (leurs systèmes ne sont pas encore dans le jeu).", 12.5, charte::MUET));
+    });
+}
+
+/// Couleur d'un genre d'événement (frise de l'histoire).
+fn couleur_genre(g: rules::GenreEvenement) -> Color {
+    use rules::GenreEvenement::*;
+    match g {
+        Fondation => Color::srgb(0.95, 0.81, 0.45),
+        Population => Grandeur::Habitants.couleur(),
+        Construction => Grandeur::Production.couleur(),
+        Famine => charte::GRAVE,
+        Bataille => charte::ALERTE,
+        Projet => Grandeur::Culture.couleur(),
+    }
 }
 
 /// Fiche d'une case choisie sur la carte ou dans la liste.
@@ -1988,7 +2080,7 @@ fn construire_actions(
     replay: Res<crate::feedback::TurnReplay>,
     (map, territoire, amenagements): (Res<GameMap>, Res<Territory>, Res<Amenagements>),
     mut cities: Query<(&mut City, &HexPos)>,
-    mut log: ResMut<crate::game::GameLog>,
+    (mut log, state): (ResMut<crate::game::GameLog>, Res<GameState>),
     catalogue: Query<(Ref<UiPointer>, &ChoixCatalogue)>,
     actions: Query<(Ref<UiPointer>, &ActionFile)>,
     (mettre, arreter): (Query<Ref<UiPointer>, With<MettreEnFile>>, Query<Ref<UiPointer>, With<ArreterProjet>>),
@@ -2036,6 +2128,9 @@ fn construire_actions(
                 let nouveau = if city.state.projet == Some(p) { None } else { Some(p) };
                 city.state.projet = nouveau;
                 city.state.tours_en_projet = 0;
+                if let Some(p) = nouveau {
+                    city.state.noter(state.turn, rules::GenreEvenement::Projet, format!("Projet « {} » lancé", p.nom()), None);
+                }
                 journal(match nouveau {
                     Some(p) => format!(" se lance dans le projet « {} » quand sa file est vide.", p.nom()),
                     None => " arrête son projet.".into(),
@@ -2102,14 +2197,35 @@ fn construire_actions(
 }
 
 /// Liste de droite : cases travaillées ou par remplissage ; vide pour le commerce et l'histoire.
-fn liste_droite(l: &mut ChildSpawnerCommands, onglet: Onglet, cases: &[CaseVue], choisie: Option<Hex>, grandeur: Option<Grandeur>, par_habitants: bool) {
+#[allow(clippy::too_many_arguments)]
+fn liste_droite(l: &mut ChildSpawnerCommands, onglet: Onglet, cases: &[CaseVue], choisie: Option<Hex>, grandeur: Option<Grandeur>, par_habitants: bool, chronique: &[rules::Evenement]) {
     match onglet {
         Onglet::Commerce => {
             l.spawn(texte("Aucun axe : le commerce n'est pas encore dans le jeu.", 13.0, charte::MUET));
             return;
         }
         Onglet::Histoire => {
-            l.spawn(texte("Aucun lieu : l'histoire de la ville n'est pas encore tenue.", 13.0, charte::MUET));
+            let lieux: Vec<&rules::Evenement> = chronique.iter().filter(|e| e.lieu.is_some()).collect();
+            if lieux.is_empty() {
+                l.spawn(texte("Aucun événement situé pour l'instant.", 13.0, charte::MUET));
+            }
+            for e in lieux {
+                let h = e.lieu.unwrap_or_default();
+                let nom = cases.iter().find(|c| c.hex == h).map_or_else(|| "hors du territoire".to_string(), |c| c.nom.clone());
+                l.spawn((
+                    ChoixCase(h),
+                    UiPointer::default(),
+                    Node { column_gap: Val::Px(10.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(7.0)), ..default() },
+                    BackgroundColor(Color::NONE),
+                    BorderColor::all(if choisie == Some(h) { charte::SELECTION } else { Color::NONE }),
+                ))
+                .with_children(|i| {
+                    i.spawn(Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, ..default() }).with_children(|n| {
+                        n.spawn(texte(nom, 13.5, charte::TEXTE));
+                        n.spawn(texte(format!("tour {} : {}", e.tour, e.texte), 12.0, charte::MUET));
+                    });
+                });
+            }
             return;
         }
         _ => {}

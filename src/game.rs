@@ -287,6 +287,8 @@ pub const LOG_LENGTH: usize = 6;
 pub struct GameLog {
     entries: Vec<LogEntry>,
     next_id: u64,
+    /// Combats décisifs (une unité dispersée) en attente d'être inscrits dans l'histoire des villes.
+    pub combats: Vec<(Hex, String)>,
 }
 
 impl GameLog {
@@ -427,7 +429,8 @@ impl Plugin for GamePlugin {
                     .chain()
                     .in_set(EndTurnSet),
             )
-            .add_systems(Update, sync_shown_fog.after(EndTurnSet));
+            .add_systems(Update, sync_shown_fog.after(EndTurnSet))
+            .add_systems(Update, chroniquer_combats.after(EndTurnSet));
     }
 }
 
@@ -469,8 +472,10 @@ pub fn found_city(
         .unwrap_or_else(|| format!("Ville {}", state.founded_cities + 1));
     state.founded_cities += 1;
     commands.entity(settler).despawn();
+    let mut etat = CityState::new(name.clone());
+    etat.noter(state.turn, rules::GenreEvenement::Fondation, format!("Fondation de {name}"), Some(at));
     let city = commands
-        .spawn((City { state: CityState::new(name.clone()), travail: Default::default() }, HexPos(at)))
+        .spawn((City { state: etat, travail: Default::default() }, HexPos(at)))
         .id();
     claim_territory(&mut territory.0, city, at, 1, map);
     Ok((city, name))
@@ -618,9 +623,33 @@ fn end_turn(
     let mut new_units = Vec::new();
     let mut new_bridges = Vec::new();
     let mut new_amenagements = Vec::new();
+    let tour = state.turn;
     for (entity, center, city) in list.iter_mut() {
         let yields = city.travail.rendements;
         let report = city.state.process_turn(yields);
+        // Histoire de la ville : paliers, famines, constructions marquantes
+        if report.grew {
+            let (p, h) = (city.state.palier(), city.state.habitants);
+            city.state.noter(tour, rules::GenreEvenement::Population, format!("Palier {p} atteint : {} habitants", rules::milliers(h)), None);
+        }
+        if report.starved != city.state.en_famine {
+            let texte = if report.starved { "Début d'une famine : la population baisse" } else { "Fin de la famine" };
+            city.state.noter(tour, rules::GenreEvenement::Famine, texte, None);
+            city.state.en_famine = report.starved;
+        }
+        match report.built {
+            Some(rules::Production::Bridge { at, .. }) => {
+                let h = match at {
+                    crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. } => hex,
+                };
+                city.state.noter(tour, rules::GenreEvenement::Construction, format!("{} construit", rules::Production::Bridge { at, cost: 0 }.name()), Some(h));
+            }
+            Some(rules::Production::Amenagement { hex, kind, .. }) => {
+                let texte = format!("Aménagement achevé : {} ({})", kind.nom(), map.describe(hex).to_lowercase());
+                city.state.noter(tour, rules::GenreEvenement::Construction, texte, Some(hex));
+            }
+            _ => {}
+        }
         // (seul le joueur a des villes pour l'instant ; la fraction de deniers est gardée par le trésor)
         state.ajouter_deniers(Peuple::JOUEUR, report.deniers);
         let name = city.state.name.clone();
@@ -730,6 +759,21 @@ fn end_turn(
 /// Nom d'une case pour le journal (« Prairie vallonnée »).
 fn map_name(map: &WorldMap, hex: Hex) -> String {
     map.describe(hex).to_lowercase()
+}
+
+/// Inscrit les combats décisifs dans l'histoire de la ville dont ils touchent le territoire.
+fn chroniquer_combats(mut log: ResMut<GameLog>, territory: Res<Territory>, state: Res<GameState>, map: Res<GameMap>, mut cities: Query<&mut City>) {
+    if log.combats.is_empty() {
+        return;
+    }
+    for (at, texte) in std::mem::take(&mut log.combats) {
+        let at = map.0.canonical(at);
+        if let Some(&ville) = territory.0.get(&at)
+            && let Ok(mut city) = cities.get_mut(ville)
+        {
+            city.state.noter(state.turn, rules::GenreEvenement::Bataille, texte, Some(at));
+        }
+    }
 }
 
 /// Maintient à jour les cases exploitées (nouvelle ville, territoire étendu, nouveau tour).
