@@ -307,8 +307,6 @@ choix à l'écran viennent en 4b.
   - **une nouvelle ville commence avec une file vide** : le joueur doit indiquer quoi produire ; une
     ville ne refait plus sans fin la même unité ; **c'est bloquant** (Benjamin, 11/11/2026) : le joueur
     ne peut pas finir son tour tant qu'une de ses villes n'a ni construction ni projet (l'écran de la
-    ville s'ouvre alors sur son catalogue) ; **c'est bloquant** (Benjamin, 11/11/2026) : le joueur
-    ne peut pas finir son tour tant qu'une de ses villes n'a ni construction ni projet (l'écran de la
     ville s'ouvre alors sur son catalogue) ;
   - à la place de construire, la ville peut se lancer dans un **projet de ville**, sans fin, qui
     reçoit toute sa production tant que la file est vide :
