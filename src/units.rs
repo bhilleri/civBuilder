@@ -3,8 +3,11 @@
 /// Famille d'unité : sert aux bonus (anti-cavalerie, cavalerie contre archers…).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum UnitClass {
-    /// Colon, éclaireur : pas faits pour se battre.
+    /// Colon : pas fait pour se battre.
     Civilian,
+    /// Éclaireur : unité militaire légère et peu coûteuse (reconnaissance), sans zone de contrôle
+    /// (décision du 10/11/2026, `conception-combat.md`).
+    Reconnaissance,
     Infantry,
     AntiCavalry,
     Ranged,
@@ -100,7 +103,7 @@ impl UnitKind {
         // (PM doublés le 11/11/2026, avec les coûts du relief : `conception-combat.md`, révision 2)
         let (cost, ma, md, ra, range, rd, moves, sight, class) = match self {
             UnitKind::Settler => (40, 0, 2, 0, 0, 2, 4, 2, Civilian),
-            UnitKind::Scout => (15, 4, 5, 0, 0, 5, 6, 3, Civilian),
+            UnitKind::Scout => (15, 4, 5, 0, 0, 5, 6, 3, Reconnaissance),
             UnitKind::Militia => (15, 8, 8, 0, 0, 6, 4, 2, Infantry),
             UnitKind::ShieldWarrior => (30, 10, 16, 0, 0, 18, 4, 2, Infantry),
             UnitKind::HeavyWarrior => (35, 20, 10, 0, 0, 8, 4, 2, Infantry),
@@ -150,9 +153,9 @@ impl UnitKind {
         self.stats().melee_attack > 0
     }
 
-    /// Unités militaires et éclaireurs : peuvent explorer automatiquement.
+    /// Unités militaires (éclaireur compris) : peuvent explorer automatiquement.
     pub fn can_auto_explore(self) -> bool {
-        self.is_military() || self == UnitKind::Scout
+        self.is_military()
     }
 
     /// Zone de contrôle : l'infanterie de mêlée (milice, guerriers, lanciers, piquiers).

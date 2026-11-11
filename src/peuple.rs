@@ -23,7 +23,7 @@ impl Peuple {
     }
 }
 
-/// Trésor de chaque peuple, en or (bientôt « Économie », tâche 33).
+/// Trésor de chaque peuple, en Économie.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tresors(Vec<i32>);
 

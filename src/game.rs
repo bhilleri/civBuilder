@@ -606,7 +606,7 @@ fn end_turn(
         let yields = rules::city_yields(map, *center, &city.worked);
         let report = city.state.process_turn(yields);
         // (seul le joueur a des villes pour l'instant)
-        *state.tresor_mut(Peuple::JOUEUR) += report.gold;
+        *state.tresor_mut(Peuple::JOUEUR) += report.economie;
         let name = city.state.name.clone();
         if report.grew {
             log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(" gagne un habitant."));

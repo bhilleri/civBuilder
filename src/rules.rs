@@ -430,6 +430,19 @@ pub fn palier_de(habitants: u64) -> i32 {
     (1..=PALIER_MAX).rev().find(|&p| habitants >= habitants_du_palier(p)).unwrap_or(1)
 }
 
+/// Nombre écrit à la française, avec une espace fine entre les milliers (« 12 400 »).
+pub fn milliers(n: u64) -> String {
+    let chiffres = n.to_string();
+    let mut out = String::new();
+    for (i, c) in chiffres.chars().enumerate() {
+        if i > 0 && (chiffres.len() - i).is_multiple_of(3) {
+            out.push('\u{202f}');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Variation des habitants en un tour selon la nourriture produite : croissance naturelle quand
 /// la nourriture dépasse le besoin (pleine à 50 % de surplus), famine quand elle manque.
 pub fn variation_des_habitants(habitants: u64, nourriture: i32) -> i64 {
@@ -467,11 +480,11 @@ pub fn can_found_city(map: &WorldMap, at: Hex, cities: &[Hex]) -> Result<(), &'s
 /// Rendement de la case centrale : au moins 2 nourriture, 2 production, 1 or.
 pub fn center_yields(map: &WorldMap, center: Hex) -> Yields {
     let y = map.yields(center).unwrap_or_default();
-    Yields::new(y.food.max(2), y.production.max(2), y.gold.max(1))
+    Yields::new(y.food.max(2), y.production.max(2), y.economie.max(1))
 }
 
 fn tile_score(y: Yields) -> i32 {
-    y.food * 4 + y.production * 3 + y.gold * 2
+    y.food * 4 + y.production * 3 + y.economie * 2
 }
 
 /// Choisit les `population` meilleures cases exploitables du territoire
@@ -597,7 +610,7 @@ pub struct CityTurnReport {
     pub grew: bool,
     pub starved: bool,
     pub built: Option<Production>,
-    pub gold: i32,
+    pub economie: i32,
 }
 
 impl CityState {
@@ -617,7 +630,7 @@ impl CityState {
     }
 
     pub fn process_turn(&mut self, yields: Yields) -> CityTurnReport {
-        let mut report = CityTurnReport { gold: yields.gold, ..Default::default() };
+        let mut report = CityTurnReport { economie: yields.economie, ..Default::default() };
 
         // Croissance (ou famine) en habitants ; « a grandi » : nouveau palier atteint
         let palier = self.palier();

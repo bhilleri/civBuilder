@@ -1166,12 +1166,12 @@ fn update_top_bar(
     mut text: Single<&mut Text, With<TopBarText>>,
 ) {
     let gold_income: i32 =
-        cities.iter().map(|(c, p)| rules::city_yields(&map.0, p.0, &c.worked).gold).sum();
+        cities.iter().map(|(c, p)| rules::city_yields(&map.0, p.0, &c.worked).economie).sum();
     let waiting = units.iter().filter(|u| u.0.needs_orders()).count();
     set_text(
         &mut text,
         format!(
-            "Tour {}   |   Or : {} (+{})   |   Villes : {}   |   Unités : {} ({} en attente)",
+            "Tour {}   |   Économie : {} (+{})   |   Villes : {}   |   Unités : {} ({} en attente)",
             state.turn,
             state.tresor_joueur(),
             gold_income,
@@ -1252,7 +1252,7 @@ fn update_selection_panel(
             let u = &units.get(e).unwrap().0;
             let st = u.kind.stats();
             let mut s = format!("{}\nPV : {}/{}   ·   Mouvements : {}/{}", u.kind.name(), u.hp, rules::MAX_HP, u.moves_left, st.moves);
-            if u.kind.is_military() || u.kind == UnitKind::Scout {
+            if u.kind.is_military() {
                 s += &format!(
                     "\nMêlée : attaque {} · défense {}   ·   Déf. à distance {}",
                     st.melee_attack, st.melee_defense, st.ranged_defense
@@ -1302,7 +1302,7 @@ fn update_selection_panel(
             let c = &city.state;
             let y = rules::city_yields(&map.0, pos.0, &city.worked);
             let variation = rules::variation_des_habitants(c.habitants, y.food);
-            let croissance = if variation >= 0 { format!("+{variation} habitants/tour") } else { format!("famine : {variation} habitants/tour") };
+            let croissance = if variation >= 0 { format!("+{} habitants/tour", rules::milliers(variation as u64)) } else { format!("famine : −{} habitants/tour", rules::milliers(variation.unsigned_abs())) };
             let production = match c.producing {
                 Some(k) => {
                     let turns = if y.production > 0 {
@@ -1315,15 +1315,15 @@ fn update_selection_panel(
                 None => "rien".into(),
             };
             format!(
-                "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {:.1} ({})\nProduction : +{}/tour   Or : +{}/tour\nEn cours : {}\n\n{}",
+                "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {} ({})\nProduction : +{}/tour   Économie : +{}/tour\nEn cours : {}\n\n{}",
                 c.name,
                 c.palier(),
-                c.habitants,
+                rules::milliers(c.habitants),
                 y.food,
-                c.besoin_nourriture(),
+                format!("{:.1}", c.besoin_nourriture()).replace('.', ","),
                 croissance,
                 y.production,
-                y.gold,
+                y.economie,
                 production,
                 "Choisissez la production dans le panneau de gauche."
             )
@@ -1495,7 +1495,7 @@ fn update_hover_text(
                     Some(b) if !shows(Info::Fishing) => format!(" (dont +{} : {})", crate::map::RICH_WATERS_FOOD, b.name),
                     _ => String::new(),
                 };
-                parts.push(format!("nourriture {}{fish}, production {}, or {}", y.food, y.production, y.gold));
+                parts.push(format!("nourriture {}{fish}, production {}, Économie {}", y.food, y.production, y.economie));
             }
             if shows(Info::Moves) {
                 parts.push(m.move_cost(h).map(|c| format!("{c} PM")).unwrap_or_else(|| "infranchissable".into()));
@@ -1545,8 +1545,8 @@ fn update_hover_text(
         }
         if fog.explored.contains(&h) && camps.iter().any(|p| p.0 == h) {
             content += &format!(
-                "\nCamp hostile : entrez-y avec une unité pour le disperser (+{} or)",
-                crate::hostile::CAMP_CAPTURE_GOLD
+                "\nCamp hostile : entrez-y avec une unité pour le disperser (+{} Économie)",
+                crate::hostile::CAMP_BUTIN_ECONOMIE
             );
         }
         if fog.visible.contains(&h)

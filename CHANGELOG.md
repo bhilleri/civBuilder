@@ -7,6 +7,8 @@
 - **Colon** : il emporte 1 000 habitants, d'une ville qui en compte au moins 2 000. Un village qui rejoint une ville lui apporte 1 000 habitants.
 - **Points de mouvement doublés** (milice 4, cavalerie légère 8), **coûts des terrains difficiles doublés** (forêt 4, marais 6, collines +2, relief accidenté +4, montagne 8 à 16, rivière +4, fleuve 6, banquise 4, montée +2 ou +4) ; plaine et pont inchangés (1 PM) : on va deux fois plus loin en plaine, le relief reste une barrière. L'archer monté garde ses PM moins 2 après un tir. La faction hostile chasse à 4 cases et erre à 6 cases de sa base.
 - La console `ville population` règle le palier. Les sauvegardes passent au format 2 (les anciennes sont refusées).
+- **« Or » devient « Économie »** partout (trésor, rendements des cases, butin des camps, échanges des villages, panneau de la ville, wiki) : le mot « or » reste pour le métal à venir. Le pilote écrit `economie=` au lieu de `or=`.
+- **L'éclaireur devient une unité militaire** légère et peu coûteuse (famille « reconnaissance »), sans zone de contrôle.
 
 ### Nouvelle partie
 - **Écran de nouvelle partie** au lancement du jeu (maquette v4 validée) :

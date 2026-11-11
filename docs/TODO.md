@@ -318,13 +318,16 @@ régime, bonus partagés entre dirigeant, gouvernement et assemblée selon la ce
 
 ### [ ] 33. Mettre le code en accord avec la conception (relevé le 10/11)
 Écarts relevés par la relecture de cohérence, à faire avec les tâches concernées :
-- « Or » → « Économie » (`Yields.gold`, `state.gold`, `CAMP_CAPTURE_GOLD`, `VillageEvent::Trade`,
-  README, wiki) ; attention au mot « or » du métal (tâche 15). Trésor national.
-- Colon : 2 habitants demandés, 1 retiré (`rules.rs`) → habitants selon la table de population.
+- ~~« Or » → « Économie »~~ (fait le 11/11 : `Yields.economie`, `CAMP_BUTIN_ECONOMIE`,
+  `VillageEvent::Trade { economie }`, interface, journal, wiki, README, pilote `economie=` ;
+  trésor par peuple). Le mot « or » reste libre pour le métal (tâche 15).
+- ~~Colon : 2 habitants demandés, 1 retiré~~ (fait le 11/11 : 1 000 habitants, depuis 2 000).
 - Soldats encore produits dans la file (`Production::Unit`, milice par défaut) → formés à part (29).
-- Éclaireur `Civilian` (`units.rs`) → unité militaire peu coûteuse.
+- ~~Éclaireur `Civilian` → unité militaire peu coûteuse~~ (fait le 11/11 : famille
+  `Reconnaissance`, militaire, sans zone de contrôle).
 - `territory_radius` (villages qui rejoignent une ville, soins, ponts) → nouvelle règle de territoire.
-- Village qui rejoint une ville : « +1 habitant » → en habitants.
+- ~~Village qui rejoint une ville : « +1 habitant » → en habitants~~ (fait le 11/11 : +1 000).
+- Restent, avec leurs tâches : soldats formés à part (29), règle de territoire (28, 32), quartiers (28).
 - Stades des villes (`conception-structures.md`, `settlements.rs`) → quartiers sur sous-cases et étalement urbain.
 
 ### [ ] 34. Recherche et technologies (décidé le 10/11)

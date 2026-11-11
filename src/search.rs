@@ -361,15 +361,7 @@ fn match_name(name: &[char], query: &[char]) -> Option<(u8, usize, usize)> {
 
 /// Nombre avec espaces entre les milliers.
 fn thousands(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push('\u{202f}');
-        }
-        out.push(c);
-    }
-    out
+    crate::rules::milliers(n)
 }
 
 /// Index des lieux connus : villes du joueur, cours d'eau et lacs dont une partie est explorée,

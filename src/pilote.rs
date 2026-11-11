@@ -400,7 +400,7 @@ impl PlayerView<'_, '_> {
         let scale = self.window.scale_factor();
         let waiting = self.units.iter().filter(|(_, u, _, hostile)| !hostile && u.0.needs_orders()).count();
         let mut lines = vec![format!(
-            "OK tour={} or={} attente={waiting} passage-tour={} vue={} carte={} explorees={} fenetre={}x{} echelle={scale}",
+            "OK tour={} economie={} attente={waiting} passage-tour={} vue={} carte={} explorees={} fenetre={}x{} echelle={scale}",
             self.state.turn,
             self.state.tresor_joueur(),
             if replay.playing { "oui" } else { "non" },

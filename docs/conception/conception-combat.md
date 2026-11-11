@@ -39,7 +39,7 @@ _Dernière mise à jour : 10 novembre 2026 — armée et révisions après l'ana
 | Cavalerie lourde | 60 | 24 | 16 | — | 14 | 6 | Contrée par les lances |
 | Archer monté | 50 | 8 | 8 | 10 (1) | 9 | 8 | Tir puis repli |
 
-Hors combat : colon (40, 4 PM, ne peut pas attaquer), éclaireur (15, 6 PM, vision 3, attaque 4 / défense 5). (PM doublés le 11/11/2026, avec les coûts du terrain difficile.)
+Hors combat : colon (40, 4 PM, ne peut pas attaquer). Éclaireur (15, 6 PM, vision 3, attaque 4 / défense 5) : unité militaire légère (famille « reconnaissance », depuis le 11/11/2026), sans zone de contrôle. (PM doublés le 11/11/2026, avec les coûts du terrain difficile.)
 Les bonus anti-cavalerie s'appliquent à toute la cavalerie, archer monté compris.
 Les unités capables de tirer attaquent toujours en tirant (y compris au contact).
 
