@@ -202,6 +202,14 @@ soins, formation, armes, croissance, construction, recherche, budget de l'IA.
 La météo reste tirée par pas du calendrier (même météo dans les deux modes).
 Une seule attaque par tour et par unité, quel que soit le mode (révision du 10/11).
 
+## Révision 3 : 500 tours dans les deux modes (décidé le 11/11/2026)
+**Remplace la révision 2.** Le mode 2 tours par mois **garde 500 tours** et les mêmes taux par
+tour (croissance, construction, recherche, PM, formation…) : seul le calendrier avance deux fois
+moins vite (24 tours par an, ≈ 21 années de saisons au lieu de ≈ 42). Le mode apporte des saisons
+plus fines (semailles, crues, cyclones par demi-mois) à durée de partie égale, avec **un seul jeu
+de chiffres** à régler. Contrepartie : deux fois moins d'hivers et de récoltes par rapport au
+développement. D'autres modes pourront s'ajouter à la fin, après l'équilibrage.
+
 ## Questions ouvertes
 - Seuils et chiffres des effets sur les déplacements.
 - Réutiliser le moteur des systèmes à la génération du climat (tâche 7 g) : à décider après l'étape 4, selon son coût.

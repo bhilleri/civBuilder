@@ -40,8 +40,9 @@ d'un nombre d'années qui dépend de **l'ère du joueur** :
 
 Départ vers −8 500, arrivée vers 1 400. Comme les ères se passent par jalons, un peuple en avance
 voit l'année avancer moins vite : l'année reste indicative, chaque peuple a sa propre date.
-- **Mode 2 tours par mois** : mêmes durées en années de jeu, donc deux fois plus de tours ; les
-  taux par tour (croissance, construction, recherche) sont divisés par deux.
+- **Mode 2 tours par mois** (révision du 11/11/2026, remplace la règle précédente) : **500 tours
+  dans les deux modes**, mêmes taux par tour ; seul le calendrier avance deux fois moins vite
+  (≈ 21 années de saisons). Voir `conception-saisons.md`, révision 3.
 
 ### Déplacements
 - PM actuels multipliés par environ 2 (milice 4, cavalerie 8), coûts du relief doublés aussi, voir `conception-combat.md` (montagne,
@@ -132,7 +133,7 @@ découverte, contact avec un peuple. Le journal hiérarchisé existant les porte
 - **Effectifs selon l'ère** : les unités grandissent en s'améliorant d'une ère à l'autre
   (`conception-combat.md`) ; les colons et les petites bandes du Néolithique restent compatibles
   avec des villes de quelques centaines d'habitants.
-- **Mode 2 tours par mois** : tout ce qui se compte par tour est réglé en mois (`conception-saisons.md`).
+- **Mode 2 tours par mois** : 500 tours et mêmes taux dans les deux modes (révision du 11/11, `conception-saisons.md`).
 - **Ordre** : la tâche 30 recale d'abord les chiffres (croissance, PM, coûts du relief, soins) ; les
   jalons et l'arbre de recherche viennent après les villes (28), la culture et les institutions (32)
   et les gisements (15).
@@ -150,7 +151,7 @@ Les assemblées existent dès les cités-États (comme à Rome ou à Athènes) ;
 les parlements et les chancelleries.
 
 ## Conséquences sur les autres docs
-- `conception-saisons.md` : taux au tour de jeu ; mode 2 tours par mois avec taux divisés par deux.
+- `conception-saisons.md` : taux au tour de jeu ; mode 2 tours par mois sur 500 tours, mêmes taux.
 - `conception-villes.md` : population en habitants, table indice ↔ habitants.
 - `conception-combat.md` : PM environ doublés ; effectifs en habitants.
 - Règles actuelles (`rules.rs`) à recaler : seuils de croissance, coûts des unités, soins, PM.

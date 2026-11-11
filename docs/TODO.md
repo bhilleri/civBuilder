@@ -283,7 +283,7 @@ tour, 4 ères passées par jalons, population en paliers croissants (habitants �
 Ordre (révision du 10/11) : d'abord recaler les règles actuelles (croissance, coûts, soins, PM
 doublés et coûts du relief doublés, rayons de l'IA hostile et de l'exploration), avant 28 et 29 ;
 ensuite l'arbre de recherche (34) et les jalons, après 28, 32 et 15. Unités réparties par
-ère, améliorées en changeant d'ère (effectif qui grandit). Mode 2 tours par mois : tout réglé en mois.
+ère, améliorées en changeant d'ère (effectif qui grandit). Mode 2 tours par mois : 500 tours et mêmes taux (décidé le 11/11).
 Fin de partie à décider avec les IA (31) ; cas d'un peuple qui atteint le Moyen Âge avant le tour 500.
 Fin de partie décidée le 10/11 : victoire au meilleur score d'héritage (piliers non pondérés,
 dont le rayonnement culturel ; ambitions par ère qui l'augmentent), fin au bout de 500 tours, hégémonie anticipée à 80 % de la

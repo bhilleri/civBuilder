@@ -469,6 +469,24 @@ Proposition de Claude : elles deviennent une simple porte d'entrée vers les mê
   apparaissent quand ils deviennent utiles (premier contact, Écriture…).
 - **Wiki (F1)** ouvert sur le sujet survolé ou l'écran courant.
 
+### Écran de nouvelle partie : décisions après la maquette (11/11/2026)
+Maquette v2 analysée par deux agents (designer UX, game designer de 4X) ; décisions de Benjamin :
+- **Aperçu du monde masqué par défaut** : il gâcherait l'exploration (départ nomade, carte
+  imparfaite) ; un bouton le révèle (« gâche la découverte »). Le monde calculé pour l'aperçu sert
+  au lancement ; génération en tâche de fond, avec progression et annulation ; aperçu marqué périmé
+  quand un réglage change.
+- **Réglages pas encore disponibles affichés grisés, avec « à venir »** (terres, climat, relief,
+  IA, difficulté) : l'écran montre la cible, pour ne pas changer d'interface à chaque étape.
+- **Taille Grande (256 × 148) signalée « expérimentale »** tant que la génération n'y est pas vérifiée.
+- **Rythme : 500 tours dans les deux modes** (`conception-saisons.md`, révision 3).
+Corrections retenues : valeur chiffrée sous chaque choix (« Comme la Terre · 29 % ») et code au
+format de la doc ; ligne « Victoire : meilleur score d'héritage au tour 500 » ; pas de réglage
+« continuer après 500 » (partie libre déjà décidée) ; bascule « Premiers tours guidés » ; une ligne
+sur le peuple (« il naîtra de son lieu de départ ») ; titres de section plus visibles, aide plus
+contrastée (≥ 4,5:1) ; bascules avec Oui/Non ; navigation au clavier et à la manette ; erreur
+claire pour un code collé illisible ; actions sur les mondes (favori, note, effacer avec
+confirmation) et lien vers leurs sauvegardes.
+
 ### Performance (validée)
 - Objectif : **moins de 2 secondes par tour en fin de partie** (12 peuples, centaines de villes),
   idéalement moins d'une seconde.
