@@ -2451,9 +2451,9 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, ma
             p.spawn((
                 LigneFile(i),
                 UiPointer::default(),
-                BackgroundColor(Color::NONE),
-                Node { column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), border: UiRect { top: Val::Px(2.0), left: Val::Px(1.0), right: Val::Px(1.0), bottom: Val::Px(1.0) }, border_radius: BorderRadius::all(Val::Px(6.0)), align_items: AlignItems::Center, ..default() },
-                BorderColor { top: charte::TRAIT, ..BorderColor::all(if choisi { charte::SELECTION } else { Color::NONE }) },
+                BackgroundColor(if choisi { charte::SURFACE } else { Color::NONE }),
+                Node { column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), border: UiRect::left(Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(6.0)), align_items: AlignItems::Center, ..default() },
+                BorderColor::all(if choisi { Grandeur::Production.couleur() } else { charte::TRAIT }),
             ))
             .with_children(|l| {
                 l.spawn(texte(format!("{}.", i + 1), 13.0, charte::MUET));
@@ -2657,12 +2657,13 @@ fn glisser_file(
             node.top = top;
         }
         let glissee = g.bouge && l.0 == g.de;
-        let contour = if glissee { charte::SELECTION } else { Color::NONE };
-        if glissee || bord.left == charte::SELECTION && !glissee && ecran.file_choisie != Some(l.0) {
-            *bord = BorderColor { top: if glissee { charte::SELECTION } else { charte::TRAIT }, ..BorderColor::all(contour) };
+        let choisie = ecran.file_choisie == Some(l.0);
+        let lisere = if glissee || choisie { Grandeur::Production.couleur() } else { charte::TRAIT };
+        if bord.left != lisere {
+            *bord = BorderColor::all(lisere);
         }
-        let f = if glissee { charte::SURFACE2 } else { Color::NONE };
-        if glissee || fond.0 == charte::SURFACE2 {
+        let f = if glissee { charte::SURFACE2 } else if choisie { charte::SURFACE } else { Color::NONE };
+        if fond.0 != f {
             fond.0 = f;
         }
     }
