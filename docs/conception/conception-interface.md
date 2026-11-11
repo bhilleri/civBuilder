@@ -571,6 +571,20 @@ est dessinée avec l'interface Bevy, un hexagone par case.
   Population : habitants, palier suivant, actifs, au travail, sans emploi ; Commerce, Histoire,
   cultures, ordres de la société : un panneau qui dit qu'ils ne sont pas encore dans le jeu ;
 - le panneau de production reste sur la carte jusqu'au lot 3 (file de construction).
+**Lot 2 fait le 11/11/2026** (`graphique.rs`, `CityState.historique`) :
+- chaque ville garde ses 40 derniers tours (nourriture, production, deniers, habitants), sauvegardés
+  (champ facultatif : les sauvegardes du format 3 se chargent) ;
+- détail d'une grandeur (clic sur sa carte ou sa ligne, touches 1 à 3) : graphique dessiné par le code
+  dans une image (le passé, aujourd'hui = le rendement actuel, la prévision sur 20 tours au rythme de
+  la tendance des 10 derniers tours, bande d'incertitude qui s'élargit, seuils en tirets), libellés
+  posés par l'interface ; sources (centre, cases ; bâtiments et commerce « pas encore dans le jeu ») et
+  usages (nourriture : besoin des habitants, réserve pour croître jusqu'à +50 %, excédent perdu ou
+  manque ; production : construction en cours ou perdue ; deniers : trésor) ;
+- fil d'Ariane « Vue d'ensemble › Nourriture › case » ; Échap remonte d'un cran ;
+- carte de la ville aux couleurs de la grandeur (de faible à fort, valeur par case) ; liste des cases
+  triée par la grandeur ; fiche de case : gain de 100 travailleurs de plus (ou « case pleine ») ;
+- pas encore : réglages de l'intendant dans le détail (lot 4), repères d'événements sur les
+  graphiques (lot 6, avec l'histoire).
 Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
 l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
 
