@@ -88,6 +88,11 @@ Table de départ (à régler) :
   2. **la taille compte pour une ville** (« une ville d'indice 10 »), jamais pour plusieurs ;
   3. **rien qui croisse mécaniquement avec l'étendue** (nombre de villes, territoire) : on
      récompense le développement, pas l'expansion.
+  5. **Rôle de l'ère (décidé le 11/11/2026) : un repère de progression.** L'ère ne débloque aucune
+     mécanique (systèmes, régimes, lois, unités dépendent de la recherche et de la culture). Elle
+     résume où en est un peuple et porte les **ambitions de l'ère**, le pilier « savoir » du **score
+     d'héritage**, la **fenêtre de recherche** (ère en cours et suivante) et le nom de l'époque.
+     Pas de coût au passage d'ère.
   4. **plancher technique** (décidé le 11/11) : il faut toujours au moins **5 technologies de
      base de l'ère sur 10**, plus **2 autres conditions au choix** parmi les 4 restantes (taille
      d'une ville, population totale, lois, culture ou commerce). L'ère reste cohérente avec les
