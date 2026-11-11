@@ -70,13 +70,20 @@ Table de départ (à régler) :
 |---|---|
 | Néolithique → Bronze | agriculture et élevage, une ville d'indice 3, métallurgie du cuivre (gisements, tâche 15) |
 | Bronze → Fer et Antiquité | bronze, écriture, une ville d'indice 8, première loi de droit ou de pouvoir |
-| Fer et Antiquité → Moyen Âge | plusieurs villes d'indice 10, métallurgie du fer et monnaie, lois sur trois axes |
+| Fer et Antiquité → Moyen Âge | une ville d'indice 10, métallurgie du fer et monnaie, lois sur trois axes |
 
 - Chaque ère débloque des aménagements, des bâtiments, des unités et des institutions.
 - **Recherche** : 10 technologies de base par ère, avec des spécialisations, des conditions de
   pré-acquisition et un transfert entre voisins (décidé le 10/11, `conception-recherche.md`).
 - Les jalons demandent à la fois de la recherche, de la culture (institutions) et du développement
   des villes : aucune voie unique.
+- **Principes des jalons (décidés par Benjamin le 11/11/2026)**, pour ne pas bloquer une petite
+  nation (Athènes, Venise, les cités phéniciennes) :
+  1. **conditions au choix** : chaque passage propose environ 5 conditions, il suffit d'en remplir
+     3 (taille, population totale, technologies, lois, commerce ou monument) ;
+  2. **la taille compte pour une ville** (« une ville d'indice 10 »), jamais pour plusieurs ;
+  3. **rien qui croisse mécaniquement avec l'étendue** (nombre de villes, territoire) : on
+     récompense le développement, pas l'expansion.
 
 ### IA des peuples rivaux (conçues : `conception-ia.md`)
 - Plusieurs peuples sur la même planète, partis d'endroits différents, qui suivent les mêmes règles
