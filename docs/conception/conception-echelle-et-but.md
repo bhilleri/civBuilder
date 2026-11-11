@@ -56,17 +56,31 @@ voit l'année avancer moins vite : l'année reste indicative, chaque peuple a sa
 - À vérifier en jeu : traversée d'un continent (≈ 50 à 100 cases) en 1 à 2 ans de jeu, une campagne
   qui tient dans une belle saison.
 
-### Population : indice et habitants
-Table de départ (à régler) :
+### Population : paliers et habitants (validé par Benjamin le 11/11/2026)
+La population d'une ville est celle de **toute son aire d'influence** (la ville et ses campagnes ;
+urbains et ruraux se lisent dans l'affectation aux cases, `conception-villes.md`). Avec des cases
+de 40 km, une aire est une province (19 à 37 cases, 30 000 à 60 000 km²) : densités historiques de
+1 à 5 hab./km² au Néolithique, 20 à 50 dans les vallées irriguées du Bronze, 30 à 40 en France
+vers 1300.
 
-| Indice | 1 | 2 | 3 | 5 | 8 | 10 | 15 | 20 |
+| Palier | 1 | 3 | 5 | 10 | 15 | 20 | 25 | 30 |
 |---|---|---|---|---|---|---|---|---|
-| Habitants | 500 | 1 200 | 2 000 | 5 000 | 12 000 | 20 000 | 50 000 | 100 000 |
+| Habitants de l'aire | 1 000 | 3 000 | 10 000 | 50 000 | 150 000 | 400 000 | 1 000 000 | 2 500 000 |
+| Repère | clan installé | gros village et ses terres | petite région néolithique | cité-État du Bronze | grande cité antique et son arrière-pays | province médiévale riche | Rome et le Latium, une province du Nil | plafond |
 
-- L'indice sert aux règles de taille (territoire, bâtiments, affichage) ; les flux (naissances,
-  famine, migrations, colons, soldats) se comptent en habitants.
-- Un colon emporte un groupe d'habitants (500, de quoi fonder une ville d'indice 1), une unité militaire selon l'ère et son
-  type (`conception-combat.md`).
+Les paliers intermédiaires se calculent entre ces valeurs (progression géométrique). Le palier est
+ce que voit le joueur et ce que lisent les règles de taille (territoire, bâtiments, jalons, allure) ;
+les flux se comptent en habitants.
+
+- **Consommation** : **1 point de nourriture pour 1 000 habitants** (à vérifier en jeu avec le
+  système agricole : les rendements des cases seront recalés avec les aménagements, tâche 28).
+- **Croissance naturelle** : 1,5 % des habitants par tour, multipliée par la part de la
+  nourriture couverte ; freinée plus tard par la capacité de l'aire, le Bien-être et l'hygiène
+  (tâche 28). **Immigration** : selon l'attractivité (tâche 28), l'essentiel de la croissance des
+  très grandes villes.
+- **Famine** : 2 à 5 % des habitants perdus par tour, selon le manque.
+- **Colon** : il emporte **1 000 habitants**, depuis une aire d'au moins **2 000**. Une unité
+  militaire emporte des habitants selon l'ère et son type (`conception-combat.md`).
 - La population active (40 à 60 %, `conception-villes.md`) se calcule sur les habitants.
 
 ### Ères et jalons (exemples)
