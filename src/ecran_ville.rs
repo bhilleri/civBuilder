@@ -149,6 +149,11 @@ impl Default for VueCarte {
 #[derive(Component)]
 pub struct BoutonEcranVille;
 
+/// Fin de tour demandée par le joueur (clavier, bouton) : elle est refusée tant qu'une de ses
+/// villes n'a rien à produire (ni construction ni projet ; décision de Benjamin).
+#[derive(Resource, Default)]
+pub struct FinDeTourJoueur(pub bool);
+
 #[derive(Component)]
 struct Racine;
 #[derive(Component)]
@@ -293,7 +298,7 @@ fn frein(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue]) -> Frein {
     // Autres alertes
     let mut alertes = Vec::new();
     if c.file.is_empty() && c.projet.is_none() {
-        alertes.push((Etat::Alerte, "Rien à produire : la production est perdue".to_string(), Remede::Construire));
+        alertes.push((Etat::Alerte, "Rien à produire : à choisir pour finir le tour".to_string(), Remede::Construire));
     }
     if city.travail.chomeurs > 0 {
         let a = if cases.iter().any(|x| gain_amenagement(map, x, Amenagement::Champ).is_ok()) { Remede::Placer(Amenagement::Champ) } else { Remede::Construire };
@@ -387,6 +392,8 @@ impl Plugin for EcranVillePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EcranVille>()
             .init_resource::<VueCarte>()
+            .init_resource::<FinDeTourJoueur>()
+            .add_systems(Update, fin_de_tour_joueur.after(crate::input::InputSet).before(crate::game::EndTurnSet))
             .add_systems(Startup, construire)
             .add_systems(
                 Update,
@@ -567,6 +574,41 @@ fn construire(mut commands: Commands, images: Res<Images>) {
 }
 
 // ------------------------------------------------------------------ Ouverture, commandes
+
+/// Fin de tour du joueur : acceptée si chaque ville a quelque chose à produire ; sinon la première
+/// ville sans rien est choisie, son écran s'ouvre sur le catalogue, et le journal l'explique.
+#[allow(clippy::too_many_arguments)]
+fn fin_de_tour_joueur(
+    mut demande: ResMut<FinDeTourJoueur>,
+    mut end_turn: ResMut<crate::game::EndTurnRequested>,
+    mut selection: ResMut<Selection>,
+    mut ecran: ResMut<EcranVille>,
+    mut log: ResMut<crate::game::GameLog>,
+    cities: Query<(Entity, &City, &HexPos)>,
+) {
+    if !std::mem::take(&mut demande.0) {
+        return;
+    }
+    let mut oisives: Vec<(Entity, &City, &HexPos)> = cities.iter().filter(|(_, c, _)| c.state.file.is_empty() && c.state.projet.is_none()).collect();
+    oisives.sort_by(|a, b| a.1.state.name.cmp(&b.1.state.name));
+    let Some((e, city, pos)) = oisives.first().copied() else {
+        end_turn.0 = true;
+        return;
+    };
+    let autres = if oisives.len() > 1 { format!(" (et {} autre(s) ville(s))", oisives.len() - 1) } else { String::new() };
+    log.notify(
+        crate::game::Importance::Warning,
+        crate::game::LogText::new().city(&city.state.name, e, pos.0).text(format!(" n'a rien à produire{autres} : choisissez une construction ou un projet de ville pour finir le tour.")),
+    );
+    selection.0 = Some(e);
+    ecran.ville = Some(e);
+    ecran.onglet = Onglet::Rendements;
+    ecran.case = None;
+    ecran.grandeur = None;
+    ecran.catalogue = true;
+    ecran.placement = None;
+    ecran.cible = None;
+}
 
 /// Ouvre l'écran (touche C, bouton) pour la ville sélectionnée ; le ferme (Échap, bouton, plus de
 /// ville sélectionnée).
@@ -1470,7 +1512,7 @@ fn en_cours(c: &rules::CityState, production: f64) -> String {
             format!("En construction : {} · {}{suite}", capitale(k.objet.name()), delai(k.objet.cost(), k.investi, production))
         }
         (None, Some(p)) => format!("Projet : {} (depuis {} tours)", p.nom(), c.tours_en_projet),
-        (None, None) => "Rien à produire : la production est perdue".into(),
+        (None, None) => "Rien à produire : à choisir pour finir le tour".into(),
     }
 }
 
@@ -1554,7 +1596,7 @@ fn cartes(g: &mut ChildSpawnerCommands, city: &City, images: &Images, choisie: O
     let prod = match (c.file.first(), c.projet) {
         (Some(k), _) => format!("{} : {}", capitale(k.objet.name()), delai(k.objet.cost(), k.investi, y.production)),
         (None, Some(p)) => format!("projet : {}", p.nom().to_lowercase()),
-        (None, None) => "rien à produire : perdue".into(),
+        (None, None) => "rien à produire : à choisir".into(),
     };
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         p.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|r| {
@@ -1949,7 +1991,7 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
         Grandeur::Production => match (c.file.first(), c.projet) {
             (Some(k), _) => vec![(format!("Construction : {}", capitale(k.objet.name())), Some(total), gr.couleur())],
             (None, Some(p)) => vec![(format!("Projet : {}", p.nom()), Some(total), gr.couleur())],
-            (None, None) => vec![("Rien à produire : perdue".into(), Some(total), charte::ALERTE)],
+            (None, None) => vec![("Rien à produire : à choisir pour finir le tour".into(), Some(total), charte::ALERTE)],
         },
         _ => vec![("Versés au trésor".into(), Some(total), gr.couleur()), ("Entretien et solde : pas encore dans le jeu".into(), None, gr.couleur())],
     };
@@ -2095,7 +2137,7 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City) {
             t.spawn((BoutonConstruire, bouton(charte::ACTION_FOND), children![texte("Construire (B)", 13.0, charte::TEXTE)]));
         });
         if c.file.is_empty() {
-            p.spawn(texte("Vide : la ville suit son projet, ou perd sa production s'il n'y en a pas.", 13.0, charte::MUET));
+            p.spawn(texte("Vide : la ville suit son projet ; sans projet, le tour ne peut pas finir.", 13.0, charte::MUET));
         }
         for (i, k) in c.file.iter().enumerate() {
             p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(4.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
@@ -2115,7 +2157,7 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City) {
         }
         let projet = match c.projet {
             Some(pj) => format!("Quand la file est vide : projet « {} » ({})", pj.nom(), pj.effet()),
-            None => "Quand la file est vide : aucun projet, la production est perdue".into(),
+            None => "Quand la file est vide : aucun projet (il faut construire ou choisir un projet pour finir le tour)".into(),
         };
         p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
             l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(projet, 12.5, charte::DOUX)]));

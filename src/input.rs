@@ -2,7 +2,7 @@
 
 use crate::pointer::UiPointer;
 use crate::game::{
-    City, EndTurnRequested, Fog, GameLog, GameMap, GameState, HexPos, LogText, Selection, Territory, Unit, explore_unit, found_city,
+    City, Fog, GameLog, GameMap, GameState, HexPos, LogText, Selection, Territory, Unit, explore_unit, found_city,
     move_unit, movement_blocked, reserved_by_others,
 };
 use crate::hex::Hex;
@@ -533,7 +533,7 @@ fn keyboard_commands(
     mut territory: ResMut<Territory>,
     mut selection: ResMut<Selection>,
     mut log: ResMut<GameLog>,
-    mut end_turn: ResMut<EndTurnRequested>,
+    mut end_turn: ResMut<crate::ecran_ville::FinDeTourJoueur>,
     mut fog: ResMut<Fog>,
     knowledge: (Res<Blocked>, Res<Occupancy>, Res<Danger>, Res<KnownVillages>, ResMut<Cues>),
     replay: Res<TurnReplay>,

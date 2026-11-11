@@ -305,7 +305,11 @@ choix à l'écran viennent en 4b.
   - une file unique par ville : unités, ponts, aménagements ; chaque élément garde la production
     déjà investie (perdue s'il est retiré) ; le surplus d'un élément fini passe au suivant ;
   - **une nouvelle ville commence avec une file vide** : le joueur doit indiquer quoi produire ; une
-    ville ne refait plus sans fin la même unité ;
+    ville ne refait plus sans fin la même unité ; **c'est bloquant** (Benjamin, 11/11/2026) : le joueur
+    ne peut pas finir son tour tant qu'une de ses villes n'a ni construction ni projet (l'écran de la
+    ville s'ouvre alors sur son catalogue) ; **c'est bloquant** (Benjamin, 11/11/2026) : le joueur
+    ne peut pas finir son tour tant qu'une de ses villes n'a ni construction ni projet (l'écran de la
+    ville s'ouvre alors sur son catalogue) ;
   - à la place de construire, la ville peut se lancer dans un **projet de ville**, sans fin, qui
     reçoit toute sa production tant que la file est vide :
     - **Peupler la ville** : la production s'ajoute au surplus de nourriture pour la croissance
@@ -315,8 +319,9 @@ choix à l'écran viennent en 4b.
     - **Développement de l'art et de la culture** : culture, qui étend le territoire (4d) ;
     tant que leur système manque, ces trois projets sont montrés « pas encore dans le jeu » ;
   - le joueur est prévenu si une ville reste longtemps en projet (il l'a peut-être oubliée) :
-    au 10e tour, puis tous les 10 tours (seuil proposé, à régler en jouant) ; une ville sans rien à
-    produire (file vide, pas de projet) perd sa production et le journal le signale à chaque tour.
+    au 10e tour, puis tous les 10 tours (seuil proposé, à régler en jouant) ; la fin de tour du
+    joueur étant bloquée, seule une fin de tour forcée (console, scènes de test) peut laisser une ville
+    sans rien : sa production est alors perdue et le journal le signale.
 
 ### 4c. Bien-être et hygiène (0 à 100)
 - **Bien-être** (60 au départ) : + nourriture couverte (jusqu'à +10 avec un surplus), − famine

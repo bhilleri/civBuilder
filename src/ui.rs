@@ -2,7 +2,7 @@
 
 use crate::pointer::UiPointer;
 use crate::feedback::TurnReplay;
-use crate::game::{City, EndTurnRequested, GameLog, GameMap, GameState, HexPos, Importance, LogLink, LogText, Selection, ShownFog, Unit};
+use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, LogLink, LogText, Selection, ShownFog, Unit};
 use crate::hex::Hex;
 use crate::hostile::{Camp, Hostile, Village};
 use crate::search::{FocusTarget, HoverColors, MapTarget, PointedTarget, TargetButton};
@@ -1051,7 +1051,7 @@ fn end_turn_button(
     replay: Res<TurnReplay>,
     mut buttons: Query<(Ref<UiPointer>, &mut BackgroundColor, &Children), With<EndTurnButton>>,
     mut texts: Query<&mut Text>,
-    mut end_turn: ResMut<EndTurnRequested>,
+    mut end_turn: ResMut<crate::ecran_ville::FinDeTourJoueur>,
 ) {
     for (interaction, mut bg, children) in &mut buttons {
         if !interaction.is_changed() && !replay.is_changed() {
@@ -1321,7 +1321,7 @@ fn update_selection_panel(
                     format!("{} {}/{} ({}){suite}", k.objet.name(), k.investi.floor(), k.objet.cost(), turns)
                 }
                 (None, Some(p)) => format!("projet « {} »", p.nom()),
-                (None, None) => "rien : la production est perdue".into(),
+                (None, None) => "rien : choisissez une construction ou un projet (C) pour finir le tour".into(),
             };
             format!(
                 "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {} ({})\nProduction : +{}/tour   Deniers : +{}/tour\nTravailleurs : {} sur {} case(s){}\nEn cours : {}\n\n{}",
