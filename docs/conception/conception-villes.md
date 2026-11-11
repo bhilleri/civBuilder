@@ -110,6 +110,23 @@ reconnaître. Réponse retenue :
 - **Rendu** : une vingtaine de modèles par style, dessinés en instanciation. De loin, une tache
   de toits à la couleur des matériaux, avec seulement les bâtiments marquants en relief.
 
+### Population de l'aire, urbains et ruraux, faubourgs (11/11/2026)
+**Décisions de Benjamin** : la population d'une ville est celle de **toute son aire d'influence**
+(la ville et ses campagnes) ; une **statistique urbains / ruraux** en montre la répartition ; des
+**faubourgs nommés** (espaces urbanisés détachés de la ville) peuvent apparaître.
+
+**Proposition** :
+- **Part urbaine** : 5 % au début, jusqu'à 15 à 20 % pour une grande cité (commerce, artisans,
+  administration) ; affichée dans le panneau de la ville (« 48 000 habitants · 12 % en ville »).
+  Les urbains peuplent les quartiers (sous-cases urbaines), les ruraux les champs et les pâtures.
+- **Faubourg** : une agglomération urbaine dans une **autre case de l'aire**, séparée de la ville.
+  Il naît quand la ville déborde (sous-cases urbaines pleines) près d'un atout : gué ou pont, port,
+  carrefour de routes, mine, sanctuaire. Il est **nommé** dans la langue de la ville (toponymie,
+  « Kaldra-sur-Vesse », « Port-de-Kaldra », ou un nom propre), visible sur la carte à son niveau
+  de zoom, et compte dans la population urbaine de la ville.
+- Question ouverte : un faubourg très peuplé peut-il devenir une **ville à part entière** (par une
+  loi, une décision, ou une sécession) ?
+
 ## Intendant guidable (décidé le 10/11/2026)
 L'intendant est automatique, mais **guidable par le joueur** :
 - **Forcer l'exploitation d'une case** (et son effectif).
