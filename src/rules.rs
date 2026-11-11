@@ -659,7 +659,7 @@ impl Projet {
     /// Ce que fait le projet, en une ligne.
     pub const fn effet(self) -> &'static str {
         match self {
-            Projet::Peupler => "la production s'ajoute au surplus de nourriture pour croître (2 production = 1 nourriture)",
+            Projet::Peupler => "la production augmente la croissance (jusqu'à +1,5 % par tour, si la ville n'a pas faim)",
             Projet::GrandsJeux => "bien-être de la ville",
             Projet::Recherche => "recherche du pays",
             Projet::Culture => "culture, qui étend le territoire",
@@ -672,8 +672,11 @@ impl Projet {
     }
 }
 
-/// Production pour croître équivalente à un point de nourriture (projet « Peupler la ville »).
-pub const PRODUCTION_PAR_NOURRITURE: f64 = 2.0;
+/// Projet « Peupler la ville » : croissance en plus par point de production rapporté au besoin de
+/// nourriture (Benjamin : le projet augmente la croissance, pas la nourriture ; chiffres à régler).
+pub const BONUS_PEUPLER_PAR_PRODUCTION: f64 = 0.001;
+/// Croissance en plus au plus, par tour (la croissance naturelle double au plus).
+pub const BONUS_PEUPLER_MAX: f64 = CROISSANCE_NATURELLE;
 /// Le joueur est prévenu tous les `RAPPEL_PROJET` tours passés en projet.
 pub const RAPPEL_PROJET: u32 = 10;
 
@@ -803,20 +806,20 @@ impl CityState {
         self.projet.filter(|_| self.file.is_empty())
     }
 
-    /// Nourriture qui compte pour la croissance : celle des cases, plus la production du projet
-    /// « Peupler la ville » (seulement au-delà du besoin).
-    pub fn nourriture_pour_croitre(&self, yields: Rendements) -> f64 {
-        let n = yields.nourriture;
-        if self.projet_actif() == Some(Projet::Peupler) && n >= self.besoin_nourriture() {
-            n + yields.production / PRODUCTION_PAR_NOURRITURE
+    /// Croissance en plus donnée par le projet « Peupler la ville » (part des habitants par tour) :
+    /// seulement s'il est suivi et si la ville n'a pas faim.
+    pub fn bonus_peupler(&self, yields: Rendements) -> f64 {
+        let besoin = self.besoin_nourriture().max(1e-6);
+        if self.projet_actif() == Some(Projet::Peupler) && yields.nourriture >= besoin {
+            (BONUS_PEUPLER_PAR_PRODUCTION * yields.production / besoin).min(BONUS_PEUPLER_MAX)
         } else {
-            n
+            0.0
         }
     }
 
-    /// Variation des habitants au prochain tour avec ces rendements.
+    /// Variation des habitants au prochain tour avec ces rendements (projet compris).
     pub fn variation(&self, yields: Rendements) -> i64 {
-        variation_des_habitants(self.habitants, self.nourriture_pour_croitre(yields))
+        variation_des_habitants(self.habitants, yields.nourriture) + (self.habitants as f64 * self.bonus_peupler(yields)).round() as i64
     }
 
     /// Ajoute un élément à la fin de la file (refusé s'il y est déjà : même pont, même case).
@@ -896,13 +899,17 @@ mod tests {
         // Rien à produire : la production est perdue et c'est signalé
         let mut city = CityState::new("Essai".into());
         assert!(city.process_turn(y).inactive);
-        // Peupler la ville : 4 production = 2 nourriture de plus pour croître
+        // Peupler la ville : la croissance augmente, même quand la nourriture est déjà au plafond
         let mut sans = CityState::new("Sans".into());
         sans.mettre_en_file(Production::Unit(UnitKind::Settler));
         let mut avec = CityState::new("Avec".into());
         avec.projet = Some(Projet::Peupler);
         assert!(avec.variation(y) > sans.variation(y));
-        assert!((avec.nourriture_pour_croitre(y) - 3.1).abs() < 1e-9);
+        let rassasie = Rendements::new(3.0, 4.0, 1.0);
+        assert_eq!(sans.variation(rassasie), 15, "plafond de la croissance naturelle");
+        assert_eq!(avec.variation(rassasie), 19, "+0,1 % × 4 production / 1 de besoin");
+        let riche = Rendements::new(3.0, 40.0, 1.0);
+        assert_eq!(avec.variation(riche), 30, "au plus le double de la croissance naturelle");
         // jamais pour le besoin : en famine, le projet n'aide pas
         let faim = Rendements::new(0.5, 4.0, 1.0);
         assert_eq!(avec.variation(faim), sans.variation(faim));

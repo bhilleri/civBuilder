@@ -889,9 +889,9 @@ fn cities() -> Article {
                ville commence avec une file vide : à vous d'indiquer quoi produire (panneau de production ou écran \
                de la ville, touche B) ; le tour ne peut pas finir tant qu'une ville n'a ni construction ni projet. Une unité apparaît sur la ville ou sur une case voisine libre ; si tout est \
                occupé, elle attend en tête de file. Un colon coûte en plus 1 000 habitants."),
-            p("Quand la file est vide, la ville suit son projet de ville, sans fin : « Peupler la ville » ajoute la \
-               production au surplus de nourriture pour croître (2 production = 1 nourriture, jamais pour le \
-               besoin) ; « Grands jeux », « Projet de recherche » et « Développement de l'art et de la culture » ne \
+            p("Quand la file est vide, la ville suit son projet de ville, sans fin : « Peupler la ville » augmente la \
+               croissance (0,1 % par tour par point de production rapporté au besoin de nourriture, jusqu'à \
+               +1,5 % ; rien si la ville a faim) ; « Grands jeux », « Projet de recherche » et « Développement de l'art et de la culture » ne \
                sont pas encore dans le jeu. Le journal le rappelle tous les 10 tours. Sans projet ni construction, le tour \
                ne peut pas finir : l'écran de la ville s'ouvre sur son catalogue."),
             p("Aménager une case : dans l'écran de la ville, Construire (B) puis un aménagement. Chaque case montre la \
