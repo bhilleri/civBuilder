@@ -153,6 +153,11 @@ impl Rendements {
     pub fn fois(self, k: f64) -> Rendements {
         Rendements::new(self.nourriture * k, self.production * k, self.deniers * k)
     }
+
+    /// Somme des trois rendements (pour classer des cases).
+    pub fn total(self) -> f64 {
+        self.nourriture + self.production + self.deniers
+    }
 }
 
 impl From<Yields> for Rendements {

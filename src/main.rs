@@ -10,6 +10,7 @@ mod battle;
 mod bridge_build;
 mod capture;
 mod cases;
+mod charte;
 mod chrono_tour;
 mod climate;
 mod combat;
@@ -17,6 +18,7 @@ mod config_partie;
 mod console;
 mod currents;
 mod debug_cmd;
+mod ecran_ville;
 mod erosion;
 mod explore;
 mod feedback;
@@ -106,6 +108,6 @@ fn main() {
         .add_plugins(feedback::FeedbackPlugin)
         .add_plugins(film::FilmPlugin)
         .add_plugins(pointer::PointerPlugin)
-        .add_plugins((sauvegarde::SauvegardePlugin, groupes::GroupesPlugin))
+        .add_plugins((sauvegarde::SauvegardePlugin, groupes::GroupesPlugin, charte::ChartePlugin, ecran_ville::EcranVillePlugin))
         .run();
 }

@@ -344,7 +344,7 @@ fn setup_menu(mut commands: Commands) {
 
 /// Échap ouvre ou ferme le menu (sauf si le wiki est ouvert : Échap le ferme d'abord) ; sur
 /// une sous-page, il revient à la page principale.
-fn toggle_menu(keys: Res<ButtonInput<KeyCode>>, wiki: Res<WikiState>, mut menu: ResMut<GameMenu>) {
+pub(crate) fn toggle_menu(keys: Res<ButtonInput<KeyCode>>, wiki: Res<WikiState>, mut menu: ResMut<GameMenu>) {
     if keys.just_pressed(KeyCode::Escape) && !wiki.open {
         if menu.open && menu.page != MenuPage::Main {
             menu.page = MenuPage::Main;

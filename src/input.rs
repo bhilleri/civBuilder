@@ -136,8 +136,8 @@ impl Plugin for InputPlugin {
     }
 }
 
-fn no_overlay(wiki: Res<crate::wiki::WikiState>, menu: Res<crate::menu::GameMenu>) -> bool {
-    !wiki.open && !menu.open
+fn no_overlay(wiki: Res<crate::wiki::WikiState>, menu: Res<crate::menu::GameMenu>, ecran: Res<crate::ecran_ville::EcranVille>) -> bool {
+    !wiki.open && !menu.open && !ecran.ouvert()
 }
 
 fn spawn_camera(mut commands: Commands, map: Res<GameMap>) {

@@ -195,6 +195,20 @@ fn setup_ui(mut commands: Commands) {
             }),
         ))
         .with_children(|p| {
+            // Écran de la ville (touche C)
+            p.spawn((
+                crate::ecran_ville::BoutonEcranVille,
+                UiPointer::default(),
+                Node {
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                    margin: UiRect::bottom(Val::Px(4.0)),
+                    ..default()
+                },
+                BackgroundColor(BUTTON_BG),
+                HoverColors { normal: BUTTON_BG, hover: BUTTON_HOVER },
+                children![text("Écran de la ville (C)", 15.0)],
+            ));
             p.spawn(text("Production (clic ou touches 1 à 9)", 14.0));
             for kind in UnitKind::ALL {
                 p.spawn((
@@ -1320,7 +1334,8 @@ fn update_selection_panel(
                 city.travail.cases.len(),
                 if city.travail.chomeurs > 0 { format!(", {} sans emploi (aménagez des cases)", rules::milliers(u64::from(city.travail.chomeurs))) } else { String::new() },
                 production,
-                "Choisissez la production dans le panneau de gauche."
+                "Production : panneau de gauche.
+C : écran de la ville (rendements, population, carte des cases)."
             )
         }
         _ => "Aucune sélection\n\nClic gauche : sélectionner\nZQSD / flèches : caméra\nMolette : zoom   Clic milieu : glisser\nTab : unité suivante".into(),
