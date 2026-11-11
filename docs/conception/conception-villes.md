@@ -298,6 +298,22 @@ choix à l'écran viennent en 4b.
   Les trois familles se distinguent partout (catalogue, carte, fiches) : bâtiment en carré violet,
   aménagement de production en rond vert (avec un motif sur la case : sillons du champ, points du
   pâturage), aménagement de bonus en losange turquoise. Pas de champs dans les quartiers.
+- **File de construction et projets de ville (Benjamin, 11/11/2026)** :
+  - une file unique par ville : unités, ponts, aménagements ; chaque élément garde la production
+    déjà investie (perdue s'il est retiré) ; le surplus d'un élément fini passe au suivant ;
+  - **une nouvelle ville commence avec une file vide** : le joueur doit indiquer quoi produire ; une
+    ville ne refait plus sans fin la même unité ;
+  - à la place de construire, la ville peut se lancer dans un **projet de ville**, sans fin, qui
+    reçoit toute sa production tant que la file est vide :
+    - **Peupler la ville** : la production s'ajoute au surplus de nourriture pour la croissance
+      (2 production = 1 nourriture ; jamais pour le besoin) ;
+    - **Grands jeux** : bien-être (avec la livraison 4c) ;
+    - **Projet de recherche** : recherche du pays (tâche 34) ;
+    - **Développement de l'art et de la culture** : culture, qui étend le territoire (4d) ;
+    tant que leur système manque, ces trois projets sont montrés « pas encore dans le jeu » ;
+  - le joueur est prévenu si une ville reste longtemps en projet (il l'a peut-être oubliée) :
+    au 10e tour, puis tous les 10 tours (seuil proposé, à régler en jouant) ; une ville sans rien à
+    produire (file vide, pas de projet) perd sa production et le journal le signale à chaque tour.
 
 ### 4c. Bien-être et hygiène (0 à 100)
 - **Bien-être** (60 au départ) : + nourriture couverte (jusqu'à +10 avec un surplus), − famine
