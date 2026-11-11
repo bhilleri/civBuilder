@@ -249,10 +249,62 @@ impl Priorite {
 /// Noms des trois ressources dans l'ordre des priorités.
 pub const RESSOURCES: [&str; 3] = ["nourriture", "production", "deniers"];
 
+/// Objectif de nourriture de l'intendant : la couverture du besoin qu'il vise d'abord, avant de
+/// répartir le reste des travailleurs selon les priorités (décision de Benjamin, maquette v19).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ObjectifNourriture {
+    /// 1 × le besoin : la croissance s'arrête, le reste va à la production et aux deniers.
+    NourrirSeulement,
+    /// 1,25 × le besoin : croissance modérée.
+    Croitre,
+    /// 1,5 × le besoin : croissance pleine.
+    #[default]
+    CroissanceMaximale,
+    /// 2 × le besoin : un excédent (à vendre quand le commerce viendra ; perdu d'ici là).
+    Excedent,
+}
+
+impl ObjectifNourriture {
+    pub const ALL: [ObjectifNourriture; 4] = [ObjectifNourriture::NourrirSeulement, ObjectifNourriture::Croitre, ObjectifNourriture::CroissanceMaximale, ObjectifNourriture::Excedent];
+
+    /// Couverture du besoin visée.
+    pub fn cible(self) -> f64 {
+        match self {
+            ObjectifNourriture::NourrirSeulement => 1.0,
+            ObjectifNourriture::Croitre => 1.25,
+            ObjectifNourriture::CroissanceMaximale => 1.0 + crate::rules::SURPLUS_POUR_CROITRE,
+            ObjectifNourriture::Excedent => 2.0,
+        }
+    }
+
+    /// Nom affiché.
+    pub fn nom(self) -> &'static str {
+        match self {
+            ObjectifNourriture::NourrirSeulement => "Nourrir seulement",
+            ObjectifNourriture::Croitre => "Croître",
+            ObjectifNourriture::CroissanceMaximale => "Croissance maximale",
+            ObjectifNourriture::Excedent => "Excédent à vendre",
+        }
+    }
+
+    /// Code de la console.
+    pub fn code(self) -> &'static str {
+        match self {
+            ObjectifNourriture::NourrirSeulement => "nourrir",
+            ObjectifNourriture::Croitre => "croitre",
+            ObjectifNourriture::CroissanceMaximale => "maximale",
+            ObjectifNourriture::Excedent => "excedent",
+        }
+    }
+}
+
 /// Consignes du joueur à l'intendant d'une ville.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Consignes {
-    /// Priorité de la nourriture, de la production et des deniers.
+    /// Objectif de nourriture (la nourriture n'a pas de priorité : c'est son objectif qui la règle).
+    #[serde(default)]
+    pub objectif: ObjectifNourriture,
+    /// Priorité de la production et des deniers (la première case, celle de la nourriture, ne sert pas).
     pub priorites: [Priorite; 3],
     /// Cases forcées et leur effectif (en travailleurs).
     pub forcees: Vec<(Hex, u32)>,
@@ -292,18 +344,18 @@ pub fn actifs(habitants: u64) -> u32 {
     (habitants as f64 * PART_ACTIVE).round() as u32
 }
 
-/// Poids des trois ressources selon le manque de nourriture (couverture du besoin) et les priorités.
+/// Poids des trois ressources selon le manque de nourriture (couverture du besoin), l'objectif de
+/// nourriture et les priorités de la production et des deniers.
 fn poids(couverture: f64, consignes: &Consignes) -> [f64; 3] {
-    // (tant que la ville ne se nourrit pas, la nourriture pèse lourd ; puis pour croître ; puis peu)
+    // (tant que la ville ne se nourrit pas, la nourriture pèse lourd ; puis jusqu'à l'objectif ; puis peu)
     let nourriture = if couverture < 1.0 {
         4.0
-    } else if couverture < 1.0 + crate::rules::SURPLUS_POUR_CROITRE {
+    } else if couverture < consignes.objectif.cible() - 1e-9 {
         2.0
     } else {
         0.3
     };
-    let base = [nourriture, 1.0, 0.6];
-    std::array::from_fn(|i| base[i] * consignes.priorites[i].facteur())
+    [nourriture, consignes.priorites[1].facteur(), 0.6 * consignes.priorites[2].facteur()]
 }
 
 /// Répartit les `actifs` sur les cases : d'abord les cases forcées, puis par blocs là où le gain
@@ -358,6 +410,24 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn l_objectif_de_nourriture_regle_la_part_des_champs() {
+        // Un pré (nourriture) et un bois (production), assez de travailleurs pour choisir
+        let pre = case(1, Rendements::new(4.0, 0.0, 0.0), 1000);
+        let bois = case(2, Rendements::new(0.5, 3.0, 0.0), 1000);
+        let avec = |o| {
+            let c = Consignes { objectif: o, ..Consignes::default() };
+            repartir(&[pre, bois], 1000, 2.0, Rendements::default(), &c).rendements
+        };
+        let seulement = avec(ObjectifNourriture::NourrirSeulement);
+        let maximale = avec(ObjectifNourriture::CroissanceMaximale);
+        let excedent = avec(ObjectifNourriture::Excedent);
+        assert!(seulement.nourriture < maximale.nourriture && maximale.nourriture < excedent.nourriture, "{seulement:?} {maximale:?} {excedent:?}");
+        assert!(seulement.production > excedent.production);
+        // Nourrir seulement : au moins le besoin
+        assert!(seulement.nourriture >= 2.0);
+    }
 
     fn case(col: i32, max: Rendements, capacite: u32) -> CaseDispo {
         CaseDispo { hex: Hex::from_offset(col, 0), max, capacite, distance: 1 }
