@@ -479,6 +479,12 @@ Maquette v2 analysée par deux agents (designer UX, game designer de 4X) ; déci
   IA, difficulté) : l'écran montre la cible, pour ne pas changer d'interface à chaque étape.
 - **Taille Grande (256 × 148) signalée « expérimentale »** tant que la génération n'y est pas vérifiée.
 - **Rythme : 500 tours dans les deux modes** (`conception-saisons.md`, révision 3).
+- **Pas de préréglages** (ils ne faisaient varier que la taille). À la place, **des
+  configurations** : rétablir la configuration par défaut ; enregistrer la configuration en
+  cours avec un **nom** et un **commentaire** ; retrouver les configurations enregistrées et celles
+  des **parties déjà jouées**, avec des **favorites**. Au chargement d'une configuration, on
+  demande s'il faut **garder la même graine** (le même monde) ou en **tirer une nouvelle**.
+  « Mes configurations » remplace « Mes mondes ».
 Corrections retenues : valeur chiffrée sous chaque choix (« Comme la Terre · 29 % ») et code au
 format de la doc ; ligne « Victoire : meilleur score d'héritage au tour 500 » ; pas de réglage
 « continuer après 500 » (partie libre déjà décidée) ; bascule « Premiers tours guidés » ; une ligne
