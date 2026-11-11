@@ -602,6 +602,14 @@ répartition (aperçu exact, pas d'estimation) et la croissance qui en résulte 
 encadré de blanc. Forcer l'effectif : ±100 depuis l'effectif actuel, aperçu de l'effet sur toute la
 ville, confirmer ou annuler. Pas encore : le « pourquoi » des emplois non pourvus (il viendra avec
 les bâtiments).
+**Lot 5 fait le 11/11/2026** : onglet Population ; `graphique.rs` gagne l'échelle logarithmique
+(bornée autour des valeurs utiles, graduations 1-2-5) et la prévision donnée tour par tour ; la
+prévision de la population simule 40 tours avec les rendements actuels (la nourriture borne la
+croissance ; les emplois ne la bornent pas, ils font des sans-emploi) ; limites : nourriture × 1 000,
+capacité des cases ÷ part active ; carte des habitants : violet de la maquette (`RAMPE`), échelle
+logarithmique entre la case la moins et la plus peuplée. Pas encore : naissances, décès et migrations
+distingués (le jeu ne connaît que le solde), cultures et ordres de la société (affichés « pas encore
+dans le jeu »).
 Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
 l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
 
