@@ -52,6 +52,7 @@ touche nom : appui sur une touche (a à z, 0 à 9, entree, tab, espace, echap, h
 interface : boutons visibles de l'interface, avec leur numéro et leur position\n\
 bouton numéro|texte : clic sur un bouton de l'interface\n\
 clic-ecran x y : clic gauche sur un point de l'écran, en pixels\n\
+glisser x1 y1 x2 y2 : glisser-déposer à l'écran (appui en x1 y1, relâché en x2 y2), en pixels\n\
 zoom échelle : zoom de la vue 2D (0,3 à 8 ; petit = de près)\n\
 Console : aller, vue, camera, carte, geographie, lignes-maree, fleches-maree, capture, attendre, tour, quitter";
 
@@ -114,6 +115,8 @@ pub enum Order {
     /// Numéro ou texte du bouton.
     Button(String),
     ScreenClick(Vec2),
+    /// Glisser-déposer à l'écran : appui sur le premier point, relâché sur le second.
+    Glisser(Vec2, Vec2),
     Zoom(f32),
     /// Ordre joué en tenant une touche (Maj, Ctrl).
     Avec(KeyCode, Box<Order>),
@@ -206,6 +209,13 @@ pub fn route(map: &WorldMap, line: &str) -> Route {
                 _ => Err(format!("position illisible : {x} {y}")),
             },
             _ => Err("usage : clic-ecran x y".to_string()),
+        },
+        "glisser" => match words[1..] {
+            [a, b, c, d] => match (a.parse(), b.parse(), c.parse(), d.parse()) {
+                (Ok(a), Ok(b), Ok(c), Ok(d)) => Ok(Order::Glisser(Vec2::new(a, b), Vec2::new(c, d))),
+                _ => Err(format!("positions illisibles : {a} {b} {c} {d}")),
+            },
+            _ => Err("usage : glisser x1 y1 x2 y2".to_string()),
         },
         "zoom" => match words[1..] {
             [scale] => scale.replace(',', ".").parse::<f32>().map(|s| Order::Zoom(s.clamp(0.3, 8.0))).map_err(|_| format!("échelle illisible : {scale}")),
@@ -634,6 +644,20 @@ pub fn run_orders(
             }
             done_after = 6;
         }
+        Order::Glisser(a, b) => {
+            if frame == 1 {
+                pilot.cursor = None;
+            }
+            match frame {
+                1 => inputs.push(Input::Move(*a)),
+                4 => inputs.push(Input::Press),
+                6..=16 => inputs.push(Input::Move(a.lerp(*b, (frame - 6) as f32 / 10.0))),
+                18 => inputs.push(Input::Release),
+                20 => inputs.push(Input::Move(last_cursor)),
+                _ => {}
+            }
+            done_after = 22;
+        }
         Order::Button(_) | Order::ScreenClick(_) => {
             if frame == 1 {
                 pilot.cursor = None;
@@ -695,7 +719,7 @@ pub fn run_orders(
             lines
         }
         (Order::Click(h, button, _), _) => vec![format!("OK clic {} sur {}", if *button == MouseButton::Left { "gauche" } else { "droit" }, view.place(*h)), view.selection_line()],
-        (Order::Avec(..), _) | (Order::Key(..), _) | (Order::Button(_), _) | (Order::ScreenClick(_), _) => vec![format!("OK tour={}", view.state.turn), view.selection_line()],
+        (Order::Avec(..), _) | (Order::Key(..), _) | (Order::Button(_), _) | (Order::ScreenClick(_), _) | (Order::Glisser(..), _) => vec![format!("OK tour={}", view.state.turn), view.selection_line()],
     };
     // Messages parus depuis la réponse précédente (`etat` donne déjà tout le journal)
     let seen = orders.log_seen;

@@ -643,8 +643,14 @@ carte) ; Entrée valide aussi le conseil ; clic droit recule ; « Fermer la cons
 « instantanée » des Paramètres. Sources : Civilization VII (gains et pertes au placement), Civilization
 VI (défrichement mal signalé), Humankind (conseil au critère opaque), Against the Storm (annulation mal
 signalée), NN/g (mouvement avec parcimonie).
-Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
-l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
+**File interactive (11/11/2026, demande de Benjamin)** : chaque ligne de la file nomme sa case et son
+apport (gain à pleine capacité et valeur pour un aménagement, caractéristiques pour une unité) ; survol
+ou clic : la case est cerclée sur la carte (couleur de la production) ; glisser-déposer pour réordonner
+(appui, déplacement de plus de 6 px, trait bleu au-dessus de la ligne d'arrivée, relâché) ; « avancer »
+et « retirer » restent. Pilote : `glisser x1 y1 x2 y2`.
+Limite connue : en mode pilote, l'infobulle de la carte disparaît à la fin d'un ordre, parce que le
+pilote ramène alors le pointeur à sa position d'avant (`Input::Move(last_cursor)`) ; elle n'apparaît
+donc pas sur les captures.
 
 ### Écrans nationaux (un panneau par thème, même gabarit)
 | Écran | Contenu |

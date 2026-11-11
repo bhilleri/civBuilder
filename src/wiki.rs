@@ -898,7 +898,9 @@ fn cities() -> Article {
                valeur de l'aménagement (nourriture × 1,5 + production + deniers, à pleine capacité ; une perte de \
                nourriture près de la famine compte × 3) et ce qui la compose ; une hache et un anneau orange \
                signalent un défrichement, un anneau rouge un risque de famine. L'anneau doré marque le conseil de \
-               l'intendant (la plus forte valeur) ; la fiche à gauche dit pourquoi. Clic pour choisir une autre case, \
+               l'intendant (la plus forte valeur) ; la fiche à gauche dit pourquoi. Dans la file, chaque ligne dit où se \
+               construit l'élément et ce qu'il apporte ; survol ou clic : sa case est cerclée sur la carte ; on change \
+               l'ordre en glissant une ligne. Clic pour choisir une autre case, \
                puis la barre en bas de la carte, Entrée ou un double-clic pour mettre en file ; clic droit ou Échap \
                pour revenir, B pour fermer la construction. La fiche d'une case propose aussi ses aménagements."),
             p(format!(

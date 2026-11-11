@@ -68,6 +68,17 @@ pub struct EcranVille {
     pub carte_habitants: bool,
     /// Onglet Histoire : genre d'événements montré (tous si aucun).
     pub histoire_genre: Option<rules::GenreEvenement>,
+    /// Élément de la file choisi (sa case est cerclée sur la carte).
+    pub file_choisie: Option<usize>,
+}
+
+/// Case où se construit un élément de la file (aménagement, pont), s'il en a une.
+fn case_de(objet: &rules::Production) -> Option<Hex> {
+    match *objet {
+        rules::Production::Amenagement { hex, .. } => Some(hex),
+        rules::Production::Bridge { at: crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. }, .. } => Some(hex),
+        rules::Production::Unit(_) => None,
+    }
 }
 
 /// Violet des habitants, du moins au plus peuplé (le plus foncé : beaucoup d'habitants ; Benjamin).
@@ -550,7 +561,7 @@ impl Plugin for EcranVillePlugin {
             .add_systems(Startup, construire)
             .add_systems(
                 Update,
-                (ouvrir_fermer, commandes, carte_souris, construire_actions, reconstruire, placer_plan, afficher)
+                (ouvrir_fermer, commandes, carte_souris, glisser_file, construire_actions, reconstruire, placer_plan, afficher)
                     .chain()
                     .in_set(EcranVilleSet)
                     .before(crate::menu::toggle_menu),
@@ -1043,7 +1054,7 @@ fn carte_souris(
     mut commands: Commands,
     mut glisse: Local<Option<(Vec2, bool)>>,
     mut montre: Local<Option<Hex>>,
-    (time, mut dernier_clic, boutons_carte): (Res<Time>, Local<(f64, Option<Hex>)>, Query<&UiPointer, Or<(With<MettreEnFile>, With<BoutonZoom>)>>),
+    (time, mut dernier_clic, boutons_carte, lignes): (Res<Time>, Local<(f64, Option<Hex>)>, Query<&UiPointer, Or<(With<MettreEnFile>, With<BoutonZoom>)>>, Query<(&UiPointer, &LigneFile)>),
 ) {
     let (bulle_e, mut bulle_node) = bulle.into_inner();
     let Some((city, centre)) = ecran.ville.and_then(|v| cities.get(v).ok().map(|c| (v, c))).map(|(v, (c, p))| ((v, c), p.0)) else {
@@ -1126,7 +1137,11 @@ fn carte_souris(
     }
 
     // Survol : par la carte, ou par une ligne de la liste
-    let par_liste = choix.iter().find(|(i, _)| **i != UiPointer::None).map(|(_, c)| c.0);
+    let par_liste = choix
+        .iter()
+        .find(|(i, _)| **i != UiPointer::None)
+        .map(|(_, c)| c.0)
+        .or_else(|| lignes.iter().find(|(i, _)| **i != UiPointer::None).and_then(|(_, l)| city.1.state.file.get(l.0)).and_then(|k| case_de(&k.objet)).map(|h| map.0.canonical(h)));
     let survol = if dessus && glisse.is_none_or(|g| !g.1) {
         curseur.and_then(|c| {
             let local = case_sous(c - vue.decalage, s);
@@ -1374,7 +1389,7 @@ fn reconstruire(
                 (None, Some(gr), Some((h, cb, tr))) => synthese(g, gr, &city, &cases, &images, h.clone(), cb, tr, ecran.periode, &reglages),
                 _ => {
                     ensemble(g, &city, &cases);
-                    file_et_projet(g, &city, false);
+                    file_et_projet(g, &city, false, &map.0, &cases, ecran.file_choisie);
                 }
             }
         }
@@ -1456,6 +1471,9 @@ fn reconstruire(
         if let Some(h) = ecran.cible {
             anneau(p, h, charte::SELECTION);
         }
+        if let Some(h) = ecran.file_choisie.and_then(|i| city.state.file.get(i)).and_then(|k| case_de(&k.objet)) {
+            anneau(p, map.0.canonical(h), Grandeur::Production.couleur());
+        }
 
         if let Some(c) = choisie {
             let pos = position(c.local, s);
@@ -1474,7 +1492,7 @@ fn reconstruire(
             match cible {
                 Some((a, c)) => placement(g, &map.0, &city, &cases, a, c, ecran.cible.is_none()),
                 None if ecran.placement.is_some() => vide(g, "Placement", "Aucune case de la ville ne peut porter cet aménagement."),
-                None => file_et_projet(g, &city, true),
+                None => file_et_projet(g, &city, true, &map.0, &cases, ecran.file_choisie),
             }
         });
         if let Ok(mut t) = textes.get_mut(*titre) {
@@ -2388,7 +2406,31 @@ fn effectif(p: &mut ChildSpawnerCommands, c: &CaseVue, f: &VueForcage) {
 }
 
 /// File de construction (avancer, retirer) et projet suivi quand elle est vide.
-fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool) {
+/// Ce qu'apporte un élément de la file, en une ligne, et où il se construit.
+fn benefice(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], objet: &rules::Production) -> (Option<String>, String) {
+    let lieu = case_de(objet).map(|h| cases.iter().find(|c| c.hex == h).map_or_else(|| map.describe(h).to_lowercase(), |c| c.nom.to_lowercase()));
+    let texte = match *objet {
+        rules::Production::Amenagement { hex, kind, .. } => match cases.iter().find(|c| c.hex == hex).map(|c| gain_amenagement(map, c, kind)) {
+            Some(Ok(g)) => format!("à pleine capacité : {} · valeur {}", ecarts(&g.plein), signe(evaluation(&g, &Bareme::de(city)).valeur)),
+            Some(Err(e)) => format!("plus possible : {e}"),
+            None => "case hors du territoire".into(),
+        },
+        rules::Production::Bridge { .. } => "franchir le cours d'eau sans détour ni surcoût".into(),
+        rules::Production::Unit(k) => {
+            let st = k.stats();
+            if st.ranged_attack > 0 {
+                format!("unité : tir {} (portée {}), défense {}, {} PM", st.ranged_attack, st.range, st.melee_defense, st.moves)
+            } else if k.is_military() {
+                format!("unité : attaque {}, défense {}, {} PM", st.melee_attack, st.melee_defense, st.moves)
+            } else {
+                format!("unité : {} PM", st.moves)
+            }
+        }
+    };
+    (lieu, texte)
+}
+
+fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, map: &crate::map::WorldMap, cases: &[CaseVue], choisie: Option<usize>) {
     let c = &city.state;
     let prod = city.travail.rendements.production;
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
@@ -2400,12 +2442,24 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool) {
         });
         if c.file.is_empty() {
             p.spawn(texte("Vide : la ville suit son projet ; sans projet, le tour ne peut pas finir.", 13.0, charte::MUET));
+        } else if c.file.len() > 1 {
+            p.spawn(texte("Glisser une ligne pour changer l'ordre · survol ou clic : sa case sur la carte", 12.0, charte::MUET));
         }
         for (i, k) in c.file.iter().enumerate() {
-            p.spawn((LigneFile(i), BackgroundColor(Color::NONE), Node { column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(4.0), Val::Px(4.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
+            let (lieu, apport) = benefice(map, city, cases, &k.objet);
+            let choisi = choisie == Some(i);
+            p.spawn((
+                LigneFile(i),
+                UiPointer::default(),
+                BackgroundColor(Color::NONE),
+                Node { column_gap: Val::Px(8.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), border: UiRect { top: Val::Px(2.0), left: Val::Px(1.0), right: Val::Px(1.0), bottom: Val::Px(1.0) }, border_radius: BorderRadius::all(Val::Px(6.0)), align_items: AlignItems::Center, ..default() },
+                BorderColor { top: charte::TRAIT, ..BorderColor::all(if choisi { charte::SELECTION } else { Color::NONE }) },
+            ))
+            .with_children(|l| {
                 l.spawn(texte(format!("{}.", i + 1), 13.0, charte::MUET));
                 l.spawn(Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, ..default() }).with_children(|n| {
-                    n.spawn(texte(capitale(k.objet.name()), 13.5, charte::TEXTE));
+                    n.spawn(texte(format!("{}{}", capitale(k.objet.name()), lieu.map_or(String::new(), |l| format!(" · sur {l}"))), 13.5, charte::TEXTE));
+                    n.spawn(texte(apport, 12.0, charte::AMENAGEMENT));
                     let tours = c.tours_pour(i, prod).map_or("jamais au rythme actuel".to_string(), |t| if t == 0 { "prête".into() } else { format!("prête dans {t} tour(s)") });
                     n.spawn(texte(format!("{} / {} de production · {tours}", k.investi.floor(), k.objet.cost()), 12.0, charte::MUET));
                 });
@@ -2539,6 +2593,80 @@ fn placement(g: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
     });
 }
 
+/// Glisser-déposer dans la file : appuyer sur une ligne, la glisser (un trait bleu marque où elle
+/// ira), relâcher ; un clic sans glisser choisit la ligne (sa case est cerclée sur la carte).
+#[allow(clippy::type_complexity)]
+fn glisser_file(
+    mut ecran: ResMut<EcranVille>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    replay: Res<crate::feedback::TurnReplay>,
+    pointeurs: Query<(&PointerId, &PointerLocation)>,
+    mut lignes: Query<(&LigneFile, &UiPointer, &ComputedNode, &UiGlobalTransform, &mut BorderColor, &mut BackgroundColor)>,
+    mut cities: Query<&mut City>,
+    mut glisse: Local<Option<(usize, f32, bool)>>,
+) {
+    let Some(v) = ecran.ville else {
+        *glisse = None;
+        return;
+    };
+    let y = pointeurs.iter().find(|(id, _)| **id == PointerId::Mouse).and_then(|(_, l)| l.location.as_ref()).map(|l| l.position.y);
+    if mouse.just_pressed(MouseButton::Left)
+        && let Some(y) = y
+        && let Some((l, ..)) = lignes.iter().find(|(_, p, ..)| **p != UiPointer::None)
+    {
+        *glisse = Some((l.0, y, false));
+    }
+    let Some((de, y0, mut bouge)) = *glisse else { return };
+    // Centres des lignes (pixels logiques), dans l'ordre de la file
+    let mut centres: Vec<(usize, f32)> = lignes.iter().map(|(l, _, n, t, ..)| (l.0, t.translation.y * n.inverse_scale_factor())).collect();
+    centres.sort_by_key(|(i, _)| *i);
+    if let Some(y) = y
+        && (y - y0).abs() > 6.0
+    {
+        bouge = true;
+    }
+    // Rang d'arrivée : parmi les autres lignes, combien sont au-dessus du pointeur
+    let autres: Vec<&(usize, f32)> = centres.iter().filter(|(i, _)| *i != de).collect();
+    let vers = y.map_or(de, |y| autres.iter().filter(|(_, c)| *c < y).count());
+    for (l, _, _, _, mut bord, mut fond) in &mut lignes {
+        let glissee = bouge && l.0 == de;
+        let marque = bouge && autres.get(vers).is_some_and(|(i, _)| *i == l.0);
+        let haut = if marque { charte::ACTION_FOND } else { charte::TRAIT };
+        if bord.top != haut {
+            bord.top = haut;
+        }
+        let f = if glissee { charte::SURFACE2 } else { Color::NONE };
+        if glissee || fond.0 == charte::SURFACE2 {
+            fond.0 = f;
+        }
+    }
+    *glisse = Some((de, y0, bouge));
+    if !mouse.just_released(MouseButton::Left) {
+        return;
+    }
+    *glisse = None;
+    if !bouge {
+        // Clic : choisir la ligne (ou la quitter)
+        ecran.file_choisie = if ecran.file_choisie == Some(de) { None } else { Some(de) };
+        return;
+    }
+    if replay.playing {
+        return;
+    }
+    if let Ok(mut city) = cities.get_mut(v)
+        && de < city.state.file.len()
+        && vers != de
+    {
+        let k = city.state.file.remove(de);
+        let vers = vers.min(city.state.file.len());
+        city.state.file.insert(vers, k);
+        ecran.file_choisie = Some(vers);
+    } else {
+        // (relâché à sa place : l'écran se refait pour effacer les marques)
+        ecran.set_changed();
+    }
+}
+
 /// Actions qui changent la ville : mettre en file, avancer, retirer, unités et projets du catalogue.
 #[allow(clippy::too_many_arguments)]
 fn construire_actions(
@@ -2613,8 +2741,12 @@ fn construire_actions(
             continue;
         }
         match *a {
-            ActionFile::Monter(k) if k > 0 && k < city.state.file.len() => city.state.file.swap(k - 1, k),
+            ActionFile::Monter(k) if k > 0 && k < city.state.file.len() => {
+                city.state.file.swap(k - 1, k);
+                ecran.file_choisie = Some(k - 1);
+            }
             ActionFile::Retirer(k) if k < city.state.file.len() => {
+                ecran.file_choisie = None;
                 let c = city.state.file.remove(k);
                 journal(format!(" retire de la file : {}{}.", c.objet.name(), if c.investi > 0.0 { format!(" ({} de production perdus)", c.investi.floor()) } else { String::new() }));
             }
