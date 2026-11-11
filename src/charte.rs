@@ -135,6 +135,8 @@ pub struct Images {
     amenagements: HashMap<IconeAmenagement, Handle<Image>>,
     pub hexagone: Handle<Image>,
     pub contour: Handle<Image>,
+    /// Hache : défrichement.
+    pub hache: Handle<Image>,
 }
 
 impl Images {
@@ -161,7 +163,8 @@ impl Plugin for ChartePlugin {
                 .collect();
             let hexagone = ajouter(&|x, y| dans_hexagone(x, y, 1.0), 128);
             let contour = ajouter(&|x, y| dans_hexagone(x, y, 1.0) && !dans_hexagone(x, y, 0.88), 128);
-            Images { grandeurs, amenagements, hexagone, contour }
+            let hache = ajouter(&icone_hache, 48);
+            Images { grandeurs, amenagements, hexagone, contour, hache }
         };
         app.insert_resource(images);
     }
@@ -290,6 +293,11 @@ fn icone_grandeur(g: Grandeur, x: f32, y: f32) -> bool {
                 || (ellipse(x, y, (0.32, 0.45), 0.38, 0.38, 0.0) && y < 0.62)
         }
     }
+}
+
+/// Hache : manche en biais et fer.
+fn icone_hache(x: f32, y: f32) -> bool {
+    capsule(x, y, (-0.6, 0.8), (0.35, -0.55), 0.09) || (disque(x, y, 0.38, -0.42, 0.45) && !disque(x, y, 0.95, -0.95, 0.62) && x > 0.05 && y < 0.15)
 }
 
 /// Formes des icônes d'aménagement.
