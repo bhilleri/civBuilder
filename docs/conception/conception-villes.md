@@ -230,5 +230,69 @@ Ces décisions **remplacent** ce qui les contredit plus haut.
 - **État modifiable** : aménagements et sous-cases sont de l'état du monde, à séparer du monde
   généré et à sauvegarder (tâche 13).
 
+## Étape 4 de la feuille de route : règles et chiffres (validés par Benjamin le 11/11/2026)
+Quatre livraisons : **4a** travailleurs sur les cases, **4b** aménagements choisis par le joueur,
+**4c** Bien-être et hygiène, **4d** territoire par la Culture ; maquette de l'écran de la ville
+(tâche 35) pendant la 4a, le panneau actuel étant seulement étendu en attendant. Chiffres de
+départ, recalés par un bilan (graines 777 et 2) pour garder la croissance actuelle (1 000 → ≈ 2 400
+habitants en 60 tours).
+
+### 4a. Travailleurs sur les cases
+- **Population active : 50 %** des habitants (plus tard 40 à 60 % selon le Bien-être).
+- L'intendant place les travailleurs **par blocs de 100** là où le gain marginal est le plus fort ;
+  le poids d'une ressource grandit avec son manque ; petite pénalité de distance au centre.
+- **Capacité** de chaque case en travailleurs ; **rendements décroissants** :
+  rendement = maximum × (travailleurs / capacité)^0,7 (la moitié de la capacité donne ≈ 62 %).
+- Consignes du joueur : une priorité par ressource (normale, prioritaire, maximale) et des cases forcées.
+- **Chômage** : les actifs au-delà de la capacité totale sont signalés (et pèseront sur le Bien-être, 4c).
+
+| Case | Capacité | Rendement maximal | Coût |
+|---|---|---|---|
+| Sans aménagement (cueillette, chasse) | 500 | rendements actuels de la case | — |
+| Champ | 1 500 | nourriture × 2 | 20 production |
+| Pâturage | 1 000 | nourriture × 1,5, +1 production | 15 production |
+| Coupe de bois | 1 000 | production × 2 | 15 production |
+
+**Fait le 11/11/2026** (`intendant.rs`, `rules::cases_de_la_ville`, `rules::repartition_ville`).
+Constats à la première partie (graine 777) :
+- avec les rendements décroissants, **une petite ville se répartit sur plusieurs cases** (1 000
+  habitants : 100 travailleurs sur 5 cases plutôt que 500 sur une) : elle tire 4,6 nourriture et
+  6,5 production, contre ≈ 3 et 4 avant ; la production des débuts presque doublée est à
+  surveiller (équilibrage, tâche 37) ;
+- **croissance inchangée** tant que la nourriture ne la borne pas : 1 000 → 2 439 habitants en 60
+  tours, comme avant ; 26 300 habitants au tour 220, avec 2 600 sans emploi sur 18 cases non
+  aménagées (la nourriture couvre encore 1,4 fois le besoin) ;
+- le dernier bloc d'une ville peut être plus petit que 100 ; les grandes villes placent des blocs
+  plus gros (1/200 des actifs) pour garder un calcul léger.
+Les aménagements se posent pour l'instant à la console (`amenagement`) ; leur construction et leur
+choix à l'écran viennent en 4b.
+
+### 4b. Aménagements choisis par le joueur
+- **Une case peut se prêter à plusieurs aménagements : le joueur choisit lequel y faire**
+  (Benjamin, 11/11/2026). Exemples : une prairie accepte un champ ou un pâturage ; une forêt, une
+  coupe de bois, ou un champ ou un pâturage après défrichement (plus cher, la forêt est perdue pour
+  le bois). Une case porte **un aménagement à la fois** ; en changer remplace l'ancien (nouveau
+  coût). Plus tard, avec les sous-cases, une case pourra en mêler plusieurs.
+- Conditions de départ : champ sur relief plat ou collines, avec assez de pluie ou une rivière
+  voisine ; pâturage sur prairie, plaine, steppe, savane, broussailles, toundra, collines ; coupe
+  de bois en forêt, jungle, taïga, savane arborée.
+- Construits par la file unique de la ville ; pendant le choix, la vue zoome sur la ville et montre
+  le gain de chaque case et de chaque aménagement possible.
+- Irrigation, drainage, mines : plus tard, avec la recherche.
+
+### 4c. Bien-être et hygiène (0 à 100)
+- **Bien-être** (60 au départ) : + nourriture couverte (jusqu'à +10 avec un surplus), − famine
+  (−20), − chômage. Deux effets : croissance naturelle (× 0,5 à × 1,5) et productivité.
+- **Hygiène** : + eau douce proche (+20 pour une rivière ou un lac voisin), − entassement, −
+  famine. Effet pour l'instant : la mortalité (croissance nette) ; les épidémies plus tard (tâche
+  40). Affichée seulement sous 50.
+
+### 4d. Territoire par la Culture
+- Départ : la ville et ses 6 voisines.
+- Culture : +1 par tour pour la ville, +2 avec un **sanctuaire** (premier bâtiment).
+- Une case de plus quand le stock atteint 10 + 6 × (cases déjà gagnées) ; choisie automatiquement
+  (la meilleure voisine, atouts d'abord). **Achat d'une case précise** en Économie : 20 + 10 × distance.
+- Remplace `rules::territory_radius` ; la borne par la capacité de gouverner vient avec la tâche 32.
+
 ## Questions ouvertes
 - Chiffres : consommation, seuils de croissance, conversion habitants → indice, rythme mensuel des rendements.

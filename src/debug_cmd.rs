@@ -147,6 +147,9 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
     Spec { name: "pont", args: &[AT[0], AT[1], ("e|ne|no|o|so|se", Arg::Direction, false), ("oui|non", Arg::Switch, true)], help: "Pose (ou retire, « non ») un pont : sur la rivière de l'arête de la case dans cette direction, ou, si la case est un fleuve, en travers d'elle, de la rive de cette direction à la rive opposée (terre ferme des deux côtés). Rivière : traversée sans surcoût ; fleuve : on monte sur le pont par un bout pour 1 PM, sans s'arrêter. Voir le wiki, « Cours d'eau et lacs », Ponts.", group: Group::Game },
     Spec { name: "ville fortifier", args: &[AT[0], AT[1], ("oui|non", Arg::Switch, false)], help: "Pose ou retire la fortification de la ville de la case : sa muraille, ses portes.", group: Group::Game },
+    Spec { name: "ville priorite", args: &[AT[0], AT[1], ("nourriture|production|economie", Arg::Text, false), ("normale|prioritaire|maximale", Arg::Text, false)], help: "Priorité donnée à une ressource par l'intendant de la ville de la case.", group: Group::Game },
+    Spec { name: "ville forcer", args: &[AT[0], AT[1], ("colonne", Arg::Col, false), ("ligne", Arg::Row, false), ("travailleurs", Arg::Number, false)], help: "Force l'effectif d'une case de la ville (0 : la rend à l'intendant).", group: Group::Game },
+    Spec { name: "amenagement", args: &[AT[0], AT[1], ("champ|paturage|bois|aucun", Arg::Text, false)], help: "Pose (ou retire) l'aménagement rural de la case, sans le construire (s'il est possible sur la case).", group: Group::Game },
     Spec { name: "ville population", args: &[AT[0], AT[1], ("palier", Arg::Number, false)], help: "Palier de population de la ville de la case (1 à 30) : ses habitants deviennent ceux du début du palier, son stade (hameau, bourg, ville) suit. Le territoire n'est pas recalculé.", group: Group::Game },
     Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
@@ -309,6 +312,7 @@ pub enum Command {
     UnitSet(Hex, UnitChange),
     City(Hex),
     CitySet(Hex, CityChange),
+    Amenagement(Hex, Option<crate::intendant::Amenagement>),
     Remove(Hex),
     Turns(u32),
     Info(Option<Hex>),
@@ -349,6 +353,10 @@ pub enum Command {
 pub enum CityChange {
     Fortified(bool),
     Population(i32),
+    /// Priorité d'une ressource (0 nourriture, 1 production, 2 économie).
+    Priorite(usize, crate::intendant::Priorite),
+    /// Effectif forcé d'une case (0 : rendue à l'intendant).
+    Forcer(Hex, u32),
 }
 
 /// Changement de l'état d'une unité (`unite pv`, `unite pm`, `unite dette`, `unite soigner`).
@@ -511,6 +519,23 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             Command::Bridge(at()?, dir, args.get(3).map(|w| yes_no(w)).transpose()?.unwrap_or(true))
         }
         "ville fortifier" => Command::CitySet(at()?, CityChange::Fortified(yes_no(args[2])?)),
+        "ville priorite" => {
+            let r = crate::intendant::RESSOURCES.iter().position(|r| *r == token(args[2])).ok_or(format!("ressource : nourriture, production ou economie, pas « {} »", args[2]))?;
+            let p = crate::intendant::Priorite::ALL.into_iter().find(|p| p.nom() == token(args[3])).ok_or(format!("priorité : normale, prioritaire ou maximale, pas « {} »", args[3]))?;
+            Command::CitySet(at()?, CityChange::Priorite(r, p))
+        }
+        "ville forcer" => Command::CitySet(at()?, CityChange::Forcer(cell(map, args[2], args[3])?, number(args[4], "travailleurs")?.max(0.0).round() as u32)),
+        "amenagement" => {
+            let a = match token(args[2]).as_str() {
+                "aucun" => None,
+                code => Some(crate::intendant::Amenagement::depuis_code(code).ok_or(format!("aménagement : champ, paturage, bois ou aucun, pas « {} »", args[2]))?),
+            };
+            let h = at()?;
+            if let Some(a) = a {
+                a.possible(map, h).map_err(|e| format!("{} impossible en {} : {e}", a.nom(), coords(map, h)))?;
+            }
+            Command::Amenagement(h, a)
+        }
         "ville population" => Command::CitySet(at()?, CityChange::Population(number(args[2], "palier")?.round().clamp(1.0, crate::rules::PALIER_MAX as f32) as i32)),
         "tour" => Command::Turns(args.first().map(|n| number(n, "nombre")).transpose()?.map_or(1, |n| n.round().clamp(1.0, 100.0) as u32)),
         "pinceau" => Command::Brush((number(args[0], "rayon")?.round() as i32).clamp(0, BRUSH_MAX)),
@@ -1136,6 +1161,7 @@ pub enum Effect {
     UnitsAt(Hex),
     City(Hex),
     CitySet(Hex, CityChange),
+    Amenagement(Hex, Option<crate::intendant::Amenagement>),
     Remove(Hex),
     Turns(u32),
     Goto(Hex),
@@ -1410,6 +1436,10 @@ impl Session {
             }
             Command::City(at) => Reply::effect(format!("OK ville demandée en {}", coords(map, at)), Effect::City(at)),
             Command::CitySet(at, change) => Reply::effect(format!("OK ville de {} à modifier", coords(map, at)), Effect::CitySet(at, change)),
+            Command::Amenagement(at, a) => Reply::effect(
+                format!("OK {} en {}", a.map_or("plus d'aménagement", |a| a.nom()), coords(map, at)),
+                Effect::Amenagement(at, a),
+            ),
             Command::UnitSet(at, change) => Reply::effect(format!("OK unité de {} à modifier", coords(map, at)), Effect::UnitSet(at, change)),
             Command::Remove(at) => Reply::effect(format!("OK unités retirées de {}", coords(map, at)), Effect::Remove(at)),
             Command::Turns(n) => Reply::effect(format!("OK {n} tour(s) à jouer"), Effect::Turns(n)),
@@ -1527,6 +1557,8 @@ mod tests {
                 Arg::Geo => "mers",
                 Arg::Switch => "oui",
                 Arg::Direction => "e",
+                // (choix « a|b|c » : le dernier, toujours permis — « aucun » pour un aménagement)
+                Arg::Text if a.0.contains('|') => a.0.rsplit('|').next().unwrap(),
                 Arg::Text => "x",
             }).collect();
             assert!(parse(&m, &format!("{} {}", s.name, args.join(" "))).is_ok(), "{}", s.name);

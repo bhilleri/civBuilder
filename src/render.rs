@@ -2190,7 +2190,7 @@ fn draw_overlays(
     }
 
     if let Ok(city) = cities.get(selected) {
-        for h in &city.worked {
+        for (h, _) in &city.travail.cases {
             let (wx, wy) = h.to_world();
             gizmos.circle_2d(Vec2::new(wx, wy), 6.0, Color::srgb(1.0, 0.9, 0.2));
         }

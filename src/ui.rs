@@ -1081,8 +1081,7 @@ fn production_buttons(
 /// Affiche le panneau de production pour la ville sélectionnée : coût, tours, statistiques.
 fn update_production_panel(
     selection: Res<Selection>,
-    map: Res<GameMap>,
-    cities: Query<(&City, &crate::game::HexPos)>,
+    cities: Query<&City>,
     mut panel: Single<&mut Node, With<ProductionPanel>>,
     mut buttons: Query<(&ProduceButton, &UiPointer, &mut BackgroundColor, &Children)>,
     mut texts: Query<&mut Text>,
@@ -1092,13 +1091,13 @@ fn update_production_panel(
     if panel.display != display {
         panel.display = display;
     }
-    let Some((city, pos)) = city else { return };
-    let production = rules::city_yields(&map.0, pos.0, &city.worked).production.max(1);
+    let Some(city) = city else { return };
+    let production = city.travail.rendements.production;
     for (i, (button, interaction, mut bg, children)) in buttons.iter_mut().enumerate() {
         let kind = button.0;
         let st = kind.stats();
-        let remaining = (kind.cost() - if city.state.producing == Some(rules::Production::Unit(kind)) { city.state.production_stock } else { 0 }).max(0);
-        let turns = (remaining as f32 / production as f32).ceil() as i32;
+        let stock = if city.state.producing == Some(rules::Production::Unit(kind)) { city.state.production_stock } else { 0.0 };
+        let turns = rules::tours_restants(kind.cost(), stock, production).unwrap_or(999);
         let combat = if st.ranged_attack > 0 {
             format!(
                 "  ·  tir {} (portée {}) / déf {}  ·  {} PM",
@@ -1160,13 +1159,11 @@ fn set_text(text: &mut Text, value: String) {
 
 fn update_top_bar(
     state: Res<GameState>,
-    map: Res<GameMap>,
     cities: Query<(&City, &crate::game::HexPos)>,
     units: Query<&Unit, Without<crate::hostile::Hostile>>,
     mut text: Single<&mut Text, With<TopBarText>>,
 ) {
-    let gold_income: i32 =
-        cities.iter().map(|(c, p)| rules::city_yields(&map.0, p.0, &c.worked).economie).sum();
+    let gold_income: i32 = cities.iter().map(|(c, _)| c.travail.rendements.economie).sum::<f64>().floor() as i32;
     let waiting = units.iter().filter(|u| u.0.needs_orders()).count();
     set_text(
         &mut text,
@@ -1242,9 +1239,8 @@ fn update_place_bar(
 fn update_selection_panel(
     selection: Res<Selection>,
     order: Res<OrderPath>,
-    map: Res<GameMap>,
     units: Query<&Unit>,
-    cities: Query<(&City, &crate::game::HexPos)>,
+    cities: Query<&City>,
     mut text: Single<&mut Text, With<SelectionText>>,
 ) {
     let content = match selection.0 {
@@ -1298,32 +1294,31 @@ fn update_selection_panel(
             s
         }
         Some(e) if cities.contains(e) => {
-            let (city, pos) = cities.get(e).unwrap();
+            let city = cities.get(e).unwrap();
             let c = &city.state;
-            let y = rules::city_yields(&map.0, pos.0, &city.worked);
-            let variation = rules::variation_des_habitants(c.habitants, y.food);
+            let y = city.travail.rendements;
+            let variation = rules::variation_des_habitants(c.habitants, y.nourriture);
             let croissance = if variation >= 0 { format!("+{} habitants/tour", rules::milliers(variation as u64)) } else { format!("famine : −{} habitants/tour", rules::milliers(variation.unsigned_abs())) };
             let production = match c.producing {
                 Some(k) => {
-                    let turns = if y.production > 0 {
-                        format!("{} tours", ((k.cost() - c.production_stock).max(0) as f32 / y.production as f32).ceil() as i32)
-                    } else {
-                        "∞".into()
-                    };
-                    format!("{} {}/{} ({})", k.name(), c.production_stock, k.cost(), turns)
+                    let turns = rules::tours_restants(k.cost(), c.production_stock, y.production).map_or("∞".to_string(), |t| format!("{t} tours"));
+                    format!("{} {}/{} ({})", k.name(), c.production_stock.floor(), k.cost(), turns)
                 }
                 None => "rien".into(),
             };
             format!(
-                "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {} ({})\nProduction : +{}/tour   Économie : +{}/tour\nEn cours : {}\n\n{}",
+                "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {} ({})\nProduction : +{}/tour   Économie : +{}/tour\nTravailleurs : {} sur {} case(s){}\nEn cours : {}\n\n{}",
                 c.name,
                 c.palier(),
                 rules::milliers(c.habitants),
-                y.food,
-                format!("{:.1}", c.besoin_nourriture()).replace('.', ","),
+                rules::decimal(y.nourriture),
+                rules::decimal(c.besoin_nourriture()),
                 croissance,
-                y.production,
-                y.economie,
+                rules::decimal(y.production),
+                rules::decimal(y.economie),
+                rules::milliers(u64::from(city.travail.actifs - city.travail.chomeurs)),
+                city.travail.cases.len(),
+                if city.travail.chomeurs > 0 { format!(", {} sans emploi (aménagez des cases)", rules::milliers(u64::from(city.travail.chomeurs))) } else { String::new() },
                 production,
                 "Choisissez la production dans le panneau de gauche."
             )
@@ -1331,6 +1326,27 @@ fn update_selection_panel(
         _ => "Aucune sélection\n\nClic gauche : sélectionner\nZQSD / flèches : caméra\nMolette : zoom   Clic milieu : glisser\nTab : unité suivante".into(),
     };
     set_text(&mut text, content);
+}
+
+/// Case du territoire d'une ville : travailleurs et capacité, aménagement, aménagements possibles.
+fn amenagement_note(m: &crate::map::WorldMap, h: crate::hex::Hex, city: &City, amenagement: Option<crate::intendant::Amenagement>) -> String {
+    use crate::intendant::{self, Amenagement};
+    let mut note = format!(
+        "\n{} : {} travailleurs sur {} ({})",
+        city.state.name,
+        rules::milliers(u64::from(city.travail.sur(h))),
+        rules::milliers(u64::from(intendant::capacite(amenagement))),
+        amenagement.map_or("sans aménagement", |a| a.nom())
+    );
+    let autres: Vec<String> = Amenagement::possibles(m, h)
+        .into_iter()
+        .filter(|a| Some(*a) != amenagement)
+        .map(|a| format!("{} ({} production)", a.nom(), a.cout(m, h)))
+        .collect();
+    if !autres.is_empty() {
+        note += &format!("\nAménagements possibles : {}", autres.join(", "));
+    }
+    note
 }
 
 /// Particularités d'un type d'unité, en une ligne.
@@ -1372,6 +1388,7 @@ fn update_hover_text(
     config: Res<crate::tooltip::TooltipConfig>,
     mut text: Single<&mut Text, With<HoverText>>,
     debug: Res<crate::game::DebugMode>,
+    (territory, amenagements, cities): (Res<crate::game::Territory>, Res<crate::game::Amenagements>, Query<(&City, &HexPos)>),
 ) {
     use crate::tooltip::Info;
     let shows = |info: Info| config.shows(*layer, info);
@@ -1519,6 +1536,12 @@ fn update_hover_text(
                 && let Some(mouth) = m.mouth(h)
             {
                 line += &format!("\nEmbouchure : {}", mouth.kind.name());
+            }
+            // Case d'une ville : ses travailleurs, son aménagement et ceux qui sont possibles
+            if let Some((city, pos)) = territory.0.get(&h).and_then(|e| cities.get(*e).ok())
+                && pos.0 != h
+            {
+                line += &amenagement_note(m, h, city, amenagements.0.get(&h).copied());
             }
             if shows(Info::Network) {
                 line += &network_note(m, &fog, feature.0);

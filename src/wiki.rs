@@ -825,22 +825,41 @@ fn cities() -> Article {
                  enceinte. Elle devient bourg au palier 3, puis ville au palier 6, en ajoutant des bâtiments. Ses matériaux viennent du lieu, et \
                  elle s'adapte à la case : rien sur les rives, maisons dans le sens de la pente, ponton si l'eau est proche. Une ville \
                  fortifiée a une muraille et plusieurs portes, qui suivent le terrain. La garnison se tient sur la place. Dans un marais, les \
-                 maisons sont sur pilotis, reliées par des passerelles, et les mares se réduisent quand la ville grandit. Au stade Ville, une                  ville sur un cours d'eau jette un pont vers l'autre rive, gardé par une tour si elle est fortifiée (décor pour l'instant :                  il ne change pas les déplacements)."
+                 maisons sont sur pilotis, reliées par des passerelles, et les mares se réduisent quand la ville grandit. Au stade Ville, une \
+                 ville sur un cours d'eau jette un pont vers l'autre rive, gardé par une tour si elle est fortifiée (décor pour l'instant : \
+                 il ne change pas les déplacements)."
             )),
             h("Rendements"),
-            p("La case centrale rapporte au moins 2 nourriture, 2 production et 1 Économie. Chaque palier de population \
-               exploite en plus une case du territoire, choisie automatiquement parmi les meilleures."),
+            p("La case centrale rapporte au moins 2 nourriture, 2 production et 1 Économie, sans travailleurs. La moitié \
+               des habitants travaille sur les cases du territoire, placée par l'intendant par blocs de 100 là où le gain \
+               est le plus fort : la nourriture pèse lourd tant que la ville ne se nourrit pas (puis pour croître), la \
+               production et l'Économie prennent ensuite le relais ; les cases lointaines rapportent un peu moins."),
+            p("Chaque case a une capacité en travailleurs : 500 sans aménagement (cueillette, chasse), 1 500 pour un \
+               champ, 1 000 pour un pâturage ou une coupe de bois. Son rendement croît avec les travailleurs, de moins en \
+               moins vite (la moitié de la capacité donne 62 % du rendement de la case) : une petite ville se répartit \
+               sur plusieurs cases. Au-delà des capacités, les habitants sont sans emploi : il faut aménager des cases."),
+            table(
+                &["Aménagement", "Cases", "Rendement à pleine capacité"],
+                vec![
+                    vec!["champ".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 2".into()],
+                    vec!["pâturage".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 1,5, +1 production".into()],
+                    vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2".into()],
+                ],
+            ),
+            p("Un champ ou un pâturage pris sur la forêt la défriche : la case devient une prairie (le bois est perdu). \
+               La construction des aménagements par la ville arrive ; pour l'instant, la console les pose \
+               (`amenagement`), et règle les consignes de l'intendant (`ville priorite`, `ville forcer`)."),
             h("Croissance"),
             p(format!(
                 "La population compte les habitants de toute l'aire de la ville, ses campagnes comprises. Un point de \
                  nourriture nourrit 1 000 habitants. Avec un surplus, la population grandit de 1,5 % par tour au plus \
                  (atteint avec 50 % de nourriture en plus du besoin) ; en famine, elle perd de 2 à 5 % par tour. Le palier \
-                 résume la taille : il fixe le territoire, le stade de la ville et le nombre de cases exploitées. Un colon \
+                 résume la taille : il fixe le territoire et le stade de la ville. Un colon \
                  emporte {HABITANTS_COLON} habitants, d'une ville qui en compte au moins le double."
             )),
             table(&["Palier", "Habitants de l'aire"], paliers),
             h("Territoire"),
-            p("Le territoire s'étend à 1 case autour de la ville, puis à 2 cases à partir de 3 habitants. Il sert \
+            p("Le territoire s'étend à 1 case autour de la ville, puis à 2 cases à partir du palier 3. Il sert \
                aux cases exploitées et aux soins (+20 PV par tour en territoire ami)."),
             h("Production"),
             p("La production s'accumule pour l'unité choisie dans le panneau de la ville. L'unité apparaît sur la \

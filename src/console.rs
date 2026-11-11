@@ -361,6 +361,7 @@ struct ConsoleContext<'w, 's> {
     units: Query<'w, 's, (Entity, &'static mut Unit, &'static HexPos, Has<Hostile>)>,
     chrono: Res<'w, crate::game::ChronoTour>,
     sauvegarde: ResMut<'w, crate::sauvegarde::DemandeSauvegarde>,
+    amenagements: ResMut<'w, crate::game::Amenagements>,
     /// Cours d'eau ou lac survolés : leurs numéros changent quand l'eau est refaite.
     pointed: (ResMut<'w, crate::highlight::HoveredLabel>, ResMut<'w, crate::highlight::PointedFeature>),
 }
@@ -430,10 +431,30 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
                             city.state.habitants = crate::rules::habitants_du_palier(*n);
                             format!("OK {} : palier {n}, {} habitants ({place})", city.state.name, city.state.habitants)
                         }
+                        debug_cmd::CityChange::Priorite(r, p) => {
+                            city.state.consignes.priorites[*r] = *p;
+                            format!("OK {} : {} {} ({place})", city.state.name, crate::intendant::RESSOURCES[*r], p.nom())
+                        }
+                        debug_cmd::CityChange::Forcer(case, n) => {
+                            let forcees = &mut city.state.consignes.forcees;
+                            forcees.retain(|(h, _)| h != case);
+                            if *n > 0 {
+                                forcees.push((*case, *n));
+                            }
+                            format!("OK {} : {n} travailleurs forcés en {} ({place})", city.state.name, debug_cmd::coords(&ctx.map.0, *case))
+                        }
                     }];
                 }
             }
         }
+        Some(Effect::Amenagement(at, a)) => match a {
+            Some(a) => {
+                ctx.amenagements.0.insert(*at, *a);
+            }
+            None => {
+                ctx.amenagements.0.remove(at);
+            }
+        },
         Some(Effect::Remove(at)) => {
             let gone: Vec<Entity> = ctx.units.iter().filter(|(_, _, p, _)| p.0 == *at).map(|(e, ..)| e).collect();
             let selection = &mut ctx.game.2;

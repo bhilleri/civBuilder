@@ -406,12 +406,18 @@ impl PlayerView<'_, '_> {
     fn city_line(&self, c: &City, at: Hex) -> String {
         let s = &c.state;
         format!(
-            "ville {} en {} palier={} habitants={} production={} produit={}",
+            "ville {} en {} palier={} habitants={} actifs={} sans-emploi={} cases={} rendements={}/{}/{} production={} produit={}",
             s.name,
             self.place(at),
             s.palier(),
             s.habitants,
-            s.production_stock,
+            c.travail.actifs,
+            c.travail.chomeurs,
+            c.travail.cases.iter().map(|(h, n)| format!("{}:{n}", self.place(*h).replace(' ', ","))).collect::<Vec<_>>().join(";"),
+            crate::rules::decimal(c.travail.rendements.nourriture),
+            crate::rules::decimal(c.travail.rendements.production),
+            crate::rules::decimal(c.travail.rendements.economie),
+            s.production_stock.floor(),
             s.producing.map_or("rien".to_string(), |k| token(k.name()))
         )
     }

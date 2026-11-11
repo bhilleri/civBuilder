@@ -2,7 +2,7 @@
 //!
 //! Le monde n'est pas enregistré : il se recalcule depuis sa graine et sa taille. La sauvegarde
 //! garde seulement ce que la partie a changé : tour, trésors, hasard (`hasard.rs`), unités,
-//! villes, camps et villages restants, cases explorées, territoire, ponts construits. Elle est
+//! villes, camps et villages restants, cases explorées, territoire, ponts construits, aménagements. Elle est
 //! écrite en texte (format RON), lisible et versionnée.
 //!
 //! Une **empreinte** du monde généré accompagne la sauvegarde : si la génération a changé depuis
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Version du format : à augmenter quand le contenu change (avec une conversion des anciennes).
-pub const VERSION_FORMAT: u32 = 2;
+pub const VERSION_FORMAT: u32 = 3;
 
 /// Unité enregistrée.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,6 +91,8 @@ pub struct Sauvegarde {
     /// Cases du territoire et identifiant de leur ville.
     pub territoire: Vec<(Hex, u32)>,
     pub ponts: Vec<BridgeAt>,
+    /// Aménagements ruraux des cases.
+    pub amenagements: Vec<(Hex, crate::intendant::Amenagement)>,
     /// Configuration de la partie (absente des sauvegardes plus anciennes : celle par défaut).
     #[serde(default)]
     pub config: crate::config_partie::ConfigPartie,
@@ -196,6 +198,7 @@ fn photographier(
     camps: &Query<(&Ident, &Camp, &SiteName, &HexPos)>,
     villages: &Query<(&Ident, &SiteName, &HexPos), With<Village>>,
     config: &crate::config_partie::ConfigPartie,
+    amenagements: &crate::game::Amenagements,
 ) -> Sauvegarde {
     let mut unites: Vec<UniteSauvee> = units
         .iter()
@@ -232,6 +235,7 @@ fn photographier(
         explorees: fog.explored.iter().collect(),
         territoire,
         ponts,
+        amenagements: amenagements.0.iter().map(|(h, a)| (*h, *a)).collect(),
         config: config.clone(),
     }
 }
@@ -247,10 +251,10 @@ fn enregistrer(
     cities: Query<(Entity, &Ident, &Peuple, &City, &HexPos)>,
     camps: Query<(&Ident, &Camp, &SiteName, &HexPos)>,
     villages: Query<(&Ident, &SiteName, &HexPos), With<Village>>,
-    config: Res<crate::game::ConfigEnCours>,
+    (config, amenagements): (Res<crate::game::ConfigEnCours>, Res<crate::game::Amenagements>),
 ) {
     let Some(fichier) = demande.0.take() else { return };
-    let s = photographier(&map.0, &state, &fog, &territory, &hasard, &prochain, &units, &cities, &camps, &villages, &config.0);
+    let s = photographier(&map.0, &state, &fog, &territory, &hasard, &prochain, &units, &cities, &camps, &villages, &config.0, &amenagements);
     // La partie jouée de la bibliothèque retient le tour atteint
     let mut b = crate::config_partie::Bibliotheque::lire();
     b.partie_avancee(&config.0, s.tour);
@@ -306,7 +310,7 @@ fn remettre_en_place(
     (mut state, mut fog, mut territory, mut hasard, mut prochain): (ResMut<GameState>, ResMut<Fog>, ResMut<Territory>, ResMut<Hasard>, ResMut<ProchainIdent>),
     mut log: ResMut<GameLog>,
     mut selection: ResMut<crate::game::Selection>,
-    mut edited: MessageWriter<crate::console::MapEdited>,
+    (mut edited, mut amenagements): (MessageWriter<crate::console::MapEdited>, ResMut<crate::game::Amenagements>),
     existants: Query<Entity, Or<(With<Unit>, With<City>, With<Camp>, With<Village>)>>,
 ) {
     let Some(s) = attente.0.take() else { return };
@@ -324,6 +328,7 @@ fn remettre_en_place(
     state.founded_cities = s.villes_fondees;
     *hasard = s.hasard.clone();
     prochain.0 = s.prochain_ident;
+    amenagements.0 = s.amenagements.iter().copied().collect();
     fog.explored = s.explorees.iter().copied().collect();
     fog.visible = Default::default();
     for u in &s.unites {
@@ -334,7 +339,7 @@ fn remettre_en_place(
     }
     let mut villes = std::collections::HashMap::new();
     for v in &s.villes {
-        let e = commands.spawn((City { state: v.etat.clone(), worked: Vec::new() }, HexPos(v.case), Ident(v.ident), v.peuple)).id();
+        let e = commands.spawn((City { state: v.etat.clone(), travail: Default::default() }, HexPos(v.case), Ident(v.ident), v.peuple)).id();
         villes.insert(v.ident, e);
     }
     territory.0.clear();
@@ -395,6 +400,7 @@ mod tests {
             explorees: vec![Hex::from_offset(2, 3), Hex::from_offset(5, 5)],
             territoire: vec![(Hex::from_offset(5, 5), 0)],
             ponts: vec![BridgeAt::Edge { hex: Hex::from_offset(4, 4), dir: 1 }],
+            amenagements: vec![(Hex::from_offset(5, 4), crate::intendant::Amenagement::Champ)],
             config: crate::config_partie::ConfigPartie::default(),
         }
     }

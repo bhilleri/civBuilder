@@ -31,6 +31,7 @@ mod highlight;
 mod hostile;
 mod hydro;
 mod input;
+mod intendant;
 mod labels;
 mod lands;
 mod map;

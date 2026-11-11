@@ -36,8 +36,13 @@ pub struct Unit(pub UnitState);
 #[require(Peuple)]
 pub struct City {
     pub state: CityState,
-    pub worked: Vec<Hex>,
+    /// Travailleurs placés par l'intendant et rendement de la ville (recalculés à chaque changement).
+    pub travail: crate::intendant::Repartition,
 }
+
+/// Aménagements ruraux des cases (état du monde, sauvegardé).
+#[derive(Resource, Default, Clone, Debug)]
+pub struct Amenagements(pub std::collections::BTreeMap<Hex, crate::intendant::Amenagement>);
 
 /// Ensemble du système qui donne les identifiants stables (les systèmes qui en ont besoin passent après).
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -142,6 +147,11 @@ impl GameState {
     /// Trésor du joueur.
     pub fn tresor_joueur(&self) -> i32 {
         self.tresors.get(Peuple::JOUEUR)
+    }
+
+    /// Verse l'Économie d'une ville (fractionnaire) au trésor d'un peuple.
+    pub fn ajouter_economie(&mut self, peuple: Peuple, economie: f64) {
+        self.tresors.ajouter(peuple, economie);
     }
 
     /// Trésor d'un peuple, à modifier.
@@ -386,6 +396,7 @@ impl Plugin for GamePlugin {
             .init_resource::<ShownFog>()
             .init_resource::<DebugMode>()
             .init_resource::<Territory>()
+            .init_resource::<Amenagements>()
             .init_resource::<Selection>()
             .init_resource::<GameLog>()
             .init_resource::<EndTurnRequested>()
@@ -459,7 +470,7 @@ pub fn found_city(
     state.founded_cities += 1;
     commands.entity(settler).despawn();
     let city = commands
-        .spawn((City { state: CityState::new(name.clone()), worked: Vec::new() }, HexPos(at)))
+        .spawn((City { state: CityState::new(name.clone()), travail: Default::default() }, HexPos(at)))
         .id();
     claim_territory(&mut territory.0, city, at, 1, map);
     Ok((city, name))
@@ -562,14 +573,17 @@ pub fn explore_unit(
     relocate_unit(pos, before, hex, after, occupied);
 }
 
-/// Recalcule les cases exploitées de toutes les villes (évite les doublons entre villes).
-pub fn assign_worked_tiles(map: &WorldMap, territory: &Territory, cities: &mut [(Entity, Hex, Mut<City>)]) {
+/// Recalcule les travailleurs de toutes les villes (une case n'est exploitée que par une ville).
+pub fn assign_worked_tiles(map: &WorldMap, territory: &Territory, amenagements: &Amenagements, cities: &mut [(Entity, Hex, Mut<City>)]) {
     let mut taken: HashSet<Hex> = HashSet::new();
     for (entity, center, city) in cities.iter_mut() {
         let owned: Vec<Hex> = territory.0.iter().filter(|(_, e)| *e == entity).map(|(h, _)| *h).collect();
-        let worked = rules::choose_worked_tiles(map, *center, city.state.palier(), &owned, &taken);
-        taken.extend(worked.iter().copied());
-        city.worked = worked;
+        let cases = rules::cases_de_la_ville(map, *center, &owned, &taken, &amenagements.0);
+        let travail = rules::repartition_ville(map, *center, &city.state, &cases);
+        taken.extend(travail.cases.iter().map(|(h, _)| *h));
+        if city.travail != travail {
+            city.travail = travail;
+        }
     }
 }
 
@@ -582,7 +596,7 @@ fn end_turn(
     mut log: ResMut<GameLog>,
     mut fog: ResMut<Fog>,
     (blocked, occupancy, enemy_zoc): (Res<Blocked>, Res<Occupancy>, Res<EnemyZoc>),
-    danger: Res<Danger>,
+    (danger, amenagements): (Res<Danger>, Res<Amenagements>),
     villages: Res<KnownVillages>,
     mut hostile_turn: ResMut<HostileTurnPending>,
     mut cues: ResMut<Cues>,
@@ -600,14 +614,14 @@ fn end_turn(
     // 1) Économie des villes
     let mut list: Vec<(Entity, Hex, Mut<City>)> = cities.iter_mut().map(|(e, p, c)| (e, p.0, c)).collect();
     list.sort_by_key(|(e, _, _)| rang(&idents, *e));
-    assign_worked_tiles(map, &territory, &mut list);
+    assign_worked_tiles(map, &territory, &amenagements, &mut list);
     let mut new_units = Vec::new();
     let mut new_bridges = Vec::new();
     for (entity, center, city) in list.iter_mut() {
-        let yields = rules::city_yields(map, *center, &city.worked);
+        let yields = city.travail.rendements;
         let report = city.state.process_turn(yields);
-        // (seul le joueur a des villes pour l'instant)
-        *state.tresor_mut(Peuple::JOUEUR) += report.economie;
+        // (seul le joueur a des villes pour l'instant ; la fraction d'économie est gardée par le trésor)
+        state.ajouter_economie(Peuple::JOUEUR, report.economie);
         let name = city.state.name.clone();
         if report.grew {
             log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(" gagne un habitant."));
@@ -668,7 +682,7 @@ fn end_turn(
             }
             None => {
                 if let Ok((_, _, mut city)) = cities.get_mut(city_entity) {
-                    city.state.production_stock += kind.cost();
+                    city.state.production_stock += kind.cost() as f64;
                     if kind == UnitKind::Settler {
                         city.state.habitants += rules::HABITANTS_COLON;
                     }
@@ -701,17 +715,19 @@ fn refresh_worked_tiles(
     map: Res<GameMap>,
     state: Res<GameState>,
     territory: Res<Territory>,
+    amenagements: Res<Amenagements>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
     idents: Query<&Ident>,
 ) {
     // Parcourir des `Mut` sans les déréférencer en écriture ne les marque pas « modifiés ».
-    let any_added = cities.iter_mut().any(|(_, _, c)| c.is_added());
-    if !any_added && !territory.is_changed() && !state.is_changed() {
+    // (une ville changée : habitants, consignes… ; `assign_worked_tiles` n'écrit que si le travail change)
+    let any_changed = cities.iter_mut().any(|(_, _, c)| c.is_changed());
+    if !any_changed && !territory.is_changed() && !state.is_changed() && !amenagements.is_changed() {
         return;
     }
     let mut list: Vec<(Entity, Hex, Mut<City>)> = cities.iter_mut().map(|(e, p, c)| (e, p.0, c)).collect();
     list.sort_by_key(|(e, _, _)| rang(&idents, *e));
-    assign_worked_tiles(&map.0, &territory, &mut list);
+    assign_worked_tiles(&map.0, &territory, &amenagements, &mut list);
 }
 
 /// Recalcule les cases visibles à partir des unités et des villes du joueur.

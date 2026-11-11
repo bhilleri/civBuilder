@@ -24,22 +24,39 @@ impl Peuple {
 }
 
 /// Trésor de chaque peuple, en Économie.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Tresors(Vec<i32>);
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Tresors {
+    entiers: Vec<i32>,
+    /// Fraction d'Économie pas encore versée (les villes en produisent des parts).
+    #[serde(default)]
+    fractions: Vec<f64>,
+}
 
 impl Tresors {
+    /// Verse une Économie fractionnaire : la part entière va au trésor, le reste attend.
+    pub fn ajouter(&mut self, peuple: Peuple, economie: f64) {
+        let i = peuple.index();
+        if self.fractions.len() <= i {
+            self.fractions.resize(i + 1, 0.0);
+        }
+        let total = self.fractions[i] + economie;
+        let entier = total.floor();
+        self.fractions[i] = total - entier;
+        *self.get_mut(peuple) += entier as i32;
+    }
+
     /// Trésor d'un peuple (0 s'il n'a encore rien reçu).
     pub fn get(&self, peuple: Peuple) -> i32 {
-        self.0.get(peuple.index()).copied().unwrap_or(0)
+        self.entiers.get(peuple.index()).copied().unwrap_or(0)
     }
 
     /// Trésor d'un peuple, à modifier (la table s'agrandit au besoin).
     pub fn get_mut(&mut self, peuple: Peuple) -> &mut i32 {
         let i = peuple.index();
-        if self.0.len() <= i {
-            self.0.resize(i + 1, 0);
+        if self.entiers.len() <= i {
+            self.entiers.resize(i + 1, 0);
         }
-        &mut self.0[i]
+        &mut self.entiers[i]
     }
 }
 
@@ -57,5 +74,9 @@ mod tests {
         assert_eq!(t.get(Peuple::JOUEUR), 6);
         assert_eq!(t.get(Peuple::HOSTILE), 3);
         assert_eq!(t.get(Peuple(7)), 0);
+        // Économie fractionnaire : la part entière versée, le reste gardé
+        t.ajouter(Peuple::JOUEUR, 1.75);
+        t.ajouter(Peuple::JOUEUR, 0.5);
+        assert_eq!(t.get(Peuple::JOUEUR), 8);
     }
 }

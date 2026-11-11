@@ -127,16 +127,16 @@ fn update_bridge_button(
     mut buttons: Query<(&UiPointer, &mut Node, &mut BackgroundColor, &Children), With<BridgeButton>>,
     mut texts: Query<&mut Text>,
 ) {
-    let Some((city, state, pos)) = selection.0.and_then(|e| cities.get(e).ok()) else { return };
+    let Some((city, state, _)) = selection.0.and_then(|e| cities.get(e).ok()) else { return };
     let others = cities.iter().filter(|(e, _, _)| *e != city).filter_map(|(_, c, _)| match c.state.producing {
         Some(Production::Bridge { at, .. }) => Some(at),
         _ => None,
     });
     let count = if placement.active() { placement.spots.len() } else { city_spots(&map.0, &territory, city, others).len() };
-    let production = rules::city_yields(&map.0, pos.0, &state.worked).production.max(1);
+    let production = state.travail.rendements.production;
     let (label, active) = match state.state.producing {
         Some(item @ Production::Bridge { .. }) => {
-            let turns = ((item.cost() - state.state.production_stock).max(0) as f32 / production as f32).ceil() as i32;
+            let turns = rules::tours_restants(item.cost(), state.state.production_stock, production).map_or("∞".to_string(), |t| t.to_string());
             (format!("     {}  —  {} ({} tours)  ·  autre emplacement : clic", item.name(), item.cost(), turns), true)
         }
         _ if placement.active() => ("     Pont : cliquez un emplacement surligné (clic droit : annuler)".to_string(), true),

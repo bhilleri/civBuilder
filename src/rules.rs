@@ -4,6 +4,7 @@ use crate::hex::{Hex, Wrap};
 use crate::map::{KnownMap, MoveCosts, StepCost, WorldMap, Yields, turn_moves};
 use crate::combat::{self, AttackKind};
 use crate::pathfinding::{find_path, find_path_turns};
+use crate::intendant::{self, Amenagement, CaseDispo, Consignes, Rendements, Repartition};
 use bevy::platform::collections::HashSet;
 
 // ---------------------------------------------------------------- Unités
@@ -468,11 +469,28 @@ pub fn milliers(n: u64) -> String {
     out
 }
 
+/// Nombre à une décimale, à la française (« 2,5 »).
+pub fn decimal(x: f64) -> String {
+    format!("{x:.1}").replace('.', ",")
+}
+
+/// Tours pour finir `cout` avec `stock` déjà accumulé à `par_tour` par tour (`None` : jamais).
+pub fn tours_restants(cout: i32, stock: f64, par_tour: f64) -> Option<i32> {
+    let reste = (cout as f64 - stock).max(0.0);
+    if reste == 0.0 {
+        Some(0)
+    } else if par_tour > 1e-9 {
+        Some((reste / par_tour).ceil() as i32)
+    } else {
+        None
+    }
+}
+
 /// Variation des habitants en un tour selon la nourriture produite : croissance naturelle quand
 /// la nourriture dépasse le besoin (pleine à 50 % de surplus), famine quand elle manque.
-pub fn variation_des_habitants(habitants: u64, nourriture: i32) -> i64 {
+pub fn variation_des_habitants(habitants: u64, nourriture: f64) -> i64 {
     let besoin = (habitants as f64 / HABITANTS_PAR_NOURRITURE).max(0.001);
-    let couverture = f64::from(nourriture.max(0)) / besoin;
+    let couverture = nourriture.max(0.0) / besoin;
     let taux = if couverture >= 1.0 {
         CROISSANCE_NATURELLE * ((couverture - 1.0) / SURPLUS_POUR_CROITRE).min(1.0)
     } else {
@@ -508,38 +526,25 @@ pub fn center_yields(map: &WorldMap, center: Hex) -> Yields {
     Yields::new(y.food.max(2), y.production.max(2), y.economie.max(1))
 }
 
-fn tile_score(y: Yields) -> i32 {
-    y.food * 4 + y.production * 3 + y.economie * 2
-}
-
-/// Choisit les `population` meilleures cases exploitables du territoire
-/// (hors centre et hors cases déjà prises par d'autres villes).
-pub fn choose_worked_tiles(
-    map: &WorldMap,
-    center: Hex,
-    population: i32,
-    territory: &[Hex],
-    taken: &HashSet<Hex>,
-) -> Vec<Hex> {
-    let mut candidates: Vec<Hex> = territory
+/// Cases exploitables par une ville (son territoire, hors centre et hors cases d'autres villes),
+/// avec le rendement maximal et la capacité que leur donne leur aménagement.
+pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: &HashSet<Hex>, amenagements: &std::collections::BTreeMap<Hex, Amenagement>) -> Vec<CaseDispo> {
+    let mut cases: Vec<CaseDispo> = territory
         .iter()
         .copied()
         .filter(|&h| h != center && !taken.contains(&h) && map.contains(h))
+        .map(|h| {
+            let a = amenagements.get(&h).copied();
+            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), capacite: intendant::capacite(a), distance: map.distance(center, h) }
+        })
         .collect();
-    candidates.sort_by_key(|&h| (-tile_score(map.yields(h).unwrap_or_default()), h));
-    candidates.truncate(population.max(0) as usize);
-    candidates
+    cases.sort_by_key(|c| c.hex);
+    cases
 }
 
-/// Rendement total d'une ville (centre + cases exploitées).
-pub fn city_yields(map: &WorldMap, center: Hex, worked: &[Hex]) -> Yields {
-    let mut total = center_yields(map, center);
-    for &h in worked {
-        if let Some(y) = map.yields(h) {
-            total += y;
-        }
-    }
-    total
+/// Travailleurs de la ville placés par l'intendant, et son rendement total (centre compris).
+pub fn repartition_ville(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo]) -> Repartition {
+    intendant::repartir(cases, intendant::actifs(city.habitants), city.besoin_nourriture(), Rendements::from(center_yields(map, center)), &city.consignes)
 }
 
 /// Coût d'un pont (production) : de `BRIDGE_COST.0` sur la plus petite rivière (`RIVER_M3S`) à
@@ -620,27 +625,30 @@ pub struct CityState {
     pub name: String,
     /// Habitants de toute l'aire de la ville (ville et campagnes).
     pub habitants: u64,
-    pub production_stock: i32,
+    pub production_stock: f64,
     pub producing: Option<Production>,
     /// Ponts construits par la ville (une tour garde leur autre bout si elle est fortifiée).
     pub bridges: Vec<crate::map::BridgeAt>,
     /// Présence d'une fortification : la muraille n'existe que si elle est vraie. La règle de jeu
     /// reste à concevoir ; pour l'instant, seule la console de debug la pose.
     pub fortified: bool,
+    /// Consignes du joueur à l'intendant (priorités, cases forcées).
+    #[serde(default)]
+    pub consignes: Consignes,
 }
 
 /// Ce qui s'est passé dans une ville pendant la fin de tour.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct CityTurnReport {
     pub grew: bool,
     pub starved: bool,
     pub built: Option<Production>,
-    pub economie: i32,
+    pub economie: f64,
 }
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, production_stock: 0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false }
+        Self { name, habitants: HABITANTS_COLON, production_stock: 0.0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false, consignes: Consignes::default() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -654,12 +662,12 @@ impl CityState {
         self.habitants as f64 / HABITANTS_PAR_NOURRITURE
     }
 
-    pub fn process_turn(&mut self, yields: Yields) -> CityTurnReport {
+    pub fn process_turn(&mut self, yields: Rendements) -> CityTurnReport {
         let mut report = CityTurnReport { economie: yields.economie, ..Default::default() };
 
         // Croissance (ou famine) en habitants ; « a grandi » : nouveau palier atteint
         let palier = self.palier();
-        let variation = variation_des_habitants(self.habitants, yields.food);
+        let variation = variation_des_habitants(self.habitants, yields.nourriture);
         if variation < 0 {
             report.starved = true;
             self.habitants = self.habitants.saturating_sub(variation.unsigned_abs()).max(HABITANTS_PLANCHER.min(self.habitants));
@@ -673,8 +681,8 @@ impl CityState {
             self.production_stock += yields.production;
             let settler = item == Production::Unit(UnitKind::Settler);
             let pop_ok = !settler || self.habitants >= 2 * HABITANTS_COLON;
-            if self.production_stock >= item.cost() && pop_ok {
-                self.production_stock -= item.cost();
+            if self.production_stock >= item.cost() as f64 && pop_ok {
+                self.production_stock -= item.cost() as f64;
                 if settler {
                     self.habitants -= HABITANTS_COLON;
                 }
@@ -1216,17 +1224,17 @@ mod tests {
     #[test]
     fn croissance_famine_et_production() {
         // 1 000 habitants mangent 1 : avec 1,5 de nourriture (50 % de surplus), pleine croissance
-        assert_eq!(variation_des_habitants(1_000, 2), 15);
-        assert_eq!(variation_des_habitants(10_000, 15), 150);
+        assert_eq!(variation_des_habitants(1_000, 2.0), 15);
+        assert_eq!(variation_des_habitants(10_000, 15.0), 150);
         // Juste le besoin : pas de croissance ; un surplus de 25 % : la moitié
-        assert_eq!(variation_des_habitants(10_000, 10), 0);
-        assert_eq!(variation_des_habitants(20_000, 25), 150);
+        assert_eq!(variation_des_habitants(10_000, 10.0), 0);
+        assert_eq!(variation_des_habitants(20_000, 25.0), 150);
         // Famine : 2 % pour un léger manque, 5 % sans rien
-        assert_eq!(variation_des_habitants(10_000, 0), -500);
-        assert!((-260..=-200).contains(&variation_des_habitants(10_000, 9)));
+        assert_eq!(variation_des_habitants(10_000, 0.0), -500);
+        assert!((-260..=-200).contains(&variation_des_habitants(10_000, 9.0)));
         let mut city = CityState::new("Test".into());
         assert_eq!(city.habitants, HABITANTS_COLON);
-        let y = Yields::new(6, 5, 2);
+        let y = Rendements::from(Yields::new(6, 5, 2));
         let mut built = Vec::new();
         let mut grew = 0;
         for _ in 0..10 {
@@ -1242,7 +1250,7 @@ mod tests {
         // Une famine ne descend pas sous le plancher
         let mut affame = CityState::new("Faim".into());
         for _ in 0..100 {
-            affame.process_turn(Yields::new(0, 0, 0));
+            affame.process_turn(Rendements::from(Yields::new(0, 0, 0)));
         }
         assert_eq!(affame.habitants, HABITANTS_PLANCHER);
     }
@@ -1251,10 +1259,10 @@ mod tests {
     fn colon_exige_deux_mille_habitants() {
         let mut city = CityState::new("Test".into());
         city.producing = Some(Production::Unit(UnitKind::Settler));
-        city.production_stock = 100;
-        assert_eq!(city.process_turn(Yields::new(1, 0, 0)).built, None);
+        city.production_stock = 100.0;
+        assert_eq!(city.process_turn(Rendements::from(Yields::new(1, 0, 0))).built, None);
         city.habitants = 2 * HABITANTS_COLON;
-        assert_eq!(city.process_turn(Yields::new(2, 0, 0)).built, Some(Production::Unit(UnitKind::Settler)));
+        assert_eq!(city.process_turn(Rendements::from(Yields::new(2, 0, 0))).built, Some(Production::Unit(UnitKind::Settler)));
         assert_eq!(city.habitants, HABITANTS_COLON);
     }
 
@@ -1265,11 +1273,20 @@ mod tests {
         let best = center.neighbors()[2];
         map.set(best, Terrain::Grassland);
         let territory: Vec<Hex> = center.range(1).collect();
-        let worked = choose_worked_tiles(&map, center, 1, &territory, &HashSet::new());
-        assert_eq!(worked, vec![best]);
+        let city = CityState::new("Essai".into());
+        let aucun = std::collections::BTreeMap::new();
+        let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &aucun);
+        assert_eq!(cases.len(), 6, "hors centre");
+        let r = repartition_ville(&map, center, &city, &cases);
+        assert_eq!(r.cases, vec![(best, 500)], "1 000 habitants : 500 actifs, à la prairie");
         let taken = HashSet::from([best]);
-        let worked = choose_worked_tiles(&map, center, 1, &territory, &taken);
-        assert_ne!(worked, vec![best]);
+        let cases = cases_de_la_ville(&map, center, &territory, &taken, &aucun);
+        assert!(cases.iter().all(|c| c.hex != best));
+        // Un champ double la nourriture et la capacité passe à 1 500
+        let champ = std::collections::BTreeMap::from([(best, Amenagement::Champ)]);
+        let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &champ);
+        let c = cases.iter().find(|c| c.hex == best).unwrap();
+        assert_eq!((c.capacite, c.max.nourriture), (1_500, 4.0));
     }
 }
 
