@@ -894,10 +894,13 @@ fn cities() -> Article {
                besoin) ; « Grands jeux », « Projet de recherche » et « Développement de l'art et de la culture » ne \
                sont pas encore dans le jeu. Le journal le rappelle tous les 10 tours. Sans projet ni construction, le tour \
                ne peut pas finir : l'écran de la ville s'ouvre sur son catalogue."),
-            p("Aménager une case : dans l'écran de la ville, Construire puis un aménagement ; la carte de la ville \
-               montre le gain de chaque case à pleine capacité (anneau doré : le conseil de l'intendant). Clic pour \
-               choisir la case, double-clic ou Entrée pour mettre en file. La fiche d'une case propose aussi ses \
-               aménagements possibles."),
+            p("Aménager une case : dans l'écran de la ville, Construire (B) puis un aménagement. Chaque case montre la \
+               valeur de l'aménagement (nourriture × 1,5 + production + deniers, à pleine capacité ; une perte de \
+               nourriture près de la famine compte × 3) et ce qui la compose ; une hache et un anneau orange \
+               signalent un défrichement, un anneau rouge un risque de famine. L'anneau doré marque le conseil de \
+               l'intendant (la plus forte valeur) ; la fiche à gauche dit pourquoi. Clic pour choisir une autre case, \
+               puis la barre en bas de la carte, Entrée ou un double-clic pour mettre en file ; clic droit ou Échap \
+               pour revenir, B pour fermer la construction. La fiche d'une case propose aussi ses aménagements."),
             p(format!(
                 "Une ville peut aussi construire un pont sur une rivière ou un fleuve de son territoire (pour une \
                  rivière, une des deux cases suffit). « Pont… » dans le panneau de production surligne les emplacements \

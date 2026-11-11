@@ -625,6 +625,24 @@ encore : eau et emplois comme freins (l'eau n'est pas dans le jeu ; les emplois 
 croissance, ils font des sans-emploi, signalés en alerte).
 **Les sept lots de l'écran de la ville sont faits (11/11/2026).** Suite : bâtiments, eau, bien-être (4c),
 culture (4d), commerce, chacun avec sa place déjà prévue dans l'écran.
+**Construction revue le 11/11/2026** (retours de Benjamin après essai, recherche sur d'autres jeux,
+trois avis : ergonomie, game design, web). Constats : le chiffre de la case (nourriture seule) ne
+mesurait pas la même chose que la couleur et le conseil (total) ; défrichement et pertes invisibles sur
+la carte ; bouton de validation loin de la case ; recliquer l'aménagement annulait ; B ne disait pas
+qu'il referme. Décidé et fait : une seule **valeur** pour le chiffre, la couleur et le conseil
+(nourriture × 1,5 quand elle borne la croissance — × 1 si l'objectif de l'intendant ne vise pas la
+croissance pleine — + production + deniers, à pleine capacité) ; **ajout de Benjamin : une perte de
+nourriture qui rapproche de la famine compte × 3** (couverture du besoin après la perte sous 1,15 :
+« bord de famine » ; sous 1 : « famine », et le conseil l'évite s'il a mieux) ; composantes signées sous
+la valeur, hache et anneau orange pour le défrichement, anneau rouge pour la famine, « remplace
+l'actuel » ; conseil cerclé d'or qui pulse 3 fois, « Pourquoi cette case ? » dans la fiche (ou
+« Attention » si la case choisie vaut moins), rentabilité (coût ÷ valeur) ; barre de validation en bas
+de la carte (une étiquette ou un bouton posé près de la case recouvrait les voisines sur la petite
+carte) ; Entrée valide aussi le conseil ; clic droit recule ; « Fermer la construction (B) » ; pastille
+« file n° » sur la case ; ligne de la file éclairée 1 s ; animations coupées avec la vitesse
+« instantanée » des Paramètres. Sources : Civilization VII (gains et pertes au placement), Civilization
+VI (défrichement mal signalé), Humankind (conseil au critère opaque), Against the Storm (annulation mal
+signalée), NN/g (mouvement avec parcimonie).
 Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
 l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
 
