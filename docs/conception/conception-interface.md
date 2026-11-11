@@ -540,6 +540,40 @@ Résultat (dernière version) :
 - **Questions ouvertes** : Règles derrière les chiffres d'exemple (eau par habitant et part prélevable d'un cours
   d'eau, recherche selon l'éducation, défense, calcul du Bien-être, liste et effets des bâtiments).
 
+#### Développement de l'écran de la ville (découpage validé le 11/11/2026)
+Sept lots, chacun livré seul : **1** fondations (écran plein écran, charte, en-tête, onglets, carte
+schématique, deniers) ; **2** rendements et leur origine (graphique passé et prévision : 40 derniers
+tours mémorisés par ville) ; **3** construction = livraison 4b (file unique, catalogue, placement,
+conseil, « Tout comparer ») ; **4** intendant à l'écran (objectif de nourriture, priorités, forcer
+avec aperçu) ; **5** onglet Population (limites, cartes emplois et habitants) ; **6** Histoire
+(journal par ville sauvegardé) ; **7** « Ce qui freine la croissance ». Après, avec leur système :
+eau prélevée, bâtiments, aménagements de bonus et programmes de ville (4c), culture (4d), commerce.
+Choix retenus avec le découpage : l'écran remplace le panneau de la ville (un résumé reste sur la
+carte) ; l'objectif de nourriture remplace la priorité de la nourriture (lot 4) ; la carte de la ville
+est dessinée avec l'interface Bevy, un hexagone par case.
+
+**Lot 1 fait le 11/11/2026** (`charte.rs`, `ecran_ville.rs`) :
+- ouverture par **C** ou le bouton « Écran de la ville » du panneau de production ; Échap ferme
+  d'abord la fiche de case, puis l'écran, sans ouvrir le menu ; les commandes de la carte du monde
+  sont suspendues tant qu'il est ouvert ;
+- **charte** : couleurs de la maquette, une couleur et une icône par grandeur ; les icônes (épi,
+  marteau, pièce, goutte, fiole, plume, bouclier, visage, deux personnes) et les hexagones sont
+  dessinés par le code au démarrage (aucun fichier d'image : la police ne contient pas d'icônes) ;
+- **carte de la ville** : un hexagone (image teintée) par case du territoire, placé autour du centre
+  en tenant compte du tour du monde ; la case sous le pointeur est calculée en coordonnées axiales
+  (les rectangles des hexagones se chevauchent) à partir du pointeur du picking, ce qui marche aussi
+  avec le pilote ; couleur de la grandeur principale (pâle si personne n'y travaille : ce que la case
+  donnerait), remplissage dans l'onglet Population ; rond vert de l'aménagement ; zoom (1 à 4, molette
+  autour du pointeur), déplacement en glissant, recentrage ;
+- contenu de l'onglet Rendements : trois cartes (nourriture comparée au besoin, production et
+  construction en cours, deniers), les grandeurs pas encore dans le jeu (eau, recherche, culture,
+  défense, bien-être, marquées « — »), tableau « centre, cases, bâtiments, commerce, total » ;
+  Population : habitants, palier suivant, actifs, au travail, sans emploi ; Commerce, Histoire,
+  cultures, ordres de la société : un panneau qui dit qu'ils ne sont pas encore dans le jeu ;
+- le panneau de production reste sur la carte jusqu'au lot 3 (file de construction).
+Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
+l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
+
 ### Écrans nationaux (un panneau par thème, même gabarit)
 | Écran | Contenu |
 |---|---|

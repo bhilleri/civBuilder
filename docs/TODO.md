@@ -349,6 +349,8 @@ son système. Maquette interactive de l'écran de la ville et de la construction
 (`conception-interface.md`, « Maquette interactive ») ; la vraie carte 3D dans l'écran est reportée.
 **Maquette retenue le 11/11 (version 18)** : `docs/conception/maquettes/ecran-ville.html`, point de
 départ du développement de l'écran de la ville.
+Découpage en 7 lots (`conception-interface.md`, « Développement de l'écran de la ville ») ; **lot 1 fait
+le 11/11** (écran plein écran, charte, carte des cases, deniers). Suite : lot 2 (rendements, historique).
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :
 nom tiré de la langue) : renommer « Économie » en deniers dans le code, l'interface et le wiki.

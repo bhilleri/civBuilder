@@ -14,6 +14,8 @@
 - Console : `amenagement col lig champ|paturage|bois|aucun` (pose sans construire), `ville priorite col lig ressource cran`, `ville forcer col lig ccol clig effectif`. Sauvegardes au format 3 (aménagements, consignes, fractions du trésor).
 - Pilote : `maj+clic col lig`, `ctrl+clic col lig` et `touche ctrl+1` (clic ou touche en tenant Maj ou Ctrl).
 - **L'éclaireur devient une unité militaire** légère et peu coûteuse (famille « reconnaissance »), sans zone de contrôle.
+- **Écran de la ville** (lot 1 de la refonte, maquette `docs/conception/maquettes/ecran-ville.html`) : touche C ou bouton « Écran de la ville » ; plein écran fermé par Échap. En-tête (palier, habitants, croissance, construction en cours), onglets **Rendements** (nourriture comparée au besoin, production, deniers, et d'où ils viennent : centre, cases), **Population** (habitants, actifs, sans-emploi), **Commerce** et **Histoire** (vides pour l'instant, et ils le disent) ; carte schématique des cases de la ville (grandeur principale ou remplissage, aménagements, infobulle, clic pour la fiche de la case, zoom, déplacement, légende au-dessus) ; liste des cases travaillées ou par remplissage.
+- **Charte graphique** commune (`charte.rs`) : couleurs, une couleur et une icône par grandeur (nourriture, production, deniers, eau, recherche, culture, défense, bien-être, habitants).
 - **La monnaie s'appelle le denier** (choix de Benjamin) : « Économie » devient « deniers » partout (barre du haut, panneau et écran de la ville, journal, butin des camps, échanges des villages, wiki, console `ville priorite … deniers`, pilote `deniers=`).
 
 ### Nouvelle partie
