@@ -751,8 +751,9 @@ fn mechanics() -> Article {
                  l'ordre est suspendu s'il devient plus de {DETOUR_TOLERANCE_PERCENT} % plus long que prévu."
             )),
             h("Une unité par case"),
-            p("Une case ne peut accueillir qu'une unité. Vos unités se contournent ; un clic droit sur une de vos \
-               unités adjacentes échange leurs places (sauf à travers une falaise)."),
+            p("Une case ne peut accueillir qu'une unité. Vos unités se traversent : un trajet passe par la case \
+               d'une de vos unités s'il reste assez de PM pour en repartir dans le même tour, sinon il la contourne. \
+               Un clic droit sur une de vos unités adjacentes échange leurs places (sauf à travers une falaise)."),
             h("Exploration automatique"),
             p("Touche E (unités militaires et éclaireur) : l'unité part vers la zone qui révèle le plus de cases \
                inconnues pour le moindre trajet, fait un détour pour visiter les villages et évite les abords des \
