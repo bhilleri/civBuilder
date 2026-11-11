@@ -14,6 +14,7 @@
 - Console : `amenagement col lig champ|paturage|bois|aucun` (pose sans construire), `ville priorite col lig ressource cran`, `ville forcer col lig ccol clig effectif`. Sauvegardes au format 3 (aménagements, consignes, fractions du trésor).
 - Pilote : `maj+clic col lig`, `ctrl+clic col lig` et `touche ctrl+1` (clic ou touche en tenant Maj ou Ctrl).
 - **L'éclaireur devient une unité militaire** légère et peu coûteuse (famille « reconnaissance »), sans zone de contrôle.
+- **La monnaie s'appelle le denier** (choix de Benjamin) : « Économie » devient « deniers » partout (barre du haut, panneau et écran de la ville, journal, butin des camps, échanges des villages, wiki, console `ville priorite … deniers`, pilote `deniers=`).
 
 ### Nouvelle partie
 - **Écran de nouvelle partie** au lancement du jeu (maquette v4 validée) :

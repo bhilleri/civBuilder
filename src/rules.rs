@@ -523,7 +523,7 @@ pub fn can_found_city(map: &WorldMap, at: Hex, cities: &[Hex]) -> Result<(), &'s
 /// Rendement de la case centrale : au moins 2 nourriture, 2 production, 1 or.
 pub fn center_yields(map: &WorldMap, center: Hex) -> Yields {
     let y = map.yields(center).unwrap_or_default();
-    Yields::new(y.food.max(2), y.production.max(2), y.economie.max(1))
+    Yields::new(y.food.max(2), y.production.max(2), y.deniers.max(1))
 }
 
 /// Cases exploitables par une ville (son territoire, hors centre et hors cases d'autres villes),
@@ -643,7 +643,7 @@ pub struct CityTurnReport {
     pub grew: bool,
     pub starved: bool,
     pub built: Option<Production>,
-    pub economie: f64,
+    pub deniers: f64,
 }
 
 impl CityState {
@@ -663,7 +663,7 @@ impl CityState {
     }
 
     pub fn process_turn(&mut self, yields: Rendements) -> CityTurnReport {
-        let mut report = CityTurnReport { economie: yields.economie, ..Default::default() };
+        let mut report = CityTurnReport { deniers: yields.deniers, ..Default::default() };
 
         // Croissance (ou famine) en habitants ; « a grandi » : nouveau palier atteint
         let palier = self.palier();

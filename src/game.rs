@@ -149,9 +149,9 @@ impl GameState {
         self.tresors.get(Peuple::JOUEUR)
     }
 
-    /// Verse l'Économie d'une ville (fractionnaire) au trésor d'un peuple.
-    pub fn ajouter_economie(&mut self, peuple: Peuple, economie: f64) {
-        self.tresors.ajouter(peuple, economie);
+    /// Verse les deniers d'une ville (fractionnaire) au trésor d'un peuple.
+    pub fn ajouter_deniers(&mut self, peuple: Peuple, deniers: f64) {
+        self.tresors.ajouter(peuple, deniers);
     }
 
     /// Trésor d'un peuple, à modifier.
@@ -611,7 +611,7 @@ fn end_turn(
     // (le joueur reprendra la main à la fin des animations du passage de tour)
     cues.0.push(Cue::TurnEnd);
 
-    // 1) Économie des villes
+    // 1) Deniers des villes
     let mut list: Vec<(Entity, Hex, Mut<City>)> = cities.iter_mut().map(|(e, p, c)| (e, p.0, c)).collect();
     list.sort_by_key(|(e, _, _)| rang(&idents, *e));
     assign_worked_tiles(map, &territory, &amenagements, &mut list);
@@ -620,8 +620,8 @@ fn end_turn(
     for (entity, center, city) in list.iter_mut() {
         let yields = city.travail.rendements;
         let report = city.state.process_turn(yields);
-        // (seul le joueur a des villes pour l'instant ; la fraction d'économie est gardée par le trésor)
-        state.ajouter_economie(Peuple::JOUEUR, report.economie);
+        // (seul le joueur a des villes pour l'instant ; la fraction de deniers est gardée par le trésor)
+        state.ajouter_deniers(Peuple::JOUEUR, report.deniers);
         let name = city.state.name.clone();
         if report.grew {
             log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(" gagne un habitant."));

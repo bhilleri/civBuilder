@@ -531,12 +531,12 @@ pub enum Terrain {
 pub struct Yields {
     pub food: i32,
     pub production: i32,
-    pub economie: i32,
+    pub deniers: i32,
 }
 
 impl Yields {
-    pub const fn new(food: i32, production: i32, economie: i32) -> Self {
-        Self { food, production, economie }
+    pub const fn new(food: i32, production: i32, deniers: i32) -> Self {
+        Self { food, production, deniers }
     }
 }
 
@@ -544,7 +544,7 @@ impl std::ops::AddAssign for Yields {
     fn add_assign(&mut self, o: Self) {
         self.food += o.food;
         self.production += o.production;
-        self.economie += o.economie;
+        self.deniers += o.deniers;
     }
 }
 
@@ -3099,7 +3099,7 @@ impl WorldMap {
         }
         self.range(hex, 2)
             .filter_map(|h| self.yields(h))
-            .map(|y| y.food * 3 + y.production * 2 + y.economie)
+            .map(|y| y.food * 3 + y.production * 2 + y.deniers)
             .sum()
     }
 

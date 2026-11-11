@@ -187,7 +187,7 @@ const SCENES: &[Scene] = &[
     Scene {
         name: "village_commerce",
         cast: &[joueur(UnitKind::Scout, -2, 1)],
-        village: Some(((1, 0), VillageEvent::Trade { economie: 30 })),
+        village: Some(((1, 0), VillageEvent::Trade { deniers: 30 })),
         camp: None,
         steps: &[Step::Wait(0.5), Step::Point(-2, 1), GAUCHE, Step::Wait(0.4), Step::Point(1, 0), Step::Wait(1.0), DROIT, Step::Idle, Step::Wait(1.8)],
     },

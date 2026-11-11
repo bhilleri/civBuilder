@@ -33,7 +33,7 @@ pub const WOUNDED_HP: i32 = 60;
 /// Habitants qu'un village apporte en rejoignant une ville (un clan et ses terres).
 pub const VILLAGE_HABITANTS: u64 = 1_000;
 /// Or obtenu en dispersant un camp.
-pub const CAMP_BUTIN_ECONOMIE: i32 = 25;
+pub const CAMP_BUTIN_DENIERS: i32 = 25;
 
 #[derive(Component)]
 pub struct Village;
@@ -174,9 +174,9 @@ pub fn visit_sites(
     for (camp, pos, name) in &camps {
         if touched.contains(&pos.0) {
             commands.entity(camp).despawn();
-            *state.tresor_mut(Peuple::JOUEUR) += CAMP_BUTIN_ECONOMIE;
-            log.notify(Importance::Success, LogText::new().link(&name.0, MapTarget::Site(camp), pos.0).text(format!(" dispersé : +{CAMP_BUTIN_ECONOMIE} Économie.")));
-            cues.reward(pos.0, visitor(pos.0), format!("+{CAMP_BUTIN_ECONOMIE} Économie"), Tone::Gold);
+            *state.tresor_mut(Peuple::JOUEUR) += CAMP_BUTIN_DENIERS;
+            log.notify(Importance::Success, LogText::new().link(&name.0, MapTarget::Site(camp), pos.0).text(format!(" dispersé : +{CAMP_BUTIN_DENIERS} deniers.")));
+            cues.reward(pos.0, visitor(pos.0), format!("+{CAMP_BUTIN_DENIERS} deniers"), Tone::Gold);
         }
     }
 
@@ -212,10 +212,10 @@ pub fn visit_sites(
                 );
                 cues.reward(pos.0, visitor(pos.0), format!("+{} habitants à {}", rules::milliers(VILLAGE_HABITANTS), city.state.name), Tone::Growth);
             }
-            VillageEvent::Trade { economie } => {
-                *state.tresor_mut(Peuple::JOUEUR) += economie;
-                log.notify(Importance::Success, LogText::new().text("Village de ").link(&name.0, MapTarget::Site(village), pos.0).text(format!(" : échanges commerciaux, +{economie} Économie.")));
-                cues.reward(pos.0, visitor(pos.0), format!("+{economie} Économie"), Tone::Gold);
+            VillageEvent::Trade { deniers } => {
+                *state.tresor_mut(Peuple::JOUEUR) += deniers;
+                log.notify(Importance::Success, LogText::new().text("Village de ").link(&name.0, MapTarget::Site(village), pos.0).text(format!(" : échanges commerciaux, +{deniers} deniers.")));
+                cues.reward(pos.0, visitor(pos.0), format!("+{deniers} deniers"), Tone::Gold);
             }
             VillageEvent::Hostile { warriors } => {
                 let mut free: Vec<Hex> = map

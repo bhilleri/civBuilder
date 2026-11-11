@@ -81,7 +81,7 @@ pub enum VillageEvent {
     /// Les habitants rejoignent la ville la plus proche (+1 000 habitants).
     JoinCity,
     /// Échanges commerciaux : de l'or.
-    Trade { economie: i32 },
+    Trade { deniers: i32 },
     /// Le village est hostile : des guerriers hostiles surgissent.
     Hostile { warriors: u32 },
 }
@@ -94,7 +94,7 @@ pub fn roll_village_event(rng: &mut impl Rng, has_city: bool) -> VillageEvent {
     if roll < join {
         VillageEvent::JoinCity
     } else if roll < 80 {
-        VillageEvent::Trade { economie: rng.random_range(15..=35) }
+        VillageEvent::Trade { deniers: rng.random_range(15..=35) }
     } else {
         VillageEvent::Hostile { warriors: rng.random_range(1..=2) }
     }
@@ -222,8 +222,8 @@ mod tests {
         for _ in 0..10_000 {
             match roll_village_event(&mut rng, true) {
                 VillageEvent::JoinCity => join += 1,
-                VillageEvent::Trade { economie } => {
-                    assert!((15..=35).contains(&economie));
+                VillageEvent::Trade { deniers } => {
+                    assert!((15..=35).contains(&deniers));
                     trade += 1
                 }
                 VillageEvent::Hostile { warriors } => {

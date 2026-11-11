@@ -136,34 +136,35 @@ fn defriche(map: &WorldMap, h: Hex) -> bool {
 pub struct Rendements {
     pub nourriture: f64,
     pub production: f64,
-    pub economie: f64,
+    #[serde(alias = "economie")]
+    pub deniers: f64,
 }
 
 impl Rendements {
-    pub const fn new(nourriture: f64, production: f64, economie: f64) -> Self {
-        Rendements { nourriture, production, economie }
+    pub const fn new(nourriture: f64, production: f64, deniers: f64) -> Self {
+        Rendements { nourriture, production, deniers }
     }
 
-    /// Les trois valeurs dans l'ordre nourriture, production, économie.
+    /// Les trois valeurs dans l'ordre nourriture, production, deniers.
     pub fn valeurs(self) -> [f64; 3] {
-        [self.nourriture, self.production, self.economie]
+        [self.nourriture, self.production, self.deniers]
     }
 
     pub fn fois(self, k: f64) -> Rendements {
-        Rendements::new(self.nourriture * k, self.production * k, self.economie * k)
+        Rendements::new(self.nourriture * k, self.production * k, self.deniers * k)
     }
 }
 
 impl From<Yields> for Rendements {
     fn from(y: Yields) -> Self {
-        Rendements::new(y.food as f64, y.production as f64, y.economie as f64)
+        Rendements::new(y.food as f64, y.production as f64, y.deniers as f64)
     }
 }
 
 impl std::ops::Add for Rendements {
     type Output = Rendements;
     fn add(self, o: Rendements) -> Rendements {
-        Rendements::new(self.nourriture + o.nourriture, self.production + o.production, self.economie + o.economie)
+        Rendements::new(self.nourriture + o.nourriture, self.production + o.production, self.deniers + o.deniers)
     }
 }
 
@@ -176,7 +177,7 @@ impl std::ops::AddAssign for Rendements {
 impl std::ops::Sub for Rendements {
     type Output = Rendements;
     fn sub(self, o: Rendements) -> Rendements {
-        Rendements::new(self.nourriture - o.nourriture, self.production - o.production, self.economie - o.economie)
+        Rendements::new(self.nourriture - o.nourriture, self.production - o.production, self.deniers - o.deniers)
     }
 }
 
@@ -190,14 +191,14 @@ pub fn rendement_max(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -
     let mut y = map.yields(h).unwrap_or_default();
     // (champ ou pâturage pris sur la forêt : le bois est perdu, la terre devient une prairie)
     if matches!(amenagement, Some(Amenagement::Champ | Amenagement::Paturage)) && defriche(map, h) {
-        y = Yields::new(y.food + 1, (y.production - 2).max(0), y.economie);
+        y = Yields::new(y.food + 1, (y.production - 2).max(0), y.deniers);
     }
     let r = Rendements::from(y);
     match amenagement {
         None => r,
-        Some(Amenagement::Champ) => Rendements::new(r.nourriture * 2.0, r.production, r.economie),
-        Some(Amenagement::Paturage) => Rendements::new(r.nourriture * 1.5, r.production + 1.0, r.economie),
-        Some(Amenagement::CoupeDeBois) => Rendements::new(r.nourriture, r.production * 2.0, r.economie),
+        Some(Amenagement::Champ) => Rendements::new(r.nourriture * 2.0, r.production, r.deniers),
+        Some(Amenagement::Paturage) => Rendements::new(r.nourriture * 1.5, r.production + 1.0, r.deniers),
+        Some(Amenagement::CoupeDeBois) => Rendements::new(r.nourriture, r.production * 2.0, r.deniers),
     }
 }
 
@@ -241,12 +242,12 @@ impl Priorite {
 }
 
 /// Noms des trois ressources dans l'ordre des priorités.
-pub const RESSOURCES: [&str; 3] = ["nourriture", "production", "economie"];
+pub const RESSOURCES: [&str; 3] = ["nourriture", "production", "deniers"];
 
 /// Consignes du joueur à l'intendant d'une ville.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Consignes {
-    /// Priorité de la nourriture, de la production et de l'économie.
+    /// Priorité de la nourriture, de la production et des deniers.
     pub priorites: [Priorite; 3],
     /// Cases forcées et leur effectif (en travailleurs).
     pub forcees: Vec<(Hex, u32)>,

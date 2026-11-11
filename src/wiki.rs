@@ -3,7 +3,7 @@
 
 use crate::pointer::UiPointer;
 use crate::combat::{self, CHARGE_BONUS, FLANK_BONUS, HIGHER_GROUND_DEFENSE, HIGH_GROUND_PERCENT, TERRAIN_DEFENSE};
-use crate::hostile::{CAMP_BUTIN_ECONOMIE, CAMP_MAX_UNITS, CAMP_SPAWN_INTERVAL, HUNT_RANGE, WANDER_RADIUS, WOUNDED_HP};
+use crate::hostile::{CAMP_BUTIN_DENIERS, CAMP_MAX_UNITS, CAMP_SPAWN_INTERVAL, HUNT_RANGE, WANDER_RADIUS, WOUNDED_HP};
 use crate::map::{
     CLIMB_GENTLE_M, CLIMB_STEEP_M, HILL_MOVE_COST, HILL_PRODUCTION, MOUNTAIN_MIN_M, MOUNTAIN_MOVE_MAX, MOUNTAIN_MOVE_MIN, MOUNTAIN_STEP_M,
     MOUNTAIN_YIELDS, RELIEF_MOVE_CAP, RUGGED_MOVE_COST, Relief, Terrain, UNKNOWN_MOVE_COST,
@@ -209,10 +209,10 @@ fn waters() -> Article {
             )),
             p(format!(
                 "Une case de terre au bord d'une rivière, d'un fleuve ou d'un lac, ou qui a un petit lac, a de l'eau \
-                 douce : +{FRESH_WATER_FOOD} nourriture. Un fleuve rapporte {} nourriture, {} production et {} Économie \
+                 douce : +{FRESH_WATER_FOOD} nourriture. Un fleuve rapporte {} nourriture, {} production et {} deniers \
                  (pêche, transport) ; on ne fonde pas de ville dans son lit, mais sur une rive. Les villes pourront plus \
                  tard y aménager des moulins à eau.",
-                FLEUVE_YIELDS.food, FLEUVE_YIELDS.production, FLEUVE_YIELDS.economie
+                FLEUVE_YIELDS.food, FLEUVE_YIELDS.production, FLEUVE_YIELDS.deniers
             )),
             h("Ponts"),
             p(format!(
@@ -415,7 +415,7 @@ fn terrain() -> Article {
             let y = t.yields();
             let moves = t.move_cost().map_or("infranchissable".to_string(), |c| format!("{c} PM"));
             let defense = if t.is_wooded() { format!("+{TERRAIN_DEFENSE}") } else { "—".into() };
-            (swatch(t.color()), vec![t.name().into(), y.food.to_string(), y.production.to_string(), y.economie.to_string(), moves, defense])
+            (swatch(t.color()), vec![t.name().into(), y.food.to_string(), y.production.to_string(), y.deniers.to_string(), moves, defense])
         })
         .collect();
     let reliefs = Relief::ALL
@@ -431,7 +431,7 @@ fn terrain() -> Article {
                 ),
                 Relief::Mountain => (
                     format!("{MOUNTAIN_MOVE_MIN} à {MOUNTAIN_MOVE_MAX} PM"),
-                    format!("{} / {} / {}", MOUNTAIN_YIELDS.food, MOUNTAIN_YIELDS.production, MOUNTAIN_YIELDS.economie),
+                    format!("{} / {} / {}", MOUNTAIN_YIELDS.food, MOUNTAIN_YIELDS.production, MOUNTAIN_YIELDS.deniers),
                     format!("+{}", 2 * TERRAIN_DEFENSE),
                 ),
                 Relief::Peak => ("infranchissable".to_string(), "rien".to_string(), "—".to_string()),
@@ -447,7 +447,7 @@ fn terrain() -> Article {
                accidenté, montagne ou pic). Le survol d'une case affiche tout cela, avec ses rendements et son coût \
                de déplacement."),
             h("Terrains"),
-            table_icons(&["Terrain", "Nourriture", "Production", "Économie", "Déplacement", "Défense"], rows),
+            table_icons(&["Terrain", "Nourriture", "Production", "Deniers", "Déplacement", "Défense"], rows),
             p("La mer et les lacs ne se traversent pas encore (pas d'unités navales), mais une ville peut exploiter \
                leurs rendements. Les rivières, fleuves et lacs sont décrits dans « Cours d'eau et lacs »."),
             h("Fonds marins et pêche"),
@@ -830,10 +830,10 @@ fn cities() -> Article {
                  il ne change pas les déplacements)."
             )),
             h("Rendements"),
-            p("La case centrale rapporte au moins 2 nourriture, 2 production et 1 Économie, sans travailleurs. La moitié \
+            p("La case centrale rapporte au moins 2 nourriture, 2 production et 1 denier, sans travailleurs. La moitié \
                des habitants travaille sur les cases du territoire, placée par l'intendant par blocs de 100 là où le gain \
                est le plus fort : la nourriture pèse lourd tant que la ville ne se nourrit pas (puis pour croître), la \
-               production et l'Économie prennent ensuite le relais ; les cases lointaines rapportent un peu moins."),
+               production et les deniers prennent ensuite le relais ; les cases lointaines rapportent un peu moins."),
             p("Chaque case a une capacité en travailleurs : 500 sans aménagement (cueillette, chasse), 1 500 pour un \
                champ, 1 000 pour un pâturage ou une coupe de bois. Son rendement croît avec les travailleurs, de moins en \
                moins vite (la moitié de la capacité donne 62 % du rendement de la case) : une petite ville se répartit \
@@ -897,7 +897,7 @@ fn villages() -> Article {
                 &["Événement", "Chance", "Effet"],
                 vec![
                     vec!["Les habitants vous rejoignent".into(), "35 %".into(), "+1 000 habitants dans la ville la plus proche".into()],
-                    vec!["Échanges commerciaux".into(), "45 %".into(), "+15 à 35 Économie".into()],
+                    vec!["Échanges commerciaux".into(), "45 %".into(), "+15 à 35 deniers".into()],
                     vec!["Village hostile".into(), "20 %".into(), "1 ou 2 guerriers barbares surgissent autour".into()],
                 ],
             ),
@@ -918,7 +918,7 @@ fn barbarians() -> Article {
             p(format!(
                 "Les camps (environ un pour {LAND_PER_CAMP} cases de terre, à {CAMP_MIN_FROM_START} cases au moins du \
                  départ) recrutent une milice tous les {CAMP_SPAWN_INTERVAL} tours, dans la limite de {CAMP_MAX_UNITS} \
-                 guerriers par camp. Un camp vide est dispersé quand une de vos unités y entre : +{CAMP_BUTIN_ECONOMIE} Économie. \
+                 guerriers par camp. Un camp vide est dispersé quand une de vos unités y entre : +{CAMP_BUTIN_DENIERS} deniers. \
                  Son nom annonce sa forme : un Fort (palissade et tour de guet) sur une case plate et dégagée, un Repaire ou un \
                  Antre adossé aux rochers sur un relief, un Camp ailleurs. Sa fumée s'épaissit dans les deux tours qui précèdent \
                  un recrutement."

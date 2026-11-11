@@ -1163,12 +1163,12 @@ fn update_top_bar(
     units: Query<&Unit, Without<crate::hostile::Hostile>>,
     mut text: Single<&mut Text, With<TopBarText>>,
 ) {
-    let gold_income: i32 = cities.iter().map(|(c, _)| c.travail.rendements.economie).sum::<f64>().floor() as i32;
+    let gold_income: i32 = cities.iter().map(|(c, _)| c.travail.rendements.deniers).sum::<f64>().floor() as i32;
     let waiting = units.iter().filter(|u| u.0.needs_orders()).count();
     set_text(
         &mut text,
         format!(
-            "Tour {}   |   Économie : {} (+{})   |   Villes : {}   |   Unités : {} ({} en attente)",
+            "Tour {}   |   Deniers : {} (+{})   |   Villes : {}   |   Unités : {} ({} en attente)",
             state.turn,
             state.tresor_joueur(),
             gold_income,
@@ -1307,7 +1307,7 @@ fn update_selection_panel(
                 None => "rien".into(),
             };
             format!(
-                "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {} ({})\nProduction : +{}/tour   Économie : +{}/tour\nTravailleurs : {} sur {} case(s){}\nEn cours : {}\n\n{}",
+                "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {} ({})\nProduction : +{}/tour   Deniers : +{}/tour\nTravailleurs : {} sur {} case(s){}\nEn cours : {}\n\n{}",
                 c.name,
                 c.palier(),
                 rules::milliers(c.habitants),
@@ -1315,7 +1315,7 @@ fn update_selection_panel(
                 rules::decimal(c.besoin_nourriture()),
                 croissance,
                 rules::decimal(y.production),
-                rules::decimal(y.economie),
+                rules::decimal(y.deniers),
                 rules::milliers(u64::from(city.travail.actifs - city.travail.chomeurs)),
                 city.travail.cases.len(),
                 if city.travail.chomeurs > 0 { format!(", {} sans emploi (aménagez des cases)", rules::milliers(u64::from(city.travail.chomeurs))) } else { String::new() },
@@ -1512,7 +1512,7 @@ fn update_hover_text(
                     Some(b) if !shows(Info::Fishing) => format!(" (dont +{} : {})", crate::map::RICH_WATERS_FOOD, b.name),
                     _ => String::new(),
                 };
-                parts.push(format!("nourriture {}{fish}, production {}, Économie {}", y.food, y.production, y.economie));
+                parts.push(format!("nourriture {}{fish}, production {}, deniers {}", y.food, y.production, y.deniers));
             }
             if shows(Info::Moves) {
                 parts.push(m.move_cost(h).map(|c| format!("{c} PM")).unwrap_or_else(|| "infranchissable".into()));
@@ -1568,8 +1568,8 @@ fn update_hover_text(
         }
         if fog.explored.contains(&h) && camps.iter().any(|p| p.0 == h) {
             content += &format!(
-                "\nCamp hostile : entrez-y avec une unité pour le disperser (+{} Économie)",
-                crate::hostile::CAMP_BUTIN_ECONOMIE
+                "\nCamp hostile : entrez-y avec une unité pour le disperser (+{} deniers)",
+                crate::hostile::CAMP_BUTIN_DENIERS
             );
         }
         if fog.visible.contains(&h)

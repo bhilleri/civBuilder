@@ -42,7 +42,7 @@ const MAX_RADIUS: i32 = 6;
 const MAX_FRAMES: u32 = 6000;
 
 const HELP: &str = "Ordres du joueur :\n\
-etat : tour, économie, unités, villes, ennemis en vue, villages et camps connus, derniers messages\n\
+etat : tour, deniers, unités, villes, ennemis en vue, villages et camps connus, derniers messages\n\
 alentours [col lig] [rayon] : cases explorées autour d'une case (par défaut la sélection, rayon 2, 6 au plus)\n\
 survol col lig : place la souris sur la case et rend le texte de l'infobulle et le trajet prévu\n\
 clic col lig [côté] : clic gauche sur la case (sélection) ; avec un côté (e, ne, no, o, so, se), près de ce bord (arête d'une rivière, emplacement d'un pont)\n\
@@ -416,7 +416,7 @@ impl PlayerView<'_, '_> {
             c.travail.cases.iter().map(|(h, n)| format!("{}:{n}", self.place(*h).replace(' ', ","))).collect::<Vec<_>>().join(";"),
             crate::rules::decimal(c.travail.rendements.nourriture),
             crate::rules::decimal(c.travail.rendements.production),
-            crate::rules::decimal(c.travail.rendements.economie),
+            crate::rules::decimal(c.travail.rendements.deniers),
             s.production_stock.floor(),
             s.producing.map_or("rien".to_string(), |k| token(k.name()))
         )
@@ -439,7 +439,7 @@ impl PlayerView<'_, '_> {
         let scale = self.window.scale_factor();
         let waiting = self.units.iter().filter(|(_, u, _, hostile)| !hostile && u.0.needs_orders()).count();
         let mut lines = vec![format!(
-            "OK tour={} economie={} attente={waiting} passage-tour={} vue={} carte={} explorees={} fenetre={}x{} echelle={scale}",
+            "OK tour={} deniers={} attente={waiting} passage-tour={} vue={} carte={} explorees={} fenetre={}x{} echelle={scale}",
             self.state.turn,
             self.state.tresor_joueur(),
             if replay.playing { "oui" } else { "non" },

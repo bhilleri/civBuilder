@@ -23,23 +23,23 @@ impl Peuple {
     }
 }
 
-/// Trésor de chaque peuple, en Économie.
+/// Trésor de chaque peuple, en deniers.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Tresors {
     entiers: Vec<i32>,
-    /// Fraction d'Économie pas encore versée (les villes en produisent des parts).
+    /// Fraction de deniers pas encore versée (les villes en produisent des parts).
     #[serde(default)]
     fractions: Vec<f64>,
 }
 
 impl Tresors {
-    /// Verse une Économie fractionnaire : la part entière va au trésor, le reste attend.
-    pub fn ajouter(&mut self, peuple: Peuple, economie: f64) {
+    /// Verse des deniers fractionnaires : la part entière va au trésor, le reste attend.
+    pub fn ajouter(&mut self, peuple: Peuple, deniers: f64) {
         let i = peuple.index();
         if self.fractions.len() <= i {
             self.fractions.resize(i + 1, 0.0);
         }
-        let total = self.fractions[i] + economie;
+        let total = self.fractions[i] + deniers;
         let entier = total.floor();
         self.fractions[i] = total - entier;
         *self.get_mut(peuple) += entier as i32;
@@ -74,7 +74,7 @@ mod tests {
         assert_eq!(t.get(Peuple::JOUEUR), 6);
         assert_eq!(t.get(Peuple::HOSTILE), 3);
         assert_eq!(t.get(Peuple(7)), 0);
-        // Économie fractionnaire : la part entière versée, le reste gardé
+        // Deniers fractionnaires : la part entière versée, le reste gardé
         t.ajouter(Peuple::JOUEUR, 1.75);
         t.ajouter(Peuple::JOUEUR, 0.5);
         assert_eq!(t.get(Peuple::JOUEUR), 8);
