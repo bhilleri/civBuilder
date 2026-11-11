@@ -652,6 +652,23 @@ sans animation si la vitesse des animations est « instantanée ». Pilote : `gl
 `appuyer` / `deplacer` / `relacher` pour capturer un geste en cours. Leçon : un système qui écrit
 dans `EcranVille` à chaque image (même la même valeur, par `std::mem::take`) le marque modifié et fait
 refaire tout l'écran à chaque image ; n'écrire que si la valeur change.
+**Tests par cinq agents (11/11/2026 au soir)** : ergonome, game designer, joueur de 4X, testeur
+combinatoire, testeur de l'information et des actions, chacun dans sa partie pilotée. Défauts
+(liste A, validée par Benjamin) : conseil sur une case déjà en file et refus invisible ; écran pas à
+jour après un ajout depuis la carte du monde ; Ctrl+F avec l'écran ouvert ; ligne de file choisie
+retenue par son rang ; effectif proposé et zoom qui survivent ; onglet changé pendant la
+construction ; touches 1-3 et clic sur la carte qui choisissent un état caché ; contrôles qui bougent ;
+contenu sous le bas de l'écran ; filtre actif illisible ; colon qui retire 1 000 habitants sans le dire ;
+remèdes et alertes en double ; trop d'orange. **Décisions de Benjamin** :
+- **B1** : la valeur d'un aménagement montre son **effet réel** (la répartition de l'intendant refaite
+  avec l'aménagement, tout de suite et dans 10 tours) ; le conseil s'y fie ; on garde aussi, en
+  second, ce que l'aménagement ajoute au **maximum** que la ville peut produire (« ça augmente le max
+  de nourriture que peut produire la ville »), sans laisser croire qu'on le gagne tout de suite ;
+- **B2** : « Peupler la ville » augmente la croissance, pas la nourriture (`conception-villes.md`) ;
+- **B3** : les emplois ne sont **pas une limite** : le chômage baissera l'**attractivité** de la ville
+  (migrations, à venir) ; l'écran montre dans combien de tours il n'y aura plus d'emplois ;
+- **B4** : une **seule prévision** pour l'en-tête, le bandeau et les graphiques : la répartition de
+  l'intendant simulée tour par tour ; la limite de nourriture se calcule sur les cases pleines.
 Limite connue : en mode pilote, l'infobulle de la carte disparaît à la fin d'un ordre, parce que le
 pilote ramène alors le pointeur à sa position d'avant (`Input::Move(last_cursor)`) ; elle n'apparaît
 donc pas sur les captures.

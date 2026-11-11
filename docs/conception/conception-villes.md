@@ -310,8 +310,11 @@ choix à l'écran viennent en 4b.
     ville s'ouvre alors sur son catalogue) ;
   - à la place de construire, la ville peut se lancer dans un **projet de ville**, sans fin, qui
     reçoit toute sa production tant que la file est vide :
-    - **Peupler la ville** : la production s'ajoute au surplus de nourriture pour la croissance
-      (2 production = 1 nourriture ; jamais pour le besoin) ;
+    - **Peupler la ville** : la production augmente la **croissance** (et non la nourriture ;
+      Benjamin, après les tests du 11/11/2026 : ajouter de la nourriture ne servait à rien quand
+      elle couvrait déjà 1,5 fois le besoin) ; bonus de croissance = 0,1 % par point de production
+      rapporté au besoin de nourriture, au plus +1,5 % par tour (la croissance naturelle double au
+      plus) ; seulement si la ville n'a pas faim (chiffres proposés, à régler en jouant) ;
     - **Grands jeux** : bien-être (avec la livraison 4c) ;
     - **Projet de recherche** : recherche du pays (tâche 34) ;
     - **Développement de l'art et de la culture** : culture, qui étend le territoire (4d) ;
