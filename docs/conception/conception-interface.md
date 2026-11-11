@@ -436,8 +436,52 @@ Résultat (dernière version) :
 - **Reporté (Benjamin, 11/11/2026)** : utiliser **la vraie carte du jeu** (en 3D) au lieu de la
   carte schématique de l'écran, ou proposer les deux. Repoussé parce que la carte elle-même va
   beaucoup changer (sous-cases, quartiers, aménagements visibles).
-- **Questions ouvertes** : la fiche d'un bâtiment choisi s'ouvre-t-elle à gauche ou sous la liste de
-  droite ? Règles derrière les chiffres d'exemple (eau par habitant et part prélevable d'un cours
+- **Revue par trois agents (designer d'interface, game designer de 4X, joueur qui découvre) puis
+  trois autres (interaction, jeux de gestion, visualisation de données), décisions de Benjamin
+  (11/11/2026)** — maquette v19 :
+  - **Monnaie : le denier**, par défaut ; en option de partie, un nom tiré de la langue de chaque
+    civilisation. Pas de taux de change ni de valeurs différentes selon les pays. « Économie »
+    reste le nom du domaine (marché, commerce, trésor), plus celui de la monnaie.
+  - **Bandeau d'état** en tête : croissance et tendance (« ▲ +37/tour · palier 3 dans 15 tours »),
+    deux alertes au plus (« +n »), cliquables vers leur cause, « Aucun problème » sinon, élément en
+    construction.
+  - **Panneau de gauche en pile** avec fil d'Ariane (« Ensemble › Production › Forêt du nord-ouest
+    × ») ; Échap remonte d'un cran. **La vue d'ensemble est la racine de la pile** (Benjamin : elle
+    évite de tout parcourir) : une ligne par grandeur avec valeur, tendance sur 10 tours, état et
+    principales origines. Gauche = explication, droite = sélection (carte et listes) : la fiche d'un
+    bâtiment s'ouvre à gauche.
+  - **Survol = infobulle près du curseur ; clic = fiche** (le panneau ne saute plus au survol).
+  - **Intendant** : réglé dans la synthèse de la grandeur, pas sur les cartes (un badge sur la carte
+    seulement hors du réglage normal ; l'onglet Population récapitule). **Nourriture : un objectif
+    plutôt qu'une priorité** (Benjamin : ressource limitante) : nourrir seulement (1 × le besoin),
+    croître (1,25 ×), croissance maximale (1,5 ×), excédent à vendre (2 ×) ; l'intendant vise
+    d'abord cet objectif puis répartit le reste. **Autres grandeurs : priorité normale, prioritaire,
+    maximale ; plusieurs au même niveau = même poids.** Effet de chaque cran au survol. Eau : pas de
+    réglage, la synthèse dit pourquoi et propose de construire.
+  - **Tendances** : mini-courbe sur chaque carte (« 10 derniers tours · prévision », trait plein
+    puis pointillé, repère aujourd'hui) ; **grand graphique en tête de la synthèse** : passé et
+    prévision au rythme actuel sur un même axe, verticale « aujourd'hui », bande d'incertitude,
+    seuils nommés (besoin, croissance pleine, alerte et limite d'eau, équilibre), croisement prévu
+    annoté (« limite au tour +18 »), événements numérotés, période 20 / 40 tours / toute la partie ;
+    axe vertical non étiré (depuis zéro). Plusieurs grandeurs : graphiques empilés, pas superposés.
+  - **Eau** : discrète quand elle abonde (pastille « abondante »), carte et jauge dès 60 % de la
+    limite, selon la disponibilité de la ville.
+  - **Construction en mode placement** : ① bâtiment (catalogue, conseils motivés en tête, tri par
+    gain pour 10 de production) › ② case (carte des gains, ★ conseil présélectionné, cases
+    impossibles grisées avec leur raison au survol, survol : fantôme et cases améliorées) › ③
+    « Mettre en file · <case> » (pas de doublon) ; le bâtiment apparaît en pointillé sur sa case et
+    reste déplaçable tant que le chantier n'a pas commencé. Bandeau « Où construire… ? Échap
+    annule ». Effet sur l'état de la ville (« eau 83 % → 79 % ») plutôt qu'un chiffre brut.
+  - **Couleurs** : couleurs d'état (vert-bleu ✓, orange !, rouge ✕, toujours avec une icône)
+    réservées aux états ; couleurs de grandeur seulement pour l'identité ; une seule couleur de
+    sélection (blanc). **Icônes de bâtiments** au lieu des codes à lettres ; pas d'abréviations ;
+    une unité fixe par grandeur ; texte d'au moins 11 px ; carte d'au moins 40 % de l'écran.
+  - **Clavier** : 1 à 4 pour les grandeurs, B pour construire, Échap pour remonter.
+  - **Plus tard** : une vue nationale détaillée pour gérer les villes et leurs problèmes (« ville
+    suivante en alerte », file proposée par l'intendant) ; une vraie simulation pour les prévisions.
+  - Implémentation dans Bevy : un seul état de sélection (pile), des nœuds d'interface persistants
+    mis à jour par détection de changement, une solution pour dessiner la carte hexagonale de l'écran.
+- **Questions ouvertes** : Règles derrière les chiffres d'exemple (eau par habitant et part prélevable d'un cours
   d'eau, recherche selon l'éducation, défense, calcul du Bien-être, liste et effets des bâtiments).
 
 ### Écrans nationaux (un panneau par thème, même gabarit)
