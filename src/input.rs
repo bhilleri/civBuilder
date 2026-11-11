@@ -279,7 +279,8 @@ fn update_hover_path(
     {
         return;
     }
-    let blocked_now = movement_blocked(&blocked.0, &occupancy.own);
+    // (les alliés se traversent : seuls les ennemis visibles bloquent le trajet affiché)
+    let blocked_now = blocked.0.clone();
     let known = KnownMap::new(&map.0, &fog.explored).blocking(&blocked_now);
 
     // Survol d'un ennemi visible : trajet d'approche et prévision du combat
@@ -378,7 +379,8 @@ fn mouse_commands(
     let (kind, from, moves) = (unit.0.kind, pos.0, unit.0.moves_left);
     // État de l'unité avant l'ordre (l'accès mutable est repris plus bas)
     let snapshot = unit.0.clone();
-    let blocked_now = movement_blocked(&blocked.0, &occupancy.own);
+    // (les alliés se traversent : seuls les ennemis visibles bloquent le trajet)
+    let blocked_now = blocked.0.clone();
     let mut occupied = occupancy.all.clone();
 
     // Niveau d'une unité sur une case de fleuve avec pont (le pont ou l'eau), et niveau visé
@@ -427,7 +429,7 @@ fn mouse_commands(
         let (_, mut unit, mut pos) = units.get_mut(selected).unwrap();
         if !approach.is_empty() {
             unit.0.set_order(pos.0, approach, &known);
-            move_unit(selected, &mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            move_unit(selected, &mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked.0, &mut occupied, &enemy_zoc.0, &occupancy.own);
             cues.walk(selected, from, &unit.0.last_steps, Actor::Player);
             if !rules::in_attack_position(&map.0, kind, pos.0, target) || unit.0.moves_left == 0 {
                 log.push(LogText::new().unit(kind.name(), selected, pos.0).text(" : approche interrompue."));
@@ -493,7 +495,7 @@ fn mouse_commands(
         return;
     }
 
-    // 3) Déplacement (en contournant nos autres unités)
+    // 3) Déplacement (en traversant nos autres unités, sans s'y arrêter)
     let (_, mut unit, mut pos) = units.get_mut(selected).unwrap();
     // (une case de fleuve avec pont dont le niveau visé est libre reste une destination possible)
     let mut blocked_now = blocked_now;
@@ -508,7 +510,7 @@ fn mouse_commands(
             unit.0.set_order(pos.0, path, &known);
             // (sur une case de fleuve avec pont : le pont ou l'eau, selon le clic)
             unit.0.order_layer = layer;
-            move_unit(selected, &mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            move_unit(selected, &mut unit.0, &mut pos, &map.0, &mut fog, &mut log, &blocked.0, &mut occupied, &enemy_zoc.0, &occupancy.own);
             if pos.0 != from {
                 cues.walk(selected, from, &unit.0.last_steps, Actor::Player);
             }

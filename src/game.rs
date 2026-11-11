@@ -486,13 +486,14 @@ pub fn move_unit(
     blocked: &HashSet<Hex>,
     occupied: &mut HashSet<Hex>,
     zoc: &HashSet<Hex>,
+    allies: &HashSet<Hex>,
 ) {
     if unit.path.is_empty() {
         return;
     }
     let before = unit.on_bridge && map.fleuve_bridge(pos.0).is_some();
     let mut hex = pos.0;
-    match unit.advance_exploring(&mut hex, map, &mut fog.explored, blocked, occupied, zoc) {
+    match unit.advance_exploring(&mut hex, map, &mut fog.explored, blocked, occupied, zoc, allies) {
         MoveOutcome::Moved => {}
         MoveOutcome::Unreachable => {
             log.notify(Importance::Info, LogText::new().unit(unit.kind.name(), entity, hex).text(" : destination inaccessible, ordre annulé."));
@@ -647,7 +648,8 @@ fn end_turn(
                 .threats(&threats);
             explore_unit(entity, &mut unit.0, &mut pos, &world, &mut occupied, &mut fog, &mut log);
         } else {
-            move_unit(entity, &mut unit.0, &mut pos, map, &mut fog, &mut log, &blocked_now, &mut occupied, &enemy_zoc.0);
+            // (les alliés se traversent : seuls les ennemis visibles bloquent le trajet)
+            move_unit(entity, &mut unit.0, &mut pos, map, &mut fog, &mut log, &blocked.0, &mut occupied, &enemy_zoc.0, &own);
         }
         if pos.0 != before {
             own.remove(&before);

@@ -160,9 +160,13 @@ impl UnitState {
         blocked: &HashSet<Hex>,
         occupied: &HashSet<Hex>,
         zoc: &HashSet<Hex>,
+        allies: &HashSet<Hex>,
     ) -> MoveOutcome {
         let sight = self.kind.sight();
         self.last_steps.clear();
+        // Avant d'entrer sur la case d'un allié : l'état à retrouver si l'unité devait s'y arrêter
+        // (une unité par case : on ne fait que traverser les alliés, dans le même tour)
+        let mut avant_allie: Option<(UnitState, Hex, usize)> = None;
         explored.extend(map.range(*pos, sight));
         // Cases bloquées connues + cases occupées découvertes en route (une unité par case)
         let mut blocked = blocked.clone();
@@ -201,12 +205,6 @@ impl UnitState {
             // Sur le pont ou dans l'eau : par un bout du pont, sur le pont, sauf si l'ordre vise l'eau
             let last = self.path.len() == 1;
             let onto = map.bridge_end(next, *pos) && !(last && self.order_layer == Some(false));
-            // Case suivante occupée (elle est voisine, donc visible) : on recalcule en l'évitant.
-            if occupied.contains(&crate::map::slot(next, onto)) {
-                blocked.insert(next);
-                continue;
-            }
-            self.path.remove(0);
             // La case suivante est voisine, donc déjà révélée (vision ≥ 1) : son coût est le vrai.
             let Some(mut step) = ForUnit::new(map, self.kind).step(*pos, next) else {
                 self.clear_order();
@@ -216,6 +214,26 @@ impl UnitState {
                 // (descendre dans l'eau depuis le bout du pont : entrée dans le fleuve)
                 step = map.enter_cost(next).unwrap_or_default();
             }
+            // Case suivante occupée (elle est voisine, donc visible). Un allié se traverse s'il reste
+            // des PM pour repartir vers une case libre, hors zone de contrôle ; sinon on recalcule
+            // le trajet en évitant la case.
+            let place = crate::map::slot(next, onto);
+            if occupied.contains(&place) {
+                let traversable = allies.contains(&place)
+                    && step.spend(self.moves_left).0 > 0
+                    && !zoc.contains(&next)
+                    && self.path.get(1).is_some_and(|&apres| !occupied.contains(&crate::map::slot(apres, false)) && !occupied.contains(&crate::map::slot(apres, true)));
+                if !traversable {
+                    blocked.insert(next);
+                    continue;
+                }
+                if avant_allie.is_none() {
+                    avant_allie = Some((self.clone(), *pos, self.last_steps.len()));
+                }
+            } else {
+                avant_allie = None;
+            }
+            self.path.remove(0);
             self.pay(step);
             self.order_spent += step.total();
             *pos = next;
@@ -226,6 +244,13 @@ impl UnitState {
             if zoc.contains(&next) {
                 self.zoc_stopped = true;
             }
+        }
+        // Arrêté sur la case d'un allié (rien n'a permis d'en repartir) : retour avant d'y entrer
+        if let Some((etat, case, _)) = avant_allie
+            && (allies.contains(&crate::map::slot(*pos, self.on_bridge)) || occupied.contains(&crate::map::slot(*pos, self.on_bridge)))
+        {
+            *self = etat;
+            *pos = case;
         }
         if self.path.is_empty() {
             self.clear_order();
@@ -693,7 +718,7 @@ mod tests {
         let mut pos = Hex::from_offset(1, 2);
         u.path = vec![Hex::from_offset(2, 2), Hex::from_offset(3, 2), Hex::from_offset(4, 2)];
         // plaine (1) puis forêt (2) : la forêt est accessible avec 1 PM restant
-        assert_eq!(u.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new()), MoveOutcome::Moved);
+        assert_eq!(u.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new(), &HashSet::new()), MoveOutcome::Moved);
         assert_eq!(pos, Hex::from_offset(3, 2));
         assert_eq!(u.moves_left, 0);
         assert_eq!(u.path, vec![Hex::from_offset(4, 2)]);
@@ -733,7 +758,7 @@ mod tests {
             unit.moves_left = unit.kind.max_moves();
             unit.set_order(*from, vec![to], &map);
             unit.order_layer = layer;
-            unit.advance_exploring(from, &map, explored, &HashSet::new(), occupied, &HashSet::new())
+            unit.advance_exploring(from, &map, explored, &HashSet::new(), occupied, &HashSet::new(), &HashSet::new())
         };
         // Par un bout : sur le pont, pour 1 PM ; l'unité peut continuer
         let mut unit = UnitState::new(UnitKind::Militia);
@@ -896,11 +921,32 @@ mod tests {
         let mut reached = Vec::new();
         for turn in 1..20 {
             let before = unit.path.len();
-            unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new());
+            unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new(), &HashSet::new());
             reached.extend(std::iter::repeat_n(turn, before - unit.path.len()));
             unit.start_turn(false);
         }
         assert_eq!(reached, expected);
+    }
+
+    /// Les alliés se traversent dans le même tour, jamais pour s'y arrêter.
+    #[test]
+    fn traverser_un_allie() {
+        let map = corridor(12, 3);
+        let allie = Hex::from_offset(3, 3);
+        let allies = HashSet::from([crate::map::slot(allie, false)]);
+        let aller = |moves: u32| {
+            let mut unit = UnitState::new(UnitKind::Militia);
+            unit.moves_left = moves;
+            let mut pos = Hex::from_offset(1, 3);
+            unit.set_order(pos, (2..9).map(|c| Hex::from_offset(c, 3)).collect(), &map);
+            let mut explored = all_known(&map);
+            unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &allies, &HashSet::new(), &allies);
+            pos
+        };
+        // 4 PM : on passe l'allié et on continue au-delà
+        assert_eq!(aller(4), Hex::from_offset(5, 3));
+        // 2 PM : on arriverait sur l'allié sans PM pour en repartir : arrêt avant lui
+        assert_eq!(aller(2), Hex::from_offset(2, 3));
     }
 
     /// Lac vertical sur la colonne 7, des lignes `rows`, sur une carte de plaines.
@@ -923,7 +969,7 @@ mod tests {
         let mut pos = start;
         let mut outcome = MoveOutcome::Moved;
         for _ in 0..30 {
-            outcome = unit.advance_exploring(&mut pos, map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new());
+            outcome = unit.advance_exploring(&mut pos, map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new(), &HashSet::new());
             assert!(!map.get(pos).unwrap().is_water());
             if outcome != MoveOutcome::Moved || unit.path.is_empty() {
                 break;
@@ -966,7 +1012,7 @@ mod tests {
         unit.set_order(start, find_path(&known, start, dest).unwrap(), &known);
         let mut outcomes = Vec::new();
         for _ in 0..10 {
-            outcomes.push(unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new()));
+            outcomes.push(unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new(), &HashSet::new()));
             unit.moves_left = unit.kind.max_moves();
         }
         assert!(outcomes.contains(&MoveOutcome::Unreachable));
@@ -994,7 +1040,7 @@ mod tests {
         let mut outcome = MoveOutcome::Moved;
         let mut turns = 0;
         while outcome == MoveOutcome::Moved && !unit.path.is_empty() && turns < 50 {
-            outcome = unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new());
+            outcome = unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &HashSet::new(), &HashSet::new(), &HashSet::new());
             unit.moves_left = unit.kind.max_moves();
             turns += 1;
         }
@@ -1018,7 +1064,7 @@ mod tests {
         let mut unit = UnitState::new(UnitKind::LightCavalry); // 4 PM
         unit.set_order(start, path, &known);
         let mut pos = start;
-        let outcome = unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &occupied, &HashSet::new());
+        let outcome = unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &occupied, &HashSet::new(), &HashSet::new());
         assert_eq!(outcome, MoveOutcome::Moved);
         assert_eq!(pos, dest);
         assert!(!unit.last_steps.contains(&obstacle));
@@ -1028,7 +1074,7 @@ mod tests {
         unit.set_order(start, find_path(&known, start, dest).unwrap(), &known);
         let mut pos = start;
         let occupied = HashSet::from([dest]);
-        let outcome = unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &occupied, &HashSet::new());
+        let outcome = unit.advance_exploring(&mut pos, &map, &mut explored, &HashSet::new(), &occupied, &HashSet::new(), &HashSet::new());
         assert_eq!(outcome, MoveOutcome::Unreachable);
         assert_ne!(pos, dest);
     }
@@ -1111,7 +1157,7 @@ mod tests {
         unit.set_order(start, find_path(&known, start, dest).unwrap(), &known);
         let mut pos = start;
         let blocked = HashSet::from([enemy]);
-        unit.advance_exploring(&mut pos, &map, &mut explored, &blocked, &blocked, &zoc);
+        unit.advance_exploring(&mut pos, &map, &mut explored, &blocked, &blocked, &zoc, &HashSet::new());
         assert!(zoc.contains(&pos), "arrêt dans la zone de contrôle");
         assert!(unit.zoc_stopped);
         assert!(unit.moves_left > 0, "il reste des PM pour attaquer");

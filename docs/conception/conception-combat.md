@@ -192,7 +192,9 @@ qui les rendent possibles dans `conception-ressources.md`.
 ### Proposition : déplacer plusieurs unités
 1. **Traverser les unités alliées** : un trajet peut passer par une case occupée par un allié, sans
    s'y arrêter (aujourd'hui les alliés sont des obstacles). C'est le premier gain pour les relèves
-   et les colonnes.
+   et les colonnes. **Fait le 11/11/2026** : on n'entre sur la case d'un allié que s'il reste des
+   PM pour en repartir vers une case libre hors zone de contrôle ; sinon le trajet la contourne
+   (`UnitState::advance_exploring`, paramètre `allies`).
 2. **Relève** : l'échange de place entre alliés adjacents existe ; on l'étend à un ordre
    « relever » : l'unité fraîche prend la place de l'unité désignée, qui recule sur la case libérée.
 3. **Sélection multiple** : rectangle de sélection, Maj + clic, ou clic sur un chef (sélectionne
