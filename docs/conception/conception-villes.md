@@ -125,8 +125,8 @@ reconnaître. Réponse retenue :
   la règle des cases urbaines la fait naître, souvent près d'un atout (gué ou pont, port, carrefour,
   mine, sanctuaire). Il est **nommé** dans la langue de la ville (toponymie : « Kaldra-sur-Vesse »,
   « Port-de-Kaldra », ou un nom propre), visible sur la carte à son niveau de zoom.
-- Question ouverte : un faubourg très peuplé peut-il devenir une **ville à part entière** (par une
-  loi, une décision, ou une sécession) ?
+- **Un faubourg ne devient pas une ville à part entière** (Benjamin, 11/11/2026) : deux villes
+  seraient trop proches l'une de l'autre (distance minimale entre villes).
 
 ## Intendant guidable (décidé le 10/11/2026)
 L'intendant est automatique, mais **guidable par le joueur** :
