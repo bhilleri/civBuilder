@@ -437,7 +437,7 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
                         }
                         debug_cmd::CityChange::Objectif(o) => {
                             city.state.consignes.objectif = *o;
-                            format!("OK {} : objectif de nourriture « {} » ({} × le besoin)", city.state.name, o.nom(), crate::rules::decimal(o.cible()))
+                            format!("OK {} : objectif de nourriture « {} » ({} × le besoin)", city.state.name, o.nom(), format!("{}", o.cible()).replace('.', ","))
                         }
                         debug_cmd::CityChange::Projet(p) => {
                             city.state.projet = *p;

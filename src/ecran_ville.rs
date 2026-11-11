@@ -62,6 +62,8 @@ pub struct EcranVille {
     pub cible: Option<Hex>,
     /// Demande de mise en file de la case choisie (double-clic sur la carte).
     confirmer: bool,
+    /// Effectif proposé pour une case (aperçu avant de le forcer).
+    forcer: Option<(Hex, u32)>,
 }
 
 /// Grandeurs détaillables (les autres ne sont pas encore dans le jeu).
@@ -192,6 +194,30 @@ struct ArreterProjet;
 /// Depuis la fiche d'une case : placer cet aménagement ici.
 #[derive(Component)]
 struct AmenagerIci(Amenagement);
+/// Réglage de l'intendant : objectif de nourriture, ou priorité de la production (1) ou des deniers (2).
+#[derive(Clone, Copy, PartialEq)]
+enum Reglage {
+    Objectif(intendant::ObjectifNourriture),
+    Priorite(usize, intendant::Priorite),
+}
+#[derive(Component)]
+struct ChoixReglage(Reglage);
+/// Forcer l'effectif d'une case : proposer un autre effectif, confirmer, annuler, rendre à l'intendant.
+#[derive(Component, Clone, Copy)]
+enum Forcage {
+    Proposer(Hex, u32),
+    Confirmer(Hex, u32),
+    Annuler,
+    Rendre(Hex),
+}
+
+/// Ce que la fiche d'une case montre de son effectif forcé.
+struct VueForcage {
+    /// Effectif forcé aujourd'hui (l'intendant ne le change plus).
+    actuel: Option<u32>,
+    /// Effectif proposé et son effet sur toute la ville.
+    propose: Option<(u32, Rendements)>,
+}
 
 /// Effet d'un aménagement sur une case : tout de suite (mêmes travailleurs) et à pleine capacité.
 struct GainAmenagement {
@@ -528,7 +554,7 @@ fn commandes(
     couches: Query<Ref<UiPointer>, With<BasculeAmenagements>>,
     (grandeurs, periodes, fils): (Query<(Ref<UiPointer>, &ChoixGrandeur)>, Query<(Ref<UiPointer>, &ChoixPeriode)>, Query<(Ref<UiPointer>, &Fil)>),
     (catalogue, construire, ici): (Query<(Ref<UiPointer>, &ChoixCatalogue)>, Query<Ref<UiPointer>, With<BoutonConstruire>>, Query<(Ref<UiPointer>, &AmenagerIci)>),
-    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>)>, Changed<UiPointer>)>,
+    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>)>, Changed<UiPointer>)>,
 ) {
     if !ecran.ouvert() {
         return;
@@ -885,6 +911,48 @@ fn reconstruire(
     if let Some(h) = graphique.take() {
         assets.remove(&h);
     }
+    // Aperçus de l'intendant : la répartition refaite avec d'autres consignes
+    let dispo = {
+        let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == v).map(|(h, _)| *h).collect();
+        rules::cases_de_la_ville(&map.0, centre.0, &possedees, &Default::default(), &amenagements.0)
+    };
+    let apercu = |cons: &intendant::Consignes| -> Rendements {
+        let mut st = city.state.clone();
+        st.consignes = cons.clone();
+        rules::repartition_ville(&map.0, centre.0, &st, &dispo).rendements
+    };
+    let reglages: Vec<(Reglage, Rendements, i64)> = match ecran.grandeur {
+        Some(gr) if ecran.onglet == Onglet::Rendements && choisie.is_none() && !ecran.catalogue => {
+            let options: Vec<Reglage> = match gr {
+                Grandeur::Nourriture => intendant::ObjectifNourriture::ALL.into_iter().map(Reglage::Objectif).collect(),
+                Grandeur::Production => intendant::Priorite::ALL.into_iter().map(|p| Reglage::Priorite(1, p)).collect(),
+                _ => intendant::Priorite::ALL.into_iter().map(|p| Reglage::Priorite(2, p)).collect(),
+            };
+            options
+                .into_iter()
+                .map(|o| {
+                    let mut cons = city.state.consignes.clone();
+                    match o {
+                        Reglage::Objectif(x) => cons.objectif = x,
+                        Reglage::Priorite(i, x) => cons.priorites[i] = x,
+                    }
+                    let r = apercu(&cons);
+                    (o, r, city.state.variation(r))
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    let forcage = choisie.filter(|c| !c.centre && c.capacite > 0).map(|c| {
+        let actuel = city.state.consignes.forcees.iter().find(|(h, _)| *h == c.hex).map(|(_, n)| *n);
+        let propose = ecran.forcer.filter(|(h, _)| *h == c.hex).map(|(_, n)| {
+            let mut cons = city.state.consignes.clone();
+            cons.forcees.retain(|(h, _)| *h != c.hex);
+            cons.forcees.push((c.hex, n));
+            (n, apercu(&cons) - city.travail.rendements)
+        });
+        VueForcage { actuel, propose }
+    });
     let courbe = match (ecran.onglet, ecran.grandeur, choisie) {
         (Onglet::Rendements, Some(gr), None) => {
             let c = courbe(&city, gr, ecran.periode);
@@ -903,15 +971,15 @@ fn reconstruire(
                 fil(g, ecran.grandeur, c.map(|c| c.nom.as_str()));
             }
             match (c, ecran.grandeur, &courbe) {
-                (Some(c), gr, _) => fiche_case(g, c, &map.0, &images, gr),
-                (None, Some(gr), Some((h, cb, tr))) => synthese(g, gr, &city, &cases, &images, h.clone(), cb, tr, ecran.periode),
+                (Some(c), gr, _) => fiche_case(g, c, &map.0, &images, gr, forcage.as_ref()),
+                (None, Some(gr), Some((h, cb, tr))) => synthese(g, gr, &city, &cases, &images, h.clone(), cb, tr, ecran.periode, &reglages),
                 _ => {
                     ensemble(g, &city, &cases);
                     file_et_projet(g, &city);
                 }
             }
         }
-        (_, Some(c)) => fiche_case(g, c, &map.0, &images, None),
+        (_, Some(c)) => fiche_case(g, c, &map.0, &images, None, forcage.as_ref()),
         (Onglet::Population, None) => population(g, &city, &images),
         (Onglet::Commerce, None) => vide(g, "Commerce", "Aucun axe de commerce : les échanges entre villes ne sont pas encore dans le jeu."),
         (Onglet::Histoire, None) => vide(g, "Histoire", "Aucun événement enregistré : la chronique des villes n'est pas encore tenue."),
@@ -1310,7 +1378,7 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, images: &Images) {
 }
 
 /// Fiche d'une case choisie sur la carte ou dans la liste.
-fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::WorldMap, images: &Images, seule: Option<Grandeur>) {
+fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::WorldMap, images: &Images, seule: Option<Grandeur>, forcage: Option<&VueForcage>) {
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() }).with_children(|t| {
             t.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(c.nom.clone(), 17.0, charte::TEXTE)]));
@@ -1325,6 +1393,9 @@ fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::World
                 l.spawn(texte(format!("{} / {}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())), 13.5, charte::TEXTE));
                 l.spawn(barre(c.remplissage(), 90.0, if c.remplissage() >= 0.9 { charte::ALERTE } else { charte::OK }));
             });
+            if let Some(f) = forcage {
+                effectif(p, c, f);
+            }
         }
         let part = if c.capacite > 0 { (c.remplissage() as f64).powf(intendant::EXPOSANT) } else { 1.0 };
         // Gain de 100 travailleurs de plus (l'intendant place des blocs de 100)
@@ -1427,7 +1498,7 @@ fn ligne_part(p: &mut ChildSpawnerCommands, libelle: &str, v: Option<f64>, max: 
 
 /// Détail d'une grandeur : graphique (passé, prévision, seuils), d'où elle vient, où elle va.
 #[allow(clippy::too_many_arguments)]
-fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[CaseVue], images: &Images, image: Handle<Image>, cb: &crate::graphique::Courbe, tr: &crate::graphique::Trace, periode: usize) {
+fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[CaseVue], images: &Images, image: Handle<Image>, cb: &crate::graphique::Courbe, tr: &crate::graphique::Trace, periode: usize, reglages: &[(Reglage, Rendements, i64)]) {
     use crate::graphique::{MARGE_DROITE, MARGE_GAUCHE};
     let c = &city.state;
     let total = valeur(&city.travail.rendements, gr);
@@ -1533,8 +1604,85 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
             l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("Total", 14.0, charte::TEXTE)]));
             l.spawn(texte(net, 14.0, charte::TEXTE));
         });
-        p.spawn(texte("Sur la carte : la grandeur de chaque case. Les réglages de l'intendant (objectif, priorités) arrivent dans cet écran avec un prochain lot ; en attendant, la console les règle.", 12.5, charte::MUET));
+        p.spawn(texte("Sur la carte : la grandeur de chaque case.", 12.5, charte::MUET));
     });
+    if !reglages.is_empty() {
+        reglages_intendant(g, gr, city, reglages);
+    }
+}
+
+/// Réglage de l'intendant pour une grandeur, avec l'effet de chaque choix sur toute la ville.
+fn reglages_intendant(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, reglages: &[(Reglage, Rendements, i64)]) {
+    let cons = &city.state.consignes;
+    let actuel = match gr {
+        Grandeur::Nourriture => Reglage::Objectif(cons.objectif),
+        Grandeur::Production => Reglage::Priorite(1, cons.priorites[1]),
+        _ => Reglage::Priorite(2, cons.priorites[2]),
+    };
+    let base = city.travail.rendements;
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        let (titre_r, explication) = if gr == Grandeur::Nourriture {
+            ("Objectif de l'intendant", "La nourriture limite la croissance : l'intendant vise d'abord cet objectif, puis répartit le reste des travailleurs selon les priorités de la production et des deniers.")
+        } else {
+            ("Priorité de l'intendant", "Après l'objectif de nourriture. Grandeurs au même niveau : même poids.")
+        };
+        p.spawn(texte(titre_r, 15.0, charte::TEXTE));
+        p.spawn(texte(explication, 12.5, charte::MUET));
+        for (o, r, variation) in reglages {
+            let choisi = *o == actuel;
+            let (nom, detail) = match o {
+                Reglage::Objectif(x) => (x.nom().to_string(), format!("{} × le besoin{}", format!("{}", x.cible()).replace('.', ","), if *x == intendant::ObjectifNourriture::Excedent { " · excédent perdu tant que le commerce manque" } else { "" })),
+                Reglage::Priorite(_, x) => (capitale(x.nom()), String::new()),
+            };
+            let effet = if choisi { "réglage actuel".to_string() } else { format!("effet : {}", ecarts(&(*r - base))) };
+            let croissance = if *variation >= 0 { format!("+{} habitants par tour", rules::milliers(*variation as u64)) } else { format!("−{} habitants par tour", rules::milliers(variation.unsigned_abs())) };
+            p.spawn((
+                ChoixReglage(*o),
+                UiPointer::default(),
+                Node { column_gap: Val::Px(10.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(7.0)), ..default() },
+                BackgroundColor(Color::NONE),
+                BorderColor::all(if choisi { charte::SELECTION } else { charte::TRAIT }),
+            ))
+            .with_children(|l| {
+                l.spawn(Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, ..default() }).with_children(|n| {
+                    n.spawn(texte(nom, 13.5, charte::TEXTE));
+                    if !detail.is_empty() {
+                        n.spawn(texte(detail, 12.0, charte::MUET));
+                    }
+                });
+                l.spawn(Node { flex_direction: FlexDirection::Column, align_items: AlignItems::FlexEnd, ..default() }).with_children(|n| {
+                    n.spawn(texte(effet, 12.5, if choisi { charte::MUET } else { charte::TEXTE }));
+                    n.spawn(texte(croissance, 12.0, charte::MUET));
+                });
+            });
+        }
+    });
+}
+
+/// Effectif d'une case : forcé ou non ; proposer un autre effectif, voir son effet, confirmer.
+fn effectif(p: &mut ChildSpawnerCommands, c: &CaseVue, f: &VueForcage) {
+    if let Some(n) = f.actuel {
+        p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
+            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(format!("Effectif forcé à {} : l'intendant ne le change plus.", rules::milliers(n.into())), 12.5, charte::ALERTE)]));
+            l.spawn((Forcage::Rendre(c.hex), bouton(Color::NONE), children![texte("rendre à l'intendant", 12.5, charte::DOUX)]));
+        });
+    }
+    let depart = f.propose.map_or(c.travailleurs, |(n, _)| n);
+    p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
+        l.spawn(texte("Forcer l'effectif :", 13.0, charte::TEXTE));
+        l.spawn((Forcage::Proposer(c.hex, depart.saturating_sub(100)), bouton(Color::NONE), children![texte("−100", 13.0, charte::TEXTE)]));
+        l.spawn(texte(rules::milliers(depart.into()), 13.5, charte::TEXTE));
+        l.spawn((Forcage::Proposer(c.hex, (depart + 100).min(c.capacite)), bouton(Color::NONE), children![texte("+100", 13.0, charte::TEXTE)]));
+    });
+    if let Some((n, d)) = f.propose {
+        p.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::axes(Val::Px(9.0), Val::Px(7.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(7.0)), ..default() }, BorderColor::all(charte::TRAIT2))).with_children(|a| {
+            a.spawn(texte(format!("Aperçu : {} travailleurs ici ; pour toute la ville : {} (les autres cases s'ajustent)", rules::milliers(n.into()), ecarts(&d)), 13.0, charte::TEXTE));
+            a.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|b| {
+                b.spawn((Forcage::Confirmer(c.hex, n), bouton(charte::ACTION_FOND), children![texte("Confirmer", 13.0, charte::TEXTE)]));
+                b.spawn((Forcage::Annuler, bouton(Color::NONE), children![texte("Annuler", 13.0, charte::DOUX)]));
+            });
+        });
+    }
 }
 
 /// File de construction (avancer, retirer) et projet suivi quand elle est vide.
@@ -1669,6 +1817,7 @@ fn construire_actions(
     catalogue: Query<(Ref<UiPointer>, &ChoixCatalogue)>,
     actions: Query<(Ref<UiPointer>, &ActionFile)>,
     (mettre, arreter): (Query<Ref<UiPointer>, With<MettreEnFile>>, Query<Ref<UiPointer>, With<ArreterProjet>>),
+    (reglages, forcages): (Query<(Ref<UiPointer>, &ChoixReglage)>, Query<(Ref<UiPointer>, &Forcage)>),
 ) {
     let Some(v) = ecran.ville else { return };
     let appui = |i: &Ref<UiPointer>| i.is_changed() && **i == UiPointer::Pressed;
@@ -1737,6 +1886,43 @@ fn construire_actions(
         city.state.projet = None;
         city.state.tours_en_projet = 0;
         journal(" arrête son projet.".into());
+    }
+    for (i, r) in &reglages {
+        if !appui(&i) {
+            continue;
+        }
+        match r.0 {
+            Reglage::Objectif(o) if city.state.consignes.objectif != o => {
+                city.state.consignes.objectif = o;
+                journal(format!(" : objectif de nourriture « {} ».", o.nom()));
+            }
+            Reglage::Priorite(k, p) if city.state.consignes.priorites[k] != p => {
+                city.state.consignes.priorites[k] = p;
+                journal(format!(" : priorité {} pour {}.", p.nom(), if k == 1 { "la production" } else { "les deniers" }));
+            }
+            _ => {}
+        }
+    }
+    for (i, f) in &forcages {
+        if !appui(&i) {
+            continue;
+        }
+        match *f {
+            Forcage::Proposer(h, n) => ecran.forcer = Some((h, n)),
+            Forcage::Annuler => ecran.forcer = None,
+            Forcage::Confirmer(h, n) => {
+                let forcees = &mut city.state.consignes.forcees;
+                forcees.retain(|(x, _)| *x != h);
+                forcees.push((h, n));
+                ecran.forcer = None;
+                journal(format!(" : effectif forcé à {n} travailleurs sur une case."));
+            }
+            Forcage::Rendre(h) => {
+                city.state.consignes.forcees.retain(|(x, _)| *x != h);
+                ecran.forcer = None;
+                journal(" : case rendue à l'intendant.".into());
+            }
+        }
     }
 }
 
