@@ -35,13 +35,20 @@ pub struct Sites {
 }
 
 /// Place villages et camps sur la terre ferme franchissable, de façon déterministe pour une graine.
+#[cfg(test)]
 pub fn place_sites(map: &WorldMap, start: Hex, seed: u64) -> Sites {
+    place_sites_avec(map, start, seed, LAND_PER_CAMP)
+}
+
+/// Comme `place_sites`, avec une densité de camps choisie (cases de terre par camp, réglage
+/// « Barbares » de la configuration de partie).
+pub fn place_sites_avec(map: &WorldMap, start: Hex, seed: u64, terres_par_camp: usize) -> Sites {
     let mut rng = StdRng::seed_from_u64(seed);
     // (la banquise est franchissable, mais aucune structure n'y prend place)
     let mut land: Vec<Hex> = map.hexes().filter(|&h| map.move_cost(h).is_some() && !map.is_fleuve(h) && !map.is_ice(h) && habitable(map, h)).collect();
     land.shuffle(&mut rng);
 
-    let camp_target = (land.len() / LAND_PER_CAMP).max(2);
+    let camp_target = (land.len() / terres_par_camp.max(1)).max(2);
     let village_target = (land.len() / LAND_PER_VILLAGE).max(4);
     let mut sites = Sites::default();
     let far_enough = |h: Hex, sites: &Sites| {

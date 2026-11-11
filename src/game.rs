@@ -49,6 +49,10 @@ pub struct IdentSet;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ident(pub u32);
 
+/// Configuration de la partie en cours (écran de nouvelle partie, `config_partie.rs`).
+#[derive(Resource, Default)]
+pub struct ConfigEnCours(pub crate::config_partie::ConfigPartie);
+
 /// Mesure du passage de tour en cours et des précédents (`chrono_tour.rs`).
 #[derive(Resource, Default)]
 pub struct ChronoTour {
@@ -323,8 +327,15 @@ impl Plugin for GamePlugin {
             }
             None => None,
         };
-        // Graine imposée par la variable d'environnement CIVBUILDER_SEED (pour rejouer une carte)
-        let seed = charge.as_ref().map(|s| s.graine).or_else(|| std::env::var("CIVBUILDER_SEED").ok().and_then(|s| s.parse().ok())).unwrap_or_else(rand::random::<u32>);
+        // Configuration choisie sur l'écran de nouvelle partie (`CIVBUILDER_CONFIG`)
+        let choisie = crate::config_partie::config_au_lancement();
+        // Graine : sauvegarde, configuration, ou CIVBUILDER_SEED (pour rejouer une carte)
+        let seed = charge
+            .as_ref()
+            .map(|s| s.graine)
+            .or(choisie.as_ref().map(|c| c.graine))
+            .or_else(|| std::env::var("CIVBUILDER_SEED").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or_else(rand::random::<u32>);
         // Une planète entière, d'un pôle à l'autre, avec des cases de 40 km
         // (taille imposée par CIVBUILDER_MAP, par exemple « 128x74 »)
         let (width, height) = std::env::var("CIVBUILDER_MAP")
@@ -335,7 +346,22 @@ impl Plugin for GamePlugin {
             })
             .filter(|&(w, h)| w >= 16 && h >= 10)
             .unwrap_or((MAP_WIDTH, MAP_HEIGHT));
+        let (width, height) = choisie.as_ref().map_or((width, height), |c| c.taille.cases());
         let (width, height) = charge.as_ref().map_or((width, height), |s| (s.largeur, s.hauteur));
+        // Configuration de la partie : celle de la sauvegarde, celle choisie, ou par défaut
+        let config = charge.as_ref().map(|s| s.config.clone()).or(choisie.clone()).unwrap_or_else(|| {
+            let mut c = crate::config_partie::ConfigPartie::avec_graine(seed);
+            c.taille = crate::config_partie::Taille::depuis_cases((width, height)).unwrap_or_default();
+            c
+        });
+        // Une partie lancée depuis l'écran de nouvelle partie rejoint la bibliothèque
+        if choisie.is_some() && charge.is_none() {
+            let mut b = crate::config_partie::Bibliotheque::lire();
+            b.partie_lancee(&config, &crate::config_partie::date_du_jour());
+            if let Err(e) = b.ecrire() {
+                warn!("Bibliothèque des configurations : {e}");
+            }
+        }
         let region = crate::climate::Region::planet(crate::climate::CELL_KM, height);
         let started = std::time::Instant::now();
         let map = WorldMap::generate_in(width, height, seed, region);
@@ -366,6 +392,7 @@ impl Plugin for GamePlugin {
             .init_resource::<ProchainIdent>()
             .init_resource::<ChronoTour>()
             .insert_resource(crate::sauvegarde::ChargementEnAttente(charge))
+            .insert_resource(ConfigEnCours(config))
             .add_systems(Startup, spawn_starting_units)
             .add_systems(PreUpdate, attribuer_identifiants.in_set(IdentSet))
             .add_systems(

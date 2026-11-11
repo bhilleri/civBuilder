@@ -9,7 +9,7 @@
 //! (nouvelle version du jeu), le chargement est refusé avec un message clair plutôt que de poser
 //! des villes dans la mer.
 //!
-//! Charger relance le jeu (comme « Nouveau monde ») avec `CIVBUILDER_CHARGER=<fichier>` : le
+//! Charger relance le jeu (comme « Nouvelle partie ») avec `CIVBUILDER_CHARGER=<fichier>` : le
 //! monde est regénéré depuis la graine de la sauvegarde, puis la partie est remise en place.
 //!
 //! Limites : le journal n'est pas gardé ; les retouches de la carte faites à la console de debug
@@ -91,6 +91,9 @@ pub struct Sauvegarde {
     /// Cases du territoire et identifiant de leur ville.
     pub territoire: Vec<(Hex, u32)>,
     pub ponts: Vec<BridgeAt>,
+    /// Configuration de la partie (absente des sauvegardes plus anciennes : celle par défaut).
+    #[serde(default)]
+    pub config: crate::config_partie::ConfigPartie,
 }
 
 impl Sauvegarde {
@@ -192,6 +195,7 @@ fn photographier(
     cities: &Query<(Entity, &Ident, &Peuple, &City, &HexPos)>,
     camps: &Query<(&Ident, &Camp, &SiteName, &HexPos)>,
     villages: &Query<(&Ident, &SiteName, &HexPos), With<Village>>,
+    config: &crate::config_partie::ConfigPartie,
 ) -> Sauvegarde {
     let mut unites: Vec<UniteSauvee> = units
         .iter()
@@ -228,6 +232,7 @@ fn photographier(
         explorees: fog.explored.iter().collect(),
         territoire,
         ponts,
+        config: config.clone(),
     }
 }
 
@@ -242,9 +247,14 @@ fn enregistrer(
     cities: Query<(Entity, &Ident, &Peuple, &City, &HexPos)>,
     camps: Query<(&Ident, &Camp, &SiteName, &HexPos)>,
     villages: Query<(&Ident, &SiteName, &HexPos), With<Village>>,
+    config: Res<crate::game::ConfigEnCours>,
 ) {
     let Some(fichier) = demande.0.take() else { return };
-    let s = photographier(&map.0, &state, &fog, &territory, &hasard, &prochain, &units, &cities, &camps, &villages);
+    let s = photographier(&map.0, &state, &fog, &territory, &hasard, &prochain, &units, &cities, &camps, &villages, &config.0);
+    // La partie jouée de la bibliothèque retient le tour atteint
+    let mut b = crate::config_partie::Bibliotheque::lire();
+    b.partie_avancee(&config.0, s.tour);
+    let _ = b.ecrire();
     match ecrire(&s, fichier) {
         Ok(chemin) => {
             info!("Partie enregistrée : {}", chemin.display());
@@ -385,6 +395,7 @@ mod tests {
             explorees: vec![Hex::from_offset(2, 3), Hex::from_offset(5, 5)],
             territoire: vec![(Hex::from_offset(5, 5), 0)],
             ponts: vec![BridgeAt::Edge { hex: Hex::from_offset(4, 4), dir: 1 }],
+            config: crate::config_partie::ConfigPartie::default(),
         }
     }
 

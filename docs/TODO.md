@@ -398,7 +398,12 @@ Voir `conception/conception-monde-vivant.md`. Monuments nationaux aux buts vari�
 phares, temples…), certains demandant des technologies facultatives ; le premier de chaque type
 devient une merveille mondiale (bonus en plus) ; ruines qui gardent une valeur ; score d'héritage.
 
-### [ ] 42. Nouvelle partie et bibliothèque des graines (décidé le 10/11)
+### [ ] 42. Nouvelle partie et bibliothèque des graines (décidé le 10/11) — écran fait le 11/11
+Fait (`accueil.rs`, `config_partie.rs`) : écran de nouvelle partie au lancement, code du monde,
+taille, barbares, carte cachée et aperçu en tâche de fond, configurations (enregistrer, favorites,
+parties jouées, charger même monde ou nouvelle graine), menu Échap (enregistrer la configuration,
+nouvelle partie). Reste : terres, climat, relief dans le générateur ; les réglages des IA, du
+rythme, de l'hégémonie et des premiers tours guidés avec leurs tâches.
 Voir `conception/conception-interface.md` (« Nouvelle partie, graines et prise en main »). Écran
 de nouvelle partie (monde, peuples, règles, aperçu) ; code de partie copiable (graine et
 réglages) ; graines déjà utilisées, favoris, notes, miniatures ; réglages de génération (terres,

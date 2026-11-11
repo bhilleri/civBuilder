@@ -115,9 +115,9 @@ pub fn marquer_hostile(commands: &mut Commands, entity: Entity, home: Hex) {
     commands.entity(entity).insert((Hostile, HostileHome(home), Peuple::HOSTILE));
 }
 
-fn spawn_sites(mut commands: Commands, map: Res<GameMap>, seed: Res<WorldSeed>) {
+fn spawn_sites(mut commands: Commands, map: Res<GameMap>, seed: Res<WorldSeed>, config: Res<crate::game::ConfigEnCours>) {
     let start = map.0.find_start().expect("aucun emplacement de départ");
-    let placed = sites::place_sites(&map.0, start, seed.0);
+    let placed = sites::place_sites_avec(&map.0, start, seed.0, config.0.barbares.terres_par_camp());
     // Noms dans la langue du lieu, jamais ceux d'un autre lieu de la carte
     let mut namer = crate::toponymy::Namer::with_taken(seed.0 as u32 ^ 0x5173, map.0.names_taken());
     let info = |h: Hex| map.0.cell_info(h).expect("site sur la carte");

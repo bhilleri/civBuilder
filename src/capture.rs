@@ -243,7 +243,7 @@ fn run_capture(
                 add_on("houle_loin", h, 2_200.0, 0.0, MapLayer::Waves);
             }
             // Pages du menu Échap, par-dessus la vue de départ
-            for (name, page) in [("menu", MenuPage::Main), ("menu_parametres", MenuPage::Settings), ("menu_nouveau_monde", MenuPage::NewWorld)] {
+            for (name, page) in [("menu", MenuPage::Main), ("menu_parametres", MenuPage::Settings), ("menu_configuration", MenuPage::SaveConfig)] {
                 shots.push(Shot { name: name.into(), target: start, distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: Some(page), view_2d: None });
             }
             // Unités en montagne en 2D (pastille d'unité immobilisée)

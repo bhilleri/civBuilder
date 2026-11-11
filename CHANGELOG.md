@@ -2,6 +2,17 @@
 
 ## Prochaine version (en cours)
 
+### Nouvelle partie
+- **Écran de nouvelle partie** au lancement du jeu (maquette v4 validée) :
+  - **Code du monde** (`777-M-T29-C0-R0` : graine, taille, terres, climat, relief) avec Hasard, Copier, Coller (Entrée l'applique, un code illisible est signalé) ;
+  - **taille** (Petite, Moyenne, Grande expérimentale) et **barbares** (rares, normaux, nombreux : un camp pour 320, 160 ou 80 cases de terre) ;
+  - réglages encore **à venir**, affichés grisés : terres, climat, relief, peuples d'IA, difficulté, rythme, hégémonie, premiers tours guidés ;
+  - **carte cachée** par défaut (elle gâcherait la découverte) ; « Révéler la carte » génère le monde en tâche de fond et en montre une miniature ;
+  - **Mes configurations** : enregistrer la configuration (nom, commentaire, favorite), rétablir celle par défaut, retrouver les configurations enregistrées et celles des parties jouées (favorites, modifier, effacer) ; au chargement, choisir le même monde ou une nouvelle graine ;
+  - Entrée lance la partie, Échap quitte.
+- **Menu Échap** : « Enregistrer la configuration de ce monde… » (on voit en jouant si le monde est réussi) et « Nouvelle partie… », qui remplace « Nouveau monde… ».
+- Les lancements avec une graine imposée (scripts, captures, pilote, tests) passent directement à la partie, comme avant.
+
 ### Sauvegarde
 - **Sauvegarder et charger une partie** : menu Échap → « Sauvegarder la partie » et « Charger la dernière partie » ; console `sauver [fichier]` et `charger [fichier]`. Le monde se regénère depuis sa graine ; la partie (tour, trésor, hasard, unités, villes, camps et villages, cases explorées, territoire, ponts) est remise en place. Une partie rechargée continue exactement comme l'originale (vérifié sur 10 tours avec une ville, des barbares et de l'exploration). Une sauvegarde d'une version du jeu qui génère un autre monde est refusée avec un message clair. Fichiers texte (RON) dans `%APPDATA%\CivBuilder\sauvegardes`. Le journal n'est pas gardé.
 - **Correctifs de déterminisme** : le hasard des villages n'est plus tiré à chaque déplacement mais à chaque visite ; les objets apparus dans une même image reçoivent leur identifiant dans l'ordre de leur case.

@@ -3,6 +3,7 @@
 // Lints courants avec Bevy (les systèmes ont naturellement beaucoup de paramètres)
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
+mod accueil;
 mod fonts;
 mod basins;
 mod battle;
@@ -12,6 +13,7 @@ mod cases;
 mod chrono_tour;
 mod climate;
 mod combat;
+mod config_partie;
 mod console;
 mod currents;
 mod debug_cmd;
@@ -72,20 +74,30 @@ fn window_size() -> (u32, u32) {
     }).unwrap_or((1400, 860))
 }
 
+/// Fenêtre du jeu (taille, écran).
+fn fenetre() -> Window {
+    Window {
+        title: "CivBuilder".into(),
+        resolution: window_size().into(),
+        // `CIVBUILDER_ECRAN=2` : ouvre la fenêtre sur cet écran (tests sans gêner le bureau)
+        position: std::env::var("CIVBUILDER_ECRAN").ok().and_then(|e| e.parse::<usize>().ok()).filter(|&e| e >= 1).map_or(WindowPosition::Automatic, |e| {
+            WindowPosition::Centered(MonitorSelection::Index(e - 1))
+        }),
+        ..default()
+    }
+}
+
 fn main() {
+    // Lancement normal : l'écran de nouvelle partie, qui relance le jeu sur la partie choisie
+    if accueil::mode_accueil() {
+        App::new()
+            .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(fenetre()), ..default() }))
+            .add_plugins((fonts::FontsPlugin, pointer::PointerPlugin, accueil::AccueilPlugin))
+            .run();
+        return;
+    }
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "CivBuilder".into(),
-                resolution: window_size().into(),
-                // `CIVBUILDER_ECRAN=2` : ouvre la fenêtre sur cet écran (tests sans gêner le bureau)
-                position: std::env::var("CIVBUILDER_ECRAN").ok().and_then(|e| e.parse::<usize>().ok()).filter(|&e| e >= 1).map_or(WindowPosition::Automatic, |e| {
-                    WindowPosition::Centered(MonitorSelection::Index(e - 1))
-                }),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(fenetre()), ..default() }))
         .add_plugins((fonts::FontsPlugin, game::GamePlugin, hostile::HostilePlugin, render::RenderPlugin, input::InputPlugin, ui::UiPlugin, view3d::View3dPlugin, labels::LabelsPlugin, highlight::HighlightPlugin, options::OptionsPlugin, wiki::WikiPlugin, menu::MenuPlugin, seam::SeamPlugin, search::SearchPlugin, capture::CapturePlugin))
         .add_plugins(console::ConsolePlugin)
         .add_plugins(bridge_build::BridgeBuildPlugin)

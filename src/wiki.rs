@@ -371,11 +371,11 @@ fn climate() -> Article {
                couche haute est bien plus froide et peut en contenir beaucoup moins (la capacité de l'air augmente \
                d'environ 7 % par degré). Il pleut quand l'air humide monte vers le froid et sature : là où les vents \
                convergent, sous les fronts des perturbations, dans les orages des tropiques, ou quand le relief force \
-               l'air à s'élever. Les nuages montent d'autant plus haut que l'air est chaud (vers 6 km dans le froid,                jusqu'à 14 km dans les orages des tropiques) : l'air tropical soulevé y perd presque toute sa vapeur,                et l'essentiel tombe en pluie. Une partie des gouttes s'évapore en tombant si l'air est sec. Là où l'air descend \
+               l'air à s'élever. Les nuages montent d'autant plus haut que l'air est chaud (vers 6 km dans le froid, jusqu'à 14 km dans les orages des tropiques) : l'air tropical soulevé y perd presque toute sa vapeur, et l'essentiel tombe en pluie. Une partie des gouttes s'évapore en tombant si l'air est sec. Là où l'air descend \
                (anticyclones, derrière les massifs), l'air sec d'altitude assèche la couche basse. Sous un \
                anticyclone, l'air chaud qui descend forme un couvercle : les orages sont étouffés et l'air qui monte \
                ne forme que des nuages bas. Un air bas saturé sans être soulevé (air marin poussé sur une côte froide) \
-               forme du brouillard, qui bruine à peine. Les pluies les plus fortes sont plafonnées (vers 10 000 à                15 000 mm par an) : l'eau qui ne tombe pas continue avec le vent et arrose les terres suivantes."),
+               forme du brouillard, qui bruine à peine. Les pluies les plus fortes sont plafonnées (vers 10 000 à 15 000 mm par an) : l'eau qui ne tombe pas continue avec le vent et arrose les terres suivantes."),
             h("Relief"),
             p("Sur un versant exposé au vent, l'air qui monte en suivant le sol se refroidit et la pluie augmente ; elle \
                culmine sur les pentes hautes. L'air épouse un relief adouci (il contourne en partie les sommets) ; \
@@ -541,13 +541,27 @@ fn terrain() -> Article {
             p("Puis l'eau creuse ce relief (érosion) : les grands cours d'eau s'enfoncent dans des vallées au \
                profil régulier, les cuvettes s'ouvrent ou se comblent (peu de lacs, sauf dans les fossés et les \
                régions sèches), les crêtes sont découpées et leurs points bas forment des cols. Les montagnes, peu \
-               drainées, gardent leur hauteur. Une fois le climat connu, les vrais cours d'eau creusent à nouveau                leur vallée selon leur débit, plus fort près de la mer où la houle et la marée emportent les dépôts :                les fleuves arrivent à la mer à son niveau. Une même graine (menu Échap) redonne exactement le même monde."),
+               drainées, gardent leur hauteur. Une fois le climat connu, les vrais cours d'eau creusent à nouveau leur vallée selon leur débit, plus fort près de la mer où la houle et la marée emportent les dépôts : les fleuves arrivent à la mer à son niveau. Une même graine (menu Échap) redonne exactement le même monde."),
             h("Brouillard de guerre"),
             p("Une case inexplorée est noire. Une fois découverte, elle reste connue mais apparaît assombrie hors de \
                vue : on y voit le terrain, pas les unités ennemies. Chaque unité voit à 2 cases (3 pour l'éclaireur, \
                la cavalerie légère et l'archer monté)."),
+            h("Nouvelle partie"),
+            p("Au lancement, l'écran de nouvelle partie règle le monde et la partie. Le code du monde (par exemple \
+               777-M-T29-C0-R0 : graine, taille, terres, climat, relief) redonne la même planète : copiez-le pour \
+               la partager, collez un code reçu puis Entrée. Barbares : rares, normaux ou nombreux (un camp pour \
+               320, 160 ou 80 cases de terre). Les réglages grisés « à venir » ne sont pas encore pris en compte. \
+               La carte reste cachée : « Révéler la carte » la montre, mais gâche la découverte. « Mes \
+               configurations » garde les configurations enregistrées (nom, commentaire, favorite) et celles des \
+               parties jouées ; en charger une demande s'il faut garder le même monde ou tirer une nouvelle graine. \
+               En jeu, menu Échap → « Enregistrer la configuration de ce monde » la garde aussi, et « Nouvelle \
+               partie » revient à cet écran."),
             h("Sauvegarde"),
-            p("Menu Échap → « Sauvegarder la partie » enregistre la partie ; « Charger la dernière partie » la                reprend (le jeu se relance et regénère le monde depuis sa graine, puis remet la partie en place).                Une partie rechargée continue exactement comme elle l'aurait fait : le hasard vient de la graine.                Une sauvegarde faite avec une version du jeu qui générait un autre monde est refusée. Le journal                n'est pas gardé."),
+            p("Menu Échap → « Sauvegarder la partie » enregistre la partie ; « Charger la dernière partie » la \
+               reprend (le jeu se relance et regénère le monde depuis sa graine, puis remet la partie en place). \
+               Une partie rechargée continue exactement comme elle l'aurait fait : le hasard vient de la graine. \
+               Une sauvegarde faite avec une version du jeu qui générait un autre monde est refusée. Le journal \
+               n'est pas gardé."),
             h("Cartes et vues"),
             p("Le bouton « Carte » (touche T) choisit la carte : normale, de l'altitude (couleur selon les mètres), du \
                relief (plat à pic), du climat (pluies et vents), des bassins versants, des débits des cours d'eau, du réseau hydrographique, \

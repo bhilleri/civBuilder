@@ -3,7 +3,8 @@
 //! - page principale : reprendre, sauvegarder la partie, charger la dernière partie (`sauvegarde.rs`),
 //!   paramètres, nouveau monde, quitter ;
 //! - **Paramètres** : vitesse des animations, mode debug (enregistrés aussitôt, voir `settings.rs`) ;
-//! - **Nouveau monde** : graine du monde (regénérer le même monde ou un nouveau).
+//! - **Enregistrer la configuration de ce monde** : nom, commentaire, favorite (`config_partie.rs`) ;
+//! - **Nouvelle partie** : le jeu se relance sur l'écran de nouvelle partie (`accueil.rs`).
 //!
 //! Échap sur une sous-page revient à la page principale ; sur la page principale, il ferme le menu.
 //!
@@ -12,13 +13,12 @@
 
 use crate::pointer::UiPointer;
 use crate::game::{DebugMode, GameLog};
-use crate::hostile::WorldSeed;
 use crate::settings::{AnimationSpeed, Settings};
 use crate::wiki::WikiState;
 use bevy::input::keyboard::Key;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
-use bevy::text::{EditableText, EditableTextFilter, TextCursorStyle, TextEdit};
+use bevy::text::{EditableText, TextCursorStyle, TextEdit};
 use bevy::ui_widgets::TextInput;
 
 /// Page du menu affichée.
@@ -27,7 +27,8 @@ pub enum MenuPage {
     #[default]
     Main,
     Settings,
-    NewWorld,
+    /// Enregistrer la configuration du monde en cours (nom, commentaire, favorite).
+    SaveConfig,
 }
 
 /// Menu ouvert ou fermé, et page affichée.
@@ -50,14 +51,12 @@ enum MenuButton {
     /// Revient à la page principale.
     Back,
     Debug,
-    /// Regénérer le monde avec la graine saisie.
-    Regenerate,
-    /// Nouveau monde, graine au hasard.
-    NewWorld,
-    /// Copier la graine saisie dans le presse-papiers.
-    CopySeed,
-    /// Coller le presse-papiers dans le champ (remplace la graine).
-    PasteSeed,
+    /// Nouvelle partie : le jeu se relance sur l'écran de nouvelle partie (`accueil.rs`).
+    NewGame,
+    /// Enregistrer la configuration du monde (page « SaveConfig »).
+    SaveConfig,
+    /// Marquer la configuration comme favorite (ou non).
+    ToggleFavorite,
     /// Enregistrer la partie (`sauvegarde.rs`).
     Save,
     /// Reprendre la dernière partie enregistrée (le jeu se relance dessus).
@@ -71,9 +70,18 @@ struct SpeedChoice(AnimationSpeed);
 #[derive(Component)]
 struct SpeedHint;
 
-/// Champ de saisie de la graine (chiffres seulement ; Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A).
+/// Champ du nom de la configuration à enregistrer.
 #[derive(Component)]
 struct SeedField;
+/// Champ du commentaire de la configuration.
+#[derive(Component)]
+struct CommentField;
+/// Texte du bouton « favorite ».
+#[derive(Component)]
+struct FavoriteLabel;
+/// La configuration à enregistrer sera favorite.
+#[derive(Resource, Default)]
+struct FavoriteChoice(bool);
 /// Bandeau rappelant que le mode debug est actif.
 #[derive(Component)]
 struct DebugBanner;
@@ -89,7 +97,6 @@ const DEBUG_ON: Color = Color::srgb(0.70, 0.35, 0.10);
 const QUIT_BG: Color = Color::srgb(0.45, 0.14, 0.14);
 const QUIT_HOVER: Color = Color::srgb(0.60, 0.18, 0.18);
 const HINT: Color = Color::srgb(0.65, 0.67, 0.72);
-const WARNING: Color = Color::srgb(1.0, 0.70, 0.40);
 /// Largeur des boutons et du contenu des pages.
 const WIDTH: f32 = 300.0;
 
@@ -101,6 +108,7 @@ impl Plugin for MenuPlugin {
             .insert_resource(crate::settings::load())
             .add_systems(Startup, setup_menu)
             // Avant le wiki : Échap ferme d'abord le wiki s'il est ouvert, sans ouvrir le menu
+            .init_resource::<FavoriteChoice>()
             .add_systems(Update, (toggle_menu.before(crate::wiki::WikiSet), seed_field, menu_buttons, speed_choices, save_settings, show_menu, update_fps).chain());
     }
 }
@@ -155,23 +163,6 @@ fn button(kind: MenuButton, text: &str, bg: Color) -> impl Bundle + use<> {
     )
 }
 
-/// Petit bouton à côté du champ de la graine.
-fn small_button(kind: MenuButton, text: &str) -> impl Bundle + use<> {
-    (
-        kind,
-        UiPointer::default(),
-        Node {
-            padding: UiRect::axes(Val::Px(8.0), Val::Px(7.0)),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            border_radius: BorderRadius::all(Val::Px(6.0)),
-            ..default()
-        },
-        BackgroundColor(BUTTON_BG),
-        children![label(text, 14.0)],
-    )
-}
-
 /// Case du sélecteur de vitesse.
 fn speed_choice(speed: AnimationSpeed) -> impl Bundle + use<> {
     (
@@ -216,7 +207,8 @@ fn setup_menu(mut commands: Commands) {
             button(MenuButton::Save, "Sauvegarder la partie", BUTTON_BG),
             button(MenuButton::Load, "Charger la dernière partie", BUTTON_BG),
             button(MenuButton::Open(MenuPage::Settings), "Paramètres", BUTTON_BG),
-            button(MenuButton::Open(MenuPage::NewWorld), "Nouveau monde…", BUTTON_BG),
+            button(MenuButton::Open(MenuPage::SaveConfig), "Enregistrer la configuration de ce monde…", BUTTON_BG),
+            button(MenuButton::NewGame, "Nouvelle partie…", BUTTON_BG),
             spacer(),
             button(MenuButton::Quit, "Quitter le jeu", QUIT_BG),
         ],
@@ -240,45 +232,64 @@ fn setup_menu(mut commands: Commands) {
         ],
     );
     let new_world = (
-        page(MenuPage::NewWorld),
+        page(MenuPage::SaveConfig),
         children![
-            title("Nouveau monde"),
-            (Text::new("La partie en cours sera perdue."), TextFont::from_font_size(14.0), TextColor(WARNING)),
-            section("Graine du monde"),
+            title("Enregistrer la configuration"),
+            hint("Gardez ce monde et ses réglages pour d'autres parties : ils apparaîtront dans « Mes configurations » de l'écran de nouvelle partie, avec la même graine."),
+            section("Nom"),
             (
-                Node { width: Val::Px(WIDTH), column_gap: Val::Px(6.0), ..default() },
-                children![
-                    (
-                        Node {
-                            flex_grow: 1.0,
-                            padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
-                            border: UiRect::all(Val::Px(1.0)),
-                            border_radius: BorderRadius::all(Val::Px(6.0)),
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgb(0.02, 0.02, 0.04)),
-                        BorderColor::all(Color::srgb(0.35, 0.38, 0.46)),
-                        children![(
-                            SeedField,
-                            TextInput,
-                            UiPointer::default(),
-                            bevy::input_focus::tab_navigation::TabIndex::default(),
-                            EditableText { max_characters: Some(10), ..default() },
-                            EditableTextFilter::new(|c| c.is_ascii_digit()),
-                            TextFont::from_font_size(18.0),
-                            TextColor(Color::srgb(0.95, 0.95, 0.97)),
-                            TextLayout::no_wrap(),
-                            TextCursorStyle { color: Color::WHITE, selection_color: Color::srgb(0.20, 0.40, 0.75), ..default() },
-                            Node { width: Val::Percent(100.0), ..default() },
-                        )],
-                    ),
-                    small_button(MenuButton::CopySeed, "Copier"),
-                    small_button(MenuButton::PasteSeed, "Coller"),
-                ],
+                Node {
+                    width: Val::Px(WIDTH),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.02, 0.02, 0.04)),
+                BorderColor::all(Color::srgb(0.35, 0.38, 0.46)),
+                children![(
+                    SeedField,
+                    TextInput,
+                    UiPointer::default(),
+                    bevy::input_focus::tab_navigation::TabIndex::default(),
+                    EditableText { max_characters: Some(60), ..default() },
+                    TextFont::from_font_size(16.0),
+                    TextColor(Color::srgb(0.95, 0.95, 0.97)),
+                    TextCursorStyle { color: Color::WHITE, selection_color: Color::srgb(0.20, 0.40, 0.75), ..default() },
+                    Node { width: Val::Percent(100.0), ..default() },
+                )],
             ),
-            hint("Même graine, même monde. Tapez ou collez une graine (chiffres), puis Entrée ou le bouton. Ctrl+C / Ctrl+V : copier, coller."),
-            button(MenuButton::Regenerate, "Regénérer avec cette graine", BUTTON_BG),
-            button(MenuButton::NewWorld, "Graine au hasard", BUTTON_BG),
+            section("Commentaire"),
+            (
+                Node {
+                    width: Val::Px(WIDTH),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.02, 0.02, 0.04)),
+                BorderColor::all(Color::srgb(0.35, 0.38, 0.46)),
+                children![(
+                    CommentField,
+                    TextInput,
+                    UiPointer::default(),
+                    bevy::input_focus::tab_navigation::TabIndex::default(),
+                    EditableText { max_characters: Some(200), ..default() },
+                    TextFont::from_font_size(16.0),
+                    TextColor(Color::srgb(0.95, 0.95, 0.97)),
+                    TextCursorStyle { color: Color::WHITE, selection_color: Color::srgb(0.20, 0.40, 0.75), ..default() },
+                    Node { width: Val::Percent(100.0), ..default() },
+                )],
+            ),
+            (
+                MenuButton::ToggleFavorite,
+                UiPointer::default(),
+                Node { width: Val::Px(WIDTH), padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)), justify_content: JustifyContent::Center, border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
+                BackgroundColor(BUTTON_BG),
+                children![(FavoriteLabel, label("☆ Ajouter aux favorites", 16.0))],
+            ),
+            button(MenuButton::SaveConfig, "Enregistrer (Entrée)", BUTTON_BG),
             spacer(),
             button(MenuButton::Back, "Retour (Échap)", BUTTON_BG),
         ],
@@ -344,58 +355,63 @@ fn toggle_menu(keys: Res<ButtonInput<KeyCode>>, wiki: Res<WikiState>, mut menu: 
     }
 }
 
-/// Champ de la graine : à l'ouverture de la page « Nouveau monde », il montre la graine du
-/// monde actuel, toute sélectionnée (on peut la copier aussitôt, ou taper par-dessus) ; Entrée
-/// regénère.
+/// Page « Enregistrer la configuration » : à son ouverture, le nom proposé est sélectionné et le
+/// champ prend le focus ; Entrée enregistre.
 fn seed_field(
-    menu: Res<GameMenu>,
-    seed: Res<WorldSeed>,
+    mut menu: ResMut<GameMenu>,
+    config: Res<crate::game::ConfigEnCours>,
     keys: Res<ButtonInput<Key>>,
     mut focus: ResMut<InputFocus>,
     mut was_shown: Local<bool>,
-    mut field: Single<(Entity, &mut EditableText), With<SeedField>>,
+    mut field: Single<(Entity, &mut EditableText), (With<SeedField>, Without<CommentField>)>,
+    comment: Single<(Entity, &EditableText), With<CommentField>>,
+    mut favorite: ResMut<FavoriteChoice>,
     mut log: ResMut<GameLog>,
-    mut exit: MessageWriter<AppExit>,
 ) {
     let (entity, ref mut editable) = *field;
-    let shown = menu.open && menu.page == MenuPage::NewWorld;
+    let shown = menu.open && menu.page == MenuPage::SaveConfig;
     if shown && !*was_shown {
-        editable.editor_mut().set_text(&seed.0.to_string());
+        editable.editor_mut().set_text(&format!("Monde {}", config.0.graine));
         editable.queue_edit(TextEdit::SelectAll);
         focus.set(entity, FocusCause::Navigated);
+        favorite.0 = false;
     }
-    // Un clic ailleurs dans le menu retire le focus (Bevy) : le champ le reprend
-    if shown && focus.get().is_none() {
-        focus.set(entity, FocusCause::Navigated);
-    }
-    if !shown && *was_shown && focus.get() == Some(entity) {
+    if !shown && *was_shown && (focus.get() == Some(entity) || focus.get() == Some(comment.0)) {
         focus.clear();
     }
     *was_shown = shown;
     if shown && focus.get() == Some(entity) && keys.just_pressed(Key::Enter) {
-        regenerate_with(&editable.value().to_string(), &mut log, &mut exit);
+        save_config(&editable.value().to_string(), &comment.1.value().to_string(), favorite.0, &config.0, &mut log);
+        menu.page = MenuPage::Main;
     }
 }
 
-/// Regénère avec la graine écrite (vérifiée).
-fn regenerate_with(text: &str, log: &mut GameLog, exit: &mut MessageWriter<AppExit>) {
-    match text.parse::<u32>() {
-        Ok(seed) => regenerate(Some(seed), log, exit),
-        Err(_) => log.push("Graine invalide : entre 0 et 4 294 967 295."),
+/// Enregistre la configuration du monde en cours dans la bibliothèque.
+fn save_config(name: &str, comment: &str, favorite: bool, config: &crate::config_partie::ConfigPartie, log: &mut GameLog) {
+    let name = name.trim();
+    if name.is_empty() {
+        log.push("Donnez un nom à la configuration.");
+        return;
+    }
+    let mut b = crate::config_partie::Bibliotheque::lire();
+    b.enregistrer(name, comment.trim(), favorite, config, &crate::config_partie::date_du_jour());
+    match b.ecrire() {
+        Ok(()) => log.notify(crate::game::Importance::Success, format!("Configuration « {name} » enregistrée.")),
+        Err(e) => log.push(format!("Impossible d'enregistrer la configuration : {e}")),
     }
 }
 
-/// Relance le jeu sur un nouveau monde : avec la graine donnée, ou au hasard. Le jeu repart de
-/// zéro (nouveau processus, mêmes réglages), la fenêtre actuelle se ferme.
-fn regenerate(seed: Option<u32>, log: &mut GameLog, exit: &mut MessageWriter<AppExit>) {
+/// Nouvelle partie : le jeu se relance sur l'écran de nouvelle partie (nouveau processus, sans
+/// graine ni configuration imposées), la fenêtre actuelle se ferme.
+fn new_game(log: &mut GameLog, exit: &mut MessageWriter<AppExit>) {
     let launched = std::env::current_exe().and_then(|exe| {
-        let mut command = std::process::Command::new(exe);
-        command.args(std::env::args_os().skip(1));
-        match seed {
-            Some(s) => command.env("CIVBUILDER_SEED", s.to_string()),
-            None => command.env_remove("CIVBUILDER_SEED"),
-        };
-        command.spawn()
+        std::process::Command::new(exe)
+            .args(std::env::args_os().skip(1))
+            .env_remove("CIVBUILDER_SEED")
+            .env_remove("CIVBUILDER_MAP")
+            .env_remove("CIVBUILDER_CONFIG")
+            .env_remove("CIVBUILDER_CHARGER")
+            .spawn()
     });
     match launched {
         Ok(_) => {
@@ -408,14 +424,20 @@ fn regenerate(seed: Option<u32>, log: &mut GameLog, exit: &mut MessageWriter<App
 fn menu_buttons(
     mut menu: ResMut<GameMenu>,
     mut debug: ResMut<DebugMode>,
-    mut field: Single<(Entity, &mut EditableText), With<SeedField>>,
-    mut focus: ResMut<InputFocus>,
-    mut clipboard: ResMut<bevy::clipboard::Clipboard>,
+    field: Single<&EditableText, (With<SeedField>, Without<CommentField>)>,
+    comment: Single<&EditableText, With<CommentField>>,
+    mut favorite: ResMut<FavoriteChoice>,
+    mut favorite_label: Single<&mut Text, With<FavoriteLabel>>,
+    config: Res<crate::game::ConfigEnCours>,
     mut log: ResMut<GameLog>,
     mut buttons: Query<(Ref<UiPointer>, &MenuButton, &mut BackgroundColor)>,
     mut exit: MessageWriter<AppExit>,
     mut save: ResMut<crate::sauvegarde::DemandeSauvegarde>,
 ) {
+    let favorite_text = if favorite.0 { "★ Favorite" } else { "☆ Ajouter aux favorites" };
+    if favorite_label.0 != favorite_text {
+        favorite_label.0 = favorite_text.to_string();
+    }
     for (interaction, kind, mut bg) in &mut buttons {
         if interaction.is_changed() && *interaction == UiPointer::Pressed {
             match kind {
@@ -423,22 +445,12 @@ fn menu_buttons(
                 MenuButton::Open(page) => menu.page = *page,
                 MenuButton::Back => menu.page = MenuPage::Main,
                 MenuButton::Debug => debug.0 = !debug.0,
-                MenuButton::Regenerate => regenerate_with(&field.1.value().to_string(), &mut log, &mut exit),
-                MenuButton::CopySeed => {
-                    let value = field.1.value().to_string();
-                    match clipboard.set_text(value.clone()) {
-                        Ok(()) => log.push(format!("Graine {value} copiée dans le presse-papiers.")),
-                        Err(e) => log.push(format!("Impossible de copier la graine : {e:?}")),
-                    }
-                    focus.set(field.0, FocusCause::Navigated);
+                MenuButton::NewGame => new_game(&mut log, &mut exit),
+                MenuButton::ToggleFavorite => favorite.0 = !favorite.0,
+                MenuButton::SaveConfig => {
+                    save_config(&field.value().to_string(), &comment.value().to_string(), favorite.0, &config.0, &mut log);
+                    menu.page = MenuPage::Main;
                 }
-                MenuButton::PasteSeed => {
-                    // Remplace tout le champ (les caractères autres que des chiffres sont ignorés)
-                    field.1.queue_edit(TextEdit::SelectAll);
-                    field.1.queue_edit(TextEdit::Paste);
-                    focus.set(field.0, FocusCause::Navigated);
-                }
-                MenuButton::NewWorld => regenerate(None, &mut log, &mut exit),
                 MenuButton::Save => {
                     save.0 = Some(None);
                     menu.open = false;
