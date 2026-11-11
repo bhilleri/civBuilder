@@ -22,6 +22,17 @@ pub struct Courbe {
     pub futur: usize,
     pub seuils: Vec<Seuil>,
     pub couleur: Color,
+    /// Prévision donnée tour par tour (sinon : la tendance des derniers tours, avec sa bande).
+    pub prevision: Option<Vec<f64>>,
+    /// Échelle logarithmique (valeurs strictement positives), bornée autour des valeurs utiles.
+    pub log: bool,
+}
+
+impl Courbe {
+    /// Courbe à échelle linéaire, prévision par la tendance.
+    pub fn simple(passe: Vec<f64>, futur: usize, seuils: Vec<Seuil>, couleur: Color) -> Courbe {
+        Courbe { passe, futur, seuils, couleur, prevision: None, log: false }
+    }
 }
 
 /// Marges du tracé dans l'image (pixels) : à gauche pour les valeurs, en bas pour les tours.
@@ -56,6 +67,7 @@ pub struct Trace {
     pub pente: f64,
     n: usize,
     futur: usize,
+    log: bool,
 }
 
 impl Trace {
@@ -64,14 +76,24 @@ impl Trace {
         let dernier = c.passe.last().copied().unwrap_or(0.0);
         let fin = dernier + pente * c.futur as f64;
         let inc = incertitude(dernier, c.futur);
-        let valeurs = c.passe.iter().copied().chain([fin + inc, fin - inc]).chain(c.seuils.iter().map(|s| s.valeur));
-        let (mut min, mut max) = valeurs.fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(v), b.max(v)));
-        min = min.min(0.0);
-        if max <= min {
-            max = min + 1.0;
+        let prevues: Vec<f64> = match &c.prevision {
+            Some(p) => p.clone(),
+            None => vec![fin + inc, fin - inc],
+        };
+        let valeurs = c.passe.iter().copied().chain(prevues).chain(c.seuils.iter().map(|s| s.valeur));
+        let (mut min, mut max) = valeurs.filter(|v| !c.log || *v > 0.0).fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(v), b.max(v)));
+        if c.log {
+            // (bornée autour des valeurs utiles, pas depuis zéro)
+            min = (min * 0.8).max(1e-6);
+            max = (max * 1.25).max(min * 2.0);
+        } else {
+            min = min.min(0.0);
+            if max <= min {
+                max = min + 1.0;
+            }
+            max += (max - min) * 0.1;
         }
-        max += (max - min) * 0.1;
-        Trace { taille, min, max, pente, n: c.passe.len(), futur: c.futur }
+        Trace { taille, min, max, pente, n: c.passe.len(), futur: c.futur, log: c.log }
     }
 
     /// Abscisse du tour `t` (0 : aujourd'hui, négatif : passé, positif : prévision).
@@ -83,14 +105,27 @@ impl Trace {
 
     /// Ordonnée d'une valeur (y vers le bas).
     pub fn y(&self, v: f64) -> f32 {
-        let k = (v - self.min) / (self.max - self.min);
+        let k = if self.log { (v.max(self.min).ln() - self.min.ln()) / (self.max.ln() - self.min.ln()) } else { (v - self.min) / (self.max - self.min) };
         MARGE_HAUT + (1.0 - k as f32) * (self.taille.y - MARGE_HAUT - MARGE_BAS)
     }
 
-    /// Trois valeurs à graduer : bas, milieu, haut.
-    pub fn graduations(&self) -> [f64; 3] {
+    /// Valeurs à graduer : bas, milieu, haut ; en échelle logarithmique, les 1, 2, 5 de chaque puissance de 10.
+    pub fn graduations(&self) -> Vec<f64> {
+        if self.log {
+            let mut g = Vec::new();
+            let (e0, e1) = (self.min.log10().floor() as i32, self.max.log10().ceil() as i32);
+            for e in e0..=e1 {
+                for m in [1.0, 2.0, 5.0] {
+                    let v = m * 10f64.powi(e);
+                    if v >= self.min && v <= self.max {
+                        g.push(v);
+                    }
+                }
+            }
+            return g;
+        }
         let haut = self.min + (self.max - self.min) / 1.1;
-        [self.min, (self.min + haut) / 2.0, haut]
+        vec![self.min, (self.min + haut) / 2.0, haut]
     }
 }
 
@@ -208,10 +243,18 @@ pub fn dessiner(c: &Courbe, tr: &Trace, grille: Color, aujourdhui: Color) -> Ima
     let n = c.passe.len();
     let passe: Vec<Vec2> = c.passe.iter().enumerate().map(|(i, v)| Vec2::new(tr.x(i as f64 - (n as f64 - 1.0)), tr.y(*v))).collect();
     let v0 = c.passe.last().copied().unwrap_or(0.0);
-    let futur: Vec<f64> = (0..=c.futur).map(|k| k as f64).collect();
-    let bord = |signe: f64| -> Vec<Vec2> { futur.iter().map(|&k| Vec2::new(tr.x(k), tr.y(v0 + tr.pente * k + signe * incertitude(v0, k as usize)))).collect() };
-    t.bande(&bord(1.0), &bord(-1.0), c.couleur, 0.16);
-    t.ligne(&[Vec2::new(tr.x(0.0), tr.y(v0)), Vec2::new(tr.x(c.futur as f64), tr.y(v0 + tr.pente * c.futur as f64))], 2.0, c.couleur, 1.0, Some((6.0, 4.0)));
+    match &c.prevision {
+        Some(p) => {
+            let pts: Vec<Vec2> = std::iter::once(v0).chain(p.iter().copied()).enumerate().map(|(k, v)| Vec2::new(tr.x(k as f64), tr.y(v))).collect();
+            t.ligne(&pts, 2.0, c.couleur, 1.0, Some((6.0, 4.0)));
+        }
+        None => {
+            let futur: Vec<f64> = (0..=c.futur).map(|k| k as f64).collect();
+            let bord = |signe: f64| -> Vec<Vec2> { futur.iter().map(|&k| Vec2::new(tr.x(k), tr.y(v0 + tr.pente * k + signe * incertitude(v0, k as usize)))).collect() };
+            t.bande(&bord(1.0), &bord(-1.0), c.couleur, 0.16);
+            t.ligne(&[Vec2::new(tr.x(0.0), tr.y(v0)), Vec2::new(tr.x(c.futur as f64), tr.y(v0 + tr.pente * c.futur as f64))], 2.0, c.couleur, 1.0, Some((6.0, 4.0)));
+        }
+    }
     t.ligne(&passe, 2.4, c.couleur, 1.0, None);
     t.segment(Vec2::new(tr.x(0.0), haut), Vec2::new(tr.x(0.0), bas), 1.0, aujourdhui, 0.8, None, 0.0);
     let p0 = Vec2::new(tr.x(0.0), tr.y(v0));
@@ -234,7 +277,7 @@ mod tests {
 
     #[test]
     fn l_echelle_contient_la_courbe_les_seuils_et_zero() {
-        let c = Courbe { passe: vec![3.0, 4.0, 5.0], futur: 20, seuils: vec![Seuil { valeur: 8.0, libelle: "besoin".into(), couleur: Color::WHITE }], couleur: Color::WHITE };
+        let c = Courbe::simple(vec![3.0, 4.0, 5.0], 20, vec![Seuil { valeur: 8.0, libelle: "besoin".into(), couleur: Color::WHITE }], Color::WHITE);
         let tr = Trace::new(&c, Vec2::new(400.0, 200.0));
         assert!(tr.min <= 0.0 && tr.max >= 8.0);
         assert!(tr.x(-2.0) < tr.x(0.0) && tr.x(0.0) < tr.x(20.0));
@@ -243,8 +286,19 @@ mod tests {
     }
 
     #[test]
+    fn echelle_logarithmique_bornee_autour_des_valeurs() {
+        let c = Courbe { passe: vec![1_000.0, 1_500.0, 2_400.0], futur: 3, seuils: vec![Seuil { valeur: 9_000.0, libelle: "nourriture".into(), couleur: Color::WHITE }], couleur: Color::WHITE, prevision: Some(vec![2_600.0, 2_800.0, 3_000.0]), log: true };
+        let tr = Trace::new(&c, Vec2::new(400.0, 200.0));
+        assert!(tr.min > 0.0 && tr.min <= 1_000.0 && tr.max >= 9_000.0);
+        // à rapport égal, même écart à l'écran
+        let (a, b, d) = (tr.y(1_000.0), tr.y(2_000.0), tr.y(4_000.0));
+        assert!(((a - b) - (b - d)).abs() < 1e-3);
+        assert!(tr.graduations().contains(&2_000.0) && tr.graduations().contains(&5_000.0));
+    }
+
+    #[test]
     fn le_dessin_a_la_taille_demandee_et_n_est_pas_vide() {
-        let c = Courbe { passe: vec![1.0, 2.0, 2.5, 3.0], futur: 10, seuils: Vec::new(), couleur: Color::srgb(0.6, 0.8, 0.3) };
+        let c = Courbe::simple(vec![1.0, 2.0, 2.5, 3.0], 10, Vec::new(), Color::srgb(0.6, 0.8, 0.3));
         let tr = Trace::new(&c, Vec2::new(200.0, 100.0));
         let img = dessiner(&c, &tr, Color::BLACK, Color::WHITE);
         assert_eq!((img.width(), img.height()), (200, 100));

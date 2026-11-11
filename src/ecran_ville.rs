@@ -64,6 +64,21 @@ pub struct EcranVille {
     confirmer: bool,
     /// Effectif proposé pour une case (aperçu avant de le forcer).
     forcer: Option<(Hex, u32)>,
+    /// Onglet Population : carte de la répartition des habitants (sinon : des emplois).
+    pub carte_habitants: bool,
+}
+
+/// Violet des habitants, du moins au plus peuplé (le plus foncé : beaucoup d'habitants ; Benjamin).
+const RAMPE: [(u8, u8, u8); 6] = [(176, 158, 226), (150, 128, 212), (126, 100, 196), (104, 74, 180), (86, 52, 164), (70, 36, 148)];
+
+/// Couleur de la rampe pour `q` de 0 à 1.
+fn rampe(q: f32) -> Color {
+    let q = q.clamp(0.0, 1.0) * (RAMPE.len() - 1) as f32;
+    let i = (q.floor() as usize).min(RAMPE.len() - 2);
+    let f = q - i as f32;
+    let (a, b) = (RAMPE[i], RAMPE[i + 1]);
+    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * f) / 255.0;
+    Color::srgb(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2))
 }
 
 /// Grandeurs détaillables (les autres ne sont pas encore dans le jeu).
@@ -99,6 +114,8 @@ enum ModeCarte {
     Grandeur(Grandeur, f64),
     /// Placement d'un aménagement : gain à pleine capacité de chaque case (maximum donné).
     Placement(Amenagement, f64),
+    /// Habitants par case, du moins au plus peuplé (bornes, en logarithme).
+    Habitants(f64, f64),
 }
 
 /// Anneau de la case conseillée par l'intendant (or : le conseil).
@@ -202,6 +219,9 @@ enum Reglage {
 }
 #[derive(Component)]
 struct ChoixReglage(Reglage);
+/// Onglet Population : carte des emplois (faux) ou des habitants (vrai).
+#[derive(Component)]
+struct ChoixCartePop(bool);
 /// Forcer l'effectif d'une case : proposer un autre effectif, confirmer, annuler, rendre à l'intendant.
 #[derive(Component, Clone, Copy)]
 enum Forcage {
@@ -310,6 +330,8 @@ struct CaseVue {
     max: Rendements,
     rendement: Rendements,
     amenagement: Option<Amenagement>,
+    /// Habitants de la case : pour l'instant, chacun vit là où il travaille (les sans-emploi au centre).
+    habitants: f64,
 }
 
 impl CaseVue {
@@ -337,7 +359,7 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
     let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == ville).map(|(h, _)| *h).collect();
     let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
     let rc = Rendements::from(rules::center_yields(map, centre));
-    let mut cases = vec![CaseVue { hex: centre, local: Hex::new(0, 0), centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, rendement: rc, amenagement: None }];
+    let mut cases = vec![CaseVue { hex: centre, local: Hex::new(0, 0), centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, rendement: rc, amenagement: None, habitants: 0.0 }];
     for c in dispo {
         let w = city.travail.sur(c.hex);
         let near = wrap.nearest(centre, c.hex);
@@ -351,7 +373,17 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
             max: c.max,
             rendement: intendant::rendement(c.max, w, c.capacite),
             amenagement: amenagements.0.get(&c.hex).copied(),
+            habitants: 0.0,
         });
+    }
+    // Habitants répartis comme les emplois (les sans-emploi vivent au centre)
+    let emplois = |c: &CaseVue| c.travailleurs as f64 + if c.centre { city.travail.chomeurs as f64 } else { 0.0 };
+    let total: f64 = cases.iter().map(emplois).sum();
+    if total > 0.0 {
+        let hab = city.state.habitants as f64;
+        for c in cases.iter_mut() {
+            c.habitants = hab * emplois(c) / total;
+        }
     }
     cases
 }
@@ -554,6 +586,7 @@ fn commandes(
     couches: Query<Ref<UiPointer>, With<BasculeAmenagements>>,
     (grandeurs, periodes, fils): (Query<(Ref<UiPointer>, &ChoixGrandeur)>, Query<(Ref<UiPointer>, &ChoixPeriode)>, Query<(Ref<UiPointer>, &Fil)>),
     (catalogue, construire, ici): (Query<(Ref<UiPointer>, &ChoixCatalogue)>, Query<Ref<UiPointer>, With<BoutonConstruire>>, Query<(Ref<UiPointer>, &AmenagerIci)>),
+    cartes_pop: Query<(Ref<UiPointer>, &ChoixCartePop)>,
     mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>)>, Changed<UiPointer>)>,
 ) {
     if !ecran.ouvert() {
@@ -631,6 +664,11 @@ fn commandes(
             ecran.placement = if ecran.placement == Some(a) { None } else { Some(a) };
             ecran.cible = None;
             ecran.case = None;
+        }
+    }
+    for (i, c) in &cartes_pop {
+        if appui(&i) && ecran.carte_habitants != c.0 {
+            ecran.carte_habitants = c.0;
         }
     }
     for (i, a) in &ici {
@@ -805,7 +843,7 @@ fn carte_souris(
                 let placement = ecran.placement.map(|a| (a, gain_amenagement(&map.0, c, a)));
                 commands.entity(bulle_e).with_children(|b| match placement {
                     Some((a, g)) => infobulle_placement(b, c, a, g),
-                    None => infobulle(b, c, ecran.onglet),
+                    None => infobulle(b, c, ecran.onglet, ecran.carte_habitants),
                 });
             }
         }
@@ -832,9 +870,12 @@ fn infobulle_placement(b: &mut ChildSpawnerCommands, c: &CaseVue, a: Amenagement
 }
 
 /// Contenu de l'infobulle d'une case, selon la carte affichée.
-fn infobulle(b: &mut ChildSpawnerCommands, c: &CaseVue, onglet: Onglet) {
+fn infobulle(b: &mut ChildSpawnerCommands, c: &CaseVue, onglet: Onglet, par_habitants: bool) {
     b.spawn(texte(c.nom.clone(), 14.0, charte::TEXTE));
-    if onglet == Onglet::Population {
+    if onglet == Onglet::Population && par_habitants {
+        b.spawn(texte(format!("{} habitants", rules::milliers(c.habitants.round() as u64)), 13.0, Grandeur::Habitants.couleur()));
+        b.spawn(texte(format!("{} travailleurs sur la case", rules::milliers(c.travailleurs.into())), 12.5, charte::MUET));
+    } else if onglet == Onglet::Population {
         let t = if c.centre { "centre de la ville : rapporte sans travailleurs".into() } else { format!("{} / {} travailleurs ({} %)", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into()), (c.remplissage() * 100.0).round()) };
         b.spawn(texte(t, 13.0, charte::DOUX));
     } else {
@@ -954,6 +995,13 @@ fn reconstruire(
         VueForcage { actuel, propose }
     });
     let courbe = match (ecran.onglet, ecran.grandeur, choisie) {
+        (Onglet::Population, _, None) if !ecran.catalogue => {
+            let c = courbe_population(&city, &cases);
+            let tr = crate::graphique::Trace::new(&c, Vec2::new((large - 30.0).max(200.0), 230.0));
+            let h = assets.add(crate::graphique::dessiner(&c, &tr, charte::TRAIT, charte::TEXTE));
+            *graphique = Some(h.clone());
+            Some((h, c, tr))
+        }
         (Onglet::Rendements, Some(gr), None) => {
             let c = courbe(&city, gr, ecran.periode);
             let tr = crate::graphique::Trace::new(&c, Vec2::new((large - 30.0).max(200.0), 200.0));
@@ -980,7 +1028,7 @@ fn reconstruire(
             }
         }
         (_, Some(c)) => fiche_case(g, c, &map.0, &images, None, forcage.as_ref()),
-        (Onglet::Population, None) => population(g, &city, &images),
+        (Onglet::Population, None) => population(g, &city, &cases, &images, courbe.as_ref()),
         (Onglet::Commerce, None) => vide(g, "Commerce", "Aucun axe de commerce : les échanges entre villes ne sont pas encore dans le jeu."),
         (Onglet::Histoire, None) => vide(g, "Histoire", "Aucun événement enregistré : la chronique des villes n'est pas encore tenue."),
     });
@@ -988,6 +1036,10 @@ fn reconstruire(
     let conseillee = ecran.placement.and_then(|a| conseil(&map.0, &cases, a));
     let mode = match (ecran.onglet, ecran.grandeur) {
         _ if let Some(a) = ecran.placement => ModeCarte::Placement(a, gains.iter().flatten().map(|g| g.plein.total()).fold(0.01, f64::max)),
+        (Onglet::Population, _) if ecran.carte_habitants => {
+            let v: Vec<f64> = cases.iter().map(|c| c.habitants).filter(|v| *v > 0.5).collect();
+            ModeCarte::Habitants(v.iter().copied().fold(f64::MAX, f64::min).min(1e9), v.iter().copied().fold(1.0, f64::max))
+        }
         (Onglet::Population, _) => ModeCarte::Remplissage,
         (Onglet::Rendements, Some(g)) => ModeCarte::Grandeur(g, cases.iter().map(|c| valeur(&c.rendement, g)).fold(0.01, f64::max)),
         _ => ModeCarte::Dominante,
@@ -1042,6 +1094,7 @@ fn reconstruire(
     let titre_liste: String = match (ecran.onglet, ecran.grandeur) {
         (Onglet::Rendements, Some(g)) => format!("Cases · {}", g.nom().to_lowercase()),
         (Onglet::Rendements, None) => "Cases travaillées".into(),
+        (Onglet::Population, _) if ecran.carte_habitants => "Cases par habitants".into(),
         (Onglet::Population, _) => "Cases par remplissage".into(),
         (Onglet::Commerce, _) => "Axes de commerce".into(),
         (Onglet::Histoire, _) => "Lieux de l'histoire".into(),
@@ -1050,7 +1103,7 @@ fn reconstruire(
         t.0 = titre_liste;
     }
     let gr = if ecran.onglet == Onglet::Rendements { ecran.grandeur } else { None };
-    commands.entity(*liste).despawn_related::<Children>().with_children(|l| liste_droite(l, ecran.onglet, &cases, ecran.case, gr));
+    commands.entity(*liste).despawn_related::<Children>().with_children(|l| liste_droite(l, ecran.onglet, &cases, ecran.case, gr, ecran.carte_habitants));
 }
 
 fn melange(a: Color, b: Color, t: f32) -> Color {
@@ -1068,6 +1121,13 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, mode: ModeCarte, 
             None => Color::srgb(0.06, 0.075, 0.11),
         },
         ModeCarte::Grandeur(g, max) => melange(charte::SURFACE, g.couleur(), 0.08 + 0.6 * (valeur(&c.rendement, g) / max) as f32),
+        ModeCarte::Habitants(lo, hi) => {
+            if c.habitants > 0.5 {
+                rampe(if hi > lo { ((c.habitants.ln() - lo.ln()) / (hi.ln() - lo.ln())) as f32 } else { 1.0 })
+            } else {
+                Color::srgb(0.086, 0.106, 0.145)
+            }
+        }
         _ if c.centre => charte::CENTRE_VILLE,
         ModeCarte::Remplissage => {
             let part = c.remplissage();
@@ -1101,6 +1161,11 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, mode: ModeCarte, 
         if mode_pop && !c.centre && grand {
             h.spawn(centre(texte(format!("{} %", (c.remplissage() * 100.0).round()), (s * 0.34).clamp(11.0, 18.0), charte::TEXTE)));
             h.spawn(centre(texte(format!("{} / {}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())), petit, charte::DOUX)));
+        } else if let (ModeCarte::Habitants(lo, hi), true) = (mode, s >= 22.0) {
+            if c.habitants > 0.5 {
+                let q = if hi > lo { (c.habitants.ln() - lo.ln()) / (hi.ln() - lo.ln()) } else { 1.0 };
+                h.spawn(centre(texte(rules::milliers(c.habitants.round() as u64), (s * 0.34).clamp(11.0, 18.0), if q < 0.4 { Color::srgb(0.11, 0.08, 0.22) } else { charte::TEXTE })));
+            }
         } else if let (ModeCarte::Placement(a, _), true) = (mode, s >= 22.0) {
             match gain {
                 Some(g) => {
@@ -1151,6 +1216,33 @@ fn pastille(l: &mut ChildSpawnerCommands, couleur: Color, t: &str) {
 
 /// Légende et couches, au-dessus de la carte.
 fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool) {
+    if matches!(mode, ModeCarte::Remplissage | ModeCarte::Habitants(..)) {
+        // (onglet Population : deux cartes)
+        let habitants = matches!(mode, ModeCarte::Habitants(..));
+        for (v, t) in [(false, "Emplois"), (true, "Répartition de la population")] {
+            let actif = v == habitants;
+            l.spawn((
+                ChoixCartePop(v),
+                UiPointer::default(),
+                Node { padding: UiRect::axes(Val::Px(9.0), Val::Px(3.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
+                BackgroundColor(if actif { charte::TEXTE } else { Color::NONE }),
+                BorderColor::all(charte::TRAIT2),
+                children![texte(t, 12.5, if actif { charte::FOND } else { charte::DOUX })],
+            ));
+        }
+    }
+    if let ModeCarte::Habitants(lo, hi) = mode {
+        l.spawn(texte(format!("{} hab.", rules::milliers(lo.round() as u64)), 12.5, charte::TEXTE));
+        l.spawn(Node { column_gap: Val::Px(0.0), ..default() }).with_children(|d| {
+            for k in 0..12 {
+                d.spawn((Node { width: Val::Px(14.0), height: Val::Px(10.0), ..default() }, BackgroundColor(rampe(k as f32 / 11.0))));
+            }
+        });
+        l.spawn(texte(format!("{} hab.", rules::milliers(hi.round() as u64)), 12.5, charte::TEXTE));
+        pastille(l, Color::srgb(0.086, 0.106, 0.145), "personne");
+        l.spawn(texte("chiffres : habitants de la case (pour l'instant, chacun vit là où il travaille)", 12.5, charte::MUET));
+        return;
+    }
     if let ModeCarte::Placement(a, _) = mode {
         pastille(l, melange(charte::SURFACE, charte::AMENAGEMENT, 0.2), "gain faible");
         pastille(l, melange(charte::SURFACE, charte::AMENAGEMENT, 0.6), "fort");
@@ -1355,8 +1447,18 @@ fn ligne_valeur(p: &mut ChildSpawnerCommands, libelle: &str, valeur: String, cou
     });
 }
 
-/// Onglet Population.
-fn population(g: &mut ChildSpawnerCommands, city: &City, images: &Images) {
+/// Indicateur (non cliquable) : titre, valeur, ligne.
+fn indicateur(r: &mut ChildSpawnerCommands, titre: &str, valeur: String, ligne: String, couleur: Color) {
+    r.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(9.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(8.0)), ..default() }, BorderColor::all(charte::TRAIT)))
+        .with_children(|c| {
+            c.spawn(texte(titre, 13.0, charte::MUET));
+            c.spawn(texte(valeur, 22.0, charte::TEXTE));
+            c.spawn(texte(ligne, 12.5, couleur));
+        });
+}
+
+/// Onglet Population : indicateurs, évolution et limites, mouvement, cultures et ordres.
+fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], images: &Images, graphique: Option<&(Handle<Image>, crate::graphique::Courbe, crate::graphique::Trace)>) {
     let c = &city.state;
     let t = &city.travail;
     let employes = t.actifs - t.chomeurs;
@@ -1365,13 +1467,47 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, images: &Images) {
             r.spawn(icone(images.grandeur(Grandeur::Habitants), 20.0, Grandeur::Habitants.couleur()));
             titre(r, &format!("Population de {}", c.name));
         });
-        ligne_valeur(p, "Habitants de l'aire (ville et campagnes)", rules::milliers(c.habitants), charte::TEXTE);
-        ligne_valeur(p, "Palier", format!("{} (le suivant à {} habitants)", c.palier(), rules::milliers(rules::habitants_du_palier(c.palier() + 1))), charte::TEXTE);
-        ligne_valeur(p, "Actifs (la moitié des habitants)", rules::milliers(t.actifs.into()), charte::TEXTE);
-        ligne_valeur(p, "Au travail sur les cases", rules::milliers(employes.into()), charte::TEXTE);
-        let (v, couleur) = if t.chomeurs > 0 { (format!("{} : aménager des cases", rules::milliers(t.chomeurs.into())), charte::ALERTE) } else { ("aucun".into(), charte::OK) };
-        ligne_valeur(p, "Sans emploi", v, couleur);
+        p.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|r| {
+            indicateur(r, "Habitants de l'aire", rules::milliers(c.habitants), format!("palier {} · le suivant à {}", c.palier(), rules::milliers(rules::habitants_du_palier(c.palier() + 1))), charte::DOUX);
+            indicateur(r, "Actifs (la moitié)", rules::milliers(t.actifs.into()), format!("{} au travail sur les cases", rules::milliers(employes.into())), charte::DOUX);
+            let (l, e) = if t.chomeurs > 0 { ("aménager des cases".to_string(), charte::ALERTE) } else { ("tous employés".to_string(), charte::OK) };
+            indicateur(r, "Sans emploi", rules::milliers(t.chomeurs.into()), l, e);
+            indicateur(r, "Taux d'urbanisation", "—".into(), "pas encore de quartiers urbains".into(), charte::MUET);
+        });
         p.spawn(texte("Pour l'instant, les habitants vivent là où ils travaillent.", 12.5, charte::MUET));
+    });
+    // Évolution et limites
+    let lim = limites(city, cases);
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        titre(p, "Évolution et limites de la ville");
+        if let Some((nom, _, couleur, quoi)) = lim.iter().min_by(|a, b| a.1.total_cmp(&b.1)) {
+            p.spawn(Node { column_gap: Val::Px(4.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
+                l.spawn(texte("Échelle logarithmique. Trait plein : le passé ; pointillé : la prévision avec les rendements actuels ; lignes de couleur : ce que la ville peut porter. La plus basse est la limite, ici", 12.5, charte::MUET));
+                l.spawn(texte(nom.to_lowercase(), 12.5, *couleur));
+                l.spawn(texte(format!("({quoi})."), 12.5, charte::MUET));
+            });
+        }
+        if let Some((h, cb, tr)) = graphique {
+            poser_graphique(p, h.clone(), cb, tr);
+        }
+        for (nom, v, couleur, _) in &lim {
+            let marge = if *v > c.habitants as f64 { format!("marge {}", rules::milliers((*v - c.habitants as f64) as u64)) } else { "dépassée".into() };
+            p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(5.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
+                l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(*nom, 13.5, *couleur)]));
+                l.spawn(texte(format!("{} habitants", rules::milliers(*v as u64)), 13.5, charte::TEXTE));
+                l.spawn((Node { width: Val::Px(110.0), justify_content: JustifyContent::FlexEnd, ..default() }, children![texte(marge, 12.5, if *v > c.habitants as f64 { charte::MUET } else { charte::GRAVE })]));
+            });
+        }
+        ligne_valeur(p, "Eau", "pas encore dans le jeu".into(), charte::MUET);
+    });
+    // Mouvement de la population
+    let dernier = c.historique.iter().rev().take(2).map(|r| r.habitants as i64).collect::<Vec<_>>();
+    let solde = if dernier.len() == 2 { Some(dernier[0] - dernier[1]) } else { None };
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        titre(p, "Mouvement de la population");
+        ligne_valeur(p, "Solde du dernier tour", solde.map_or("—".into(), |v| format!("{}{} habitants", if v >= 0 { "+" } else { "−" }, rules::milliers(v.unsigned_abs()))), if solde.is_some_and(|v| v < 0) { charte::GRAVE } else { charte::TEXTE });
+        ligne_valeur(p, "Prochain tour (rendements actuels)", { let v = c.variation(t.rendements); format!("{}{} habitants", if v >= 0 { "+" } else { "−" }, rules::milliers(v.unsigned_abs())) }, charte::TEXTE);
+        p.spawn(texte("Naissances, décès et migrations : pas encore distingués dans le jeu (seul le solde compte).", 12.5, charte::MUET));
     });
     vide(g, "Cultures et religions", "Une seule culture pour l'instant : les cultures et les religions ne sont pas encore dans le jeu.");
     vide(g, "Ordres de la société", "Paysans, artisans, marchands, prêtres, guerriers : pas encore dans le jeu.");
@@ -1453,7 +1589,7 @@ fn courbe(city: &City, g: Grandeur, periode: usize) -> crate::graphique::Courbe 
         Grandeur::Deniers => vec![Seuil { valeur: 0.0, libelle: "équilibre".into(), couleur: charte::ALERTE }],
         _ => Vec::new(),
     };
-    Courbe { passe, futur: 20, seuils, couleur: g.couleur() }
+    Courbe::simple(passe, 20, seuils, g.couleur())
 }
 
 /// Fil d'Ariane : vue d'ensemble › grandeur › case (les étapes passées sont des boutons).
@@ -1496,10 +1632,70 @@ fn ligne_part(p: &mut ChildSpawnerCommands, libelle: &str, v: Option<f64>, max: 
     });
 }
 
+/// Graphique (image) et ses libellés : graduations, seuils, tours.
+fn poser_graphique(p: &mut ChildSpawnerCommands, image: Handle<Image>, cb: &crate::graphique::Courbe, tr: &crate::graphique::Trace) {
+    use crate::graphique::{MARGE_DROITE, MARGE_GAUCHE};
+    p.spawn(Node { width: Val::Px(tr.taille.x), height: Val::Px(tr.taille.y), flex_shrink: 0.0, ..default() }).with_children(|gph| {
+        gph.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Px(tr.taille.x), height: Val::Px(tr.taille.y), ..default() }, ImageNode::new(image)));
+        let poser = |gph: &mut ChildSpawnerCommands, gauche: f32, haut: f32, largeur: f32, droite: bool, t: String, couleur: Color| {
+            gph.spawn((
+                Node { position_type: PositionType::Absolute, left: Val::Px(gauche), top: Val::Px(haut), width: Val::Px(largeur), justify_content: if droite { JustifyContent::FlexEnd } else { JustifyContent::Center }, ..default() },
+                children![texte(t, 11.5, couleur)],
+            ));
+        };
+        for v in tr.graduations() {
+            let t = if cb.log { rules::milliers(v.round() as u64) } else { rules::decimal(v) };
+            poser(gph, 0.0, tr.y(v) - 8.0, MARGE_GAUCHE - 6.0, true, t, charte::MUET);
+        }
+        for s in &cb.seuils {
+            poser(gph, MARGE_GAUCHE, tr.y(s.valeur) - 17.0, tr.taille.x - MARGE_GAUCHE - MARGE_DROITE - 4.0, true, s.libelle.clone(), s.couleur);
+        }
+        let bas = tr.taille.y - 18.0;
+        let n = cb.passe.len();
+        if n > 1 {
+            poser(gph, tr.x(-(n as f64 - 1.0)) - 40.0, bas, 80.0, false, format!("−{} tours", n - 1), charte::MUET);
+        }
+        poser(gph, tr.x(0.0) - 45.0, bas, 90.0, false, "aujourd'hui".into(), charte::TEXTE);
+        poser(gph, tr.x(cb.futur as f64) - 80.0, bas, 80.0, true, format!("+{} tours", cb.futur), charte::MUET);
+    });
+}
+
+/// Ce que la ville peut porter : habitants que la nourriture nourrit, habitants qui ont un emploi
+/// (la moitié travaille) ; l'eau n'est pas encore dans le jeu.
+fn limites(city: &City, cases: &[CaseVue]) -> Vec<(&'static str, f64, Color, &'static str)> {
+    let capacite: u32 = cases.iter().map(|c| c.capacite).sum();
+    vec![
+        ("Nourriture", city.travail.rendements.nourriture * rules::HABITANTS_PAR_NOURRITURE, Grandeur::Nourriture.couleur(), "habitants que la nourriture peut nourrir (1 pour 1 000)"),
+        ("Emplois", capacite as f64 / intendant::PART_ACTIVE, Grandeur::Production.couleur(), "au-delà, les nouveaux habitants n'ont pas de travail (la moitié travaille)"),
+    ]
+}
+
+/// Courbe de la population : le passé, la prévision tour par tour avec les rendements actuels
+/// (la nourriture arrête la croissance), les limites et le palier suivant ; échelle logarithmique.
+fn courbe_population(city: &City, cases: &[CaseVue]) -> crate::graphique::Courbe {
+    use crate::graphique::{Courbe, Seuil};
+    let mut passe: Vec<f64> = city.state.historique.iter().map(|r| r.habitants as f64).collect();
+    if passe.last() != Some(&(city.state.habitants as f64)) {
+        passe.push(city.state.habitants as f64);
+    }
+    let y = city.travail.rendements;
+    let mut st = city.state.clone();
+    let prevision: Vec<f64> = (0..40)
+        .map(|_| {
+            let v = st.variation(y);
+            st.habitants = (st.habitants as i64 + v).max(rules::HABITANTS_PLANCHER as i64) as u64;
+            st.habitants as f64
+        })
+        .collect();
+    let mut seuils: Vec<Seuil> = limites(city, cases).into_iter().map(|(n, v, c, _)| Seuil { valeur: v.max(1.0), libelle: format!("{n} : {}", rules::milliers(v as u64)), couleur: c }).collect();
+    let palier = city.state.palier() + 1;
+    seuils.push(Seuil { valeur: rules::habitants_du_palier(palier) as f64, libelle: format!("palier {palier}"), couleur: charte::MUET });
+    Courbe { passe, futur: 40, seuils, couleur: Grandeur::Habitants.couleur(), prevision: Some(prevision), log: true }
+}
+
 /// Détail d'une grandeur : graphique (passé, prévision, seuils), d'où elle vient, où elle va.
 #[allow(clippy::too_many_arguments)]
 fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[CaseVue], images: &Images, image: Handle<Image>, cb: &crate::graphique::Courbe, tr: &crate::graphique::Trace, periode: usize, reglages: &[(Reglage, Rendements, i64)]) {
-    use crate::graphique::{MARGE_DROITE, MARGE_GAUCHE};
     let c = &city.state;
     let total = valeur(&city.travail.rendements, gr);
     let centre = cases.iter().find(|c| c.centre).map_or(0.0, |c| valeur(&c.rendement, gr));
@@ -1555,28 +1751,7 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
             }
         });
         // Le graphique et ses libellés
-        p.spawn(Node { width: Val::Px(tr.taille.x), height: Val::Px(tr.taille.y), flex_shrink: 0.0, ..default() }).with_children(|gph| {
-            gph.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Px(tr.taille.x), height: Val::Px(tr.taille.y), ..default() }, ImageNode::new(image)));
-            let poser = |gph: &mut ChildSpawnerCommands, gauche: f32, haut: f32, largeur: f32, droite: bool, t: String, couleur: Color| {
-                gph.spawn((
-                    Node { position_type: PositionType::Absolute, left: Val::Px(gauche), top: Val::Px(haut), width: Val::Px(largeur), justify_content: if droite { JustifyContent::FlexEnd } else { JustifyContent::Center }, ..default() },
-                    children![texte(t, 11.5, couleur)],
-                ));
-            };
-            for v in tr.graduations() {
-                poser(gph, 0.0, tr.y(v) - 8.0, MARGE_GAUCHE - 6.0, true, rules::decimal(v), charte::MUET);
-            }
-            for s in &cb.seuils {
-                poser(gph, MARGE_GAUCHE, tr.y(s.valeur) - 17.0, tr.taille.x - MARGE_GAUCHE - MARGE_DROITE - 4.0, true, s.libelle.clone(), s.couleur);
-            }
-            let bas = tr.taille.y - 18.0;
-            let n = cb.passe.len();
-            if n > 1 {
-                poser(gph, tr.x(-(n as f64 - 1.0)) - 40.0, bas, 80.0, false, format!("−{} tours", n - 1), charte::MUET);
-            }
-            poser(gph, tr.x(0.0) - 45.0, bas, 90.0, false, "aujourd'hui".into(), charte::TEXTE);
-            poser(gph, tr.x(cb.futur as f64) - 80.0, bas, 80.0, true, format!("+{} tours", cb.futur), charte::MUET);
-        });
+        poser_graphique(p, image, cb, tr);
         if cb.passe.len() < 3 {
             p.spawn(texte("L'historique se remplit à chaque fin de tour (40 tours au plus).", 12.5, charte::MUET));
         }
@@ -1927,7 +2102,7 @@ fn construire_actions(
 }
 
 /// Liste de droite : cases travaillées ou par remplissage ; vide pour le commerce et l'histoire.
-fn liste_droite(l: &mut ChildSpawnerCommands, onglet: Onglet, cases: &[CaseVue], choisie: Option<Hex>, grandeur: Option<Grandeur>) {
+fn liste_droite(l: &mut ChildSpawnerCommands, onglet: Onglet, cases: &[CaseVue], choisie: Option<Hex>, grandeur: Option<Grandeur>, par_habitants: bool) {
     match onglet {
         Onglet::Commerce => {
             l.spawn(texte("Aucun axe : le commerce n'est pas encore dans le jeu.", 13.0, charte::MUET));
@@ -1940,7 +2115,10 @@ fn liste_droite(l: &mut ChildSpawnerCommands, onglet: Onglet, cases: &[CaseVue],
         _ => {}
     }
     let mut lst: Vec<&CaseVue> = cases.iter().filter(|c| !c.centre && c.capacite > 0).collect();
-    if let Some(g) = grandeur {
+    if onglet == Onglet::Population && par_habitants {
+        lst = cases.iter().filter(|c| c.habitants > 0.5).collect();
+        lst.sort_by(|a, b| b.habitants.total_cmp(&a.habitants).then(a.hex.cmp(&b.hex)));
+    } else if let Some(g) = grandeur {
         lst = cases.iter().filter(|c| valeur(&c.rendement, g) > 0.05).collect();
         lst.sort_by(|a, b| valeur(&b.rendement, g).total_cmp(&valeur(&a.rendement, g)).then(a.hex.cmp(&b.hex)));
     } else if onglet == Onglet::Population {
@@ -1967,7 +2145,9 @@ fn liste_droite(l: &mut ChildSpawnerCommands, onglet: Onglet, cases: &[CaseVue],
                 let t = if c.centre { "sans travailleurs".to_string() } else { format!("{} / {} travailleurs{a}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())) };
                 n.spawn(texte(t, 12.0, charte::MUET));
             });
-            if let Some(g) = grandeur {
+            if onglet == Onglet::Population && par_habitants {
+                i.spawn(texte(rules::milliers(c.habitants.round() as u64), 13.5, Grandeur::Habitants.couleur()));
+            } else if let Some(g) = grandeur {
                 i.spawn(texte(rules::decimal(valeur(&c.rendement, g)), 13.5, g.couleur()));
             } else if onglet == Onglet::Population {
                 i.spawn(barre(c.remplissage(), 80.0, if c.remplissage() >= 0.9 { charte::ALERTE } else { charte::OK }));
