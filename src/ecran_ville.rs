@@ -229,6 +229,81 @@ struct ChoixCartePop(bool);
 /// Onglet Histoire : filtre par genre (aucun : tout).
 #[derive(Component)]
 struct ChoixGenre(Option<rules::GenreEvenement>);
+/// Remède proposé par le diagnostic : placer un aménagement (case conseillée), ouvrir le détail
+/// d'une grandeur (réglages de l'intendant), ou ouvrir le catalogue.
+#[derive(Clone, Copy, PartialEq)]
+enum Remede {
+    Placer(Amenagement),
+    Detail(Grandeur),
+    Construire,
+}
+#[derive(Component)]
+struct BoutonRemede(Remede);
+
+/// Ce qui freine la croissance (un seul diagnostic, le plus grave), ses remèdes chiffrés, et les
+/// autres alertes de la ville.
+struct Frein {
+    etat: Etat,
+    texte: String,
+    remedes: Vec<(Remede, String)>,
+    alertes: Vec<(Etat, String, Remede)>,
+}
+
+/// Diagnostic de la croissance de la ville.
+fn frein(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue]) -> Frein {
+    let c = &city.state;
+    let y = city.travail.rendements;
+    let besoin = c.besoin_nourriture().max(1e-6);
+    let couverture = y.nourriture / besoin;
+    let limite = y.nourriture * rules::HABITANTS_PAR_NOURRITURE;
+    // Remèdes pour la nourriture : les aménagements qui en donnent le plus, à leur case conseillée
+    let mut nourrir: Vec<(f64, Remede, String)> = [Amenagement::Champ, Amenagement::Paturage]
+        .into_iter()
+        .filter_map(|a| {
+            let case = conseil(map, cases, a).and_then(|h| cases.iter().find(|x| x.hex == h))?;
+            let g = gain_amenagement(map, case, a).ok()?;
+            (g.plein.nourriture > 0.05).then(|| {
+                (g.plein.nourriture, Remede::Placer(a), format!("{} : +{} nourriture, limite +{} habitants", capitale(a.nom()), rules::decimal(g.plein.nourriture), rules::milliers((g.plein.nourriture * rules::HABITANTS_PAR_NOURRITURE) as u64)))
+            })
+        })
+        .collect();
+    nourrir.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let nourrir: Vec<(Remede, String)> = nourrir.into_iter().map(|(_, r, t)| (r, t)).collect();
+    let objectif = c.consignes.objectif;
+    let (etat, texte, mut remedes) = if couverture < 1.0 {
+        (Etat::Grave, format!("la nourriture manque ({} × le besoin) : famine, la population baisse", rules::decimal(couverture)), nourrir)
+    } else if objectif.cible() < 1.0 + rules::SURPLUS_POUR_CROITRE && couverture < 1.0 + rules::SURPLUS_POUR_CROITRE - 1e-6 {
+        (Etat::Alerte, format!("l'objectif de l'intendant, « {} », limite la croissance", objectif.nom().to_lowercase()), vec![(Remede::Detail(Grandeur::Nourriture), "Changer l'objectif".to_string())])
+    } else {
+        // Tours avant que la nourriture n'arrête la croissance, avec les rendements actuels
+        let mut st = c.clone();
+        let tours = (1..=60).find(|_| {
+            let v = st.variation(y);
+            st.habitants = (st.habitants as i64 + v).max(0) as u64;
+            st.habitants as f64 >= limite * 0.98 || v <= 0
+        });
+        let suivant = rules::habitants_du_palier(c.palier() + 1);
+        let palier = if (suivant as f64) > limite { format!(" · palier {} ({}) hors de portée sans remède", c.palier() + 1, rules::milliers(suivant)) } else { String::new() };
+        match tours {
+            Some(t) => (if t <= 20 { Etat::Alerte } else { Etat::Ok }, format!("la nourriture : limite {} habitants, atteinte dans ~{t} tours{palier}", rules::milliers(limite as u64)), nourrir),
+            None => (Etat::Ok, format!("rien pour l'instant ; à long terme, la nourriture : limite {} habitants (plus de 60 tours){palier}", rules::milliers(limite as u64)), nourrir),
+        }
+    };
+    remedes.truncate(3);
+    // Autres alertes
+    let mut alertes = Vec::new();
+    if c.file.is_empty() && c.projet.is_none() {
+        alertes.push((Etat::Alerte, "Rien à produire : la production est perdue".to_string(), Remede::Construire));
+    }
+    if city.travail.chomeurs > 0 {
+        let a = if cases.iter().any(|x| gain_amenagement(map, x, Amenagement::Champ).is_ok()) { Remede::Placer(Amenagement::Champ) } else { Remede::Construire };
+        alertes.push((Etat::Alerte, format!("{} sans emploi : aménager des cases (plus de place)", rules::milliers(city.travail.chomeurs.into())), a));
+    }
+    if c.projet.is_some() && c.file.is_empty() && c.tours_en_projet >= rules::RAPPEL_PROJET {
+        alertes.push((Etat::Ok, format!("En projet depuis {} tours", c.tours_en_projet), Remede::Construire));
+    }
+    Frein { etat, texte, remedes, alertes }
+}
 /// Forcer l'effectif d'une case : proposer un autre effectif, confirmer, annuler, rendre à l'intendant.
 #[derive(Component, Clone, Copy)]
 enum Forcage {
@@ -593,8 +668,8 @@ fn commandes(
     couches: Query<Ref<UiPointer>, With<BasculeAmenagements>>,
     (grandeurs, periodes, fils): (Query<(Ref<UiPointer>, &ChoixGrandeur)>, Query<(Ref<UiPointer>, &ChoixPeriode)>, Query<(Ref<UiPointer>, &Fil)>),
     (catalogue, construire, ici): (Query<(Ref<UiPointer>, &ChoixCatalogue)>, Query<Ref<UiPointer>, With<BoutonConstruire>>, Query<(Ref<UiPointer>, &AmenagerIci)>),
-    (cartes_pop, genres): (Query<(Ref<UiPointer>, &ChoixCartePop)>, Query<(Ref<UiPointer>, &ChoixGenre)>),
-    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>, With<ChoixGenre>)>, Changed<UiPointer>)>,
+    (cartes_pop, genres, remedes): (Query<(Ref<UiPointer>, &ChoixCartePop)>, Query<(Ref<UiPointer>, &ChoixGenre)>, Query<(Ref<UiPointer>, &BoutonRemede)>),
+    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<BoutonZoom>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>, With<ChoixGenre>, With<BoutonRemede>)>, Changed<UiPointer>)>,
 ) {
     if !ecran.ouvert() {
         return;
@@ -671,6 +746,29 @@ fn commandes(
             ecran.placement = if ecran.placement == Some(a) { None } else { Some(a) };
             ecran.cible = None;
             ecran.case = None;
+        }
+    }
+    for (i, r) in &remedes {
+        if !appui(&i) {
+            continue;
+        }
+        ecran.onglet = Onglet::Rendements;
+        ecran.case = None;
+        ecran.cible = None;
+        match r.0 {
+            Remede::Placer(a) => {
+                ecran.catalogue = true;
+                ecran.placement = Some(a);
+            }
+            Remede::Detail(g) => {
+                ecran.catalogue = false;
+                ecran.placement = None;
+                ecran.grandeur = Some(g);
+            }
+            Remede::Construire => {
+                ecran.catalogue = true;
+                ecran.placement = None;
+            }
         }
     }
     for (i, g) in &genres {
@@ -969,7 +1067,11 @@ fn reconstruire(
     let cases = cases_vues(&map.0, centre.0, v, &city, &territoire, &amenagements);
     let choisie = ecran.case.and_then(|h| cases.iter().find(|c| c.hex == h));
 
-    commands.entity(*entete).despawn_related::<Children>().with_children(|e| en_tete(e, &city, &images));
+    let diagnostic = frein(&map.0, &city, &cases);
+    commands.entity(*entete).despawn_related::<Children>().with_children(|e| {
+        en_tete(e, &city, &images);
+        bandeau_frein(e, &diagnostic);
+    });
     // Graphique de la grandeur détaillée (image refaite ; l'ancienne est libérée)
     if let Some(h) = graphique.take() {
         assets.remove(&h);
@@ -1119,7 +1221,14 @@ fn reconstruire(
         if let Ok(mut t) = textes.get_mut(*titre) {
             t.0 = "Construire".into();
         }
-        commands.entity(*liste).despawn_related::<Children>().with_children(|l| catalogue(l, &map.0, &city, &cases, ecran.placement));
+        commands.entity(*liste).despawn_related::<Children>().with_children(|l| {
+            l.spawn((Node { column_gap: Val::Px(6.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)), border_radius: BorderRadius::all(Val::Px(6.0)), flex_wrap: FlexWrap::Wrap, ..default() }, BackgroundColor(Color::srgb(0.17, 0.15, 0.07))))
+                .with_children(|b| {
+                    b.spawn(texte(format!("Ce qui freine {} :", city.state.name), 13.0, CONSEIL));
+                    b.spawn(texte(diagnostic.texte.clone(), 13.0, CONSEIL));
+                });
+            catalogue(l, &map.0, &city, &cases, ecran.placement);
+        });
         return;
     }
     let titre_liste: String = match (ecran.onglet, ecran.grandeur) {
@@ -1372,6 +1481,30 @@ fn delai(cout: i32, stock: f64, par_tour: f64) -> String {
         Some(t) => format!("{t} tour(s)"),
         None => "jamais au rythme actuel".into(),
     }
+}
+
+/// Sous l'en-tête : ce qui freine la croissance, ses remèdes, les autres alertes.
+fn bandeau_frein(e: &mut ChildSpawnerCommands, f: &Frein) {
+    e.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)), border_radius: BorderRadius::all(Val::Px(8.0)), ..default() }, BackgroundColor(charte::SURFACE))).with_children(|b| {
+        b.spawn(Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
+            l.spawn((Node { width: Val::Px(9.0), height: Val::Px(9.0), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() }, BackgroundColor(f.etat.couleur())));
+            l.spawn(texte("Ce qui freine la croissance :", 13.5, charte::TEXTE));
+            l.spawn(texte(f.texte.clone(), 13.5, f.etat.couleur()));
+        });
+        if !f.remedes.is_empty() || !f.alertes.is_empty() {
+            b.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
+                if !f.remedes.is_empty() {
+                    l.spawn(texte("Remèdes :", 12.5, charte::MUET));
+                }
+                for (r, t) in &f.remedes {
+                    l.spawn((BoutonRemede(*r), bouton(Color::NONE), children![texte(t.clone(), 12.5, charte::AMENAGEMENT)]));
+                }
+                for (etat, t, r) in &f.alertes {
+                    l.spawn((BoutonRemede(*r), bouton(Color::NONE), children![texte(t.clone(), 12.5, etat.couleur())]));
+                }
+            });
+        }
+    });
 }
 
 /// Titre de section.
