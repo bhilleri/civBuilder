@@ -1,0 +1,709 @@
+<meta charset="utf-8">
+<title>Écran de la ville CivBuilder</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0&display=block">
+<style>
+/* Mise en page : écran de jeu en 1920 × 1080 ; en-tête et onglets sur toute la largeur, puis explication à gauche et carte + listes à droite */
+:root{
+  color-scheme:dark;
+  --fond:#0b0e15;--panneau:#131824;--surface:#1a2030;--surface2:#222a3c;--trait:#2a3245;--trait2:#3a4358;
+  --texte:#e7e9ef;--doux:#b0b7c6;--muet:#8a92a5;
+  --nour:#97c459;--prod:#d9a066;--den:#f2d16b;--eau:#5dc4e8;--rech:#5dcaa5;--cult:#ed93b1;--def:#b4b2a9;--bien:#c9b3ff;
+  --bat:#8f86e6;--com:#c9ac7a;
+  --ok:#4fc3a1;--av:#f0a03c;--cr:#f08a8a;--sel:#ffffff;--action:#3b6fe0;
+  --titre:"Space Grotesk",Inter,system-ui,sans-serif;--corps:Inter,system-ui,sans-serif;
+}
+html,body{height:100%}
+i.ti{font-family:"Material Symbols Outlined";font-style:normal;font-weight:400;font-size:1.2em;line-height:1;vertical-align:-.22em;display:inline-block;letter-spacing:normal;text-transform:none;white-space:nowrap;direction:ltr;font-feature-settings:"liga";-webkit-font-smoothing:antialiased;overflow:hidden;max-width:1.25em}
+body{background:var(--fond);color:var(--texte);font-family:var(--corps);font-size:14px;line-height:1.45;margin:0}
+.page{padding-block:14px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));max-width:1920px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+.note{font-size:12px;color:var(--muet);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.bascule{display:inline-flex;border:1px solid var(--trait2);border-radius:8px;overflow:hidden}
+.bascule button{background:transparent;color:var(--doux);border:0;padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer}
+.bascule button[aria-pressed="true"]{background:var(--surface2);color:var(--texte)}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+/* En-tête global */
+.entete{background:var(--panneau);border-radius:10px;padding:10px 14px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px;align-items:center}
+.nom{font-family:var(--titre);font-size:26px;font-weight:600;letter-spacing:.2px}
+.etatville{color:var(--doux);font-size:14px;display:flex;gap:14px;flex-wrap:wrap;margin-top:2px}
+.alertes{display:flex;flex-direction:column;gap:2px}
+.alerte{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13.5px}
+.alerte:hover{background:var(--surface)}
+.ok{color:var(--ok)}.av{color:var(--av)}.cr{color:var(--cr)}
+/* Onglets : gouvernent toute la zone en dessous */
+.onglets{display:flex;gap:4px;border-bottom:1px solid var(--trait)}
+.onglets button{background:transparent;border:0;border-bottom:3px solid transparent;color:var(--doux);font:inherit;font-family:var(--titre);font-size:16px;padding:8px 18px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.onglets button[aria-selected="true"]{color:var(--texte);border-bottom-color:var(--texte)}
+.zone{display:grid;grid-template-columns:minmax(0,46fr) minmax(0,54fr);gap:12px;align-items:start}
+.col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.pn{background:var(--panneau);border-radius:10px;padding:12px 14px;min-width:0}
+.titrepn{font-family:var(--titre);font-size:15px;font-weight:500;display:flex;align-items:center;gap:8px}
+.lb{font-size:12.5px;color:var(--doux)}
+.mu{font-size:12px;color:var(--muet)}
+/* Cartes de grandeur */
+.cartes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.carte{background:var(--surface);border:1px solid transparent;border-radius:8px;padding:9px 10px;cursor:pointer;text-align:left;color:inherit;font:inherit}
+.carte[aria-pressed="true"]{border-color:var(--sel)}
+.carte .val{font-family:var(--titre);font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.carte .tete{display:flex;align-items:center;gap:6px;font-size:13px}
+.badge{margin-left:auto;font-size:11px;background:var(--surface2);border-radius:4px;padding:1px 6px;color:var(--texte)}
+.secs{display:flex;flex-wrap:wrap;gap:6px}
+.pastille{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid transparent;border-radius:14px;padding:4px 11px;font:inherit;font-size:13px;color:inherit;cursor:pointer}
+.pastille[aria-pressed="true"]{border-color:var(--sel)}
+.pastille b{font-weight:500;font-variant-numeric:tabular-nums}
+/* Pile */
+.fil{font-size:13px;color:var(--doux);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fil button{background:none;border:0;color:#8fb4f0;font:inherit;cursor:pointer;padding:0}
+.fil .ici{color:var(--texte);font-weight:500}
+table.tb{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.tb th{font-weight:400;color:var(--muet);font-size:12px;text-align:right;padding:5px 6px}
+.tb td{border-top:1px solid var(--trait);padding:6px;text-align:right;font-size:13.5px}
+.tb th:first-child,.tb td:first-child{text-align:left}
+.tb tr.cl{cursor:pointer}.tb tr.cl:hover td{background:var(--surface)}
+.tb td.g{color:var(--doux)}
+.ligne{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--trait);font-size:13.5px}
+.ligne:first-child{border-top:0}
+.barre{height:6px;border-radius:3px;background:var(--trait);overflow:hidden;display:flex}
+.deux{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.seg{display:inline-flex;border:1px solid var(--trait2);border-radius:7px;overflow:hidden;flex-wrap:wrap}
+.seg button{background:transparent;color:var(--doux);border:0;border-left:1px solid var(--trait2);padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed="true"]{background:var(--texte);color:var(--fond)}
+.btn{background:var(--action);color:#fff;border:0;border-radius:7px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.btn2{background:var(--surface);color:var(--texte);border:1px solid var(--trait2);border-radius:7px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+/* Carte de la ville */
+.cadre{position:relative}
+.cadre svg{display:block;width:100%;height:auto;background:#0f131c;border-radius:8px}
+.zoom{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:4px}
+.zoom button{width:30px;height:28px;border-radius:6px;border:1px solid var(--trait2);background:var(--surface);color:var(--texte);font-size:16px;cursor:pointer}
+.bulle{position:absolute;pointer-events:none;background:#0b0e15;border:1px solid var(--trait2);border-radius:7px;padding:6px 9px;font-size:12.5px;max-width:260px;z-index:3}
+.bandeau-carte{background:#2b2512;color:#f3cf72;border-radius:6px;padding:6px 10px;font-size:13px;display:flex;gap:8px;align-items:center}
+.legcarte{display:flex;flex-wrap:wrap;gap:6px 18px;margin-bottom:8px;padding:8px 10px;background:var(--surface);border-radius:8px;font-size:12.5px;align-items:center}
+.legcarte .bloc{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.legcarte .titre{color:var(--muet);font-size:11.5px;width:100%}
+.legcarte .el{display:inline-flex;align-items:center;gap:6px;color:var(--texte)}
+.legcarte button.el{background:transparent;border:1px solid var(--trait2);border-radius:14px;padding:2px 9px;font:inherit;font-size:12.5px;cursor:pointer}
+.legcarte button.el[aria-pressed="false"]{opacity:.45;text-decoration:line-through}
+.sw{width:18px;height:12px;border-radius:3px;display:inline-block;flex:none}
+.degrade{width:120px;height:10px;border-radius:5px;display:inline-block}
+.liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:4px}
+.item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;cursor:pointer;border:1px solid transparent;background:transparent;color:inherit;font:inherit;text-align:left}
+.item:hover{background:var(--surface)}
+.item[aria-pressed="true"]{border-color:var(--sel)}
+.ico{width:28px;height:28px;border-radius:6px;background:#29234a;color:#d8d3ff;display:flex;align-items:center;justify-content:center;font-size:17px;flex:none}
+.ico.amen{background:#1f3320;color:#a6dc8e;border-radius:50%}
+.ico.bonus{background:#14302f;color:#7fd8cf;border-radius:4px;transform:rotate(45deg) scale(.82)}.ico.bonus i{transform:rotate(-45deg)}
+.tag{display:inline-flex;align-items:center;gap:3px;font-size:11px;border-radius:4px;padding:0 6px;vertical-align:1px}
+.tag.bat{background:#29234a;color:#d8d3ff}.tag.bonus{background:#14302f;color:#7fd8cf}.tag.amen{background:#1f3320;color:#a6dc8e}
+.groupe{font-family:var(--titre);font-size:13px;color:var(--doux);margin:8px 0 2px;display:flex;align-items:center;gap:6px;grid-column:1/-1}
+.voile{position:fixed;inset:0;background:rgba(5,7,12,.72);display:flex;align-items:center;justify-content:center;z-index:20;padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}
+.fenetre{background:var(--panneau);border:1px solid var(--trait2);border-radius:12px;padding:16px 18px;width:min(1400px,100%);max-height:90vh;display:flex;flex-direction:column}
+.fenetre .tb td{vertical-align:middle}
+.etapes{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--doux);flex-wrap:wrap}
+.etapes b{color:var(--texte);font-weight:500}
+.frein{margin-top:8px;padding:7px 10px;border-radius:8px;background:var(--surface);font-size:13.5px;display:flex;flex-direction:column;gap:5px}
+.frein .diag{cursor:pointer;display:flex;gap:6px;align-items:baseline}
+.frein .remedes{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.btn2.rem{padding:2px 9px;font-size:12.5px}
+.carte.indic{background:transparent;border:1px solid var(--trait);cursor:default}
+.lienhist{background:none;border:0;color:inherit;font:inherit;font-size:12px;cursor:pointer;padding:0;text-decoration:underline dotted}
+@media (max-width:1100px){.zone,.entete{grid-template-columns:minmax(0,1fr)}.cartes{grid-template-columns:repeat(2,minmax(0,1fr))}.deux{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:no-preference){.carte,.pastille,.item{transition:border-color .12s}}
+</style>
+
+<div class="page" id="racine" tabindex="-1">
+  <div class="note">
+    <span>Maquette de l'écran de la ville · chiffres d'exemple, systèmes pas encore dans le jeu (eau, commerce, bâtiments, recherche…)</span>
+    <span class="bascule" role="group" aria-label="Ville d'exemple"><button data-ville="petite" aria-pressed="true">Paris · bourg</button><button data-ville="grande" aria-pressed="false">Lugdun · grande ville</button></span>
+    <span>Clavier : 1 à 4 grandeurs · B construire · Entrée mettre en file · Échap remonter</span>
+  </div>
+
+  <header class="entete" id="entete"></header>
+
+  <nav class="onglets" role="tablist" id="onglets"></nav>
+
+  <div class="zone" id="zone">
+    <div class="col" id="gauche"></div>
+    <div class="col" id="droite">
+      <section class="pn">
+        <div class="lb" id="legende" style="margin-bottom:6px"></div>
+        <div class="legcarte" id="legendeCarte" aria-label="Légende et couches de la carte"></div>
+        <div class="cadre" id="cadre">
+          <svg id="carte" viewBox="0 0 520 380" role="img" aria-label="Carte de la ville"></svg>
+          <div class="zoom" id="zoomb"><button data-z="1.4" aria-label="Zoomer">+</button><button data-z="0.71" aria-label="Dézoomer">−</button><button data-z="0" aria-label="Recentrer"><i class="ti ti-focus-centered" aria-hidden="true"></i></button></div>
+          <div class="bulle" id="bulle" hidden></div>
+        </div>
+      </section>
+      <section class="pn">
+        <div class="titrepn" style="margin-bottom:6px"><span id="titreliste"></span><span class="mu" id="infoliste" style="margin-left:auto"></span></div>
+        <div class="liste" id="liste"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- Grandeurs ---------- */
+const G={
+  nour:{n:"Nourriture",c:"var(--nour)",rgb:"151,196,89",i:"ti-wheat",u:"",de:"la nourriture"},
+  prod:{n:"Production",c:"var(--prod)",rgb:"217,160,102",i:"ti-hammer",u:"",de:"la production"},
+  den:{n:"Deniers",c:"var(--den)",rgb:"242,209,107",i:"ti-coins",u:"",de:"les deniers"},
+  eau:{n:"Eau",c:"var(--eau)",rgb:"93,196,232",i:"ti-droplet",u:" m³/s",de:"l'eau"},
+  rech:{n:"Recherche",c:"var(--rech)",rgb:"93,202,165",i:"ti-flask",u:"",de:"la recherche",sec:1},
+  cult:{n:"Culture",c:"var(--cult)",rgb:"237,147,177",i:"ti-feather",u:"",de:"la culture",sec:1},
+  def:{n:"Défense",c:"var(--def)",rgb:"180,178,169",i:"ti-shield",u:"",de:"la défense",sec:1},
+  bien:{n:"Bien-être",c:"var(--bien)",rgb:"201,179,255",i:"ti-mood-smile",u:"",de:"le bien-être",sec:1}
+};
+G.hab={n:"Habitants",c:"var(--bien)",rgb:"201,179,255",i:"ti-users",u:"",de:"la population"};
+const PRINC=["nour","prod","den","eau"],SECS=["rech","cult","def","bien"],TOUTES=PRINC.concat(SECS);
+const ST={ok:"ti-circle-check",av:"ti-alert-triangle",cr:"ti-circle-x"};
+const etat=(e,t)=>`<span class="${e}"><i class="ti ${ST[e]}" aria-hidden="true"></i>${t?" "+t:""}</span>`;
+const f1=x=>x.toFixed(1).replace('.',','),f2=x=>x.toFixed(2).replace('.',',');
+const nb=x=>Math.round(x).toLocaleString('fr-FR');
+const fv=(r,v)=>r=="eau"?(Math.abs(v)<5?f2(v):f1(v)):(G[r].sec&&r!="rech"&&r!="cult"?String(Math.round(v)):f1(v));
+const sg=(r,v)=>(v>=0?"+":"−")+fv(r,Math.abs(v));
+const hexpts=(x,y,s)=>[[0,-1],[.866,-.5],[.866,.5],[0,1],[-.866,.5],[-.866,-.5]].map(([a,b])=>`${(x+a*s).toFixed(1)},${(y+b*s).toFixed(1)}`).join(' ');
+let rs=7;const rnd=()=>{rs=(rs*16807)%2147483647;return (rs-1)/2147483646};
+const dist=(a,b)=>(Math.abs(a.q-b.q)+Math.abs(a.r-b.r)+Math.abs(a.q+a.r-b.q-b.r))/2;
+const DIRS=["est","nord-est","nord","nord-ouest","ouest","sud-ouest","sud","sud-est"];
+const direction=(h,c)=>DIRS[((Math.round(Math.atan2(-(h.y-c.y),h.x-c.x)/(Math.PI/4))%8)+8)%8];
+function cellules(R,s){const L=[];for(let q=-R;q<=R;q++)for(let r=Math.max(-R,-q-R);r<=Math.min(R,-q+R);r++)L.push({q,r,x:260+s*1.732*(q+r/2),y:190+s*1.5*r,k:q+","+r});return L}
+function nommer(H){const c=H.find(h=>h.k=="0,0");const vus={};H.forEach(h=>{if(h.k=="0,0"){h.nom="Centre-ville";return}const d=dist(h,c),dir=direction(h,c);let n=`${h.type[0].toUpperCase()+h.type.slice(1)} ${dir=="est"||dir=="ouest"?"de l'":"du "}${dir}${d>=3?" lointain":""}`;vus[n]=(vus[n]||0)+1;if(vus[n]>1)n+=" "+["","","bis","ter","quater"][Math.min(4,vus[n])];h.nom=n})}
+const ICO={moulin:"ti-wind-mill",atelier:"ti-tools",marche:"ti-building-store",citerne:"ti-droplet-half-2",caserne:"ti-shield",autel:"ti-candle",grenier:"ti-building-warehouse",port:"ti-anchor",temple:"ti-building-church",biblio:"ti-books",banque:"ti-coin",aqueduc:"ti-building-arch",scierie:"ti-trees",charbon:"ti-flame",puits:"ti-bucket",peage:"ti-road-sign",sanct:"ti-sparkles",palis:"ti-fence",ecole:"ti-school",thermes:"ti-bath",theatre:"ti-masks-theater",remparts:"ti-building-castle",champ:"ti-champ",paturage:"ti-paturage",coupe:"ti-coupe",irrig:"ti-irrig",egouts:"ti-egouts",paves:"ti-paves",fontaines:"ti-fontaines",jardins:"ti-jardins",artisans:"ti-artisans",comptoirs:"ti-comptoirs",drainage:"ti-drainage"};
+const serie=(n,a,b,bruit,ev={})=>{let v=a,o=[];for(let i=0;i<n;i++){v+=(b-a)/n+Math.sin(i*1.7)*bruit+(ev[i]||0);o.push(v)}const k=b-o[n-1];return o.map((x,i)=>x+k*i/(n-1))};
+
+/* ---------- Bourg ---------- */
+function petite(){
+  const H=cellules(1,62),T={"0,0":["centre",2,2,1,1,0,0],"0,-1":["forêt",1.4,3.1,0,0,300,500],"1,-1":["forêt",1.4,3.1,0,0,300,500],"-1,0":["forêt",1.4,3.1,0,0,300,500],"1,0":["taïga",0.6,1.3,0,0,100,500],"-1,1":["prairie du fleuve",1.3,0,0.5,0,200,500],"0,1":["taïga",0.1,0.1,0,0,20,500]};
+  H.forEach(h=>{const t=T[h.k];h.type=t[0];h.v={nour:t[1],prod:t[2],den:t[3]};h.urb=!!t[4];h.w=t[5];h.cap=t[6];h.bois=/forêt|taïga/.test(h.type);h.riv=h.k=="-1,1"||h.k=="-1,0"});
+  const pr=H.find(h=>h.k=="-1,1");pr.am="champ";pr.cap=1500;pr.v.nour=2.6;pr.bonus=["drainage"];
+  const B=[
+    {t:"moulin",nom:"Moulin à eau",k:"-1,1",emp:[40,40],ent:0.2,b:{nour:{"-1,1":0.2,"-1,0":0.1,"0,1":0.1},den:{"-1,1":0.1}}},
+    {t:"atelier",nom:"Atelier de taille",k:"0,0",emp:[30,60],pal:"palier 1 sur 2 · plein : +30 % (manque 30 actifs)",ent:0.2,b:{prod:{"0,-1":0.35,"1,-1":0.35,"-1,0":0.35,"1,0":0.15,"0,1":0.1},den:{"0,0":0.2}}},
+    {t:"marche",nom:"Marché",k:"0,0",emp:[20,20],ent:0.1,b:{den:{"0,0":0.5}}},
+    {t:"caserne",nom:"Caserne",k:"0,0",emp:[25,25],ent:0.3,b:{def:{"0,0":3}},note:"formation des soldats +25 %"},
+    {t:"autel",nom:"Autel des ancêtres",k:"0,0",emp:[5,5],ent:0.1,b:{cult:{"0,0":1},bien:{"0,0":2}}}];
+  nommer(H);
+  return {nom:"Paris",hab:2439,palier:2,suiv:3000,croit:37,actifs:1220,chom:0,H,B,
+    com:{nour:{rec:0.4,env:1.2},prod:{rec:0.6,env:0},den:0.4},solde:1,impot:0,
+    base:{rech:[["Habitants instruits (éducation 4 %)",0.5]],cult:[["Centre de la ville",1]],def:[["Défense de base",5]],bien:[["Niveau de départ",50],["Nourriture couverte",10]]},
+    moins:{bien:[]},
+    eau:{pris:0.85,max:1.02,src:[["Fleuve la Vesse","6 % du débit d'étiage (12 m³/s)",0.61,0.70],["Ruisseau de Deld","à sec en août",0.10,0.10],["Puits (nappes)","720 mm/an",0.14,0.22]]},
+    file:[["Milice",15,9,null,null],["Charbonnière · Forêt du nord-ouest",30,0,"0,-1","charbon"]],
+    AX:[{v:"Lyon",voie:"gué et route",duree:2,env:["blé"],rec:[],den:0.4,risque:["ok","faible"]},{v:"Arles",voie:"fleuve, barques",duree:3,env:[],rec:["poisson séché","bois"],den:-0.7,risque:["av","pirates du fleuve"]}],
+    pos:{Lyon:[470,60],Arles:[450,330]},depend:"aucune",transport:"6 chevaux sur 10 du pays"};
+}
+/* ---------- Grande ville ---------- */
+function grande(){
+  rs=11;const H=cellules(3,29),fl=new Set(["-3,2","-2,2","-1,2","0,2","1,1","2,1","3,0"]);
+  const quart={"0,0":"quartier du marché","1,-1":"quartier artisanal","1,0":"quartier du port","1,1":"quartier du port","-1,1":"quartier des thermes","1,-2":"quartier militaire","0,1":"quartier des changeurs","-1,0":"quartier du temple","0,-1":"quartier des écoles"};
+  H.forEach(h=>{const d=dist(h,{q:0,r:0});h.urb=d<=1||(d==2&&rnd()<.35)||!!quart[h.k];h.fl=fl.has(h.k);h.riv=h.fl;const cult=!h.urb&&rnd()<.55;
+    h.type=h.urb?(quart[h.k]||"quartier résidentiel"):(cult?(h.fl?"champs du fleuve":"champs"):(rnd()<.4?"pâturages":"bois"));h.bois=h.type=="bois";
+    h.cap=h.urb?3000:cult?1500:1000;h.w=Math.round(h.cap*(0.6+rnd()*0.4)/100)*100;
+    h.v={nour:h.urb?0.6:(cult?6+rnd()*4:2+rnd()*2),prod:h.urb?4+rnd()*3:(cult?0.6:4+rnd()*3),den:h.urb?3+rnd()*3:(h.fl?1.5:0.2)}});
+  const near=(k,d,f,a,b)=>{const c=H.find(x=>x.k==k),o={};H.filter(h=>dist(h,c)<=d&&f(h)).forEach(h=>o[h.k]=+(a+rnd()*b).toFixed(1));return o};
+  const cult=h=>/champs/.test(h.type),bois=h=>h.type=="bois";
+  const B=[
+    {t:"marche",nom:"Grand marché",k:"0,0",emp:[400,400],ent:1.2,b:{den:near("0,0",1,h=>h.urb,0.6,1),nour:{"0,0":3}}},
+    {t:"port",nom:"Port fluvial",k:"1,1",emp:[300,300],ent:1,b:{den:near("1,1",2,h=>h.fl,0.4,0.8),nour:near("1,1",1,h=>h.fl,0.5,1)}},
+    {t:"moulin",nom:"Moulin de l'Est",k:"2,1",emp:[60,60],ent:0.3,b:{nour:near("2,1",2,cult,0.6,1)}},
+    {t:"moulin",nom:"Moulin du Gué",k:"-2,2",emp:[60,60],ent:0.3,b:{nour:near("-2,2",2,cult,0.6,1)}},
+    {t:"grenier",nom:"Greniers",k:"-1,0",emp:[80,80],ent:0.4,b:{nour:{"-1,0":4},bien:{"0,0":2}}},
+    {t:"atelier",nom:"Ateliers des forges",k:"1,-1",emp:[500,600],pal:"palier 2 sur 3 · plein : +20 % (manque 100 actifs)",ent:1,b:{prod:near("1,-1",2,h=>h.urb||bois(h),0.5,1),den:{"1,-1":1.6},def:{"1,-1":4}},note:"armes : équipement des soldats"},
+    {t:"scierie",nom:"Scierie",k:"-2,0",emp:[120,120],ent:0.4,b:{prod:near("-2,0",2,bois,0.5,1)}},
+    {t:"aqueduc",nom:"Aqueduc",k:"0,-1",emp:[90,90],ent:1.5,b:{bien:{"0,0":4}},note:"6 m³/s des sources des collines"},
+    {t:"thermes",nom:"Thermes",k:"-1,1",emp:[60,60],ent:0.5,b:{bien:{"-1,1":6}},note:"hygiène +15"},
+    {t:"temple",nom:"Grand temple",k:"-1,0",emp:[50,50],ent:0.4,b:{cult:{"-1,0":5},bien:{"-1,0":3}}},
+    {t:"biblio",nom:"Bibliothèque",k:"0,-1",emp:[30,30],ent:0.6,b:{rech:{"0,-1":4},cult:{"0,-1":1}}},
+    {t:"ecole",nom:"École de scribes",k:"0,-1",emp:[40,40],ent:0.5,b:{rech:{"0,-1":3}},note:"éducation +6 %"},
+    {t:"theatre",nom:"Théâtre",k:"0,1",emp:[30,30],ent:0.5,b:{cult:{"0,1":3},bien:{"0,1":3}}},
+    {t:"caserne",nom:"Caserne",k:"1,-2",emp:[200,200],ent:1.2,b:{def:{"1,-2":8}},note:"formation des soldats +50 %"},
+    {t:"remparts",nom:"Remparts",k:"0,0",emp:[0,0],ent:1,b:{def:{"0,0":12}}},
+    {t:"banque",nom:"Banque des changeurs",k:"0,1",emp:[40,40],ent:0.3,b:{den:{"0,1":3.5,"0,0":1.4}}}];
+  H.find(h=>h.k=="0,0").bonus=["egouts","paves"];H.find(h=>h.k=="1,0").bonus=["paves"];H.find(h=>h.k=="0,1").bonus=["fontaines"];H.filter(h=>/champs du fleuve/.test(h.type)).slice(0,2).forEach(h=>h.bonus=["irrig"]);
+  nommer(H);
+  return {nom:"Lugdun",hab:152000,palier:15,suiv:173000,croit:-120,actifs:76000,chom:1800,H,B,
+    com:{nour:{rec:31,env:0},prod:{rec:5.5,env:5},den:-14},solde:9,impot:0,
+    base:{rech:[["Habitants instruits (éducation 11 %)",6]],cult:[["Centre de la ville",1],["Quartiers (12)",3]],def:[["Défense de base",5]],bien:[["Niveau de départ",50],["Nourriture couverte",4],["Variété (blé, poisson, huile)",3]]},
+    moins:{bien:[["Chômage (1 800 sans emploi)",3],["Entassement (quartiers pleins)",8],["Hygiène faible",3]]},
+    eau:{pris:53,max:55,src:[["Fleuve (7 cases)","5 % du débit d'étiage",47,49],["Aqueduc","sources des collines",6,6]]},
+    file:[["Égouts · Quartier du temple",60,25,"-1,0","egouts"],["Remparts : tours",80,0,"0,0","remparts"]],
+    AX:[{v:"Lyon",voie:"pont et route",duree:2,env:["outils"],rec:["blé"],den:-6.8,risque:["ok","faible"]},{v:"Arles",voie:"fleuve",duree:3,env:["outils"],rec:["poisson et huile","bois"],den:-2.3,risque:["av","pirates du fleuve"]},{v:"Tarvo (étranger)",voie:"col de montagne",duree:6,env:["tissus"],rec:["étain"],den:1.2,risque:["cr","col enneigé l'hiver, brigands"]}],
+    pos:{Lyon:[470,50],Arles:[460,340],"Tarvo (étranger)":[40,40]},depend:"33 % du blé vient de Lyon",transport:"52 chevaux et mulets sur 80 du pays"};
+}
+const V={petite:petite(),grande:grande()};
+/* Démographie (exemples) : mouvement du dernier tour, part urbaine, groupes de culture, ordres */
+const DEMO={
+ petite:{naiss:61,deces:28,mig:4,urbains:12,
+  cultures:[["Khishiens","culte des ancêtres",94,62,"ok","stable, culture du pouvoir"],["Vandres","esprits du lieu",6,15,"ok","diaspora marchande, s'assimile lentement"]],
+  ordres:[["Paysans",70,60],["Artisans",15,64],["Marchands",8,70],["Prêtres",4,58],["Guerriers",3,50]]},
+ grande:{naiss:1900,deces:1650,mig:-370,urbains:64,
+  cultures:[["Khishiens","panthéon de Taldor",58,48,"ok","culture du pouvoir"],["Lugdunois","panthéon de Taldor",21,55,"ok","culture mixte née des Khishiens et des Vandres, en essor"],["Vandres","esprits du lieu",14,-22,"cr","tensions : guerre contre Tarvo, pays de leur culture"],["Arlésiens","culte des eaux",7,30,"ok","stable"]],
+  ordres:[["Paysans",35,45],["Artisans",30,55],["Marchands",20,72],["Prêtres",8,60],["Guerriers",7,52]]}};
+/* Histoire de la ville : tour, type, texte, case (ou rien) */
+const HISTO={
+ petite:[[1,"construction","Fondation de Paris par un colon venu de l'ouest, au bord de la Vesse","0,0"],[6,"construction","Premier champ sur la prairie du fleuve","-1,1"],[12,"population","Paris devient un bourg (palier 2)",null],[14,"construction","Moulin à eau achevé","-1,1"],[18,"construction","Marché achevé","0,0"],[21,"commerce","Premier axe de commerce : Lyon, par le gué de la Vesse",null],[27,"catastrophe","Sécheresse : la Vesse au plus bas, −0,4 nourriture pendant 3 tours","-1,1"],[30,"construction","Atelier de taille, palier 1","0,0"],[9,"pillage","Des barbares pillent le champ de la prairie du fleuve : récolte perdue","-1,1"],[33,"bataille","Bataille de la taïga de l'est : la milice repousse une bande barbare (2 milices blessées)","1,0"],[36,"bataille","Le camp barbare des collines est détruit : 15 deniers de butin",null],[38,"culture","Arrivée de marchands vandres : une petite diaspora s'installe","0,0"]],
+ grande:[[1,"construction","Fondation de Lugdun au confluent","0,0"],[24,"construction","Port fluvial ouvert","1,1"],[41,"population","Lugdun devient une ville (palier 5)",null],[52,"pillage","Raid barbare sur les pâturages de l'ouest : 400 habitants enlevés ou tués","-3,1"],[66,"bataille","Siège des Vandres repoussé derrière les premiers remparts","0,0"],[90,"culture","Naissance de la culture lugdunoise, mêlant Khishiens et Vandres",null],[118,"construction","Grand temple achevé","-1,0"],[140,"catastrophe","Épidémie de fièvre des marais : −3 % d'habitants","-2,2"],[163,"construction","Aqueduc achevé : 6 m³/s des sources des collines","0,-1"],[188,"commerce","Ouverture de l'axe du col vers Tarvo, chez les Vandres",null],[214,"construction","Greniers achevés","-1,0"],[240,"catastrophe","Sécheresse : 4 tours de famine évités grâce aux greniers","-1,0"],[262,"guerre","Guerre déclarée à Tarvo : la communauté vandre proteste",null],[266,"bataille","Bataille du gué : 1 200 piquiers repoussent l'armée de Tarvo","-2,2"],[271,"pillage","Les cavaliers de Tarvo pillent les champs du nord : 3 tours de récoltes perdus","0,-2"],[279,"population","Palier 15 : 150 000 habitants",null],[290,"construction","Égouts commencés dans le quartier du temple","-1,0"]]};
+const TYPEH={population:["ti-users","#c9b3ff","Population"],construction:["ti-hammer","#d9a066","Construction"],catastrophe:["ti-alert-triangle","#f08a8a","Catastrophes"],commerce:["ti-route","#c9ac7a","Commerce"],guerre:["ti-shield","#b4b2a9","Guerres"],bataille:["ti-swords","#f0a03c","Batailles"],pillage:["ti-pillage","#ff7a59","Pillages"],culture:["ti-feather","#ed93b1","Culture"]};
+const anDe=t=>{const a=-3400+t*8;return a<0?`an ${-a} av. J.-C.`:`an ${a}`};
+/* Historiques (40 tours) : courbes cohérentes avec les valeurs actuelles */
+function historiques(V0){const tg=r=>total(V0,r);const h={};
+  h.nour=serie(40,tg("nour")*0.78,tg("nour"),tg("nour")*0.015,{14:tg("nour")*0.06,27:-tg("nour")*0.05});
+  h.prod=serie(40,tg("prod")*0.62,tg("prod"),tg("prod")*0.012,{30:tg("prod")*0.08});
+  h.den=serie(40,tg("den")-Math.abs(tg("den"))*0.8-0.4,tg("den"),0.05+Math.abs(tg("den"))*0.03,{18:0.3});
+  h.eau=serie(40,V0.eau.pris*0.72,V0.eau.pris,V0.eau.pris*0.004);
+  h.hab=serie(40,V0.hab-V0.croit*40,V0.hab,Math.abs(V0.croit)*0.2);
+  SECS.forEach(r=>h[r]=serie(40,tg(r)*0.8,tg(r),Math.max(0.05,tg(r)*0.01)));
+  return h}
+const EV={petite:{nour:[[14,"Moulin achevé"],[27,"Sécheresse"]],prod:[[30,"Atelier, palier 1"]],den:[[18,"Marché achevé"]]},grande:{nour:[[14,"Greniers achevés"],[27,"Sécheresse"]],prod:[[30,"Forges, palier 2"]],den:[[18,"Axe de Tarvo ouvert"]]}};
+
+/* ---------- Calculs ---------- */
+const gainB=(b,r)=>Object.values(b.b[r]||{}).reduce((s,x)=>s+x,0);
+const entretien=V0=>V0.B.reduce((s,b)=>s+b.ent,0);
+function parts(V0,r){ // centre, cases, bâtiments, commerce
+  if(r=="eau")return null;
+  if(G[r].sec){const base=(V0.base[r]||[]).reduce((s,x)=>s+x[1],0),bt=V0.B.reduce((s,b)=>s+gainB(b,r),0),moins=(V0.moins[r]||[]).reduce((s,x)=>s+x[1],0);return {centre:base,cases:null,bat:bt,com:null,autre:-moins}}
+  const centre=V0.H.find(h=>h.k=="0,0").v[r],cases=V0.H.filter(h=>h.k!="0,0").reduce((s,h)=>s+h.v[r],0),bat=V0.B.reduce((s,b)=>s+gainB(b,r),0);
+  if(r=="den")return {centre,cases,bat,com:V0.com.den,autre:-entretien(V0)-V0.solde};
+  return {centre,cases,bat,com:V0.com[r].rec-V0.com[r].env,autre:0}}
+function total(V0,r){if(r=="eau")return V0.eau.pris;const p=parts(V0,r);return (p.centre||0)+(p.cases||0)+(p.bat||0)+(p.com||0)+(p.autre||0)}
+const besoin=V0=>V0.hab/1000;
+function etatG(V0,r){const v=total(V0,r);
+  if(r=="nour"){const c=v/besoin(V0);return c<1?["cr",`${f1(c)} × le besoin : famine`]:c<1.5?["av",`${f1(c)} × le besoin`]:["ok",`${f1(c)} × le besoin`]}
+  if(r=="eau"){const p=v/V0.eau.max;return p>=.95?["cr",`${Math.round(p*100)} % de la limite`]:p>=.8?["av",`${Math.round(p*100)} % de la limite`]:p>=.6?["ok",`${Math.round(p*100)} % de la limite`]:["ok","abondante"]}
+  if(r=="den")return v>=0?["ok","versé au trésor"]:["av","pris au trésor"];
+  if(r=="bien")return v<40?["cr","troubles"]:v<55?["av","fragile"]:["ok","satisfaisant"];
+  if(r=="prod")return ["ok",`${V0.file[0][0]} dans ${Math.max(1,Math.ceil((V0.file[0][1]-V0.file[0][2])/Math.max(1,v)))} tours`];
+  if(r=="cult")return ["ok","case de territoire bientôt"];
+  if(r=="def")return ["ok",`garnison : ${V0==V.petite?"2 milices":"6 unités"}`];
+  return ["ok","vers la recherche du pays"]}
+const eauVisible=V0=>V0.eau.pris/V0.eau.max>=0.6;
+const PENTE=r=>({nour:0.02,prod:0.03,den:0.01,eau:0.009,hab:0}[r]??0.01);
+
+/* ---------- État de l'écran ---------- */
+let cur="petite",onglet="rend",sel=null,fix=null,catalogue=false,filtreCat=null,cons=null,cas=null,hov=null,periode=40,tous=false,Z={z:1,cx:260,cy:190},couches={prod:true,bonus:true,bat:true,chant:true},histF="tout",popCarte="emplois";
+const intendant={petite:{obj:2,prio:{prod:0,den:0}},grande:{obj:1,prio:{prod:1,den:2}}};
+let HIST={petite:historiques(V.petite),grande:historiques(V.grande)};
+const C=()=>V[cur],I=()=>intendant[cur],Hh=()=>HIST[cur];
+const nomCase=k=>C().H.find(h=>h.k==k).nom;
+
+/* ---------- En-tête ---------- */
+function alertesDe(V0){const a=[];const [en,tn]=etatG(V0,"nour");if(en!="ok")a.push([en,`Nourriture : ${tn}`,"nour"]);
+  const p=V0.eau.pris/V0.eau.max;if(p>=0.8){const t=Math.max(1,Math.round((V0.eau.max-V0.eau.pris)/(PENTE("eau")*V0.eau.max)));a.push([p>=.95?"cr":"av",`Eau à ${Math.round(p*100)} % : limite dans ${t} tours au rythme actuel`,"eau"])}
+  if(total(V0,"den")<0)a.push(["av",`La ville coûte ${f1(-total(V0,"den"))} deniers par tour au trésor`,"den"]);
+  V0.B.filter(b=>b.emp[0]<b.emp[1]).forEach(b=>a.push(["av",`${b.nom} : ${nb(b.emp[1]-b.emp[0])} emplois non pourvus`,"prod"]));
+  if(V0.chom)a.push(["av",`${nb(V0.chom)} sans emploi : aménager ou construire`,"pop"]);
+  if(total(V0,"bien")<55)a.push(["av",`Bien-être ${Math.round(total(V0,"bien"))} : entassement`,"bien"]);
+  const ordre={cr:0,av:1,ok:2};return a.sort((x,y)=>ordre[x[0]]-ordre[y[0]])}
+/* Ce qui freine la croissance : un seul diagnostic (la limite la plus basse, ou la baisse), avec ses remèdes chiffrés */
+function frein(V0){const L=limites(V0),lim=L.reduce((a,b)=>b[1]<a[1]?b:a);
+  if(V0.croit<0)return {e:"cr",t:`la population baisse (−${nb(-V0.croit)} par tour) : entassement, chômage, départs vers d'autres villes`,cause:"bien",
+    rem:[["artisans","Quartier d'artisans","+600 emplois pour les 1 800 sans emploi"],["egouts","Égouts, programme de ville","+3 bien-être par quartier, épidémies moins graves"],["fontaines","Fontaines, programme de ville","+2 bien-être par quartier"]]};
+  const R={Eau:[["puits","Puits",`+${fv("eau",0.06)} m³/s : limite +${nb(0.06/0.35*1000)} habitants`]],Nourriture:[["champ","Champ","nourriture × 2 sur une prairie"],["paturage","Pâturage","nourriture × 1,5 et +1 production"]],Emplois:[["artisans","Quartier d'artisans","+600 emplois"],["champ","Champ","capacité 1 500 travailleurs"]]};
+  const tl=lim[0]=="Eau"?Math.max(1,Math.round((V0.eau.max-V0.eau.pris)/(PENTE("eau")*V0.eau.max))):V0.croit>0?Math.ceil((lim[1]-V0.hab)/V0.croit):null,de={Eau:"l'eau",Nourriture:"la nourriture",Emplois:"les emplois"}[lim[0]];
+  const pal=V0.suiv>lim[1]?`palier ${V0.palier+1} (${nb(V0.suiv)}) hors de portée sans remède`:`palier ${V0.palier+1} atteignable`;
+  return {e:V0.suiv>lim[1]?"av":"ok",t:`freinée par ${de} : limite ${nb(lim[1])} habitants${tl?`, atteinte dans ~${tl} tours au rythme actuel`:""} · ${pal}`,cause:{Eau:"eau",Nourriture:"nour",Emplois:"pop"}[lim[0]],rem:R[lim[0]]}}
+function freinHTML(V0){const F=frein(V0),idx=t=>CAT.findIndex(c=>c.t==t);
+  return `<div class="frein"><div class="diag" data-al="${F.cause}" role="button" tabindex="0">${etat(F.e,"")}<span style="flex:1"><b style="font-weight:500">Ce qui freine la croissance :</b> ${F.t}</span><i class="ti ti-chevron-right mu" aria-hidden="true"></i></div><div class="remedes"><span class="mu">Remèdes :</span>${F.rem.map(([t,n,eff])=>`<button class="btn2 rem" data-rem="${idx(t)}"><i class="ti ${ICO[t]}" aria-hidden="true"></i>${n} <span class="mu">${eff}</span></button>`).join('')}</div></div>`}
+function entete(){const V0=C(),al=alertesDe(V0),tours=V0.croit>0?Math.ceil((V0.suiv-V0.hab)/V0.croit):null,f=V0.file[0],tp=total(V0,"prod");
+  document.getElementById('entete').innerHTML=`<div><div class="nom">${V0.nom}</div><div class="etatville"><span>palier ${V0.palier} · ${nb(V0.hab)} habitants</span>${V0.croit>=0?`<span class="ok">▲ +${nb(V0.croit)} par tour · palier ${V0.palier+1} dans ${tours} tours</span>`:`<span class="cr">▼ ${nb(V0.croit)} par tour : la population baisse</span>`}</div>${freinHTML(V0)}</div>
+  <div class="alertes">${(al.length?al.slice(0,2):[["ok","Aucun problème",null]]).map(([e,t,g])=>`<div class="alerte" ${g?`data-al="${g}"`:''} role="button" tabindex="0">${etat(e,"")}<span style="flex:1">${t}</span>${g?'<i class="ti ti-chevron-right mu" aria-hidden="true"></i>':''}</div>`).join('')}${al.length>2?`<div class="mu" style="padding-left:30px">et ${al.length-2} autre${al.length>3?"s":""} : onglet Rendements, vue d'ensemble</div>`:''}
+  <div class="alerte" data-file="1" role="button" tabindex="0" style="border-top:1px solid var(--trait)"><i class="ti ti-hammer" style="color:var(--prod)" aria-hidden="true"></i><span style="flex:1">En construction : ${f[0]} · ${Math.max(1,Math.ceil((f[1]-f[2])/Math.max(1,tp)))} tour(s)</span><span class="mu">puis ${V0.file.length-1} en file</span></div></div>`;
+  document.getElementById('onglets').innerHTML=[["rend","Rendements","ti-chart-bar"],["pop","Population","ti-users"],["com","Commerce","ti-route"],["hist","Histoire","ti-history"]].map(([k,t,i])=>`<button role="tab" aria-selected="${onglet==k}" data-o="${k}"><i class="ti ${i}" aria-hidden="true"></i>${t}</button>`).join('')}
+
+/* ---------- Cartes et pastilles (onglet Rendements) ---------- */
+function mini(r,w=96,hh=24){const h=Hh()[r].slice(-10),all=Hh()[r],mx=Math.max(...all,h[9]+PENTE(r)*Math.abs(h[9])*10+0.01)*1.08,mn=Math.min(0,...all);const y=v=>hh-(v-mn)/(mx-mn||1)*hh,x0=w*0.68;
+  const pts=h.map((v,i)=>`${(i*x0/9).toFixed(1)},${y(v).toFixed(1)}`).join(' '),y1=y(h[9]+PENTE(r)*Math.abs(h[9]||1)*10);
+  return `<svg width="${w}" height="${hh+2}" aria-hidden="true" style="display:block;margin-top:4px"><polyline points="${pts}" fill="none" stroke="${G[r].c}" stroke-width="1.8"/><line x1="${x0}" y1="${y(h[9])}" x2="${w}" y2="${y1}" stroke="${G[r].c}" stroke-width="1.3" stroke-dasharray="3 2"/><line x1="${x0}" y1="0" x2="${x0}" y2="${hh+2}" stroke="#5f6577" stroke-width="1"/><circle cx="${x0}" cy="${y(h[9])}" r="2.5" fill="#fff"/></svg><div class="mu">10 derniers tours · prévision</div>`}
+function badge(r){const i=I();if(r=="nour"&&i.obj!=2)return `<span class="badge">${["nourrir seulement","croître","",
+"excédent à vendre"][i.obj]}</span>`;if((r=="prod"||r=="den")&&i.prio[r])return `<span class="badge">${"▲".repeat(i.prio[r])} ${["","prioritaire","maximale"][i.prio[r]]}</span>`;return ""}
+function cartesHTML(){const V0=C(),cl=PRINC.filter(r=>r!="eau"||eauVisible(V0));
+  const cartes=cl.map(r=>{const [e,t]=etatG(V0,r),v=total(V0,r);return `<button class="carte" aria-pressed="${sel==r}" data-g="${r}"><div class="tete"><i class="ti ${G[r].i}" style="color:${G[r].c}" aria-hidden="true"></i><span style="color:${G[r].c}">${G[r].n}</span>${badge(r)}</div><div class="val">${r=="den"?sg(r,v):fv(r,v)}<span class="mu" style="font-size:13px">${r=="eau"?` / ${fv(r,V0.eau.max)} m³/s`:r=="den"?" par tour":""}</span></div><div style="font-size:12.5px">${etat(e,t)}</div>${mini(r)}</button>`}).join('');
+  const pas=(eauVisible(V0)?[]:["eau"]).concat(SECS).map(r=>{const [e,t]=etatG(V0,r),v=total(V0,r);return `<button class="pastille" aria-pressed="${sel==r}" data-g="${r}"><i class="ti ${G[r].i}" style="color:${G[r].c}" aria-hidden="true"></i>${G[r].n} <b>${r=="eau"?"":r=="def"||r=="bien"?Math.round(v):"+"+fv(r,v)}</b>${r=="eau"||e!="ok"?etat(e,r=="eau"?t:""):""}</button>`}).join('');
+  return `<section class="pn" style="display:flex;flex-direction:column;gap:8px"><div class="cartes" style="grid-template-columns:repeat(${cl.length},minmax(0,1fr))">${cartes}</div><div class="secs">${pas}</div></section>`}
+
+/* ---------- Pile de gauche ---------- */
+function fil(){const p=[["Vue d'ensemble","ens"]];if(sel)p.push([G[sel].n,"g"]);if(fix)p.push([fix.f!=null?"Chantier : "+C().file[fix.f][0]:fix.c?nomCase(fix.c):C().B[fix.b].nom,"o"]);if(catalogue)p.push(["Construire","cat"]);if(cons!=null)p.push([CAT[cons].nom,"cons"]);
+  return `<div class="fil">${p.map(([t,k],i)=>i<p.length-1?`<button data-fil="${k}">${t}</button><span aria-hidden="true">›</span>`:`<span class="ici">${t}</span>`).join('')}${p.length>1?`<button data-fil="esc" style="margin-left:auto">× retour (Échap)</button>`:''}</div>`}
+function ensemble(){const V0=C();
+  const rows=TOUTES.map(r=>{const [e,t]=etatG(V0,r),v=total(V0,r),h=Hh()[r],d=h[39]-h[29];
+    if(r=="eau")return `<tr class="cl" data-g="eau"><td><i class="ti ${G[r].i}" style="color:${G[r].c}" aria-hidden="true"></i> Eau</td><td colspan="4" class="g" style="text-align:left">prélevée ${fv("eau",V0.eau.pris)} sur ${fv("eau",V0.eau.max)} m³/s (${V0.eau.src.map(s=>s[0].split(" (")[0]).join(", ")})</td><td>${fv("eau",v)}</td><td class="g">${d>=0?"▲":"▼"} ${fv("eau",Math.abs(d))}</td><td style="text-align:left">${etat(e,t)}</td></tr>`;
+    const p=parts(V0,r),c=x=>x==null?'<td class="g">·</td>':`<td>${Math.abs(x)<0.05?"—":(x<0?"−":"")+fv(r,Math.abs(x))}</td>`;
+    return `<tr class="cl" data-g="${r}"><td><i class="ti ${G[r].i}" style="color:${G[r].c}" aria-hidden="true"></i> ${G[r].n}</td>${c(p.centre)}${c(p.cases)}<td style="color:#c7c1ff">${p.bat>0.05?fv(r,p.bat):"—"}</td>${p.com==null?'<td class="g">·</td>':`<td>${Math.abs(p.com)<0.05?"—":sg(r,p.com)}</td>`}<td style="font-weight:600">${r=="den"?sg(r,v):fv(r,v)}</td><td class="g">${d>=0?"▲":"▼"} ${fv(r,Math.abs(d))}</td><td style="text-align:left">${etat(e,t)}${r=="den"&&p.autre?`<div class="mu">après entretien et solde : −${f1(-p.autre)}</div>`:''}${r=="bien"&&p.autre?`<div class="mu">dont −${fv(r,-p.autre)} (chômage, entassement…)</div>`:''}</td></tr>`}).join('');
+  return `<section class="pn"><div class="titrepn">Vue d'ensemble de ${V0.nom}</div><div style="overflow-x:auto"><table class="tb" style="margin-top:6px"><tr><th>Grandeur</th><th>Centre ou base</th><th>Cases</th><th>Bâtiments</th><th>Commerce</th><th>Total</th><th>10 derniers tours</th><th style="text-align:left">État</th></tr>${rows}</table></div>
+  <div class="mu" style="margin-top:8px">Toutes les grandeurs de la ville et leurs origines. Clic sur une ligne : son détail (graphique, origines, réglages de l'intendant, construire).</div>
+  <div class="deux" style="margin-top:12px"><div><div class="titrepn" style="font-size:14px">Alertes</div>${(alertesDe(V0).length?alertesDe(V0):[["ok","Aucun problème",null]]).map(([e,t,g])=>`<div class="alerte" ${g?`data-al="${g}"`:''} role="button" tabindex="0">${etat(e,"")}<span>${t}</span></div>`).join('')}</div>
+  <div><div class="titrepn" style="font-size:14px">File de construction</div>${V0.file.map((f,i)=>`<div class="ligne"><span class="mu">${i+1}.</span><span style="flex:1">${f[0]}</span><span class="mu">${f[3]&&typeof f[3]=="string"&&f[3].includes(",")?nomCase(f[3]):""}</span></div>`).join('')}</div></div></section>`}
+function graphe(r){const V0=C(),W=640,HT=190,P={l:46,r:12,t:14,b:24},h=Hh()[r].slice(-periode),n=h.length,fut=20,v0=h[n-1];
+  const seuils={nour:[[besoin(V0),"besoin","cr"],[besoin(V0)*1.5,"croissance pleine (1,5 ×)","av"]],eau:[[V0.eau.max*0.8,"alerte : 80 % de l'eau disponible","av"],[V0.eau.max,`eau disponible : ${fv("eau",V0.eau.max)} m³/s`,"cr"]],den:[[0,"équilibre","av"]],bien:[[40,"troubles","cr"],[55,"fragile","av"]]}[r]||[];
+  const pente=PENTE(r)*Math.abs(v0||1),fin=v0+pente*fut,mx=Math.max(...Hh()[r],...seuils.map(s=>s[0]),fin)*1.12,mn=Math.min(0,...Hh()[r],fin);
+  const X=t=>P.l+(t+n-1)/(n-1+fut)*(W-P.l-P.r),Y=v=>P.t+(1-(v-mn)/(mx-mn||1))*(HT-P.t-P.b);
+  let s=`<svg viewBox="0 0 ${W} ${HT}" width="100%" role="img" aria-label="Évolution de ${G[r].n} : passé et prévision"><rect x="${X(0)}" y="${P.t}" width="${X(fut)-X(0)}" height="${HT-P.t-P.b}" fill="#ffffff" opacity=".035"/>`;
+  [mn,(mn+mx/1.12)/2,mx/1.12].forEach(v=>{s+=`<line x1="${P.l}" x2="${W-P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#222a3a" stroke-width="1"/><text x="${P.l-6}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="#8a92a5">${fv(r,v)}</text>`});
+  seuils.forEach(([v,l,e])=>{const col=e=="cr"?"#f08a8a":"#f0a03c";s+=`<line x1="${P.l}" x2="${W-P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${col}" stroke-width="1.2" stroke-dasharray="6 4"/><text x="${W-P.r-4}" y="${Y(v)-4}" text-anchor="end" font-size="11" fill="${col}">${l}</text>`});
+  (EV[cur][r]||[]).forEach(([i,l],j)=>{const t=i-39;if(-t<n){s+=`<line x1="${X(t)}" x2="${X(t)}" y1="${P.t}" y2="${HT-P.b}" stroke="#5f6577" stroke-dasharray="2 3"/><circle cx="${X(t)}" cy="${P.t+9}" r="8" fill="#29234a" stroke="#8f86e6"/><text x="${X(t)}" y="${P.t+13}" text-anchor="middle" font-size="10.5" fill="#eeedfe">${j+1}</text>`}});
+  s+=`<polyline points="${h.map((v,i)=>`${X(i-n+1).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${G[r].c}" stroke-width="2.4"/>`;
+  const haut=[],bas=[];for(let t=0;t<=fut;t++){const v=v0+pente*t,inc=(Math.abs(v0)*0.012+0.004)*t;haut.push(`${X(t).toFixed(1)},${Y(v+inc).toFixed(1)}`);bas.unshift(`${X(t).toFixed(1)},${Y(v-inc).toFixed(1)}`)}
+  s+=`<polygon points="${haut.concat(bas).join(' ')}" fill="rgba(${G[r].rgb},.16)"/><line x1="${X(0)}" y1="${Y(v0)}" x2="${X(fut)}" y2="${Y(fin)}" stroke="${G[r].c}" stroke-width="2" stroke-dasharray="6 4"/>`;
+  s+=`<line x1="${X(0)}" x2="${X(0)}" y1="${P.t}" y2="${HT-P.b}" stroke="#e7e9ef" stroke-width="1"/><circle cx="${X(0)}" cy="${Y(v0)}" r="4" fill="#fff"/><text x="${X(0)}" y="${HT-6}" text-anchor="middle" font-size="11" fill="#e7e9ef">aujourd'hui</text>`;
+  [-(n-1),-Math.round((n-1)/2),fut].forEach(t=>s+=`<text x="${X(t)}" y="${HT-6}" text-anchor="${t==fut?'end':'middle'}" font-size="11" fill="#8a92a5">${t>0?"+"+t:t} tours</text>`);
+  if(r=="eau"){const tl=Math.ceil((V0.eau.max-v0)/pente);if(tl>0&&tl<=fut)s+=`<circle cx="${X(tl)}" cy="${Y(V0.eau.max)}" r="5" fill="none" stroke="#f08a8a" stroke-width="2"/><text x="${X(tl)-8}" y="${Y(V0.eau.max)+16}" text-anchor="end" font-size="11" fill="#f08a8a">toute l'eau disponible consommée au tour +${tl}</text>`}
+  s+=`</svg>`;
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="lb">À gauche le passé, à droite la prévision au rythme actuel (bande : incertitude)</span><span class="seg" style="margin-left:auto">${[[10,"10 tours"],[20,"20 tours"],[40,"toute la partie"]].map(([p,l])=>`<button data-per="${p}" aria-pressed="${periode==p}">${l}</button>`).join('')}</span></div>${s}<div class="mu" style="display:flex;gap:14px;flex-wrap:wrap"><span style="color:${G[r].c}">━ ${r=="eau"?"eau consommée (prélevée par la ville), m³/s":G[r].n.toLowerCase()+" par tour"}</span><span style="color:${G[r].c}">╌ prévision</span>${r=="eau"?'<span class="cr">╌ eau disponible (fleuve, ruisseau, puits)</span>':''}</div>${(EV[cur][r]||[]).length?`<div class="mu">${EV[cur][r].map(([i,l],j)=>`<button class="lienhist" data-rep="1" title="voir dans l'onglet Histoire"><b style="color:#c7c1ff;font-weight:500">${j+1}</b> ${l}</button>`).join(' · ')}</div>`:''}`}
+function reglage(r){const i=I();
+  if(r=="eau")return `<div class="ligne"><i class="ti ti-user-cog" aria-hidden="true"></i><span>L'eau ne dépend pas des travailleurs : pour en avoir plus, il faut <button class="btn2" data-cons="eau" style="padding:2px 8px">construire</button></span></div>`;
+  if(G[r].sec)return "";
+  if(r=="nour"){const O=[["Nourrir seulement","1 × le besoin"],["Croître","1,25 ×"],["Croissance maximale","1,5 ×"],["Excédent à vendre","2 ×"]],eff=["+1,8 production : la croissance s'arrête","croissance modérée, +0,9 production","situation actuelle : croissance pleine","−2,9 production, +3,7 nourriture à vendre"];
+    return `<div class="ligne" style="flex-wrap:wrap"><i class="ti ti-user-cog" aria-hidden="true"></i><span>Objectif de l'intendant</span><span class="seg">${O.map(([t,d],k)=>`<button data-obj="${k}" aria-pressed="${i.obj==k}" title="${d} : ${eff[k]}">${t}</button>`).join('')}</span></div><div class="mu">La nourriture limite la croissance : l'intendant vise d'abord cet objectif, puis répartit le reste des travailleurs. Effet : ${eff[i.obj]}.</div>`}
+  return `<div class="ligne" style="flex-wrap:wrap"><i class="ti ti-user-cog" aria-hidden="true"></i><span>Priorité de l'intendant</span><span class="seg">${["normale","prioritaire","maximale"].map((t,k)=>`<button data-prio="${r}:${k}" aria-pressed="${i.prio[r]==k}">${t}</button>`).join('')}</span></div><div class="mu">Après l'objectif de nourriture. Grandeurs au même niveau : même poids.${i.prio[r]?` Effet : ${r=="prod"?"+1,4 production, −0,6 denier (100 travailleurs déplacés)":"+0,3 denier, −0,8 production"}.`:""}</div>`}
+function synthese(r){const V0=C(),g=G[r];let src=[],use=[];
+  if(r=="eau"){const p=V0.eau.pris/V0.eau.max;return `<section class="pn" style="display:flex;flex-direction:column;gap:8px"><div class="titrepn" style="color:${g.c}"><i class="ti ${g.i}" aria-hidden="true"></i>D'où vient l'eau ?</div>${graphe("eau")}${reglage("eau")}<div class="titrepn" style="font-size:14px">Prélèvements par source</div>${V0.eau.src.map(([n,i,pp,m])=>{const q=pp/m,e=q>=.95?"cr":q>=.8?"av":"ok";return `<div class="ligne"><span style="flex:1">${n}<div class="mu">${i}</div></span><span style="width:180px">${etat(e,`${fv("eau",pp)} / ${fv("eau",m)} m³/s`)}<div class="barre" style="margin-top:3px"><div style="width:${q*100}%;background:var(--${e})"></div></div></span></div>`}).join('')}<div class="ligne"><span style="flex:1;font-weight:500">Habitants (0,35 m³/s pour 1 000)</span><span>${fv("eau",V0.hab*0.35/1000)} m³/s</span></div></section>`}
+  const bats=V0.B.filter(b=>b.b[r]),sb=bats.reduce((s,b)=>s+gainB(b,r),0);
+  if(g.sec){src=(V0.base[r]||[]).map(([n,v])=>[n,v]);if(bats.length)src.push([`Bâtiments (${bats.length}) · détail à droite`,sb,1]);use=r=="bien"?(V0.moins.bien.length?V0.moins.bien.map(([n,v])=>[n,v]):[["Rien ne le baisse",0]]):[[{rech:"Vers la recherche du pays",cult:"Territoire et influence",def:"Défense de la ville"}[r],total(V0,r)]];}
+  else{const p=parts(V0,r);src=[["Centre de la ville",p.centre],[`Cases travaillées (${V0.H.length-1})`,p.cases],[`Bâtiments (${bats.length}) · détail à droite`,p.bat,1]];
+    if(r=="den"){if(p.com>=0)src.push(["Commerce : solde · onglet Commerce",p.com,2]);else use.push(["Commerce : solde · onglet Commerce",-p.com,2]);use.push([`Entretien des bâtiments (${V0.B.length})`,entretien(V0),1],["Solde des unités",V0.solde])}
+    else{if(V0.com[r].rec)src.push(["Commerce : reçu · onglet Commerce",V0.com[r].rec,2]);if(r=="nour"){use.push([`${nb(V0.hab)} habitants (1 pour 1 000)`,besoin(V0)],["Réserve pour croître (+50 %)",Math.min(besoin(V0)/2,Math.max(0,total(V0,"nour")-besoin(V0)))]);if(V0.com.nour.env)use.push(["Commerce : envoyé · onglet Commerce",V0.com.nour.env,2]);const reste=total(V0,"nour")-besoin(V0)*1.5;if(reste>0.05)use.push(["Excédent : perdu, pas encore de marché",reste])}else{if(V0.com.prod.env)use.push(["Commerce : envoyé",V0.com.prod.env,2]);use.push([`File : ${V0.file[0][0]}`,total(V0,"prod")])}}}
+  const T=Math.max(0.01,src.reduce((s,x)=>s+Math.max(0,x[1]),0)),li=L=>L.map(([n,v,t])=>`<div class="ligne" ${t==2?'data-o="com" style="cursor:pointer"':''}><span style="flex:1">${t==1?'<i class="ti ti-building-community" style="color:var(--bat)" aria-hidden="true"></i> ':t==2?'<i class="ti ti-route" style="color:var(--com)" aria-hidden="true"></i> ':''}${n}</span><div class="barre" style="width:60px"><div style="width:${Math.min(100,Math.abs(v)/T*100)}%;background:${t==1?'var(--bat)':t==2?'var(--com)':g.c}"></div></div><span style="width:50px;text-align:right;font-variant-numeric:tabular-nums">${fv(r,v)}</span></div>`).join('');
+  const net=total(V0,r),lbl=r=="den"?(net>=0?"Versé au trésor":"Pris au trésor"):r=="nour"?"Net après commerce":"Total";
+  const T2={den:["Recettes","Dépenses"],bien:["Ce qui l'élève","Ce qui le baisse"],def:["Force","Usage"]}[r]||["Sources","Usages"];
+  return `<section class="pn" style="display:flex;flex-direction:column;gap:8px"><div class="titrepn" style="color:${g.c}"><i class="ti ${g.i}" aria-hidden="true"></i>D'où vient ${g.de} ?</div>${graphe(r)}${reglage(r)}<div class="deux"><div><div class="titrepn" style="font-size:14px">${T2[0]}</div>${li(src)}</div><div><div class="titrepn" style="font-size:14px">${T2[1]}</div>${li(use)}</div></div><div class="ligne" style="border-top:2px solid var(--trait2)"><span style="flex:1;font-weight:600">${lbl}</span><span style="font-weight:600">${r=="den"?sg(r,net):fv(r,net)}</span></div>${r=="den"?'<div class="mu">Le denier est la monnaie du pays ; le trésor paie l\'entretien, la solde et les achats.</div>':''}<div><button class="btn2" data-cons="${r}"><i class="ti ti-plus" aria-hidden="true"></i>Construire pour ${g.n.toLowerCase()} <span class="mu">(B)</span></button></div></section>`}
+function ficheCase(k){const V0=C(),h=V0.H.find(x=>x.k==k),r=sel&&!G[sel].sec&&sel!="eau"?sel:null,R=r?[r]:["nour","prod","den"],p=h.cap?h.w/h.cap:0;
+  const lignes=R.filter(x=>h.v[x]>0.05||r).map(x=>{const bo=V0.B.filter(b=>(b.b[x]||{})[k]!=null),sb=bo.reduce((s,b)=>s+b.b[x][k],0),mx=h.cap&&p>0?h.v[x]/Math.pow(p,0.7):0,nx=h.cap&&p<1?mx*(Math.pow(Math.min(1,(h.w+100)/h.cap),0.7)-Math.pow(p,0.7)):0;
+    return `<div class="ligne"><span style="flex:1;color:${G[x].c}"><i class="ti ${G[x].i}" aria-hidden="true"></i> ${G[x].n}${h.cap?`<div class="mu">${Math.round(Math.pow(p,0.7)*100)} % du maximum de la case (rendements décroissants) · 100 travailleurs de plus : ${nx>0.01?sg(x,nx):"case pleine"}</div>`:''}</span><span class="mu">case ${fv(x,h.v[x])}${sb?` · bâtiments ${sg(x,sb)}`:''}</span><span style="width:50px;text-align:right">${fv(x,h.v[x]+sb)}</span></div>`}).join('');
+  const ici=V0.B.filter(b=>b.k==k),am=amenDe(h);
+  return `<section class="pn"><div class="titrepn">${h.nom}</div><div class="ligne"><span style="flex:1">Aménagement de production</span><span>${h.k=="0,0"?"centre de la ville":am?typeTag(am)+" "+am.nom:h.urb?"habitation":"aucune (état naturel)"}</span></div><div class="ligne"><span style="flex:1">Bonus</span><span>${(h.bonus||[]).map(t=>CAT.find(c=>c.t==t).nom).join(", ")||"aucun"}</span></div>${h.cap?`<div class="ligne"><span style="flex:1">Travailleurs</span><span>${nb(h.w)} / ${nb(h.cap)}</span><div class="barre" style="width:90px"><div style="width:${p*100}%;background:${p>=.9?'var(--av)':'var(--ok)'}"></div></div></div>`:'<div class="mu">Centre de la ville : rapporte sans travailleurs.</div>'}${lignes}${ici.length?`<div class="ligne"><span class="mu">Bâtiments construits ici : ${ici.map(b=>b.nom).join(", ")}</span></div>`:''}${h.force?`<div class="mu">Effectif forcé à ${nb(h.w)} : l'intendant ne le change plus.</div>`:""}${h.cap&&h.ap?(()=>{const p2=Math.min(1,(h.w+100)/h.cap),gain=["nour","prod","den"].map(x=>[x,h.v[x]*(Math.pow(p2/Math.max(p,0.01),0.7)-1)]).filter(([,v])=>v>0.01);return `<div class="ligne" style="border:1px solid var(--trait2);border-radius:7px;padding:6px 8px;margin-top:6px"><span style="flex:1">Aperçu : 100 travailleurs de plus ici · ${gain.map(([x,v])=>`<span class="ok">${sg(x,v)} ${G[x].n.toLowerCase()}</span>`).join(" · ")||"rien (case pleine)"} · pris aux cases les moins utiles : <span class="cr">−${f1(gain.reduce((s2,[,v])=>s2+v,0)*0.6)}</span></span><button class="btn2" data-forcecok="${k}">Confirmer</button><button class="btn2" data-forcec="${k}">Annuler</button></div>`})():""}${h.cap?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${h.ap||h.w>=h.cap?"":`<button class="btn2" data-forcec="${k}"><i class="ti ti-lock" aria-hidden="true"></i>Forcer l'effectif…</button>`}<button class="btn2" data-cons="tout"><i class="ti ti-shovel" aria-hidden="true"></i>Aménager ou construire ici</button></div>`:''}</section>`}
+function ficheFile(i){const V0=C(),f=V0.file[i];if(!f)return "";const c=CAT.find(x=>x.t==f[4]),reste=V0.file.slice(0,i+1).reduce((s2,g)=>s2+(g[1]||0)-(g[2]||0),0),tp=total(V0,"prod"),h=f[3]&&V0.H.find(x=>x.k==f[3]);
+  return `<section class="pn" style="border:1px dashed #e8b98a"><div class="titrepn">${c?icoCat(c):""}${f[0]}</div><div class="mu">${c?typeTag(c)+" "+c.desc:""}</div>
+  <div class="ligne"><span style="flex:1">Place dans la file</span><span>${i==0?"en construction":"position "+(i+1)+" sur "+V0.file.length}</span></div>
+  <div class="ligne"><span style="flex:1">Avancement</span><span>${f[2]} / ${f[1]} de production</span><div class="barre" style="width:90px"><div style="width:${f[2]/f[1]*100}%;background:var(--prod)"></div></div></div>
+  <div class="ligne"><span style="flex:1">Prêt dans</span><span>${Math.max(1,Math.ceil(reste/tp))} tour(s), au rythme de ${f1(tp)} de production par tour</span></div>
+  ${c&&c.etat?`<div class="ligne"><span style="flex:1">Effet attendu</span><span>${c.etat}</span></div>`:""}${h?`<div class="ligne"><span style="flex:1">Case</span><span>${h.nom}</span></div>`:""}
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${i>0?`<button class="btn2" data-fa="haut:${i}"><i class="ti ti-chevron-right" style="transform:rotate(-90deg)" aria-hidden="true"></i>Avancer dans la file</button>`:""}${f[2]==0&&c?`<button class="btn2" data-fa="deplacer:${i}"><i class="ti ti-map-pin" aria-hidden="true"></i>Choisir une autre case</button>`:""}<button class="btn2" data-fa="retirer:${i}"><i class="ti ti-circle-x" aria-hidden="true"></i>Retirer${f[2]?" (la production déjà investie est perdue)":""}</button></div></section>`}
+function ficheBat(i){const V0=C(),b=V0.B[i],R=sel&&b.b[sel]?[sel]:Object.keys(b.b);
+  return `<section class="pn"><div class="titrepn"><span class="ico"><i class="ti ${ICO[b.t]}" aria-hidden="true"></i></span>${b.nom}<span class="mu" style="font-family:var(--corps)">${nomCase(b.k)}</span></div>
+  <div class="ligne"><span style="flex:1">Emplois</span><span>${nb(b.emp[0])} / ${nb(b.emp[1])}</span>${b.emp[0]<b.emp[1]?etat("av","non pourvus"):b.force?'<span class="mu">effectif forcé</span>':""}</div>${(()=>{if(b.emp[0]>=b.emp[1])return "";const m=b.emp[1]-b.emp[0],k0=Object.keys(b.b)[0],nx=k0?gainB(b,k0)*m/b.emp[1]:0;
+    return `<div class="mu">Pourquoi : ${V0.chom?`l'intendant place les travailleurs par blocs de 100 là où ils rapportent le plus ; les ${nb(V0.chom)} sans emploi n'ont pas le métier des forges (formation : 2 tours).`:`pas assez d'actifs : l'intendant garde d'abord les travailleurs aux champs pour l'objectif de nourriture.`} Les ${nb(m)} emplois pourvus rapporteraient ${k0?sg(k0,nx)+" "+G[k0].n.toLowerCase():"leur rôle propre"}.</div>
+    <div style="margin-top:6px">${b.ap?`<div class="ligne" style="border:1px solid var(--trait2);border-radius:7px;padding:6px 8px"><span style="flex:1">Aperçu : ${nb(m)} travailleurs ici · ${k0?`<span class="ok">${sg(k0,nx)} ${G[k0].n.toLowerCase()}</span>`:""} · pris ${V0.chom?"aux sans-emploi, formés en 2 tours":`aux cases les moins utiles : <span class="cr">−${f1(nx*0.6)} nourriture</span>`}</span><button class="btn2" data-forcebok="${i}">Confirmer</button><button class="btn2" data-forceb="${i}">Annuler</button></div>`:`<button class="btn2" data-forceb="${i}"><i class="ti ti-lock" aria-hidden="true"></i>Forcer l'effectif…</button>`}</div>`})()}${b.pal?`<div class="mu">${b.pal}</div>`:''}${b.note?`<div class="mu">${b.note}</div>`:''}
+  <div class="ligne"><span style="flex:1">Entretien</span><span>−${f1(b.ent)} denier</span></div>
+  ${R.map(r=>`<div class="ligne"><span style="flex:1;color:${G[r].c}"><i class="ti ${G[r].i}" aria-hidden="true"></i> ${G[r].n}</span><span class="mu">${Object.keys(b.b[r]).length} case(s) : ${Object.entries(b.b[r]).sort((x,y)=>y[1]-x[1]).slice(0,3).map(([k,v])=>`${nomCase(k)} ${sg(r,v)}`).join(", ")}${Object.keys(b.b[r]).length>3?"…":""}</span><span style="width:50px;text-align:right">${sg(r,gainB(b,r))}</span></div>`).join('')||'<div class="mu">Rôle propre, sans rendement.</div>'}</section>`}
+
+/* ---------- Construction ---------- */
+/* Catalogue : bâtiments (un bâtiment s'ajoute aux autres et agit sur des cases) et aménagements (un par case,
+   ils changent la case elle-même : son rendement et sa capacité en travailleurs) */
+const CAT=[
+ {k:"bat",t:"charbon",nom:"Charbonnière",g:"prod",cout:30,emp:40,desc:"+15 % de production sur sa case et les bois voisins",ok:h=>h.bois,raison:"il faut du bois",eff:h=>{const V0=C(),o={};V0.H.filter(x=>dist(x,h)<=1&&x.bois).forEach(x=>o[x.k]=x.v.prod*0.15);return o},cons:"la production est prioritaire",etat:"production +1,4 · −0,1 nourriture (40 travailleurs de la taïga)"},
+ {k:"bat",t:"puits",nom:"Puits",g:"eau",cout:15,emp:5,desc:"+0,04 à 0,06 m³/s d'eau tirée de la nappe",ok:h=>h.urb||h.riv,raison:"il faut une nappe proche : en ville ou près d'un cours d'eau",eff:h=>({[h.k]:h.urb?0.04:0.06}),cons:"l'eau sera limitante bientôt",etat:"eau : limite repoussée de 6 tours"},
+ {k:"bat",t:"grenier",nom:"Grenier",g:"nour",cout:40,emp:30,desc:"+0,3 nourriture ; réserve d'un an contre les famines",ok:h=>h.urb||/prairie|champs/.test(h.type),raison:"en ville, sur une prairie ou des champs",eff:h=>({[h.k]:0.3}),etat:"famines amorties, +0,3 nourriture"},
+ {k:"bat",t:"peage",nom:"Comptoir de péage",g:"den",cout:35,emp:15,desc:"+0,6 denier sur le passage d'un cours d'eau",ok:h=>h.riv&&!h.urb,raison:"seulement au bord d'un cours d'eau franchi",eff:h=>({[h.k]:0.6}),etat:"+0,6 denier au trésor"},
+ {k:"bat",t:"sanct",nom:"Sanctuaire",g:"cult",cout:30,emp:10,desc:"+2 culture (un peu moins hors de la ville)",ok:h=>true,raison:"",eff:h=>({[h.k]:h.urb?2:1.5}),etat:"culture +2 : prochaine case de territoire plus tôt"},
+ {k:"bat",t:"palis",nom:"Palissade",g:"def",cout:35,emp:0,desc:"+4 défense de la ville",ok:h=>h.k=="0,0",raison:"autour du centre seulement",eff:h=>({"0,0":4}),etat:"défense +4"},
+ {k:"bat",t:"ecole",nom:"École de scribes",g:"rech",cout:60,desc:"éducation +6 %, donc plus de recherche",verrou:"demande l'Écriture"},
+ {k:"amen",sub:"prod",t:"champ",nom:"Champ",g:"nour",cout:20,cap:1500,desc:"nourriture × 2 ; capacité 1 500 travailleurs",ok:h=>!h.urb&&h.type!="taïga"&&!/champs/.test(h.type)&&h.am!="champ",raison:"pas en ville, pas dans la taïga (trop froid), pas déjà un champ"},
+ {k:"amen",sub:"prod",t:"paturage",nom:"Pâturage",g:"nour",cout:15,cap:1000,desc:"nourriture × 1,5 et +1 production ; capacité 1 000",ok:h=>!h.urb&&h.type!="pâturages",raison:"pas en ville, pas déjà un pâturage"},
+ {k:"amen",sub:"prod",t:"coupe",nom:"Coupe de bois",g:"prod",cout:15,cap:1000,desc:"production × 2 ; capacité 1 000",ok:h=>h.bois,raison:"il faut une forêt ou une taïga"},
+ {k:"amen",sub:"prod",urb:1,t:"artisans",nom:"Quartier d'artisans",g:"prod",cout:50,emp:600,desc:"guildes et ateliers privés : +3 production, 600 emplois",ok:h=>h.urb&&h.k!="0,0"&&!amenDe(h),raison:"un quartier sans aménagement de production",eff:h=>({[h.k]:3}),etat:"production +3 · 600 emplois en ville"},
+ {k:"amen",sub:"prod",urb:1,t:"comptoirs",nom:"Quartier marchand",g:"den",cout:50,emp:400,desc:"comptoirs et négociants : +1,5 denier, 400 emplois",ok:h=>h.urb&&h.k!="0,0"&&!amenDe(h),raison:"un quartier sans aménagement de production",eff:h=>({[h.k]:1.5}),etat:"+1,5 denier · 400 emplois en ville"},
+ {k:"amen",sub:"bonus",t:"irrig",nom:"Irrigation",g:"nour",cout:40,emp:0,desc:"nourriture × 1,5 sur un champ, prélève de l'eau",ok:h=>/champs/.test(h.type)||h.am=="champ",raison:"seulement sur un champ",eff:h=>({[h.k]:h.v.nour*0.5}),etat:"nourriture +50 % sur le champ · prélève de l'eau",verrou:"demande l'Irrigation"},
+ {k:"amen",sub:"bonus",t:"drainage",nom:"Drainage",g:"nour",cout:30,emp:0,desc:"assèche un sol humide : +1 nourriture, moins de fièvres",ok:h=>h.riv&&!h.urb,raison:"sur un sol humide, au bord de l'eau",eff:h=>({[h.k]:1}),etat:"+1 nourriture · fièvres moins fréquentes"},
+ {k:"amen",sub:"bonus",t:"egouts",nom:"Égouts",g:"bien",cout:60,emp:20,desc:"hygiène +15 dans le quartier : moins de maladies, +3 bien-être",ok:h=>h.urb&&!(h.bonus||[]).includes("egouts"),raison:"en ville seulement, une fois par quartier",eff:h=>({[h.k]:3}),etat:"bien-être +3 · épidémies moins graves"},
+ {k:"amen",sub:"bonus",t:"paves",nom:"Rues pavées",g:"den",cout:30,emp:0,desc:"+0,3 denier (marchés et charrois plus rapides)",ok:h=>h.urb&&!(h.bonus||[]).includes("paves"),raison:"en ville seulement, une fois par quartier",eff:h=>({[h.k]:0.3}),etat:"+0,3 denier · déplacements plus rapides en ville"},
+ {k:"amen",sub:"bonus",t:"fontaines",nom:"Fontaines publiques",g:"bien",cout:25,emp:5,desc:"eau distribuée dans le quartier : +2 bien-être",ok:h=>h.urb&&!(h.bonus||[]).includes("fontaines"),raison:"en ville seulement, une fois par quartier",eff:h=>({[h.k]:2}),etat:"bien-être +2"},
+ {k:"amen",sub:"bonus",t:"jardins",nom:"Jardins publics",g:"bien",cout:20,emp:5,desc:"+2 bien-être, +0,5 culture",ok:h=>h.urb&&!(h.bonus||[]).includes("jardins"),raison:"en ville seulement, une fois par quartier",eff:h=>({[h.k]:2}),etat:"bien-être +2 · culture +0,5"}];
+const rural=c=>c.k=="amen"&&c.sub=="prod"&&!c.urb;
+/* Programme de ville : un seul ordre pour un aménagement de bonus dans tous les quartiers possibles */
+const PROG=c=>c.k=="amen"&&c.sub=="bonus"&&["egouts","paves","fontaines","jardins"].includes(c.t);
+const estProd=c=>c.k=="amen"&&c.sub=="prod",estBonus=c=>c.k=="amen"&&c.sub=="bonus";
+/* Effet d'un aménagement sur une case : tout de suite (mêmes travailleurs) et à pleine capacité */
+function amen(c,h){const p=h.cap?Math.min(1,h.w/h.cap):0,k=p>0?Math.pow(p,0.7):1;let F={nour:h.v.nour/k,prod:h.v.prod/k,den:h.v.den/k};const defr=h.bois&&c.t!="coupe";
+  const actuel=amenDe(h);if(actuel&&actuel.t=="champ")F.nour/=2;if(actuel&&actuel.t=="paturage"){F.nour/=1.5;F.prod=Math.max(0,F.prod-1)}
+  if(defr)F={nour:F.nour+1,prod:Math.max(0,F.prod-2),den:F.den};
+  const N=c.t=="champ"?{nour:F.nour*2,prod:F.prod,den:F.den}:c.t=="paturage"?{nour:F.nour*1.5,prod:F.prod+1,den:F.den}:{nour:F.nour,prod:F.prod*2,den:F.den};
+  const avant={nour:h.v.nour/k,prod:h.v.prod/k,den:h.v.den/k},q=Math.pow(Math.min(1,h.w/c.cap),0.7),o={now:{},plein:{}};
+  ["nour","prod","den"].forEach(r=>{o.now[r]=N[r]*q-h.v[r];o.plein[r]=N[r]-avant[r]});o.defr=defr;o.cout=c.cout+(defr?10:0);return o}
+const gainCat=(c,h)=>rural(c)?amen(c,h).now[c.g]:Object.values(c.eff(h)).reduce((s,x)=>s+x,0);
+/* Conseil de l'intendant : bilan net de la case pleine (gains moins pertes), pas seulement la grandeur visée */
+const gainPlein=(c,h)=>{if(!rural(c))return gainCat(c,h);const p=amen(c,h).plein;return p.nour+p.prod+p.den};
+function conseilCase(c){let best=null,bv=-1e9;C().H.filter(c.ok).forEach(h=>{const v=gainPlein(c,h);if(v>bv){bv=v;best=h.k}});return best}
+const deltas=o=>["nour","prod","den"].filter(r=>Math.abs(o[r])>=0.05).map(r=>`<span class="${o[r]>0?'ok':'cr'}">${sg(r,o[r])} ${G[r].n.toLowerCase()}</span>`).join(" · ")||'<span class="mu">rien</span>';
+function placement(){const V0=C(),c=CAT[cons],ch=cas||conseilCase(c),h=V0.H.find(x=>x.k==ch),tp=total(V0,"prod"),cv=conseilCase(c),am=rural(c),A=am?amen(c,h):null,cout=am?A.cout:c.cout;
+  const g=gainCat(c,h),gc=gainCat(c,V0.H.find(x=>x.k==cv));
+  return `<section class="pn" style="border:1px solid ${am?'#7bbf6a':'#e2b84a'}"><div class="etapes"><span>① ${am?'Aménagement':'Bâtiment'} : <b>${c.nom}</b></span><span aria-hidden="true">›</span><span>② Case : <b>${h.nom}</b>${cas&&cas!=cv?"":' <span style="color:#f3cf72">★ conseil</span>'}</span><span aria-hidden="true">›</span><span>③ Mettre en file</span></div>
+  <div class="mu" style="margin-top:6px">${typeTag(c)} ${c.desc}</div>
+  ${am?`<div class="ligne" style="margin-top:6px"><span style="flex:1">Tout de suite (${nb(h.w)} travailleurs)</span><span>${deltas(A.now)}</span></div>
+  <div class="ligne"><span style="flex:1">Case pleine (${nb(c.cap)} travailleurs)</span><span>${deltas(A.plein)}</span></div>
+  <div class="ligne"><span style="flex:1">Capacité de la case</span><span>${nb(h.cap)} → ${nb(c.cap)} travailleurs</span></div>
+  ${A.defr?'<div class="ligne"><span style="flex:1">Défrichement</span><span class="av">la forêt est perdue pour le bois (+10 de coût)</span></div>':''}
+  <div class="mu">Un aménagement par case : il remplace l'actuel (${h.type}). L'intendant y met ensuite les travailleurs.</div>`
+  :`<div class="ligne" style="margin-top:6px"><span style="flex:1">Effet sur la ville</span><span>${c.etat}</span></div>
+  <div class="ligne"><span style="flex:1">Gain sur cette case et ses voisines</span><span class="ok">${sg(c.g,g)}</span>${cas&&cas!=cv&&gc-g>0.01?`<span class="mu">contre ${sg(c.g,gc)} au conseil</span>`:''}</div>
+  <div class="ligne"><span style="flex:1">Travailleurs</span><span class="mu">${c.emp?`${nb(c.emp)} pris aux cases les moins utiles`:"aucun : ne prend pas de place ni d'emplois"}</span></div>`}
+  <div class="ligne"><span style="flex:1">Coût et durée</span><span>${cout} de production · ${Math.ceil(cout/tp)} tour(s) seul, ${Math.ceil((cout+V0.file.reduce((s,f)=>s+(f[1]||0)-(f[2]||0),0))/tp)} après la file</span></div>
+  ${(()=>{if(!PROG(c))return "";const E=V0.H.filter(c.ok);if(E.length<2)return "";const tot=E.reduce((s2,x)=>s2+gainCat(c,x),0),ct=E.length*c.cout;return `<div class="ligne" style="margin-top:8px;border:1px solid #7fd8cf;border-radius:7px;padding:7px 9px"><span style="flex:1"><b style="font-weight:500">Programme de ville</b> : ${c.nom.toLowerCase()} dans les ${E.length} quartiers possibles<div class="mu">Un seul ordre : l'intendant les construit un par un, du plus utile au moins utile. ${ct} de production en tout (${Math.ceil(ct/tp)} tours) · une fois fini : ${sg(c.g,tot)} ${G[c.g].n.toLowerCase()}</div></span><button class="btn2" id="programme"><i class="ti ti-plus" aria-hidden="true"></i>Lancer le programme</button></div>`})()}
+  <div class="mu" style="margin-top:6px">Sur la carte : survol d'une case pour son gain${am?"":" et les cases améliorées"}, clic pour la choisir, double-clic ou Entrée pour la mettre en file. Échap : étape précédente.</div>
+  <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap"><button class="btn" id="enfile"><i class="ti ti-plus" aria-hidden="true"></i>Mettre en file · ${h.nom}</button><span id="retour" class="mu"></span></div></section>`}
+/* Étiquette qui distingue bâtiment et aménagement partout */
+const amenDe=h=>h.am?CAT.find(c=>c.t==h.am):h.type=="quartier artisanal"?CAT.find(c=>c.t=="artisans"):/quartier du (marché|port)|changeurs/.test(h.type)?CAT.find(c=>c.t=="comptoirs"):/champs/.test(h.type)?CAT.find(c=>c.t=="champ"):h.type=="pâturages"?CAT.find(c=>c.t=="paturage"):null;
+const typeTag=c=>c.k=="amen"?(c.sub=="bonus"?`<span class="tag bonus"><i class="ti ti-bonus" aria-hidden="true"></i>aménagement de bonus</span>`:`<span class="tag amen"><i class="ti ti-shovel" aria-hidden="true"></i>aménagement de production</span>`):`<span class="tag bat"><i class="ti ti-building-community" aria-hidden="true"></i>bâtiment</span>`;
+const icoCat=c=>`<span class="ico ${c.k=="amen"?(c.sub=="bonus"?'bonus':'amen'):''}"><i class="ti ${ICO[c.t]}" aria-hidden="true"></i></span>`;
+/* Fenêtre « Tout comparer » : chaque bâtiment et aménagement à sa meilleure case */
+let compare=false,cmpFiltre="tout",axeOuvert=false;
+/* Partenaires possibles pour un nouvel axe (exemples) : ville, voie, durée, marchandises, solde attendu, risque */
+const PARTENAIRES={petite:[["Massilia","route puis côte",4,"sel, vin","+0,6",["ok","faible"]],["Tarvo (étranger)","col de montagne",7,"étain","+0,3",["cr","col enneigé l'hiver, brigands"]]],grande:[["Massilia","fleuve puis côte",5,"sel, vin","+1,8",["av","pirates du fleuve"]],["Gergovie","route des collines",3,"laine","+0,9",["ok","faible"]]]};
+function comparer(){const V0=C(),tp=total(V0,"prod");const L=CAT.map((c,i)=>[c,i]).filter(([c])=>cmpFiltre=="tout"||cmpFiltre==c.k||cmpFiltre==c.g);
+  const rows=L.map(([c,i])=>{if(c.verrou)return `<tr><td>${icoCat(c)}</td><td>${c.nom}<div class="mu">${typeTag(c)}</div></td><td><i class="ti ${G[c.g].i}" style="color:${G[c.g].c}" aria-hidden="true"></i></td><td style="text-align:left">${c.desc}</td><td colspan="3" style="text-align:left" class="mu"><i class="ti ti-lock" aria-hidden="true"></i> ${c.verrou}</td><td></td></tr>`;
+    const k=conseilCase(c);if(!k)return `<tr><td>${icoCat(c)}</td><td>${c.nom}<div class="mu">${typeTag(c)}</div></td><td><i class="ti ${G[c.g].i}" style="color:${G[c.g].c}" aria-hidden="true"></i></td><td style="text-align:left">${c.desc}</td><td colspan="3" style="text-align:left" class="mu">aucune case possible ici : ${c.raison}</td><td></td></tr>`;
+    const h=V0.H.find(x=>x.k==k),am=rural(c),cout=am?amen(c,h).cout:c.cout,gain=am?`${deltas(amen(c,h).now)}<div class="mu">case pleine : ${deltas(amen(c,h).plein)}</div>`:`<span class="ok">${sg(c.g,gainCat(c,h))} ${G[c.g].n.toLowerCase()}</span>`;
+    return `<tr><td>${icoCat(c)}</td><td>${c.nom}<div class="mu">${typeTag(c)}</div></td><td><i class="ti ${G[c.g].i}" style="color:${G[c.g].c}" aria-hidden="true"></i></td><td style="text-align:left">${c.desc}</td><td style="text-align:left">${h.nom}</td><td style="text-align:left">${gain}</td><td>${cout} · ${Math.ceil(cout/tp)} t.</td><td><button class="btn2" data-cmp="${i}" style="padding:3px 9px">Construire</button></td></tr>`}).join('');
+  return `<div class="voile" id="voile"><div class="fenetre" role="dialog" aria-modal="true" aria-label="Bâtiments et aménagements possibles"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="titrepn" style="font-size:18px">Bâtiments et aménagements possibles à ${V0.nom}</span><button class="btn2" data-fermecmp="1" style="margin-left:auto">Fermer (Échap)</button></div>
+  <div class="mu" style="margin:4px 0 8px">Chaque ligne donne l'effet à la meilleure case de la ville (le conseil de l'intendant) ; « Construire » ouvre le placement, où l'on peut choisir une autre case.</div>
+  <div class="seg" style="margin-bottom:8px">${[["tout","Tout"],["bat","Bâtiments"],["amen","Aménagements"]].concat(PRINC.concat(["cult","def","rech"]).map(r=>[r,G[r].n])).map(([k,t])=>`<button data-cmpf="${k}" aria-pressed="${cmpFiltre==k}">${t}</button>`).join('')}</div>
+  <div style="overflow:auto;max-height:70vh"><table class="tb"><tr><th></th><th>Nom</th><th>Domaine</th><th style="text-align:left">Ce qu'il fait</th><th style="text-align:left">Meilleure case</th><th style="text-align:left">Gain à cette case</th><th>Coût · durée</th><th></th></tr>${rows}</table></div></div></div>`}
+
+/* ---------- Onglets Population et Commerce ---------- */
+function limites(V0){const capT=V0.H.reduce((s2,h)=>s2+(h.cap||0),0)+V0.B.reduce((s2,b)=>s2+b.emp[1],0);
+  return [["Nourriture",total(V0,"nour")*1000,"#97c459","habitants que la nourriture peut nourrir (1 point pour 1 000)"],["Eau",V0.eau.max/0.35*1000,"#5dc4e8","habitants que l'eau prélevable peut abreuver"],["Emplois",capT*2,"#d9a066","au-delà, les nouveaux habitants n'ont pas de travail (la moitié travaille)"]]}
+function grapheLimites(V0){const W=700,HT=230,P={l:58,r:150,t:14,b:26},h=Hh().hab,n=h.length,fut=40,L=limites(V0),lim=Math.min(...L.map(x=>x[1]));
+  const proj=[];let v=h[n-1];const taux=V0.croit/V0.hab;for(let t=1;t<=fut;t++){v=taux>0?v+v*taux*Math.max(0,1-v/lim)*1.4:v+V0.croit*Math.pow(0.95,t);proj.push(v)}
+  /* Échelle logarithmique, bornée autour des valeurs utiles (pas depuis zéro) */
+  const tous=[...h,...proj,...L.map(x=>x[1]),V0.suiv].filter(v=>v>0),lo=Math.min(...tous)*0.8,hi=Math.max(...tous)*1.2,mx=hi,X=t=>P.l+(t+n-1)/(n-1+fut)*(W-P.l-P.r),Y=v=>P.t+(1-(Math.log(Math.max(v,lo))-Math.log(lo))/(Math.log(hi)-Math.log(lo)))*(HT-P.t-P.b);
+  const graduations=[];for(let e=Math.floor(Math.log10(lo));e<=Math.ceil(Math.log10(hi));e++)[1,2,5].forEach(m=>{const v=m*Math.pow(10,e);if(v>=lo&&v<=hi)graduations.push(v)});
+  let s2=`<svg viewBox="0 0 ${W} ${HT}" width="100%" role="img" aria-label="Évolution de la population et limites"><rect x="${X(0)}" y="${P.t}" width="${X(fut)-X(0)}" height="${HT-P.t-P.b}" fill="#fff" opacity=".035"/>`;
+  graduations.forEach(v=>s2+=`<line x1="${P.l}" x2="${W-P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#222a3a"/><text x="${P.l-6}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="#8a92a5">${nb(v)}</text>`);
+  L.forEach(([nom,val,c])=>{s2+=`<line x1="${P.l}" x2="${W-P.r}" y1="${Y(val)}" y2="${Y(val)}" stroke="${c}" stroke-width="${val==lim?2.2:1.2}" stroke-dasharray="7 4"/><text x="${W-P.r+6}" y="${Y(val)+4}" font-size="12" fill="${c}">${nom} : ${nb(val)}${val==lim?" ← limite":""}</text>`});
+  const pal=[V0.palier,V0.palier+1].map(p=>p==V0.palier?null:[p,V0.suiv]).filter(x=>x);pal.forEach(([p,v2])=>{if(v2<mx)s2+=`<line x1="${P.l}" x2="${W-P.r}" y1="${Y(v2)}" y2="${Y(v2)}" stroke="#5f6577" stroke-dasharray="2 3"/><text x="${P.l+4}" y="${Y(v2)-4}" font-size="11" fill="#8a92a5">palier ${p}</text>`});
+  s2+=`<polyline points="${h.map((v2,i)=>`${X(i-n+1).toFixed(1)},${Y(v2).toFixed(1)}`).join(' ')}" fill="none" stroke="#c9b3ff" stroke-width="2.6"/><polyline points="${[[0,h[n-1]]].concat(proj.map((v2,i)=>[i+1,v2])).map(([t,v2])=>`${X(t).toFixed(1)},${Y(v2).toFixed(1)}`).join(' ')}" fill="none" stroke="#c9b3ff" stroke-width="2" stroke-dasharray="6 4"/>`;
+  s2+=`<line x1="${X(0)}" x2="${X(0)}" y1="${P.t}" y2="${HT-P.b}" stroke="#e7e9ef"/><circle cx="${X(0)}" cy="${Y(h[n-1])}" r="4" fill="#fff"/><text x="${X(0)}" y="${HT-7}" text-anchor="middle" font-size="11" fill="#e7e9ef">aujourd'hui</text>`;
+  [-(n-1),fut].forEach(t=>s2+=`<text x="${X(t)}" y="${HT-7}" text-anchor="${t>0?'end':'middle'}" font-size="11" fill="#8a92a5">${t>0?"+"+t:t} tours</text>`);
+  const tl=proj.findIndex(v2=>v2>=lim*0.98);if(tl>=0&&V0.croit>0)s2+=`<circle cx="${X(tl+1)}" cy="${Y(lim)}" r="5" fill="none" stroke="#f08a8a" stroke-width="2"/><text x="${X(tl+1)}" y="${Y(lim)-10}" text-anchor="middle" font-size="11" fill="#f08a8a">limite atteinte vers le tour +${tl+1}</text>`;
+  return s2+`</svg>`}
+function population(){const V0=C(),D=DEMO[cur],i=I(),L=limites(V0),lim=L.reduce((a,b)=>b[1]<a[1]?b:a),sol=D.naiss-D.deces+D.mig;
+  const carteC=(t,v,sous,extra="")=>`<div class="carte indic"><div class="tete mu">${t}</div><div class="val">${v}</div><div class="mu">${sous}</div>${extra}</div>`;
+  return `<section class="pn"><div class="titrepn">Population de ${V0.nom}</div><div class="cartes" style="margin-top:8px;grid-template-columns:repeat(4,minmax(0,1fr))">
+  ${carteC("Habitants de l'aire",nb(V0.hab),`palier ${V0.palier}`,mini("hab"))}${carteC("Taux d'urbanisation",`${urbanisation(V0)} %`,`${nb(V0.hab*urbanisation(V0)/100)} citadins · ${nb(V0.hab*(100-urbanisation(V0))/100)} ruraux`)}${carteC("Actifs (la moitié)",nb(V0.actifs),`dont ${nb(V0.B.reduce((s2,b)=>s2+b.emp[0],0))} dans les bâtiments`)}${carteC("Sans emploi",nb(V0.chom),V0.chom?etat("av","aménager ou construire"):etat("ok","tous employés"))}</div></section>
+  <section class="pn"><div class="titrepn">Mouvement de la population (dernier tour)</div><div class="deux" style="margin-top:6px"><div>
+  <div class="ligne"><span style="flex:1">Naissances</span><span class="ok">+${nb(D.naiss)}</span></div><div class="ligne"><span style="flex:1">Décès</span><span class="cr">−${nb(D.deces)}</span></div><div class="ligne"><span style="flex:1">${D.mig>=0?"Arrivées":"Départs"} (migrations)</span><span class="${D.mig>=0?'ok':'cr'}">${D.mig>=0?"+":"−"}${nb(Math.abs(D.mig))}</span></div><div class="ligne" style="border-top:2px solid var(--trait2)"><span style="flex:1;font-weight:600">Solde</span><span style="font-weight:600" class="${sol>=0?'ok':'cr'}">${sol>=0?"+":"−"}${nb(Math.abs(sol))} par tour</span></div></div>
+  <div class="mu" style="align-self:center">${cur=="petite"?"Nourriture abondante : les naissances l'emportent largement. La ville attire un peu (travail, marché).":"Les décès augmentent avec l'entassement et l'hygiène faible ; des familles partent vers des villes moins pleines. L'aqueduc et les égouts en cours y répondent."}</div></div></section>
+  <section class="pn"><div class="titrepn">Évolution et limites de la ville</div><div class="mu" style="margin:2px 0 6px">Échelle logarithmique. Trait plein : le passé ; pointillé : la prévision au rythme actuel ; lignes de couleur : ce que la ville peut porter. La plus basse est la limite, ici <b style="color:${lim[2]};font-weight:500">${lim[0].toLowerCase()}</b> (${lim[3]}).</div>${grapheLimites(V0)}
+  <div class="deux" style="margin-top:6px">${L.map(([n2,v,c,d])=>`<div class="ligne"><span style="flex:1;color:${c}">${n2}</span><span>${nb(v)} habitants</span><span class="mu">${v>V0.hab?"marge "+nb(v-V0.hab):"dépassée"}</span></div>`).join('')}</div></section>
+  <section class="pn"><div class="titrepn">Cultures et religions</div><div class="mu" style="margin:2px 0 6px">Chaque groupe a sa relation avec l'autorité de la ville (−100 à +100) ; une relation basse donne des troubles, une haute favorise l'assimilation. Les groupes de moins de 2 % se fondent dans le plus proche.</div>
+  <div style="overflow-x:auto"><table class="tb"><tr><th>Culture</th><th style="text-align:left">Religion</th><th>Part</th><th style="text-align:left">Relation avec la ville</th><th style="text-align:left">Évolution</th></tr>${D.cultures.map(([c,rel,p,r2,e,t])=>`<tr><td>${c}</td><td style="text-align:left">${rel}</td><td>${p} %<div class="barre" style="width:60px;margin-left:auto"><div style="width:${p}%;background:#ed93b1"></div></div></td><td style="text-align:left"><span class="${r2<0?'cr':r2<30?'av':'ok'}">${r2>0?"+":""}${r2}</span><div class="barre" style="width:120px;position:relative"><div style="margin-left:${r2<0?50+r2/2:50}%;width:${Math.abs(r2)/2}%;background:${r2<0?'var(--cr)':'var(--ok)'}"></div></div></td><td style="text-align:left">${etat(e,t)}</td></tr>`).join('')}</table></div></section>
+  <section class="pn"><div class="titrepn">Ordres de la société <span class="mu" style="font-family:var(--corps)">(groupes sociaux)</span></div><div class="deux" style="margin-top:6px">${D.ordres.map(([o,pds,sat])=>`<div class="ligne"><span style="width:90px">${o}</span><span class="mu" style="width:70px">poids ${pds} %</span><div class="barre" style="flex:1"><div style="width:${sat}%;background:${sat<50?'var(--av)':'var(--ok)'}"></div></div><span class="mu" style="width:90px;text-align:right">satisfaits ${sat} %</span></div>`).join('')}</div></section>
+  <section class="pn"><div class="titrepn" style="font-size:14px">Consignes de l'intendant <span class="mu" style="font-family:var(--corps)">(réglées dans le détail de chaque grandeur)</span></div>
+  <div class="ligne"><span style="flex:1;color:var(--nour)"><i class="ti ti-wheat" aria-hidden="true"></i> Nourriture</span><span>objectif : ${["nourrir seulement","croître","croissance maximale","excédent à vendre"][i.obj]}</span></div>${["prod","den"].map(r2=>`<div class="ligne"><span style="flex:1;color:${G[r2].c}"><i class="ti ${G[r2].i}" aria-hidden="true"></i> ${G[r2].n}</span><span>priorité ${["normale","prioritaire","maximale"][i.prio[r2]]}</span></div>`).join('')}</section>`}
+/* ---------- Onglet Histoire ---------- */
+function histoire(){const V0=C(),lieu=fix&&fix.c,L=HISTO[cur].filter(e=>histF=="tout"||e[1]==histF).filter(e=>!lieu||e[3]==lieu).sort((a,b)=>a[0]-b[0]);
+  return `<section class="pn"><div class="titrepn">Histoire de ${V0.nom}</div><div class="mu" style="margin:2px 0 8px">Les moments marquants de la ville ; ceux qui ont un lieu sont cerclés d'or sur la carte. Ils servent aussi de repères numérotés sur les graphiques.</div>
+  <div class="seg" style="margin-bottom:8px"><button data-hf="tout" aria-pressed="${histF=="tout"}">Tout</button>${Object.entries(TYPEH).map(([k,[ic,c,t]])=>`<button data-hf="${k}" aria-pressed="${histF==k}"><i class="ti ${ic}" style="color:${c}" aria-hidden="true"></i> ${t}</button>`).join('')}</div>
+  ${lieu?`<div class="ligne" style="border:0"><i class="ti ti-map-pin" aria-hidden="true"></i><span>Lieu : <b style="font-weight:500">${nomCase(lieu)}</b></span><button class="btn2" data-tousl="1" style="padding:1px 9px">× tous les lieux</button></div>`:''}${L.length?'':'<div class="mu">Aucun événement de ce type'+(lieu?' en ce lieu':'')+'.</div>'}<div style="position:relative;padding-left:22px">${L.map(([t,ty,txt,k])=>`<div style="position:relative;padding:6px 0 10px;border-left:2px solid var(--trait2);padding-left:16px;margin-left:-12px"><span style="position:absolute;left:-12px;top:7px;width:22px;height:22px;border-radius:50%;background:var(--surface);border:1.5px solid ${TYPEH[ty][1]};display:flex;align-items:center;justify-content:center;color:${TYPEH[ty][1]};font-size:14px;margin-left:-0px;transform:translateX(-50%)"><i class="ti ${TYPEH[ty][0]}" aria-hidden="true"></i></span><div class="mu">tour ${t} · ${anDe(t)}</div><div>${txt}</div>${k?`<button class="btn2" data-ev="${k}" style="padding:1px 8px;margin-top:3px"><i class="ti ti-map-pin" aria-hidden="true"></i>${nomCase(k)}</button>`:''}</div>`).join('')}</div></section>`}
+function commerce(){const V0=C(),bal=V0.AX.reduce((s,a)=>s+a.den,0);
+  return `<section class="pn"><div class="titrepn">Commerce de ${V0.nom}</div><div class="cartes" style="margin-top:8px;grid-template-columns:repeat(3,minmax(0,1fr))"><div class="carte indic"><div class="tete mu">Solde des échanges</div><div class="val ${bal>=0?'ok':'av'}">${sg("den",bal)}</div><div class="mu">deniers par tour</div></div><div class="carte indic"><div class="tete mu">Transport</div><div style="font-size:15px;margin-top:4px">${V0.transport}</div></div><div class="carte indic"><div class="tete mu">Dépendance</div><div style="font-size:15px;margin-top:4px">${V0.depend=="aucune"?etat("ok","aucune"):etat("av",V0.depend)}</div></div></div>
+  <div class="titrepn" style="font-size:14px;margin-top:12px">Ce que le commerce apporte</div>${["nour","prod"].map(r=>{const c=V0.com[r];return `<div class="ligne"><span style="flex:1;color:${G[r].c}"><i class="ti ${G[r].i}" aria-hidden="true"></i> ${G[r].n}</span><span class="mu">reçu ${fv(r,c.rec)} · envoyé ${fv(r,c.env)}</span><span style="width:50px;text-align:right">${sg(r,c.rec-c.env)}</span></div>`}).join('')}
+  <div class="titrepn" style="font-size:14px;margin-top:12px">Axes</div><div style="overflow-x:auto"><table class="tb"><tr><th>Partenaire</th><th style="text-align:left">Voie</th><th>Durée</th><th style="text-align:left">Envoie</th><th style="text-align:left">Reçoit</th><th>Solde</th><th style="text-align:left">Risque</th></tr>${V0.AX.map(a=>`<tr><td>${a.v}</td><td style="text-align:left">${a.voie}</td><td>${a.duree} tours</td><td style="text-align:left">${a.env.join(", ")||"—"}</td><td style="text-align:left">${a.rec.join(", ")||"—"}</td><td>${sg("den",a.den)}</td><td style="text-align:left">${etat(a.risque[0],a.risque[1])}</td></tr>`).join('')}</table></div>${axeOuvert?`<div class="titrepn" style="font-size:14px;margin-top:12px">Ouvrir un axe : partenaires possibles</div>${PARTENAIRES[cur].map(([v,voie,d,m,sol,ri])=>`<div class="ligne" style="flex-wrap:wrap"><span style="flex:1;min-width:180px">${v}<div class="mu">${voie} · ${d} tours · reçoit ${m}</div></span><span class="ok">${sol} denier</span><span style="width:200px">${etat(ri[0],ri[1])}</span><button class="btn2" data-axeok="${v}">Envoyer une caravane · 20 de production</button></div>`).join('')}`:`<div style="margin-top:10px"><button class="btn2" data-axe="1"><i class="ti ti-plus" aria-hidden="true"></i>Ouvrir un axe…</button></div>`}</section>`}
+
+/* ---------- Colonne de gauche ---------- */
+function gauche(){const el=document.getElementById('gauche');
+  if(onglet=="pop"){el.innerHTML=fix&&fix.c?`<section class="pn">${fil()}</section>${ficheCase(fix.c)}`:population();return}
+  if(onglet=="com"){el.innerHTML=commerce();return}
+  if(onglet=="hist"){el.innerHTML=histoire();return}
+  let corps=cons!=null?placement():fix?(fix.f!=null?ficheFile(fix.f):fix.c?ficheCase(fix.c):ficheBat(fix.b)):sel?synthese(sel):ensemble();
+  el.innerHTML=cartesHTML()+(sel||fix||catalogue?`<div class="pn" style="padding:8px 14px">${fil()}</div>`:"")+corps}
+
+/* ---------- Cartes de l'eau et des grandeurs secondaires ---------- */
+/* Sources d'eau par case : nom court, prélevé, prélevable (m³/s), nature */
+const EAUC={petite:{"-1,1":["fleuve",0.61,0.70,"fleuve"],"-1,0":["ruisseau",0.10,0.10,"ruisseau"],"0,0":["puits",0.14,0.22,"puits"]},grande:{}};
+(()=>{const G2=V.grande;G2.H.filter(h=>h.fl).forEach(h=>EAUC.grande[h.k]=["fleuve",6.7,7.0,"fleuve"]);EAUC.grande["0,-1"]=["aqueduc",6,6,"aqueduc"]})();
+/* Apport d'une case à une grandeur secondaire : bâtiments, bonus, et base répartie (quartiers, centre) */
+function valCase(V0,r,h){let v=0;V0.B.forEach(b=>{if(b.b[r]&&b.b[r][h.k]!=null)v+=b.b[r][h.k]});(h.bonus||[]).forEach(t=>{const c=CAT.find(x=>x.t==t);if(c&&c.g==r&&c.eff)v+=c.eff(h)[h.k]||0});
+  const base=(V0.base[r]||[]).reduce((s2,x)=>s2+x[1],0),urb=V0.H.filter(x=>x.urb);
+  if(r=="bien"){if(!h.urb&&!h.cap)return 0;let loc=total(V0,"bien")+v-(h.urb&&h.cap&&h.w/h.cap>0.9?6:0)+(!h.urb?4:0);return loc}
+  if(r=="def")return v+(h.k=="0,0"?base:0);
+  return v+(h.urb?base/urb.length:0)}
+
+/* Habitants d'une case : pour l'instant, chacun vit là où il travaille (Benjamin, 11/11/2026).
+   Emplois de la case = ses travailleurs + les emplois de ses bâtiments ; les sans-emploi vivent au
+   centre. Les habitants se répartissent comme ces emplois (un actif pour deux habitants). */
+function emploisCase(V0,h){return (h.w||0)+V0.B.filter(b=>b.k==h.k).reduce((s2,b)=>s2+b.emp[0],0)+(h.k=="0,0"?V0.chom:0)}
+function habCase(V0,h){const tot=V0.H.reduce((s2,x)=>s2+emploisCase(V0,x),0);return tot?V0.hab*emploisCase(V0,h)/tot:0}
+/* Violet de la population : plus c'est foncé et saturé, plus la case est peuplée (Benjamin). Le violet
+   le plus foncé reste saturé pour se distinguer du fond de la carte ; le plus clair reste un lavande doux */
+const RAMPE=[[176,158,226],[150,128,212],[126,100,196],[104,74,180],[86,52,164],[70,36,148]];
+function rampe(q){q=Math.max(0,Math.min(1,q))*(RAMPE.length-1);const i=Math.min(RAMPE.length-2,Math.floor(q)),f=q-i,a=RAMPE[i],b=RAMPE[i+1];return `rgb(${a.map((x,k)=>Math.round(x+(b[k]-x)*f)).join(',')})`}
+/* Bornes de la carte des habitants : de la case la moins peuplée à la plus peuplée (pas depuis zéro), en logarithme */
+function bornesHab(V0){const v=V0.H.map(h=>habCase(V0,h)).filter(x=>x>0);return [Math.min(...v),Math.max(...v)]}
+const qHab=(V0,v)=>{const [lo,hi]=bornesHab(V0);return hi>lo?(Math.log(v)-Math.log(lo))/(Math.log(hi)-Math.log(lo)):1};
+const urbanisation=V0=>Math.round(100*V0.H.filter(h=>h.urb).reduce((s2,h)=>s2+habCase(V0,h),0)/V0.hab);
+
+/* ---------- Carte ---------- */
+function carte(){const V0=C(),svg=document.getElementById('carte');let o="";const s=cur=="petite"?62:29,fs=cur=="petite"?13:10;
+  if(onglet=="com"){const cx=200,cy=200;o+=`<path d="M0 260 Q120 230 ${cx} 215 T520 270" fill="none" stroke="#1d3a5c" stroke-width="16"/>`;
+    V0.AX.forEach(a=>{const [x,y]=V0.pos[a.v],mx=(cx+x)/2+(y<cy?-20:24),my=(cy+y)/2+(y<cy?-14:10),col=a.voie.includes("fleuve")?"#378add":a.voie.includes("col")?"#b4b2a9":"#c9ac7a",da=a.voie.includes("col")?"3 4":a.voie.includes("gué")?"8 5":"";
+      o+=`<path d="M${cx} ${cy} Q${mx} ${my} ${x} ${y}" fill="none" stroke="${col}" stroke-width="${3+a.env.length*2+a.rec.length*2}" stroke-dasharray="${da}" opacity=".85"/><circle cx="${x}" cy="${y}" r="9" fill="${a.v.includes("étranger")?"#3a2a2a":"#2a3a5c"}" stroke="${a.v.includes("étranger")?"#f08a8a":"#e2b84a"}" stroke-width="2"/><text x="${x}" y="${y+(y<cy?-16:26)}" text-anchor="middle" font-size="14" fill="#e7e9ef">${a.v}</text><rect x="${mx-44}" y="${my-12}" width="88" height="24" rx="5" fill="#0b0e15" stroke="${a.den>=0?"#4fc3a1":"#f0a03c"}"/><text x="${mx}" y="${my+5}" text-anchor="middle" font-size="12.5" fill="${a.den>=0?"#4fc3a1":"#f0a03c"}">${sg("den",a.den)} · ${a.duree} tours</text>`});
+    o+=`<circle cx="${cx}" cy="${cy}" r="13" fill="#2a3a5c" stroke="#fff" stroke-width="2.5"/><text x="${cx}" y="${cy+32}" text-anchor="middle" font-size="15" fill="#fff">${V0.nom}</text>`;
+    svg.setAttribute('viewBox','0 0 520 380');svg.innerHTML=o;document.getElementById('legende').innerHTML=`Axes de commerce de ${V0.nom}`;legendeCarte({mode:"com"});document.getElementById('zoomb').hidden=true;return}
+  document.getElementById('zoomb').hidden=false;
+  const placer=cons!=null,c=placer?CAT[cons]:null,ch=placer?(cas||conseilCase(c)):null,act=placer?(hov||ch):null,eff=placer?(rural(c)?{}:c.eff(V0.H.find(x=>x.k==act))):null,vals=placer?V0.H.map(h=>c.ok(h)?gainCat(c,h):null):[],vmx=placer?Math.max(...vals.filter(v=>v!=null)):0;
+  const r=!placer&&sel&&PRINC.includes(sel)&&sel!="eau"?sel:null,pop=onglet=="pop",b=!placer&&fix&&fix.b!=null?V0.B[fix.b]:null,boost=b?(r?b.b[r]||{}:Object.assign({},...Object.values(b.b))):null,mx=r?Math.max(...V0.H.map(h=>h.v[r])):1;
+  V0.H.forEach((h,i)=>{let fill,stroke=h.urb?"#6b7186":"#343c50",sw=1,txt="",op=1;
+    if(placer){const v=vals[i];if(v==null){fill="#151a24";op=.45;txt=`<text x="${h.x}" y="${h.y+4}" text-anchor="middle" font-size="${fs}" fill="#6b7186">—</text>`}else{fill=c.k=="amen"?`rgba(123,191,106,${0.12+0.5*Math.max(0,v)/Math.max(0.01,vmx)})`:`rgba(226,184,74,${0.12+0.5*v/vmx})`;txt=`<text x="${h.x}" y="${h.y+5}" text-anchor="middle" font-size="${fs+1}" font-weight="600" fill="#fff">${sg(c.g,v)}</text>`}
+      if(h.k==ch){stroke="#fff";sw=3.5}else if(eff[h.k]!=null&&h.k!=act){stroke="#a9a1ff";sw=2.5}}
+    else if(pop&&popCarte=="habitants"){const v=habCase(V0,h),q=v>0?qHab(V0,v):0;fill=v>0?rampe(q):"#161b25";if(v>0&&(cur=="petite"||Z.z>=1.4||q>0.85))txt=`<text x="${h.x}" y="${h.y+5}" text-anchor="middle" font-size="${fs}" font-weight="600" fill="${q<0.4?'#1c1438':'#fff'}">${nb(v)}</text>`}
+    else if(pop){const p=h.cap?h.w/h.cap:0;fill=h.cap?(p>=.9?`rgba(240,160,60,${0.25+p*0.4})`:`rgba(79,195,161,${0.15+p*0.45})`):"#2a3a5c";if(h.cap&&(cur=="petite"||Z.z>=1.4))txt=`<text x="${h.x}" y="${h.y+2}" text-anchor="middle" font-size="${fs}" font-weight="600" fill="#fff">${Math.round(p*100)} %</text><text x="${h.x}" y="${h.y+fs+3}" text-anchor="middle" font-size="${fs-2}" fill="#d6dbe6">${nb(h.w)} / ${nb(h.cap)}</text>`}
+    else if(onglet=="hist"){fill=h.urb?"#2a3448":"#1d2533";const ev=HISTO[cur].filter(x=>x[3]==h.k);if(ev.length){stroke="#e2b84a";sw=2}if(fix&&fix.c==h.k){stroke="#fff";sw=3.5}}
+    else if(sel=="eau"){const src=EAUC[cur][h.k];fill=src?`rgba(55,150,210,${0.25+0.5*src[1]/src[2]})`:h.riv?"rgba(55,150,210,.18)":"#1c2433";if(src){const q=src[1]/src[2],col=q>=.95?"#f08a8a":q>=.8?"#f0a03c":"#4fc3a1";txt=`<text x="${h.x}" y="${h.y-2}" text-anchor="middle" font-size="${fs-1}" fill="#cfe9f7">${src[0]}</text><text x="${h.x}" y="${h.y+fs+1}" text-anchor="middle" font-size="${fs}" font-weight="600" fill="${col}">${fv("eau",src[1])} / ${fv("eau",src[2])}</text>`}}
+    else if(sel&&G[sel].sec){const v=valCase(V0,sel,h),vm=Math.max(0.01,...V0.H.map(x=>Math.abs(valCase(V0,sel,x))));fill=sel=="bien"?(v<45?`rgba(240,138,138,.45)`:v<58?`rgba(240,160,60,.4)`:`rgba(79,195,161,.4)`):v>0.01?`rgba(${G[sel].rgb},${0.15+0.6*v/vm})`:"#1c2433";if(v>0.01&&(cur=="petite"||Z.z>=1.4||v/vm>0.5))txt=`<text x="${h.x}" y="${h.y+5}" text-anchor="middle" font-size="${fs}" font-weight="600" fill="#fff">${sel=="bien"?Math.round(v):"+"+fv(sel,v)}</text>`}
+    else{if(r)fill=`rgba(${G[r].rgb},${0.12+0.6*h.v[r]/mx})`;else{const d=["nour","prod","den"].reduce((a,k)=>h.v[k]/({nour:1,prod:1,den:0.6}[k])>h.v[a]/({nour:1,prod:1,den:0.6}[a])?k:a,"nour");fill=`rgba(${G[d].rgb},${h.urb?0.3:0.45})`}
+      if(boost){if(b.k==h.k){stroke="#fff";sw=3}else if(boost[h.k]!=null){stroke="#a9a1ff";sw=2.5;txt=`<text x="${h.x}" y="${h.y+5}" text-anchor="middle" font-size="${fs}" fill="#fff">+${f1(boost[h.k])}</text>`}else op=.35}
+      else if(r&&(cur=="petite"||Z.z>=1.4))txt=`<text x="${h.x}" y="${h.y+5}" text-anchor="middle" font-size="${fs}" fill="#fff">${f1(h.v[r])}</text>`;
+      if(fix&&fix.c==h.k){stroke="#fff";sw=3}}
+    if(!placer&&(cur=="petite"||Z.z>=1.4))txt+=`<text x="${h.x}" y="${h.y+s*0.62}" text-anchor="middle" font-size="${fs-2.5}" fill="#b0b7c6">${h.type.replace("quartier ","q. ")}</text>`;
+    /* Case aménagée : motif (sillons du champ, points du pâturage) et pastille ronde verte en bas de la case */
+    const am=amenDe(h);let marque="";if(couches.bonus&&h.bonus&&h.bonus.length){const z=cur=="petite"?18:11;h.bonus.forEach((t,j)=>{const c2=CAT.find(c=>c.t==t);marque+=`<foreignObject x="${h.x+s*0.42+(j)*(z+3)-z/2}" y="${h.y+s*0.62-z}" width="${z+2}" height="${z+2}" pointer-events="none"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${z-2}px;height:${z-2}px;margin:2px;transform:rotate(45deg);background:#14302f;border:1.5px solid #7fd8cf;display:flex;align-items:center;justify-content:center;color:#7fd8cf;font-size:${z-7}px;box-sizing:border-box"><i class="ti ${ICO[c2.t]}" style="transform:rotate(-45deg)"></i></div></foreignObject>`})}
+    if(couches.prod&&am&&h.k!="0,0"){const z=cur=="petite"?20:12;marque+=`${am.urb?"":`<polygon points="${hexpts(h.x,h.y,s*0.94)}" fill="url(#m-${am.t})" pointer-events="none"/>`}<foreignObject x="${h.x-z/2}" y="${h.y+s*0.78-z}" width="${z}" height="${z}" pointer-events="none"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${z}px;height:${z}px;border-radius:50%;background:#1f3320;border:1.5px solid #a6dc8e;display:flex;align-items:center;justify-content:center;color:#a6dc8e;font-size:${z-7}px;box-sizing:border-box"><i class="ti ${ICO[am.t]}"></i></div></foreignObject>`}
+    o+=`<g class="hx" data-k="${h.k}" opacity="${op}" style="cursor:${placer&&vals[i]==null?'not-allowed':'pointer'}"><polygon points="${hexpts(h.x,h.y,s)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>${marque}${h.urb?`<polygon points="${hexpts(h.x,h.y,s*.42)}" fill="none" stroke="#8a90a3" stroke-width=".8" stroke-dasharray="3 3"/>`:''}${txt}</g>`});
+  if(sel=="eau"&&!placer&&onglet=="rend"){const riv=V0.H.filter(h=>EAUC[cur][h.k]&&EAUC[cur][h.k][3]=="fleuve").sort((a,b)=>a.x-b.x);if(riv.length)o=`<polyline points="${[[0,riv[0].y+20]].concat(riv.map(h=>[h.x,h.y+s*0.35])).concat([[520,riv[riv.length-1].y]]).map(p=>p.join(',')).join(' ')}" fill="none" stroke="#378add" stroke-width="${cur=="petite"?9:6}" opacity=".85" pointer-events="none"/>`+o}
+  o=`<defs><pattern id="m-champ" width="${cur=="petite"?9:6}" height="${cur=="petite"?9:6}" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="${cur=="petite"?9:6}" stroke="#d9e8b0" stroke-width="1.4" opacity=".45"/></pattern><pattern id="m-paturage" width="${cur=="petite"?10:7}" height="${cur=="petite"?10:7}" patternUnits="userSpaceOnUse"><circle cx="2.5" cy="2.5" r="1.3" fill="#d9e8b0" opacity=".5"/></pattern><pattern id="m-coupe" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 8 L4 2 L8 8" fill="none" stroke="#d9e8b0" stroke-width="1" opacity=".45"/></pattern></defs>`+o;
+  if(placer){const con=conseilCase(c),hc=V0.H.find(x=>x.k==con);o+=`<text x="${hc.x}" y="${hc.y-s*0.5}" text-anchor="middle" font-size="${fs+4}" fill="#f3cf72">★</text>`;
+    if(c.ok(V0.H.find(x=>x.k==act))){const ha=V0.H.find(x=>x.k==act),z=cur=="petite"?22:14;o+=`<foreignObject x="${ha.x-z/2}" y="${ha.y+s*0.18}" width="${z}" height="${z}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${z}px;height:${z}px;border:1.5px dashed #fff;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:${z-7}px;box-sizing:border-box"><i class="ti ${ICO[c.t]}"></i></div></foreignObject>`}}
+  else if(!pop&&onglet!="hist"){const rr=sel&&!tous?sel:null,parCase={};V0.B.map((x,i)=>[x,i]).filter(([x])=>couches.bat&&(!rr||x.b[rr])).forEach(([x,i])=>(parCase[x.k]=parCase[x.k]||[]).push([x,i]));
+    Object.entries(parCase).forEach(([k,L])=>{const h=V0.H.find(y=>y.k==k),z=cur=="petite"?22:14,max=cur=="petite"?5:(Z.z>=1.4?4:2),LL=L.slice(0,max);LL.forEach(([x,i],j)=>{const px=h.x+(j-(LL.length-1)/2)*(z+3)-z/2,py=h.y-s*0.62-z/2;o+=`<foreignObject class="pb" data-b="${i}" x="${px}" y="${py}" width="${z}" height="${z}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${z}px;height:${z}px;border-radius:4px;background:#29234a;border:1.5px solid ${fix&&fix.b==i?'#fff':'#6f66d0'};display:flex;align-items:center;justify-content:center;color:#eeedfe;font-size:${z-7}px;box-sizing:border-box;cursor:pointer"><i class="ti ${ICO[x.t]}"></i></div></foreignObject>`});if(L.length>LL.length)o+=`<text x="${h.x+(LL.length/2)*(z+3)+2}" y="${h.y-s*0.62+4}" font-size="${fs-1}" fill="#c7c1ff">+${L.length-LL.length}</text>`});
+    V0.file.forEach(f=>{if(couches.chant&&typeof f[3]=="string"&&f[3].includes(",")&&f[4]){const h=V0.H.find(y=>y.k==f[3]),z=cur=="petite"?20:13;o+=`<foreignObject class="pf" data-f="${V0.file.indexOf(f)}" x="${h.x-z/2}" y="${h.y+s*0.12}" width="${z}" height="${z}"><div xmlns="http://www.w3.org/1999/xhtml" style="cursor:pointer;width:${z}px;height:${z}px;border:1.5px dashed #e8b98a;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#f3dcc2;font-size:${z-7}px;box-sizing:border-box"><i class="ti ${ICO[f[4]]}"></i></div></foreignObject>`}})}
+  svg.innerHTML=o;vb();
+  document.getElementById('legende').innerHTML=placer?`<div class="bandeau-carte"><i class="ti ti-map-pin" aria-hidden="true"></i>Où construire : ${c.nom} ? Clic sur une case · Échap annule</div>`:pop?(popCarte=="habitants"?"Répartition de la population":"Emplois : travailleurs par case"):onglet=="hist"?`Lieux de l'histoire de ${V0.nom}`:b?b.nom:sel=="eau"?"Sources d'eau":sel&&G[sel].sec?(sel=="bien"?"Bien-être par quartier et par campagne":`${G[sel].n} par case`):r?`${G[r].n} par case`:`Carte de ${V0.nom}`;
+  legendeCarte({mode:placer?"placement":pop?"pop":onglet=="hist"?"hist":b?"bat":sel=="eau"?"eau":sel=="bien"?"bien":sel&&G[sel].sec?"sec":r?"g":"dom",r:sel&&G[sel].sec?sel:r})}
+
+/* ---------- Liste de droite ---------- */
+function liste(){const V0=C(),el=document.getElementById('liste'),ti=document.getElementById('titreliste'),inf=document.getElementById('infoliste');
+  if(onglet=="com"){ti.textContent="Axes de commerce";inf.textContent=`${V0.AX.length} axes`;el.innerHTML=V0.AX.map(a=>`<div class="item"><span class="ico" style="background:#2b2614;color:#e9cf98"><i class="ti ti-route" aria-hidden="true"></i></span><span style="flex:1">${a.v}<div class="mu">${a.voie} · ${a.duree} tours</div></span><span class="${a.den>=0?'ok':'av'}">${sg("den",a.den)}</span></div>`).join('')+`<div class="item" data-axe="1" role="button" tabindex="0"><span class="ico" style="background:var(--action);color:#fff"><i class="ti ti-plus" aria-hidden="true"></i></span><span>Ouvrir un axe…</span></div>`;return}
+  if(onglet=="pop"&&!(fix&&fix.c)&&popCarte=="habitants"){const lst=V0.H.map(h=>[h,habCase(V0,h)]).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);ti.textContent="Cases par habitants";inf.textContent=`${nb(V0.hab)} habitants`;el.innerHTML=lst.map(([h,v])=>`<button class="item" data-c="${h.k}"><span style="flex:1;min-width:0">${h.nom}<div class="mu">${nb(emploisCase(V0,h))} emplois${h.k=="0,0"&&V0.chom?` dont ${nb(V0.chom)} sans emploi`:""}</div></span><span style="font-variant-numeric:tabular-nums">${nb(v)}</span><div class="barre" style="width:70px"><div style="width:${v/lst[0][1]*100}%;background:#c9b3ff"></div></div></button>`).join('');return}
+  if(onglet=="pop"&&!(fix&&fix.c)){const lst=V0.H.filter(h=>h.cap).sort((a,b)=>b.w/b.cap-a.w/a.cap);ti.textContent="Cases par remplissage";inf.textContent="orange : presque pleine";el.innerHTML=lst.map(h=>`<button class="item" data-c="${h.k}"><span style="flex:1;min-width:0">${h.nom}<div class="mu">${nb(h.w)} / ${nb(h.cap)} travailleurs</div></span><div class="barre" style="width:80px"><div style="width:${h.w/h.cap*100}%;background:${h.w/h.cap>=.9?'var(--av)':'var(--ok)'}"></div></div></button>`).join('');return}
+  if(onglet=="hist"){const L=HISTO[cur].filter(e=>e[3]).sort((a,b)=>a[0]-b[0]);ti.textContent="Lieux de l'histoire";inf.textContent=`${L.length} événements situés`;el.innerHTML=L.map(([t,ty,txt,k])=>`<button class="item" data-ev="${k}"><span class="ico" style="background:var(--surface);color:${TYPEH[ty][1]}"><i class="ti ${TYPEH[ty][0]}" aria-hidden="true"></i></span><span style="flex:1;min-width:0">${nomCase(k)}<div class="mu">tour ${t} : ${txt}</div></span></button>`).join('');return}
+  if(catalogue||cons!=null){ti.textContent="Construire"+(filtreCat&&filtreCat!="tout"?" · "+G[filtreCat].n.toLowerCase():"");inf.innerHTML=`<button class="btn2" data-ferme="1" style="padding:2px 8px">fermer</button>`;
+    inf.innerHTML=`<button class="btn2" data-compare="1" style="padding:2px 9px"><i class="ti ti-chart-bar" aria-hidden="true"></i>Tout comparer</button> <button class="btn2" data-ferme="1" style="padding:2px 8px">fermer</button>`;
+    const L=CAT.map((c,i)=>[c,i]).filter(([c])=>!filtreCat||filtreCat=="tout"||c.g==filtreCat),tp=total(V0,"prod");
+    const item=([c,i])=>c.verrou?`<div class="item" style="opacity:.55;cursor:default">${icoCat(c)}<span style="flex:1;min-width:0">${c.nom}<div class="mu"><i class="ti ti-lock" aria-hidden="true"></i> ${c.verrou}</div></span></div>`:`<button class="item" data-cat="${i}" aria-pressed="${cons==i}" title="${c.desc}">${icoCat(c)}<span style="flex:1;min-width:0">${c.nom}<div class="mu">${c.desc}</div><div class="mu">${c.cout} de production · ${Math.ceil(c.cout/tp)} tour(s)${PROG(c)&&C().H.filter(c.ok).length>1?` · programme de ville possible (${C().H.filter(c.ok).length} quartiers)`:""}</div></span><i class="ti ${G[c.g].i}" style="color:${G[c.g].c}" aria-hidden="true"></i></button>`;
+    const F=frein(V0),conseil=c=>c.cons||(F.rem.find(x=>x[0]==c.t)||[])[2],cons_=L.filter(([c])=>!c.verrou&&conseil(c)),bats=L.filter(([c])=>c.k=="bat").sort((a,b)=>(a[0].verrou?1:0)-(b[0].verrou?1:0)),ams=L.filter(([c])=>estProd(c)).sort((a,b)=>(a[0].verrou?1:0)-(b[0].verrou?1:0)),urbs=L.filter(([c])=>estBonus(c)).sort((a,b)=>(a[0].verrou?1:0)-(b[0].verrou?1:0));
+    el.innerHTML=`<div class="bandeau-carte" style="grid-column:1/-1">${etat(F.e,"")}<span>Ce qui freine ${V0.nom} : ${F.t}</span></div>`+(cons_.length?`<div class="groupe"><span style="color:#f3cf72">★</span>Conseils de l'intendant</div>`+cons_.map(([c,i])=>`<button class="item" data-cat="${i}" style="border-color:#6b6040">${icoCat(c)}<span style="flex:1">${c.nom}<div class="mu">${conseil(c)}</div></span></button>`).join(''):'')+
+      (bats.length?`<div class="groupe">${typeTag({k:"bat"})} Bâtiments : s'ajoutent sur une case et améliorent les cases voisines</div>`+bats.map(item).join(''):'')+
+      (ams.length?`<div class="groupe">${typeTag({k:"amen",sub:"prod"})} Un par case : ce que produit la case (champs, bois, quartiers d'artisans…)</div>`+ams.map(item).join(''):'')+
+      (urbs.length?`<div class="groupe">${typeTag({k:"amen",sub:"bonus"})} S'ajoutent à la case, plusieurs possibles, sans prendre de place (égouts, irrigation…)</div>`+urbs.map(item).join(''):'');return}
+  /* Case choisie : ce qu'elle porte (aménagement, bâtiments), ce qui l'améliore, ce qu'on peut y construire */
+  if(fix&&fix.c){const h=V0.H.find(x=>x.k==fix.c),am=amenDe(h),ici=V0.B.map((b,i)=>[b,i]).filter(([b])=>b.k==h.k),boost=V0.B.map((b,i)=>[b,i]).filter(([b])=>b.k!=h.k&&Object.values(b.b).some(o=>o[h.k]!=null)),poss=CAT.map((c,i)=>[c,i]).filter(([c])=>!c.verrou&&c.ok(h)),tp=total(V0,"prod");
+    ti.textContent=h.nom;inf.innerHTML=`<button class="btn2" data-fil="g" style="padding:2px 8px">× tous les bâtiments</button>`;
+    const bat=([b,i],rel)=>`<button class="item" data-b="${i}"><span class="ico"><i class="ti ${ICO[b.t]}" aria-hidden="true"></i></span><span style="flex:1;min-width:0">${b.nom}<div class="mu">${rel?"depuis "+nomCase(b.k):nb(b.emp[0])+"/"+nb(b.emp[1])+" emplois"}</div></span><span style="font-size:12.5px;text-align:right">${Object.keys(b.b).filter(k=>!rel||b.b[k][h.k]!=null).map(k=>`<span style="color:${G[k].c};white-space:nowrap"><i class="ti ${G[k].i}" aria-hidden="true"></i> ${sg(k,rel?b.b[k][h.k]:gainB(b,k))}</span>`).join('<br>')||'<span class="mu">rôle propre</span>'}</span></button>`;
+    const aU=(h.bonus||[]).map(t=>CAT.find(c=>c.t==t));
+    el.innerHTML=`<div class="groupe">${typeTag({k:"amen",sub:"prod"})} Aménagement de production de la case</div>`+(h.k=="0,0"?`<div class="item" style="cursor:default"><span class="ico amen"><i class="ti ti-building-community" aria-hidden="true"></i></span><span>Centre de la ville</span></div>`:am?`<div class="item" style="cursor:default">${icoCat(am)}<span style="flex:1">${am.nom}<div class="mu">${am.desc}</div></span></div>`:`<div class="item" style="cursor:default"><span class="ico amen" style="opacity:.5"><i class="ti ti-shovel" aria-hidden="true"></i></span><span style="flex:1">Aucune : ${h.urb?"quartier d'habitation":h.type+" à l'état naturel"}<div class="mu">capacité ${nb(h.cap)} travailleurs${h.urb?"":" (cueillette, chasse, bois)"}</div></span></div>`)+
+      `<div class="groupe">${typeTag({k:"amen",sub:"bonus"})} Bonus de la case (${aU.length})</div>`+(aU.length?aU.map(c=>`<div class="item" style="cursor:default">${icoCat(c)}<span style="flex:1">${c.nom}<div class="mu">${c.desc}</div></span></div>`).join(''):`<div class="mu" style="grid-column:1/-1;padding:2px 8px">aucun</div>`)+
+      `<div class="groupe">${typeTag({k:"bat"})} Bâtiments construits ici (${ici.length})</div>`+(ici.length?ici.map(x=>bat(x,false)).join(''):`<div class="mu" style="grid-column:1/-1;padding:2px 8px">aucun</div>`)+
+      (boost.length?`<div class="groupe"><i class="ti ti-building-community" style="color:var(--bat)" aria-hidden="true"></i>Bâtiments voisins qui améliorent la case (${boost.length})</div>`+boost.map(x=>bat(x,true)).join(''):'')+
+      `<div class="groupe"><i class="ti ti-plus" aria-hidden="true"></i>Possible sur cette case (${poss.length})</div>`+poss.map(([c,i])=>{const g=gainCat(c,h);return `<button class="item" data-ici="${i}">${icoCat(c)}<span style="flex:1;min-width:0">${c.nom} ${typeTag(c)}<div class="mu">${c.desc}</div></span><span class="${g>=0?'ok':'cr'}" style="font-size:12.5px;white-space:nowrap">${sg(c.g,g)} <i class="ti ${G[c.g].i}" aria-hidden="true"></i></span></button>`}).join('');return}
+  const r=sel&&!tous?sel:null,L=V0.B.map((b,i)=>[b,i]).filter(([b])=>!r||b.b[r]);
+  ti.textContent=r?`Bâtiments · ${G[r].n.toLowerCase()}`:"Bâtiments";inf.innerHTML=r?`${L.length} sur ${V0.B.length} · <button class="btn2" data-tous="1" style="padding:1px 8px">${tous?"filtrer":"tout voir"}</button>`:`${V0.B.length}`;
+  el.innerHTML=(L.length?'':`<div class="mu" style="grid-column:1/-1;padding:4px 8px">Aucun bâtiment ne donne de ${G[r].n.toLowerCase()} à ${V0.nom} pour l'instant.</div>`)+L.map(([b,i])=>`<button class="item" data-b="${i}" aria-pressed="${!!(fix&&fix.b==i)}"><span class="ico"><i class="ti ${ICO[b.t]}" aria-hidden="true"></i></span><span style="flex:1;min-width:0">${b.nom}<div class="mu">${nb(b.emp[0])}/${nb(b.emp[1])} emplois${b.emp[0]<b.emp[1]?" · "+etat("av",""):""}</div></span><span style="font-size:12.5px;text-align:right">${(r?[r]:Object.keys(b.b)).map(k=>`<span style="color:${G[k].c};white-space:nowrap"><i class="ti ${G[k].i}" aria-hidden="true"></i> ${sg(k,gainB(b,k))}</span>`).join('<br>')||'<span class="mu">rôle propre</span>'}</span></button>`).join('')+`<button class="item" data-cons="${r||'tout'}"><span class="ico" style="background:var(--action);color:#fff"><i class="ti ti-plus" aria-hidden="true"></i></span><span>Construire… <span class="mu">(B)</span></span></button>`}
+
+/* ---------- Zoom et déplacement de la carte ---------- */
+function vb(){const svg=document.getElementById('carte');if(onglet=="com"){svg.setAttribute('viewBox','0 0 520 380');return}const w=520/Z.z,h=380/Z.z;Z.cx=Math.min(520-w/2,Math.max(w/2,Z.cx));Z.cy=Math.min(380-h/2,Math.max(h/2,Z.cy));svg.setAttribute('viewBox',`${(Z.cx-w/2).toFixed(1)} ${(Z.cy-h/2).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`)}
+function zoomA(f,px,py){const z2=Math.min(4,Math.max(1,Z.z*f));if(z2==Z.z)return;const ax=px??Z.cx,ay=py??Z.cy;Z.cx=ax+(Z.cx-ax)*Z.z/z2;Z.cy=ay+(Z.cy-ay)*Z.z/z2;Z.z=z2;carte()}
+function couchesHTML(){}
+/* Légende de la carte : l'échelle de couleur du mode affiché, puis les couches (cliquables : afficher ou masquer) */
+function legendeCarte(m){const el=document.getElementById('legendeCarte'),sw=(c,b)=>`<span class="sw" style="background:${c};${b?'border:1.5px solid '+b:''}"></span>`,el2=(icon,t)=>`<span class="el">${icon}${t}</span>`,deg=(rgb,a,b)=>`<span class="el">${a}<span class="degrade" style="background:linear-gradient(90deg,rgba(${rgb},.12),rgba(${rgb},.75))"></span>${b}</span>`;
+  let echelle="";
+  if(m.mode=="com")echelle=el2(`<span class="sw" style="height:4px;background:#c9ac7a"></span>`,"route")+el2(`<span class="sw" style="height:4px;background:#378add"></span>`,"fleuve")+el2(`<span class="sw" style="height:4px;background:repeating-linear-gradient(90deg,#b4b2a9 0 3px,transparent 3px 6px)"></span>`,"col")+el2(sw("#2a3a5c","#e2b84a"),"ville du pays")+el2(sw("#3a2a2a","#f08a8a"),"ville étrangère")+el2("","épaisseur : nombre de marchandises")+el2(sw("#0b0e15","#4fc3a1"),"solde positif")+el2(sw("#0b0e15","#f0a03c"),"solde négatif");
+  else if(m.mode=="placement")echelle=deg("226,184,74","gain faible","fort")+el2(`<span style="color:#f3cf72">★</span>`,"conseil de l'intendant")+el2(sw("#151a24"),"impossible")+el2(sw("transparent","#a9a1ff"),"cases améliorées")+el2(sw("transparent","#ffffff"),"case choisie");
+  else if(m.mode=="pop")echelle=popCarte=="habitants"?(()=>{const [lo,hi]=bornesHab(C());return `<span class="el">${nb(lo)} hab.<span class="degrade" style="width:180px;background:linear-gradient(90deg,${RAMPE.map(c=>`rgb(${c})`).join(',')})"></span>${nb(hi)} hab.</span>`})()+el2(sw("#161b25"),"personne")+el2("","chiffres : habitants de la case (pour l'instant, chacun vit là où il travaille)"):el2(sw("rgba(79,195,161,.5)"),"de la place")+el2(sw("rgba(240,160,60,.6)"),"presque pleine (90 % et plus)")+el2(sw("#2a3a5c"),"centre-ville")+el2("","chiffres : travailleurs / capacité");
+  else if(m.mode=="hist")echelle=el2(sw("transparent","#e2b84a"),"lieu d'un événement")+el2(sw("transparent","#ffffff"),"lieu choisi");
+  else if(m.mode=="eau")echelle=el2(`<span class="sw" style="height:4px;background:#378add"></span>`,"fleuve")+el2(sw("rgba(55,150,210,.6)"),"case qui fournit de l'eau")+el2(sw("transparent","#4fc3a1"),"prélevé : de la marge")+el2(sw("transparent","#f0a03c"),"plus de 80 %")+el2(sw("transparent","#f08a8a"),"au maximum")+el2("","chiffres : prélevé / prélevable (m³/s)");
+  else if(m.mode=="bien")echelle=el2(sw("rgba(79,195,161,.5)"),"satisfaisant")+el2(sw("rgba(240,160,60,.5)"),"fragile")+el2(sw("rgba(240,138,138,.5)"),"troubles");
+  else if(m.mode=="sec"||m.mode=="g")echelle=deg(G[m.r].rgb,"faible","fort")+el2("",`${G[m.r].n.toLowerCase()} par case${m.mode=="sec"?" (quartiers, bâtiments, bonus)":""}`);
+  else if(m.mode=="bat")echelle=el2(sw("transparent","#ffffff"),"case du bâtiment")+el2(sw("transparent","#a9a1ff"),"cases qu'il améliore");
+  else echelle=["nour","prod","den"].map(k=>el2(sw(`rgba(${G[k].rgb},.5)`),G[k].n.toLowerCase())).join('')+el2("","couleur : grandeur principale de la case");
+  const couchesOk=onglet=="rend"&&m.mode!="placement",L=[["prod",`<span class="sw" style="width:14px;height:14px;border-radius:50%;background:#1f3320;border:1.5px solid #a6dc8e"></span>`,"Aménagements"],["bonus",`<span class="sw" style="width:11px;height:11px;transform:rotate(45deg);background:#14302f;border:1.5px solid #7fd8cf"></span>`,"Bonus"],["bat",`<span class="sw" style="width:14px;height:14px;background:#29234a;border:1.5px solid #6f66d0"></span>`,"Bâtiments"],["chant",`<span class="sw" style="width:14px;height:14px;border:1.5px dashed #e8b98a"></span>`,"Chantiers"]];
+  const choixPop=m.mode=="pop"?`<div class="bloc"><span class="titre">Carte</span><span class="seg"><button data-popc="emplois" aria-pressed="${popCarte=="emplois"}">Emplois</button><button data-popc="habitants" aria-pressed="${popCarte=="habitants"}">Répartition de la population</button></span></div>`:"";
+  el.innerHTML=choixPop+`<div class="bloc"><span class="titre">Couleurs</span>${echelle}</div>`+(couchesOk?`<div class="bloc"><span class="titre">Afficher (clic pour masquer)</span>${L.map(([k,ic,t])=>`<button class="el" data-couche="${k}" aria-pressed="${couches[k]}">${ic}${t}</button>`).join('')}<button class="btn2" data-simple="1" style="padding:1px 9px;font-size:12px">${Object.values(couches).some(x=>x)?"Carte simple":"Tout afficher"}</button>${couches.prod?`<span class="el mu"><span class="sw" style="background:repeating-linear-gradient(35deg,#d9e8b0 0 1.5px,transparent 1.5px 6px);opacity:.7"></span>champ <span class="sw" style="background:radial-gradient(#d9e8b0 1.2px,transparent 1.5px) 0 0/6px 6px;opacity:.8"></span>pâturage</span>`:''}</div>`:'')}
+
+/* ---------- Interactions ---------- */
+function maj(){entete();gauche();carte();liste();couchesHTML();let f=document.getElementById('fen');if(!f){f=document.createElement('div');f.id='fen';racine.appendChild(f)}f.innerHTML=compare?comparer():""}
+function esc(){if(compare)compare=false;else if(cas)cas=null;else if(cons!=null)cons=null;else if(catalogue)catalogue=false;else if(fix)fix=null;else sel=null}
+const racine=document.getElementById('racine'),svg=document.getElementById('carte'),bulle=document.getElementById('bulle');
+function montrer(e,html){if(!html){bulle.hidden=true;return}const R=document.getElementById('cadre').getBoundingClientRect();bulle.innerHTML=html;bulle.hidden=false;bulle.style.left=Math.min(R.width-270,e.clientX-R.left+14)+"px";bulle.style.top=(e.clientY-R.top+14)+"px"}
+svg.addEventListener('mousemove',e=>{const V0=C(),hx=e.target.closest('.hx'),pb=e.target.closest('.pb');
+  if(onglet=="com"){montrer(e,null);return}
+  if(cons!=null){const c=CAT[cons];if(hx){const h=V0.H.find(x=>x.k==hx.dataset.k);if(c.ok(h)){if(hov!=h.k){hov=h.k;carte()}montrer(e,`<b>${h.nom}</b><br>${sg(c.g,gainCat(c,h))} ${G[c.g].n.toLowerCase()}<br><span class="mu">clic : choisir cette case</span>`)}else montrer(e,`<b>${h.nom}</b><br><span class="cr">impossible : ${c.raison}</span>`)}else montrer(e,null);return}
+  const pf=e.target.closest('.pf');if(pf){const i=+pf.dataset.f,f=V0.file[i],c=CAT.find(x=>x.t==f[4]),reste=V0.file.slice(0,i+1).reduce((s2,g)=>s2+(g[1]||0)-(g[2]||0),0),tp=total(V0,"prod");montrer(e,`<b>${f[0]}</b><br>${i==0?"en construction":"en file, position "+(i+1)}<br>${f[2]} / ${f[1]} de production · prêt dans ${Math.max(1,Math.ceil(reste/tp))} tour(s)${c?`<br>${typeTag(c)} ${c.desc}`:""}<br><span class="mu">clic : sa fiche (déplacer, retirer, avancer)</span>`);return}
+  if(pb){const b=V0.B[+pb.dataset.b];montrer(e,`<b>${b.nom}</b><br>${Object.keys(b.b).map(k=>`<span style="color:${G[k].c}">${sg(k,gainB(b,k))} ${G[k].n.toLowerCase()}</span>`).join(' · ')||'rôle propre'}<br><span class="mu">clic : sa fiche et ses cases</span>`)}
+  else if(hx)montrer(e,bulleCase(V0,V0.H.find(x=>x.k==hx.dataset.k)));else montrer(e,null)});
+/* Infobulle d'une case : ce que montre la carte affichée */
+function bulleCase(V0,h){const t=`<b>${h.nom}</b><br>`,fin='<br><span class="mu">clic : sa fiche</span>';
+  if(onglet=="pop"&&popCarte=="habitants")return t+`${nb(habCase(V0,h))} habitants<br><span class="mu">${nb(emploisCase(V0,h))} emplois sur la case</span>`+fin;
+  if(onglet=="pop")return t+(h.cap?`${nb(h.w)} / ${nb(h.cap)} travailleurs (${Math.round(h.w/h.cap*100)} %)`:"centre-ville : rapporte sans travailleurs")+fin;
+  if(onglet=="hist"){const ev=HISTO[cur].filter(x=>x[3]==h.k).sort((a,b)=>a[0]-b[0]);return t+(ev.length?ev.map(([tt,ty,txt])=>`<span style="color:${TYPEH[ty][1]}">tour ${tt}</span> ${txt}`).join('<br>')+'<br><span class="mu">clic : ne garder que ce lieu</span>':'<span class="mu">aucun événement ici</span>')}
+  if(sel=="eau"){const s2=EAUC[cur][h.k];return t+(s2?`${s2[0]} : ${fv("eau",s2[1])} prélevés sur ${fv("eau",s2[2])} m³/s`:h.riv?"bord de l'eau, pas de prélèvement":"pas de source d'eau")+fin}
+  if(sel&&G[sel].sec){const v=valCase(V0,sel,h);return t+`${G[sel].n} : ${sel=="bien"?Math.round(v):(v>0.01?"+"+fv(sel,v):"rien")}`+fin}
+  return t+(["nour","prod","den"].filter(k=>h.v[k]>0.05).map(k=>`<span style="color:${G[k].c}">${fv(k,h.v[k])} ${G[k].n.toLowerCase()}</span>`).join(' · ')||'<span class="mu">rien</span>')+(h.cap?`<br><span class="mu">${nb(h.w)} / ${nb(h.cap)} travailleurs</span>`:'')+fin}
+svg.addEventListener('dblclick',e=>{const hx=e.target.closest('.hx');if(cons==null||!hx)return;const h=C().H.find(y=>y.k==hx.dataset.k);if(!CAT[cons].ok(h))return;cas=h.k;maj();const b=document.getElementById('enfile');if(b)b.click()});
+svg.addEventListener('mouseleave',e=>{montrer(e,null);if(hov){hov=null;carte()}});
+const glisse={on:false,moved:false,x:0,y:0};
+function surligner(k){document.querySelectorAll('#carte .hx').forEach(g=>{const p=g.querySelector('polygon');if(g.dataset.k==k){if(!p.dataset.s0){p.dataset.s0=p.getAttribute('stroke');p.dataset.w0=p.getAttribute('stroke-width');p.setAttribute('stroke','#fff');p.setAttribute('stroke-width','4')}}else if(p.dataset.s0){p.setAttribute('stroke',p.dataset.s0);p.setAttribute('stroke-width',p.dataset.w0);delete p.dataset.s0}})}
+const liEl=document.getElementById('liste');
+liEl.addEventListener('mouseover',e=>{const it=e.target.closest('.item'),V0=C();if(!it){surligner(null);return}let k=it.dataset.c||it.dataset.ev||null;if(!k&&it.dataset.b!=null)k=V0.B[+it.dataset.b].k;if(!k&&it.dataset.cat!=null&&cons==null)k=conseilCase(CAT[+it.dataset.cat]);surligner(k)});
+liEl.addEventListener('mouseleave',()=>surligner(null));
+svg.addEventListener('wheel',e=>{if(onglet=="com")return;e.preventDefault();const R=svg.getBoundingClientRect(),w=520/Z.z,h=380/Z.z;zoomA(e.deltaY<0?1.25:0.8,Z.cx-w/2+(e.clientX-R.left)/R.width*w,Z.cy-h/2+(e.clientY-R.top)/R.height*h)},{passive:false});
+svg.addEventListener('mousedown',e=>{if(onglet=="com")return;glisse.on=true;glisse.moved=false;glisse.x=e.clientX;glisse.y=e.clientY});
+window.addEventListener('mousemove',e=>{if(!glisse.on)return;const dx=e.clientX-glisse.x,dy=e.clientY-glisse.y;if(Math.abs(dx)+Math.abs(dy)>4)glisse.moved=true;if(!glisse.moved)return;const R=svg.getBoundingClientRect();Z.cx-=dx/R.width*520/Z.z;Z.cy-=dy/R.height*380/Z.z;glisse.x=e.clientX;glisse.y=e.clientY;vb();svg.style.cursor="grabbing"});
+window.addEventListener('mouseup',()=>{glisse.on=false;svg.style.cursor=""});
+racine.addEventListener('click',e=>{const t=e.target;let x;
+  if(glisse.moved&&t.closest('#carte')){glisse.moved=false;return}
+  if(x=t.closest('[data-ville]')){cur=x.dataset.ville;sel=null;fix=null;catalogue=false;cons=null;cas=null;Z={z:1,cx:260,cy:190};document.querySelectorAll('[data-ville]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.ville==cur));maj();return}
+  if(x=t.closest('[data-z]')){const z=+x.dataset.z;if(z)zoomA(z);else{Z={z:1,cx:260,cy:190};carte()}return}
+  if(x=t.closest('[data-popc]')){popCarte=x.dataset.popc;carte();liste();return}
+  if(x=t.closest('[data-couche]')){const k=x.dataset.couche;couches[k]=!couches[k];carte();return}
+  if(x=t.closest('[data-hf]')){histF=x.dataset.hf;gauche();liste();return}
+  if(x=t.closest('[data-ev]')){fix={c:x.dataset.ev};maj();return}
+  if(t.closest('[data-tousl]')){fix=null;maj();return}
+  if(t.closest('[data-rep]')){onglet="hist";histF="tout";fix=null;cons=null;catalogue=false;maj();return}
+  if(t.closest('[data-simple]')){const on=Object.values(couches).some(x=>x);Object.keys(couches).forEach(k=>couches[k]=!on);carte();return}
+  if(x=t.closest('[data-rem]')){catalogue=true;filtreCat="tout";cons=+x.dataset.rem;cas=null;fix=null;onglet="rend";maj();return}
+  if(cons!=null&&(x=t.closest('.hx'))){const h=C().H.find(y=>y.k==x.dataset.k);if(CAT[cons].ok(h)){cas=h.k;maj()}return}
+  if(x=t.closest('[data-cmpf]')){cmpFiltre=x.dataset.cmpf;maj();return}
+  if(t.closest('[data-fermecmp]')||t.id=="voile"){compare=false;maj();return}
+  if(x=t.closest('[data-ici]')){const k=fix.c;catalogue=true;filtreCat="tout";cons=+x.dataset.ici;cas=k;fix=null;onglet="rend";maj();return}
+  if(x=t.closest('[data-cmp]')){compare=false;catalogue=true;filtreCat="tout";cons=+x.dataset.cmp;cas=null;fix=null;onglet="rend";maj();return}
+  if(t.closest('[data-compare]')){compare=true;maj();return}
+  if(t.closest('#programme')){const V0=C(),c=CAT[cons],E=V0.H.filter(c.ok);V0.file.push([`Programme : ${c.nom.toLowerCase()} (${E.length} quartiers)`,E.length*c.cout,0,null,c.t]);const pos=V0.file.length;cons=null;cas=null;catalogue=false;maj();const f=document.querySelector('#gauche .pn');if(f)f.insertAdjacentHTML('afterend',`<div class="pn">${etat("ok",`Programme lancé en position ${pos} de la file : l'intendant fera les ${E.length} quartiers un par un`)}</div>`);return}
+  if(t.closest('#enfile')){const V0=C(),c=CAT[cons],k=cas||conseilCase(c);if(V0.file.some(f=>f[0].startsWith(c.nom)&&f[3]==k)){document.getElementById('retour').innerHTML=etat("av","déjà en file sur cette case");return}V0.file.push([`${c.nom} · ${nomCase(k)}`,rural(c)?amen(c,V0.H.find(y=>y.k==k)).cout:c.cout,0,k,c.t]);const pos=V0.file.length;cons=null;cas=null;catalogue=false;maj();const f=document.querySelector('#gauche .pn');if(f)f.insertAdjacentHTML('afterend',`<div class="pn">${etat("ok",`${c.nom} ajouté en position ${pos} de la file · icône en pointillé sur sa case`)}</div>`);return}
+  if(x=t.closest('[data-cat]')){cons=+x.dataset.cat;cas=null;maj();return}
+  if(x=t.closest('[data-cons]')){catalogue=true;filtreCat=x.dataset.cons;cons=null;fix=null;onglet="rend";maj();return}
+  if(t.closest('[data-ferme]')){catalogue=false;cons=null;cas=null;maj();return}
+  if(t.closest('[data-tous]')){tous=!tous;maj();return}
+  if(x=t.closest('[data-obj]')){I().obj=+x.dataset.obj;maj();return}
+  if(x=t.closest('[data-prio]')){const [r,n]=x.dataset.prio.split(':');I().prio[r]=+n;maj();return}
+  if(x=t.closest('[data-per]')){periode=+x.dataset.per;gauche();return}
+  if(x=t.closest('[data-fil]')){const k=x.dataset.fil;if(k=="ens"){sel=null;fix=null;cons=null;catalogue=false}else if(k=="g"){fix=null;cons=null;catalogue=false}else if(k=="o"){cons=null;catalogue=false}else if(k=="cat"){cons=null}else esc();maj();return}
+  if(x=t.closest('[data-al]')){const g=x.dataset.al;if(g=="pop"){onglet="pop";fix=null}else{onglet="rend";sel=g;fix=null}catalogue=false;cons=null;maj();return}
+  if(x=t.closest('[data-o]')){onglet=x.dataset.o;fix=null;cons=null;catalogue=false;maj();return}
+  if(x=t.closest('.pf')){fix={f:+x.dataset.f};maj();return}
+  if(x=t.closest('[data-forceb]')){const b=C().B[+x.dataset.forceb];b.ap=!b.ap;gauche();return}
+  if(x=t.closest('[data-forcebok]')){const b=C().B[+x.dataset.forcebok];b.emp[0]=b.emp[1];b.force=true;b.ap=false;maj();return}
+  if(x=t.closest('[data-forcec]')){const h=C().H.find(y=>y.k==x.dataset.forcec);h.ap=!h.ap;gauche();return}
+  if(x=t.closest('[data-forcecok]')){const h=C().H.find(y=>y.k==x.dataset.forcecok),p=Math.max(0.01,h.w/h.cap),p2=Math.min(1,(h.w+100)/h.cap);["nour","prod","den"].forEach(r=>h.v[r]*=Math.pow(p2/p,0.7));h.w=Math.min(h.cap,h.w+100);h.force=true;h.ap=false;maj();return}
+  if(t.closest('[data-axe]')){axeOuvert=!axeOuvert;gauche();return}
+  if(x=t.closest('[data-axeok]')){const V0=C();V0.file.push([`Caravane d'ouverture vers ${x.dataset.axeok}`,20,0,null,null]);axeOuvert=false;maj();document.getElementById('gauche').insertAdjacentHTML('afterbegin',`<div class="pn">${etat("ok",`Caravane vers ${x.dataset.axeok} en position ${V0.file.length} de la file de construction`)}</div>`);return}
+  if(x=t.closest('[data-fa]')){const V0=C(),[a,i]=x.dataset.fa.split(':'),n=+i;if(a=="haut"&&n>0){[V0.file[n-1],V0.file[n]]=[V0.file[n],V0.file[n-1]];fix={f:n-1}}else if(a=="retirer"){V0.file.splice(n,1);fix=null}else if(a=="deplacer"){const f=V0.file[n],c=CAT.findIndex(y=>y.t==f[4]);V0.file.splice(n,1);fix=null;catalogue=true;filtreCat="tout";cons=c;cas=null}maj();return}
+  if(x=t.closest('.pb')){const i=+x.dataset.b;fix=fix&&fix.b==i?null:{b:i};maj();return}
+  if(x=t.closest('[data-b]')){const i=+x.dataset.b;fix=fix&&fix.b==i?null:{b:i};maj();return}
+  if(x=t.closest('[data-c]')){fix={c:x.dataset.c};maj();return}
+  if(x=t.closest('.hx')){const k=x.dataset.k;fix=fix&&fix.c==k?null:{c:k};maj();return}
+  if(t.closest('#carte')){fix=null;maj();return}
+  if(x=t.closest('[data-g]')){const g=x.dataset.g;sel=sel==g?null:g;fix=null;catalogue=false;cons=null;onglet="rend";maj();return}});
+document.addEventListener('keydown',e=>{if(e.target.closest&&e.target.closest('input,textarea'))return;
+  if(compare&&e.key!="Escape")return;
+  if(e.key=="Enter"&&e.target.matches&&e.target.matches('[role=button]')){e.preventDefault();e.target.click();return}
+  if(e.key=="Enter"&&cons!=null&&!(e.target.closest&&e.target.closest('button'))){const b=document.getElementById('enfile');if(b){e.preventDefault();b.click()}return}
+  if(e.key=="Escape"){esc();maj()}else if(e.key=="b"||e.key=="B"){catalogue=true;filtreCat=sel||"tout";onglet="rend";fix=null;maj()}else if("1234".includes(e.key)){sel=PRINC[+e.key-1];fix=null;onglet="rend";catalogue=false;cons=null;maj()}});
+/* Icônes : glyphes Material Symbols (seule police d'icônes permise par la page) */
+const SYMB={"ti-wheat":"agriculture","ti-hammer":"construction","ti-coins":"paid","ti-droplet":"water_drop","ti-flask":"science","ti-feather":"palette","ti-shield":"shield","ti-mood-smile":"sentiment_satisfied","ti-circle-check":"check_circle","ti-alert-triangle":"warning","ti-circle-x":"cancel","ti-chevron-right":"chevron_right","ti-chart-bar":"bar_chart","ti-users":"groups","ti-route":"route","ti-focus-centered":"center_focus_strong","ti-building-community":"domain","ti-user-cog":"manage_accounts","ti-plus":"add","ti-lock":"lock","ti-shovel":"landscape","ti-map-pin":"location_on","ti-wind-mill":"wind_power","ti-tools":"handyman","ti-building-store":"storefront","ti-droplet-half-2":"water","ti-candle":"local_fire_department","ti-building-warehouse":"warehouse","ti-anchor":"anchor","ti-building-church":"church","ti-books":"menu_book","ti-coin":"savings","ti-building-arch":"water","ti-trees":"forest","ti-flame":"local_fire_department","ti-bucket":"opacity","ti-road-sign":"toll","ti-sparkles":"auto_awesome","ti-fence":"fence","ti-school":"school","ti-bath":"hot_tub","ti-masks-theater":"theater_comedy","ti-building-castle":"castle","ti-champ":"grass","ti-paturage":"pets","ti-coupe":"carpenter","ti-irrig":"water","ti-egouts":"plumbing","ti-paves":"add_road","ti-fontaines":"water_drop","ti-jardins":"park","ti-bonus":"diamond","ti-artisans":"handyman","ti-comptoirs":"storefront","ti-drainage":"waves","ti-history":"history_edu","ti-swords":"swords","ti-pillage":"local_fire_department"};
+function iconifier(){document.querySelectorAll('i.ti').forEach(el=>{if(el.textContent)return;const c=[...el.classList].find(x=>x.startsWith('ti-'));el.textContent=SYMB[c]||"circle"})}
+new MutationObserver(iconifier).observe(document.body,{childList:true,subtree:true});
+maj();iconifier();
+</script>

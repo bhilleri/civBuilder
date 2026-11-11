@@ -389,7 +389,11 @@ Remplace l'actuel, jugé trop compliqué :
 - l'intendant se règle par priorités simples ; les cases forcées sur la carte.
 Avant de coder : une maquette (image) à valider par Benjamin.
 
-#### Maquette interactive (11/11/2026, 17 versions avec Benjamin)
+#### Maquette interactive (11/11/2026, 18 versions avec Benjamin)
+**Maquette retenue (11/11/2026)** : `docs/conception/maquettes/ecran-ville.html` (version 18), à ouvrir
+dans un navigateur. Elle sert de référence pour coder l'écran de la ville ; les retouches viendront en
+jouant. Chiffres d'exemple ; les systèmes absents du jeu (eau prélevée, commerce, bâtiments, recherche,
+ordres de la société) y sont montrés tels qu'ils sont prévus.
 Demandes de Benjamin : comprendre **d'où viennent** les grandeurs (cases, bâtiments, commerce),
 mettre en évidence les **limites** (eau, nourriture) quand on s'en approche, savoir où part
 l'Économie et comment on la gagne, des écrans nationaux, et **ne pas surcharger** la vue.

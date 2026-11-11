@@ -347,6 +347,8 @@ la ville**, trop compliqué aujourd'hui (maquette à valider). Puis les écrans 
 commerce, démographie, technologie, organisation politique, armée, diplomatie), chacun livré avec
 son système. Maquette interactive de l'écran de la ville et de la construction faite le 11/11
 (`conception-interface.md`, « Maquette interactive ») ; la vraie carte 3D dans l'écran est reportée.
+**Maquette retenue le 11/11 (version 18)** : `docs/conception/maquettes/ecran-ville.html`, point de
+départ du développement de l'écran de la ville.
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :
 nom tiré de la langue) : renommer « Économie » en deniers dans le code, l'interface et le wiki.
