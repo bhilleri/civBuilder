@@ -867,6 +867,9 @@ fn cities() -> Article {
                habitants que sa nourriture nourrit (la croissance s'y arrête) et ceux qui trouvent un emploi (au-delà : \
                des sans-emploi). Sa carte montre au choix le remplissage des cases en travailleurs ou la répartition \
                des habitants (pour l'instant, chacun vit là où il travaille ; les sans-emploi au centre)."),
+            p("L'onglet Histoire raconte la ville : fondation, paliers atteints, famines, ponts et aménagements \
+               achevés, projets lancés, combats décisifs sur son territoire. Les lieux des événements sont cerclés \
+               d'or sur la carte ; un clic sur une case ne garde que son histoire."),
             p("Réglages de l'intendant, dans le détail des grandeurs : l'objectif de nourriture (nourrir seulement, \
                croître, croissance maximale, excédent : 1 ; 1,25 ; 1,5 ; 2 fois le besoin) qu'il vise d'abord, puis la \
                priorité de la production et des deniers (normale, prioritaire, maximale). Chaque choix montre son \

@@ -610,6 +610,12 @@ capacité des cases ÷ part active ; carte des habitants : violet de la maquette
 logarithmique entre la case la moins et la plus peuplée. Pas encore : naissances, décès et migrations
 distingués (le jeu ne connaît que le solde), cultures et ordres de la société (affichés « pas encore
 dans le jeu »).
+**Lot 6 fait le 11/11/2026** : `CityState.chronique` (genres : fondation, population, constructions,
+famines, batailles, projets ; sauvegardée, champ facultatif) ; les combats décisifs (une unité
+dispersée) sont notés par `battle::fight` dans le journal (`GameLog.combats`) puis inscrits à la ville
+dont le territoire contient la case. Onglet Histoire comme la maquette (frise, filtres, lieux cerclés
+d'or, filtre par lieu). Pas encore : pillages (les barbares ne pillent pas encore), commerce, guerres,
+culture ; repères numérotés sur les graphiques (ils viendront quand la chronique sera plus riche).
 Limite connue : en mode pilote, l'infobulle de la carte ne reste affichée que quelques images après
 l'ordre (cause non élucidée) ; elle n'apparaît donc pas sur les captures.
 
