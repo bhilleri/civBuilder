@@ -138,7 +138,7 @@ enum ModeCarte {
     Remplissage,
     /// Une grandeur, de faible à fort (maximum des cases donné).
     Grandeur(Grandeur, f64),
-    /// Placement d'un aménagement : gain à pleine capacité de chaque case (maximum donné).
+    /// Placement d'un aménagement : valeur de chaque case (effet réel dans 10 tours).
     Placement(Amenagement, f64),
     /// Habitants par case, du moins au plus peuplé (bornes, en logarithme).
     Habitants(f64, f64),
@@ -288,20 +288,21 @@ struct Frein {
 }
 
 /// Diagnostic de la croissance de la ville.
-fn frein(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue]) -> Frein {
+fn frein(vl: &Ville, city: &City, cases: &[CaseVue]) -> Frein {
+    let (map, prevision) = (vl.map, &vl.prevision);
     let c = &city.state;
     let y = city.travail.rendements;
     let besoin = c.besoin_nourriture().max(1e-6);
     let couverture = y.nourriture / besoin;
-    let limite = y.nourriture * rules::HABITANTS_PAR_NOURRITURE;
+    let limite = limite_nourriture(cases);
     // Remèdes pour la nourriture : les aménagements qui en donnent le plus, à leur case conseillée
     let mut nourrir: Vec<(f64, Remede, String)> = [Amenagement::Champ, Amenagement::Paturage]
         .into_iter()
         .filter_map(|a| {
-            let case = conseil(map, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|x| x.hex == h))?;
-            let g = gain_amenagement(map, case, a).ok()?;
+            let case = conseil(vl, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|x| x.hex == h))?;
+            let g = gain_amenagement(vl, case, a).ok()?;
             (g.plein.nourriture > 0.05).then(|| {
-                (g.plein.nourriture, Remede::Placer(a), format!("{} : +{} nourriture, limite +{} habitants", capitale(a.nom()), rules::decimal(g.plein.nourriture), rules::milliers((g.plein.nourriture * rules::HABITANTS_PAR_NOURRITURE) as u64)))
+                (g.plein.nourriture, Remede::Placer(a), format!("{} : limite +{} habitants (+{} nourriture case pleine)", capitale(a.nom()), rules::milliers((g.plein.nourriture * rules::HABITANTS_PAR_NOURRITURE) as u64), rules::decimal(g.plein.nourriture)))
             })
         })
         .collect();
@@ -313,18 +314,17 @@ fn frein(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue]) -> Frein {
     } else if objectif.cible() < 1.0 + rules::SURPLUS_POUR_CROITRE && couverture < 1.0 + rules::SURPLUS_POUR_CROITRE - 1e-6 {
         (Etat::Alerte, format!("l'objectif de l'intendant, « {} », limite la croissance", objectif.nom().to_lowercase()), vec![(Remede::Detail(Grandeur::Nourriture), "Changer l'objectif".to_string())])
     } else {
-        // Tours avant que la nourriture n'arrête la croissance, avec les rendements actuels
-        let mut st = c.clone();
-        let tours = (1..=60).find(|_| {
-            let v = st.variation(y);
-            st.habitants = (st.habitants as i64 + v).max(0) as u64;
-            st.habitants as f64 >= limite * 0.98 || v <= 0
-        });
+        // Tours avant que la croissance ne s'arrête, d'après la prévision (l'intendant répartit
+        // les habitants à venir ; la nourriture des cases pleines borne la population)
         let suivant = rules::habitants_du_palier(c.palier() + 1);
         let palier = if (suivant as f64) > limite { format!(" · palier {} ({}) hors de portée sans remède", c.palier() + 1, rules::milliers(suivant)) } else { String::new() };
-        match tours {
-            Some(t) => (if t <= 20 { Etat::Alerte } else { Etat::Ok }, format!("la nourriture : limite {} habitants, atteinte dans ~{t} tours{palier}", rules::milliers(limite as u64)), nourrir),
-            None => (Etat::Ok, format!("rien pour l'instant ; à long terme, la nourriture : limite {} habitants (plus de 60 tours){palier}", rules::milliers(limite as u64)), nourrir),
+        match rules::arret_de_croissance(prevision) {
+            Some(t) => (
+                if t <= 20 { Etat::Alerte } else { Etat::Ok },
+                format!("la nourriture : limite {} habitants (cases pleines), croissance arrêtée dans ~{t} tours vers {}{palier}", rules::milliers(limite as u64), rules::milliers(prevision[t - 1].habitants)),
+                nourrir,
+            ),
+            None => (Etat::Ok, format!("rien pour l'instant ; à long terme, la nourriture : limite {} habitants (cases pleines, plus de {} tours){palier}", rules::milliers(limite as u64), prevision.len()), nourrir),
         }
     };
     remedes.truncate(3);
@@ -334,8 +334,9 @@ fn frein(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue]) -> Frein {
     // Autres alertes (« rien à produire » est déjà dans l'en-tête et sur la carte de la production)
     let mut alertes = Vec::new();
     if city.travail.chomeurs > 0 {
-        let a = if cases.iter().any(|x| gain_amenagement(map, x, Amenagement::Champ).is_ok()) { Remede::Placer(Amenagement::Champ) } else { Remede::Construire };
-        alertes.push((Etat::Alerte, format!("{} sans emploi : aménager des cases (plus de place)", rules::milliers(city.travail.chomeurs.into())), a));
+        let a = if cases.iter().any(|x| possible(map, x, Amenagement::Champ).is_ok()) { Remede::Placer(Amenagement::Champ) } else { Remede::Construire };
+        // (Benjamin : pas une limite ; le chômage baissera l'attractivité de la ville, à venir)
+        alertes.push((Etat::Ok, format!("{} sans emploi : aménager des cases donne des emplois", rules::milliers(city.travail.chomeurs.into())), a));
     }
     if c.projet.is_some() && c.file.is_empty() && c.tours_en_projet >= rules::RAPPEL_PROJET {
         alertes.push((Etat::Ok, format!("En projet depuis {} tours", c.tours_en_projet), Remede::Construire));
@@ -359,9 +360,12 @@ struct VueForcage {
     propose: Option<(u32, Rendements)>,
 }
 
-/// Effet d'un aménagement sur une case : tout de suite (mêmes travailleurs) et à pleine capacité.
+/// Effet d'un aménagement sur une case (décision B1) : l'effet réel sur la ville, tout de suite et
+/// dans `TOURS_EFFET` tours (l'intendant refait sa répartition), et ce qu'il ajoute au maximum de
+/// la ville (la case pleine), qu'on ne gagne pas tout de suite.
 struct GainAmenagement {
     maintenant: Rendements,
+    dans: Rendements,
     plein: Rendements,
     cout: i32,
     defriche: bool,
@@ -382,8 +386,51 @@ fn capitale(s: &str) -> String {
     c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
-/// Ce que donnerait l'aménagement `a` sur la case (ou pourquoi il est impossible).
-fn gain_amenagement(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> Result<GainAmenagement, &'static str> {
+/// Tours après lesquels se lit l'effet d'un aménagement (décision B1).
+const TOURS_EFFET: usize = 10;
+
+/// La ville telle que la voit l'intendant : ses cases exploitables, la prévision sans rien changer
+/// (décision B4) et les effets des aménagements déjà simulés (une simulation par case et par
+/// aménagement, gardée pour le conseil, la carte et les fiches).
+struct Ville<'a> {
+    map: &'a crate::map::WorldMap,
+    centre: Hex,
+    etat: &'a rules::CityState,
+    dispo: Vec<intendant::CaseDispo>,
+    prevision: Vec<rules::Pas>,
+    effets: std::cell::RefCell<Vec<((Hex, Amenagement), (Rendements, Rendements))>>,
+}
+
+impl<'a> Ville<'a> {
+    /// Cases et prévision de la ville `v`.
+    fn new(map: &'a crate::map::WorldMap, centre: Hex, v: Entity, city: &'a City, territoire: &Territory, amenagements: &Amenagements) -> Self {
+        let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == v).map(|(h, _)| *h).collect();
+        let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
+        let prevision = rules::prevoir(map, centre, &city.state, &dispo, HORIZON);
+        Ville { map, centre, etat: &city.state, dispo, prevision, effets: Default::default() }
+    }
+
+    /// Effet réel de l'aménagement `a` sur la case `h` : la ville simulée avec lui, comparée à la
+    /// prévision, tout de suite et dans `TOURS_EFFET` tours.
+    fn effet(&self, h: Hex, a: Amenagement) -> (Rendements, Rendements) {
+        if let Some((_, e)) = self.effets.borrow().iter().find(|(k, _)| *k == (h, a)) {
+            return *e;
+        }
+        let mut dispo = self.dispo.clone();
+        if let Some(c) = dispo.iter_mut().find(|c| c.hex == h) {
+            c.max = intendant::rendement_max(self.map, h, Some(a));
+            c.capacite = intendant::capacite(Some(a));
+        }
+        let p = rules::prevoir(self.map, self.centre, self.etat, &dispo, TOURS_EFFET);
+        let k = TOURS_EFFET - 1;
+        let e = (p[0].rendements - self.prevision[0].rendements, p[k].rendements - self.prevision[k].rendements);
+        self.effets.borrow_mut().push(((h, a), e));
+        e
+    }
+}
+
+/// L'aménagement `a` peut-il aller sur la case (sinon, pourquoi) ?
+fn possible(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> Result<(), &'static str> {
     if c.centre {
         return Err("pas sur le centre de la ville");
     }
@@ -393,11 +440,18 @@ fn gain_amenagement(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> 
     if c.en_file {
         return Err("un aménagement y est déjà en file");
     }
-    a.possible(map, c.hex)?;
+    a.possible(map, c.hex)
+}
+
+/// Ce que donnerait l'aménagement `a` sur la case (ou pourquoi il est impossible).
+fn gain_amenagement(vl: &Ville, c: &CaseVue, a: Amenagement) -> Result<GainAmenagement, &'static str> {
+    let map = vl.map;
+    possible(map, c, a)?;
     let max = intendant::rendement_max(map, c.hex, Some(a));
     let cap = intendant::capacite(Some(a));
     let cout = a.cout(map, c.hex);
-    Ok(GainAmenagement { maintenant: intendant::rendement(max, c.travailleurs.min(cap), cap) - c.rendement, plein: max - c.max, cout, defriche: cout > a.cout_de_base(), capacite: cap })
+    let (maintenant, dans) = vl.effet(c.hex, a);
+    Ok(GainAmenagement { maintenant, dans, plein: max - c.max, cout, defriche: cout > a.cout_de_base(), capacite: cap })
 }
 
 /// La grandeur qui freine la ville compte un peu plus dans la valeur d'un aménagement.
@@ -443,10 +497,10 @@ struct Evaluation {
     rentabilite: Option<f64>,
 }
 
-/// Valeur = nourriture × poids + production + deniers (à pleine capacité) ; une perte de nourriture
-/// qui rapproche la ville de la famine compte en plus, lourdement.
-fn evaluer(plein: Rendements, maintenant: Rendements, cout: i32, b: &Bareme) -> Evaluation {
-    let perte = maintenant.nourriture.min(plein.nourriture);
+/// Valeur = nourriture × poids + production + deniers de l'effet réel dans `TOURS_EFFET` tours ;
+/// une perte de nourriture qui rapproche la ville de la famine compte en plus, lourdement.
+fn evaluer(effet: Rendements, maintenant: Rendements, cout: i32, b: &Bareme) -> Evaluation {
+    let perte = maintenant.nourriture.min(effet.nourriture);
     let risque = if perte < -0.05 {
         let couverture = (b.nourriture + perte) / b.besoin;
         if couverture < 1.0 {
@@ -459,7 +513,7 @@ fn evaluer(plein: Rendements, maintenant: Rendements, cout: i32, b: &Bareme) -> 
     } else {
         Risque::Aucun
     };
-    let mut valeur = b.poids_nourriture * plein.nourriture + plein.production + plein.deniers;
+    let mut valeur = b.poids_nourriture * effet.nourriture + effet.production + effet.deniers;
     if risque != Risque::Aucun {
         valeur += POIDS_PERTE_FAMINE * perte;
     }
@@ -468,12 +522,12 @@ fn evaluer(plein: Rendements, maintenant: Rendements, cout: i32, b: &Bareme) -> 
 
 /// Évaluation d'un aménagement sur une case.
 fn evaluation(g: &GainAmenagement, b: &Bareme) -> Evaluation {
-    evaluer(g.plein, g.maintenant, g.cout, b)
+    evaluer(g.dans, g.maintenant, g.cout, b)
 }
 
 /// Case conseillée par l'intendant : la plus forte valeur, hors risque de famine (s'il y a mieux).
-fn conseil(map: &crate::map::WorldMap, cases: &[CaseVue], a: Amenagement, b: &Bareme) -> Option<Hex> {
-    let notes: Vec<(Hex, Evaluation)> = cases.iter().filter_map(|c| gain_amenagement(map, c, a).ok().map(|g| (c.hex, evaluation(&g, b)))).collect();
+fn conseil(vl: &Ville, cases: &[CaseVue], a: Amenagement, b: &Bareme) -> Option<Hex> {
+    let notes: Vec<(Hex, Evaluation)> = cases.iter().filter_map(|c| gain_amenagement(vl, c, a).ok().map(|g| (c.hex, evaluation(&g, b)))).collect();
     let sures: Vec<&(Hex, Evaluation)> = notes.iter().filter(|(_, e)| !matches!(e.risque, Risque::Famine(_))).collect();
     let liste = if sures.is_empty() { notes.iter().collect() } else { sures };
     liste.into_iter().max_by(|x, y| x.1.valeur.total_cmp(&y.1.valeur).then(y.0.cmp(&x.0))).map(|(h, _)| *h)
@@ -487,9 +541,9 @@ fn signe(v: f64) -> String {
 /// Comment l'intendant compte la valeur, en une ligne.
 fn regle_valeur(b: &Bareme) -> String {
     if b.poids_nourriture > 1.0 {
-        format!("valeur = nourriture × {} + production + deniers (la nourriture compte plus : c'est elle qui borne la croissance) ; une perte de nourriture près de la famine compte × {}", rules::decimal(b.poids_nourriture), rules::decimal(POIDS_PERTE_FAMINE))
+        format!("valeur = effet réel dans {TOURS_EFFET} tours (l'intendant refait sa répartition) : nourriture × {} + production + deniers (la nourriture compte plus : c'est elle qui borne la croissance) ; une perte de nourriture près de la famine compte × {}", rules::decimal(b.poids_nourriture), rules::decimal(POIDS_PERTE_FAMINE))
     } else {
-        format!("valeur = nourriture + production + deniers ; une perte de nourriture près de la famine compte × {}", rules::decimal(POIDS_PERTE_FAMINE))
+        format!("valeur = effet réel dans {TOURS_EFFET} tours (l'intendant refait sa répartition) : nourriture + production + deniers ; une perte de nourriture près de la famine compte × {}", rules::decimal(POIDS_PERTE_FAMINE))
     }
 }
 
@@ -1175,7 +1229,7 @@ fn carte_souris(
             let hex = vise.map(|x| x.hex);
             if let Some(a) = ecran.placement {
                 // Placement : la case doit pouvoir porter l'aménagement ; double-clic : mise en file
-                if let Some(x) = vise.filter(|x| gain_amenagement(&map.0, x, a).is_ok()) {
+                if let Some(x) = vise.filter(|x| possible(&map.0, x, a).is_ok()) {
                     let maintenant = time.elapsed_secs_f64();
                     if dernier_clic.1 == Some(x.hex) && maintenant - dernier_clic.0 < 0.45 {
                         ecran.confirmer = true;
@@ -1231,7 +1285,8 @@ fn carte_souris(
             if *montre != Some(c.hex) || ecran.is_changed() {
                 *montre = Some(c.hex);
                 commands.entity(bulle_e).despawn_related::<Children>();
-                let placement = ecran.placement.map(|a| (a, gain_amenagement(&map.0, c, a)));
+                let vl = Ville::new(&map.0, centre, city.0, city.1, &territoire, &amenagements);
+                let placement = ecran.placement.map(|a| (a, gain_amenagement(&vl, c, a)));
                 commands.entity(bulle_e).with_children(|b| match placement {
                     Some((a, g)) => infobulle_placement(b, c, a, g, &Bareme::de(city.1)),
                     None if ecran.onglet == Onglet::Histoire => {
@@ -1262,8 +1317,9 @@ fn infobulle_placement(b: &mut ChildSpawnerCommands, c: &CaseVue, a: Amenagement
         Ok(g) => {
             let e = evaluation(&g, bareme);
             b.spawn(texte(format!("{} : valeur {}", capitale(a.nom()), signe(e.valeur)), 13.5, charte::AMENAGEMENT));
-            b.spawn(texte(format!("case pleine : {}", ecarts(&g.plein)), 12.5, charte::TEXTE));
-            b.spawn(texte(format!("tout de suite : {}", ecarts(&g.maintenant)), 12.5, charte::DOUX));
+            b.spawn(texte(format!("tout de suite : {}", ecarts(&g.maintenant)), 12.5, charte::TEXTE));
+            b.spawn(texte(format!("dans {TOURS_EFFET} tours : {}", ecarts(&g.dans)), 12.5, charte::TEXTE));
+            b.spawn(texte(format!("maximum de la ville (case pleine) : {}", ecarts(&g.plein)), 12.5, charte::DOUX));
             b.spawn(texte(format!("coût {} production{}", g.cout, e.rentabilite.map_or(String::new(), |r| format!(" · rentabilisé en {} tours", r.ceil()))), 12.5, charte::DOUX));
             if g.defriche {
                 b.spawn(texte("défrichement : la forêt est perdue pour le bois", 12.5, charte::ALERTE));
@@ -1372,9 +1428,12 @@ fn reconstruire(
     let cases = cases_vues(&map.0, centre.0, v, &city, &territoire, &amenagements);
     let choisie = ecran.case.and_then(|h| cases.iter().find(|c| c.hex == h));
 
-    let diagnostic = frein(&map.0, &city, &cases);
+    // Une seule prévision pour l'en-tête, le bandeau et les graphiques (décision B4)
+    let vl = Ville::new(&map.0, centre.0, v, &city, &territoire, &amenagements);
+    let (dispo, prevision) = (&vl.dispo, &vl.prevision);
+    let diagnostic = frein(&vl, &city, &cases);
     commands.entity(*entete).despawn_related::<Children>().with_children(|e| {
-        en_tete(e, &city, &images, ecran.catalogue);
+        en_tete(e, &city, &images, ecran.catalogue, prevision);
         bandeau_frein(e, &diagnostic);
     });
     // Graphique de la grandeur détaillée (image refaite ; l'ancienne est libérée)
@@ -1382,14 +1441,10 @@ fn reconstruire(
         assets.remove(&h);
     }
     // Aperçus de l'intendant : la répartition refaite avec d'autres consignes
-    let dispo = {
-        let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == v).map(|(h, _)| *h).collect();
-        rules::cases_de_la_ville(&map.0, centre.0, &possedees, &Default::default(), &amenagements.0)
-    };
     let apercu = |cons: &intendant::Consignes| -> Rendements {
         let mut st = city.state.clone();
         st.consignes = cons.clone();
-        rules::repartition_ville(&map.0, centre.0, &st, &dispo).rendements
+        rules::repartition_ville(&map.0, centre.0, &st, dispo).rendements
     };
     let reglages: Vec<(Reglage, Rendements, i64)> = match ecran.grandeur {
         Some(gr) if ecran.onglet == Onglet::Rendements && choisie.is_none() && !ecran.catalogue => {
@@ -1425,14 +1480,14 @@ fn reconstruire(
     });
     let courbe = match (ecran.onglet, ecran.grandeur, choisie) {
         (Onglet::Population, _, None) if !ecran.catalogue => {
-            let c = courbe_population(&city, &cases);
+            let c = courbe_population(&city, &cases, prevision);
             let tr = crate::graphique::Trace::new(&c, Vec2::new((large - 30.0).max(200.0), 230.0));
             let h = assets.add(crate::graphique::dessiner(&c, &tr, charte::TRAIT, charte::TEXTE));
             *graphique = Some(h.clone());
             Some((h, c, tr))
         }
         (Onglet::Rendements, Some(gr), None) => {
-            let c = courbe(&city, gr, ecran.periode);
+            let c = courbe(&city, gr, ecran.periode, prevision);
             let tr = crate::graphique::Trace::new(&c, Vec2::new((large - 30.0).max(200.0), 200.0));
             let h = assets.add(crate::graphique::dessiner(&c, &tr, charte::TRAIT, charte::TEXTE));
             *graphique = Some(h.clone());
@@ -1448,22 +1503,22 @@ fn reconstruire(
                 fil(g, ecran.grandeur, c.map(|c| c.nom.as_str()));
             }
             match (c, ecran.grandeur, &courbe) {
-                (Some(c), gr, _) => fiche_case(g, c, &map.0, &images, gr, forcage.as_ref()),
+                (Some(c), gr, _) => fiche_case(g, c, &vl, &images, gr, forcage.as_ref()),
                 (None, Some(gr), Some((h, cb, tr))) => synthese(g, gr, &city, &cases, &images, h.clone(), cb, tr, ecran.periode, &reglages),
                 _ => {
                     ensemble(g, &city, &cases);
-                    file_et_projet(g, &city, false, &map.0, &cases, ecran.file_choisie);
+                    file_et_projet(g, &city, false, &vl, &cases, ecran.file_choisie);
                 }
             }
         }
         (Onglet::Histoire, c) => histoire(g, &city, ecran.histoire_genre, c),
-        (_, Some(c)) => fiche_case(g, c, &map.0, &images, None, forcage.as_ref()),
-        (Onglet::Population, None) => population(g, &city, &cases, &images, courbe.as_ref()),
+        (_, Some(c)) => fiche_case(g, c, &vl, &images, None, forcage.as_ref()),
+        (Onglet::Population, None) => population(g, &city, &cases, &images, courbe.as_ref(), prevision),
         (Onglet::Commerce, None) => vide(g, "Commerce", "Aucun axe de commerce : les échanges entre villes ne sont pas encore dans le jeu."),
     });
     let bareme = Bareme::de(&city);
-    let gains: Vec<Option<(GainAmenagement, Evaluation)>> = cases.iter().map(|c| ecran.placement.and_then(|a| gain_amenagement(&map.0, c, a).ok()).map(|g| { let e = evaluation(&g, &bareme); (g, e) })).collect();
-    let conseillee = ecran.placement.and_then(|a| conseil(&map.0, &cases, a, &bareme));
+    let gains: Vec<Option<(GainAmenagement, Evaluation)>> = cases.iter().map(|c| ecran.placement.and_then(|a| gain_amenagement(&vl, c, a).ok()).map(|g| { let e = evaluation(&g, &bareme); (g, e) })).collect();
+    let conseillee = ecran.placement.and_then(|a| conseil(&vl, &cases, a, &bareme));
     // Cases dont un aménagement est déjà en file (pastille « file n° »)
     let en_file = |h: Hex| city.state.file.iter().position(|k| matches!(k.objet, rules::Production::Amenagement { hex, .. } if hex == h));
     let mode = match (ecran.onglet, ecran.grandeur) {
@@ -1485,7 +1540,7 @@ fn reconstruire(
     barre_node.display = if visee.is_some() && ecran.catalogue { Display::Flex } else { Display::None };
     commands.entity(barre_e).despawn_related::<Children>().with_children(|b| {
         if let Some((a, c)) = visee {
-            let e = gain_amenagement(&map.0, c, a).ok().map(|g| evaluation(&g, &bareme));
+            let e = gain_amenagement(&vl, c, a).ok().map(|g| evaluation(&g, &bareme));
             let quelle = format!("{}{}", if ecran.cible.is_some() { "case choisie" } else { "conseil de l'intendant" }, e.map_or(String::new(), |e| format!(", valeur {}", signe(e.valeur))));
             b.spawn((MettreEnFile, Pulsation, bouton(charte::ACTION_FOND), children![texte(format!("Mettre en file : {} sur {} ({quelle}) · Entrée", a.nom(), c.nom.to_lowercase()), 14.0, charte::TEXTE)]));
         }
@@ -1552,9 +1607,9 @@ fn reconstruire(
         commands.entity(*gauche).despawn_related::<Children>().with_children(|g| {
             cartes(g, &city, &images, None);
             match cible {
-                Some((a, c)) => placement(g, &map.0, &city, &cases, a, c, ecran.cible.is_none()),
+                Some((a, c)) => placement(g, &vl, &city, &cases, a, c, ecran.cible.is_none()),
                 None if ecran.placement.is_some() => vide(g, "Placement", "Aucune case de la ville ne peut porter cet aménagement."),
-                None => file_et_projet(g, &city, true, &map.0, &cases, ecran.file_choisie),
+                None => file_et_projet(g, &city, true, &vl, &cases, ecran.file_choisie),
             }
         });
         if let Ok(mut t) = textes.get_mut(*titre) {
@@ -1566,7 +1621,7 @@ fn reconstruire(
                     b.spawn(texte(format!("Ce qui freine {} :", city.state.name), 13.0, CONSEIL));
                     b.spawn(texte(diagnostic.texte.clone(), 13.0, CONSEIL));
                 });
-            catalogue(l, &map.0, &city, &cases, ecran.placement, ecran.catalogue_groupe);
+            catalogue(l, &vl, &city, &cases, ecran.placement, ecran.catalogue_groupe);
         });
         return;
     }
@@ -1655,7 +1710,7 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, mode: ModeCarte, 
                     if s >= 30.0 {
                         h.spawn(Node { column_gap: Val::Px(4.0), flex_wrap: FlexWrap::Wrap, justify_content: JustifyContent::Center, max_width: Val::Px(s * 1.5), ..default() }).with_children(|r| {
                             for (gr, court) in [(Grandeur::Nourriture, "nourr."), (Grandeur::Production, "prod."), (Grandeur::Deniers, "den.")] {
-                                let v = valeur(&g.plein, gr);
+                                let v = valeur(&g.dans, gr);
                                 if v.abs() >= 0.05 {
                                     r.spawn(texte(format!("{} {court}", signe(v)), (s * 0.22).clamp(9.0, 12.0), if v > 0.0 { gr.couleur() } else { charte::GRAVE }));
                                 }
@@ -1780,7 +1835,7 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         pastille(l, charte::SURFACE, "hache : défrichement");
         pastille(l, charte::GRAVE, "risque de famine");
         pastille(l, charte::SELECTION, "case choisie");
-        l.spawn(texte(if bareme.poids_nourriture > 1.0 { "chiffres : valeur (nourriture ×1,5 + production + deniers), puis ce qui la compose" } else { "chiffres : valeur (nourriture + production + deniers), puis ce qui la compose" }, 12.0, charte::MUET));
+        l.spawn(texte(if bareme.poids_nourriture > 1.0 { "chiffres : valeur (effet réel dans 10 tours : nourriture ×1,5 + production + deniers), puis ce qui la compose" } else { "chiffres : valeur (effet réel dans 10 tours : nourriture + production + deniers), puis ce qui la compose" }, 12.0, charte::MUET));
         return;
     }
     if let ModeCarte::Grandeur(g, _) = mode {
@@ -1813,10 +1868,10 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
 }
 
 /// En-tête : nom, palier, habitants, croissance, construction en cours, bouton Fermer.
-fn en_tete(e: &mut ChildSpawnerCommands, city: &City, images: &Images, catalogue: bool) {
+fn en_tete(e: &mut ChildSpawnerCommands, city: &City, images: &Images, catalogue: bool, prevision: &[rules::Pas]) {
     let c = &city.state;
     let y = city.travail.rendements;
-    let variation = c.variation(y);
+    let variation = prevision.first().map_or_else(|| c.variation(y), |p| p.variation);
     e.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(18.0), ..default() }).with_children(|l| {
         l.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() }).with_children(|n| {
             n.spawn(texte(c.name.clone(), 26.0, charte::TEXTE));
@@ -1825,8 +1880,12 @@ fn en_tete(e: &mut ChildSpawnerCommands, city: &City, images: &Images, catalogue
                 m.spawn(texte(format!("palier {} · {} habitants", c.palier(), rules::milliers(c.habitants)), 14.0, charte::DOUX));
                 let (t, couleur) = if variation > 0 {
                     let suivant = rules::habitants_du_palier(c.palier() + 1);
-                    let tours = (suivant.saturating_sub(c.habitants) as f64 / variation as f64).ceil();
-                    (format!("+{} par tour · palier {} dans {tours} tour{}", rules::milliers(variation as u64), c.palier() + 1, if tours > 1.0 { "s" } else { "" }), charte::OK)
+                    let quand = match rules::tours_jusqu_a(prevision, suivant) {
+                        Some(t) => format!("palier {} dans {t} tour{}", c.palier() + 1, if t > 1 { "s" } else { "" }),
+                        None if rules::arret_de_croissance(prevision).is_some() => format!("palier {} hors de portée (nourriture)", c.palier() + 1),
+                        None => format!("palier {} dans plus de {} tours", c.palier() + 1, prevision.len()),
+                    };
+                    (format!("+{} par tour · {quand}", rules::milliers(variation as u64)), charte::OK)
                 } else if variation == 0 {
                     ("population stable".into(), charte::ALERTE)
                 } else {
@@ -2017,7 +2076,7 @@ fn indicateur(r: &mut ChildSpawnerCommands, titre: &str, valeur: String, ligne: 
 }
 
 /// Onglet Population : indicateurs, évolution et limites, mouvement, cultures et ordres.
-fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], images: &Images, graphique: Option<&(Handle<Image>, crate::graphique::Courbe, crate::graphique::Trace)>) {
+fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], images: &Images, graphique: Option<&(Handle<Image>, crate::graphique::Courbe, crate::graphique::Trace)>, prevision: &[rules::Pas]) {
     let c = &city.state;
     let t = &city.travail;
     let employes = t.actifs - t.chomeurs;
@@ -2029,34 +2088,50 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], imag
         p.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|r| {
             indicateur(r, "Habitants de l'aire", rules::milliers(c.habitants), format!("palier {} · le suivant à {}", c.palier(), rules::milliers(rules::habitants_du_palier(c.palier() + 1))), charte::DOUX);
             indicateur(r, "Actifs (la moitié)", rules::milliers(t.actifs.into()), format!("{} au travail sur les cases", rules::milliers(employes.into())), charte::DOUX);
-            let (l, e) = if t.chomeurs > 0 { ("aménager des cases".to_string(), charte::ALERTE) } else { ("tous employés".to_string(), charte::OK) };
+            let (l, e) = if t.chomeurs > 0 { ("aménager des cases donne des emplois".to_string(), charte::DOUX) } else { ("tous employés".to_string(), charte::OK) };
             indicateur(r, "Sans emploi", rules::milliers(t.chomeurs.into()), l, e);
             indicateur(r, "Taux d'urbanisation", "—".into(), "pas encore de quartiers urbains".into(), charte::MUET);
         });
         p.spawn(texte("Pour l'instant, les habitants vivent là où ils travaillent.", 12.5, charte::MUET));
     });
     // Évolution et limites
-    let lim = limites(city, cases);
+    let (nourriture, travail) = (limite_nourriture(cases), emplois(cases));
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         titre(p, "Évolution et limites de la ville");
-        if let Some((nom, _, couleur, quoi)) = lim.iter().min_by(|a, b| a.1.total_cmp(&b.1)) {
-            p.spawn(Node { column_gap: Val::Px(4.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
-                l.spawn(texte("Échelle logarithmique. Trait plein : le passé ; pointillé : la prévision avec les rendements actuels ; lignes de couleur : ce que la ville peut porter. La plus basse est la limite, ici", 12.5, charte::MUET));
-                l.spawn(texte(nom.to_lowercase(), 12.5, *couleur));
-                l.spawn(texte(format!("({quoi})."), 12.5, charte::MUET));
-            });
-        }
+        p.spawn(Node { column_gap: Val::Px(4.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
+            l.spawn(texte("Échelle logarithmique. Trait plein : le passé ; pointillé : la prévision (l'intendant répartit les habitants à venir). La", 12.5, charte::MUET));
+            l.spawn(texte("nourriture", 12.5, Grandeur::Nourriture.couleur()));
+            l.spawn(texte("de toutes les cases pleines borne la population ; les", 12.5, charte::MUET));
+            l.spawn(texte("emplois", 12.5, Grandeur::Production.couleur()));
+            l.spawn(texte("ne sont pas une limite.", 12.5, charte::MUET));
+        });
         if let Some((h, cb, tr)) = graphique {
             poser_graphique(p, h.clone(), cb, tr);
         }
-        for (nom, v, couleur, _) in &lim {
-            let marge = if *v > c.habitants as f64 { format!("marge {}", rules::milliers((*v - c.habitants as f64) as u64)) } else { "dépassée".into() };
+        let ligne = |p: &mut ChildSpawnerCommands, nom: &str, couleur: Color, valeur: String, note: String, note_couleur: Color| {
             p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(5.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
-                l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(*nom, 13.5, *couleur)]));
-                l.spawn(texte(format!("{} habitants", rules::milliers(*v as u64)), 13.5, charte::TEXTE));
-                l.spawn((Node { width: Val::Px(110.0), justify_content: JustifyContent::FlexEnd, ..default() }, children![texte(marge, 12.5, if *v > c.habitants as f64 { charte::MUET } else { charte::GRAVE })]));
+                l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(nom, 13.5, couleur)]));
+                l.spawn(texte(valeur, 13.5, charte::TEXTE));
+                l.spawn((Node { width: Val::Px(230.0), justify_content: JustifyContent::FlexEnd, ..default() }, children![texte(note, 12.5, note_couleur)]));
             });
-        }
+        };
+        let h = c.habitants as f64;
+        let (note, couleur) = match rules::arret_de_croissance(prevision) {
+            _ if nourriture <= h => ("dépassée : famine".to_string(), charte::GRAVE),
+            Some(t) => (format!("croissance arrêtée dans ~{t} tours vers {}", rules::milliers(prevision[t - 1].habitants)), charte::MUET),
+            None => (format!("marge {}", rules::milliers((nourriture - h) as u64)), charte::MUET),
+        };
+        ligne(p, "Limite : la nourriture (cases pleines)", Grandeur::Nourriture.couleur(), format!("{} habitants", rules::milliers(nourriture as u64)), note, couleur);
+        let note = if city.travail.chomeurs > 0 {
+            format!("{} sans emploi aujourd'hui", rules::milliers(city.travail.chomeurs.into()))
+        } else {
+            match prevision.iter().position(|p| p.chomeurs > 0) {
+                Some(t) => format!("plus d'emplois libres dans ~{} tours", t + 1),
+                None => format!("emplois libres pour {} tours au moins", prevision.len()),
+            }
+        };
+        ligne(p, "Emplois (cases pleines)", Grandeur::Production.couleur(), format!("{} habitants", rules::milliers(travail as u64)), note, charte::MUET);
+        p.spawn(texte("Au-delà des emplois, la ville grandit encore, mais le chômage baissera son attractivité (migrations : pas encore dans le jeu).", 12.5, charte::MUET));
         ligne_valeur(p, "Eau", "pas encore dans le jeu".into(), charte::MUET);
     });
     // Mouvement de la population
@@ -2065,7 +2140,7 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], imag
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         titre(p, "Mouvement de la population");
         ligne_valeur(p, "Solde du dernier tour", solde.map_or("—".into(), |v| format!("{}{} habitants", if v >= 0 { "+" } else { "−" }, rules::milliers(v.unsigned_abs()))), if solde.is_some_and(|v| v < 0) { charte::GRAVE } else { charte::TEXTE });
-        ligne_valeur(p, "Prochain tour (rendements actuels)", { let v = c.variation(t.rendements); format!("{}{} habitants", if v >= 0 { "+" } else { "−" }, rules::milliers(v.unsigned_abs())) }, charte::TEXTE);
+        ligne_valeur(p, "Prochain tour (prévision)", { let v = prevision.first().map_or_else(|| c.variation(t.rendements), |p| p.variation); format!("{}{} habitants", if v >= 0 { "+" } else { "−" }, rules::milliers(v.unsigned_abs())) }, charte::TEXTE);
         p.spawn(texte("Naissances, décès et migrations : pas encore distingués dans le jeu (seul le solde compte).", 12.5, charte::MUET));
     });
     vide(g, "Cultures et religions", "Une seule culture pour l'instant : les cultures et les religions ne sont pas encore dans le jeu.");
@@ -2128,14 +2203,15 @@ fn couleur_genre(g: rules::GenreEvenement) -> Color {
 }
 
 /// Fiche d'une case choisie sur la carte ou dans la liste.
-fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::WorldMap, images: &Images, seule: Option<Grandeur>, forcage: Option<&VueForcage>) {
-    fiche_case_corps(g, c, map, images, seule);
+fn fiche_case(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, images: &Images, seule: Option<Grandeur>, forcage: Option<&VueForcage>) {
+    fiche_case_corps(g, c, vl, images, seule);
     if let (Some(f), false) = (forcage, c.centre) {
         g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| effectif(p, c, f));
     }
 }
 
-fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map::WorldMap, images: &Images, seule: Option<Grandeur>) {
+fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, images: &Images, seule: Option<Grandeur>) {
+    let map = vl.map;
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         p.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() }).with_children(|t| {
             t.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(c.nom.clone(), 17.0, charte::TEXTE)]));
@@ -2184,8 +2260,8 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map:
                 p.spawn(texte("Aménager cette case (un aménagement par case : il remplace l'actuel) :", 13.0, charte::TEXTE));
                 p.spawn(Node { column_gap: Val::Px(8.0), row_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|b| {
                     for a in Amenagement::possibles(map, c.hex).into_iter().filter(|a| Some(*a) != c.amenagement) {
-                        let gain = gain_amenagement(map, c, a).map(|g| ecarts(&g.plein)).unwrap_or_default();
-                        b.spawn((AmenagerIci(a), bouton(Color::NONE), children![texte(format!("{} · {} production · {gain}", capitale(a.nom()), a.cout(map, c.hex)), 13.0, charte::AMENAGEMENT)]));
+                        let gain = gain_amenagement(vl, c, a).map(|g| format!(" · dans {TOURS_EFFET} tours : {}", ecarts(&g.dans))).unwrap_or_default();
+                        b.spawn((AmenagerIci(a), bouton(Color::NONE), children![texte(format!("{} · {} production{gain}", capitale(a.nom()), a.cout(map, c.hex)), 13.0, charte::AMENAGEMENT)]));
                     }
                 });
             }
@@ -2194,7 +2270,7 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, map: &crate::map:
 }
 
 /// Courbe d'une grandeur : les tours de l'historique, puis aujourd'hui (rendement actuel) ; seuils.
-fn courbe(city: &City, g: Grandeur, periode: usize) -> crate::graphique::Courbe {
+fn courbe(city: &City, g: Grandeur, periode: usize, prevision: &[rules::Pas]) -> crate::graphique::Courbe {
     use crate::graphique::{Courbe, Seuil};
     let n = if periode == 0 { rules::HISTORIQUE_TOURS } else { periode };
     let mut passe: Vec<f64> = city.state.historique.iter().map(|r| valeur(&Rendements::new(r.nourriture, r.production, r.deniers), g)).collect();
@@ -2209,7 +2285,9 @@ fn courbe(city: &City, g: Grandeur, periode: usize) -> crate::graphique::Courbe 
         Grandeur::Deniers => vec![Seuil { valeur: 0.0, libelle: "équilibre".into(), couleur: charte::ALERTE }],
         _ => Vec::new(),
     };
-    Courbe::simple(passe, 20, seuils, g.couleur())
+    // (le premier pas de la prévision est le tour présent, déjà au bout du passé)
+    let futur: Vec<f64> = prevision.iter().skip(1).take(20).map(|p| valeur(&p.rendements, g)).collect();
+    Courbe { futur: futur.len().max(1), prevision: (!futur.is_empty()).then_some(futur), ..Courbe::simple(passe, 20, seuils, g.couleur()) }
 }
 
 /// Fil d'Ariane : vue d'ensemble › grandeur › case (les étapes passées sont des boutons).
@@ -2283,7 +2361,8 @@ fn poser_graphique(p: &mut ChildSpawnerCommands, image: Handle<Image>, cb: &crat
         }
         let bas = tr.taille.y - 18.0;
         let n = cb.passe.len();
-        if n > 1 {
+        // (pas de libellé du passé trop près de « aujourd'hui » : ils se chevaucheraient)
+        if n > 1 && tr.x(0.0) - tr.x(-(n as f64 - 1.0)) > 90.0 {
             poser(gph, tr.x(-(n as f64 - 1.0)) - 40.0, bas, 80.0, false, format!("−{} tours", n - 1), charte::MUET);
         }
         poser(gph, tr.x(0.0) - 45.0, bas, 90.0, false, "aujourd'hui".into(), charte::TEXTE);
@@ -2291,37 +2370,38 @@ fn poser_graphique(p: &mut ChildSpawnerCommands, image: Handle<Image>, cb: &crat
     });
 }
 
-/// Ce que la ville peut porter : habitants que la nourriture nourrit, habitants qui ont un emploi
-/// (la moitié travaille) ; l'eau n'est pas encore dans le jeu.
-fn limites(city: &City, cases: &[CaseVue]) -> Vec<(&'static str, f64, Color, &'static str)> {
-    let capacite: u32 = cases.iter().map(|c| c.capacite).sum();
-    vec![
-        ("Nourriture", city.travail.rendements.nourriture * rules::HABITANTS_PAR_NOURRITURE, Grandeur::Nourriture.couleur(), "habitants que la nourriture peut nourrir (1 pour 1 000)"),
-        ("Emplois", capacite as f64 / intendant::PART_ACTIVE, Grandeur::Production.couleur(), "au-delà, les nouveaux habitants n'ont pas de travail (la moitié travaille)"),
-    ]
+/// Prévision de l'écran de la ville, en tours.
+const HORIZON: usize = 100;
+
+/// Habitants que nourrirait la ville, toutes ses cases pleines (centre compris) : la limite de sa
+/// population (décision B4).
+fn limite_nourriture(cases: &[CaseVue]) -> f64 {
+    cases.iter().map(|c| c.max.nourriture).sum::<f64>() * rules::HABITANTS_PAR_NOURRITURE
 }
 
-/// Courbe de la population : le passé, la prévision tour par tour avec les rendements actuels
-/// (la nourriture arrête la croissance), les limites et le palier suivant ; échelle logarithmique.
-fn courbe_population(city: &City, cases: &[CaseVue]) -> crate::graphique::Courbe {
+/// Habitants qui ont tous un emploi quand toutes les cases sont pleines (la moitié travaille) : pas
+/// une limite (décision B3), mais au-delà, le chômage baissera l'attractivité de la ville.
+fn emplois(cases: &[CaseVue]) -> f64 {
+    cases.iter().map(|c| c.capacite).sum::<u32>() as f64 / intendant::PART_ACTIVE
+}
+
+/// Courbe de la population : le passé, la prévision (l'intendant répartit les habitants à venir),
+/// la limite de la nourriture, les emplois et le palier suivant ; échelle logarithmique.
+fn courbe_population(city: &City, cases: &[CaseVue], prevision: &[rules::Pas]) -> crate::graphique::Courbe {
     use crate::graphique::{Courbe, Seuil};
     let mut passe: Vec<f64> = city.state.historique.iter().map(|r| r.habitants as f64).collect();
     if passe.last() != Some(&(city.state.habitants as f64)) {
         passe.push(city.state.habitants as f64);
     }
-    let y = city.travail.rendements;
-    let mut st = city.state.clone();
-    let prevision: Vec<f64> = (0..40)
-        .map(|_| {
-            let v = st.variation(y);
-            st.habitants = (st.habitants as i64 + v).max(rules::HABITANTS_PLANCHER as i64) as u64;
-            st.habitants as f64
-        })
-        .collect();
-    let mut seuils: Vec<Seuil> = limites(city, cases).into_iter().map(|(n, v, c, _)| Seuil { valeur: v.max(1.0), libelle: format!("{n} : {}", rules::milliers(v as u64)), couleur: c }).collect();
+    let prevision: Vec<f64> = prevision.iter().take(40).map(|p| p.habitants as f64).collect();
+    let (nourriture, travail) = (limite_nourriture(cases), emplois(cases));
+    let mut seuils = vec![
+        Seuil { valeur: nourriture.max(1.0), libelle: format!("limite (nourriture) : {}", rules::milliers(nourriture as u64)), couleur: Grandeur::Nourriture.couleur() },
+        Seuil { valeur: travail.max(1.0), libelle: format!("emplois : {}", rules::milliers(travail as u64)), couleur: Grandeur::Production.couleur() },
+    ];
     let palier = city.state.palier() + 1;
     seuils.push(Seuil { valeur: rules::habitants_du_palier(palier) as f64, libelle: format!("palier {palier}"), couleur: charte::MUET });
-    Courbe { passe, futur: 40, seuils, couleur: Grandeur::Habitants.couleur(), prevision: Some(prevision), log: true }
+    Courbe { passe, futur: prevision.len().max(1), seuils, couleur: Grandeur::Habitants.couleur(), prevision: Some(prevision), log: true }
 }
 
 /// Détail d'une grandeur : graphique (passé, prévision, seuils), d'où elle vient, où elle va.
@@ -2372,7 +2452,7 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
         });
         // Période et explication
         p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
-            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("À gauche le passé, à droite la prévision au rythme actuel (bande : incertitude)", 12.5, charte::DOUX)]));
+            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("À gauche le passé, à droite la prévision (l'intendant répartit les habitants à venir)", 12.5, charte::DOUX)]));
             for (n, t) in [(10, "10 tours"), (20, "20 tours"), (40, "40 tours")] {
                 let actif = periode == n || (periode == 0 && n == 40);
                 l.spawn((
@@ -2516,11 +2596,12 @@ fn bord_ligne(choisie: bool, glissee: bool) -> BorderColor {
 }
 
 /// Ce qu'apporte un élément de la file, en une ligne, et où il se construit.
-fn benefice(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], objet: &rules::Production) -> (Option<String>, String) {
+fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Production) -> (Option<String>, String) {
+    let map = vl.map;
     let lieu = case_de(objet).map(|h| cases.iter().find(|c| c.hex == h).map_or_else(|| map.describe(h).to_lowercase(), |c| c.nom.to_lowercase()));
     let texte = match *objet {
-        rules::Production::Amenagement { hex, kind, .. } => match cases.iter().find(|c| c.hex == hex).map(|c| gain_amenagement(map, c, kind)) {
-            Some(Ok(g)) => format!("à pleine capacité : {} · valeur {}", ecarts(&g.plein), signe(evaluation(&g, &Bareme::de(city)).valeur)),
+        rules::Production::Amenagement { hex, kind, .. } => match cases.iter().find(|c| c.hex == hex).map(|c| gain_amenagement(vl, c, kind)) {
+            Some(Ok(g)) => format!("dans {TOURS_EFFET} tours : {} · valeur {}", ecarts(&g.dans), signe(evaluation(&g, &Bareme::de(city)).valeur)),
             Some(Err(e)) => format!("plus possible : {e}"),
             None => "case hors du territoire".into(),
         },
@@ -2542,7 +2623,7 @@ fn benefice(map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], objet: &
     (lieu, texte)
 }
 
-fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, map: &crate::map::WorldMap, cases: &[CaseVue], choisie: Option<usize>) {
+fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, vl: &Ville, cases: &[CaseVue], choisie: Option<usize>) {
     let c = &city.state;
     let prod = city.travail.rendements.production;
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
@@ -2558,7 +2639,7 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, ma
             p.spawn(texte("Glisser une ligne pour changer l'ordre · survol ou clic : sa case sur la carte", 12.0, charte::MUET));
         }
         for (i, k) in c.file.iter().enumerate() {
-            let (lieu, apport) = benefice(map, city, cases, &k.objet);
+            let (lieu, apport) = benefice(vl, city, cases, &k.objet);
             let choisi = choisie == Some(i);
             p.spawn((
                 LigneFile(i),
@@ -2597,7 +2678,7 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, ma
 }
 
 /// Catalogue : conseils de l'intendant, aménagements, unités, projets de ville, ponts.
-fn catalogue(l: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], placement: Option<Amenagement>, groupe_vu: GroupeCatalogue) {
+fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[CaseVue], placement: Option<Amenagement>, groupe_vu: GroupeCatalogue) {
     let prod = city.travail.rendements.production;
     // Onglets du catalogue : un seul groupe à la fois (tout tient à l'écran)
     l.spawn(Node { column_gap: Val::Px(6.0), margin: UiRect::top(Val::Px(4.0)), ..default() }).with_children(|o| {
@@ -2636,9 +2717,9 @@ fn catalogue(l: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
     if groupe_vu == GroupeCatalogue::Amenagements {
     groupe(l, "Aménagements de production : un par case, l'intendant y met ensuite les travailleurs");
     for a in Amenagement::ALL {
-        let meilleure = conseil(map, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|c| c.hex == h));
-        let detail = match meilleure.and_then(|c| gain_amenagement(map, c, a).ok().map(|g| (c, g))) {
-            Some((c, g)) => format!("conseil : {} · valeur {} ({}) · {} production", c.nom.to_lowercase(), signe(evaluation(&g, &Bareme::de(city)).valeur), ecarts(&g.plein), g.cout),
+        let meilleure = conseil(vl, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|c| c.hex == h));
+        let detail = match meilleure.and_then(|c| gain_amenagement(vl, c, a).ok().map(|g| (c, g))) {
+            Some((c, g)) => format!("conseil : {} · valeur {} (dans {TOURS_EFFET} tours : {}) · {} production", c.nom.to_lowercase(), signe(evaluation(&g, &Bareme::de(city)).valeur), ecarts(&g.dans), g.cout),
             None => "aucune case possible dans la ville".into(),
         };
         let titre = if placement == Some(a) { format!("{} — en placement : choisissez une case sur la carte", capitale(a.nom())) } else { capitale(a.nom()) };
@@ -2665,8 +2746,8 @@ fn catalogue(l: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
 }
 
 /// Fiche du placement d'un aménagement sur une case.
-fn placement(g: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &City, cases: &[CaseVue], a: Amenagement, c: &CaseVue, conseil_seul: bool) {
-    let Ok(gain) = gain_amenagement(map, c, a) else { return };
+fn placement(g: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[CaseVue], a: Amenagement, c: &CaseVue, conseil_seul: bool) {
+    let Ok(gain) = gain_amenagement(vl, c, a) else { return };
     let bareme = Bareme::de(city);
     let e = evaluation(&gain, &bareme);
     let prod = city.travail.rendements.production;
@@ -2675,7 +2756,7 @@ fn placement(g: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
     let pourquoi = cases
         .iter()
         .filter(|x| x.hex != c.hex)
-        .filter_map(|x| gain_amenagement(map, x, a).ok().map(|gx| (x, gx)))
+        .filter_map(|x| gain_amenagement(vl, x, a).ok().map(|gx| (x, gx)))
         .max_by(|p, q| valeur(&p.1.plein, g_vise).total_cmp(&valeur(&q.1.plein, g_vise)))
         .filter(|(_, gx)| valeur(&gx.plein, g_vise) > valeur(&gain.plein, g_vise) + 0.05)
         .map(|(x, gx)| {
@@ -2684,7 +2765,7 @@ fn placement(g: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
                 format!("Attention : {} vaut plus ({} contre {} ici).", x.nom, signe(ex.valeur), signe(e.valeur))
             } else {
                 let raison = if gx.defriche && !gain.defriche { "elle demande un défrichement" } else if ex.risque != Risque::Aucun { "elle menace de famine" } else { "elle fait perdre ailleurs" };
-                format!("Pourquoi cette case ? {} donne plus de {} ({}), mais sa valeur est {} contre {} ici : {raison}.", x.nom, g_vise.nom().to_lowercase(), ecarts(&gx.plein), signe(ex.valeur), signe(e.valeur))
+                format!("Pourquoi cette case ? {} donne plus de {} au maximum ({}), mais sa valeur est {} contre {} ici : {raison}.", x.nom, g_vise.nom().to_lowercase(), ecarts(&gx.plein), signe(ex.valeur), signe(e.valeur))
             }
         });
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU), BorderColor::all(charte::AMENAGEMENT))).insert(Node { border: UiRect::all(Val::Px(1.0)), ..panneau() }).with_children(|p| {
@@ -2707,8 +2788,9 @@ fn placement(g: &mut ChildSpawnerCommands, map: &crate::map::WorldMap, city: &Ci
             Risque::BordDeFamine(k) => ligne_valeur(p, "Bord de famine", format!("{} × le besoin après", rules::decimal(k)), charte::GRAVE),
             Risque::Aucun => {}
         }
-        ligne_valeur(p, &format!("Tout de suite ({} travailleurs)", rules::milliers(c.travailleurs.into())), ecarts(&gain.maintenant), charte::TEXTE);
-        ligne_valeur(p, &format!("Case pleine ({} travailleurs)", rules::milliers(gain.capacite.into())), ecarts(&gain.plein), charte::AMENAGEMENT);
+        ligne_valeur(p, "Tout de suite (l'intendant répartit les travailleurs)", ecarts(&gain.maintenant), charte::TEXTE);
+        ligne_valeur(p, &format!("Dans {TOURS_EFFET} tours (avec la croissance)"), ecarts(&gain.dans), charte::AMENAGEMENT);
+        ligne_valeur(p, &format!("Maximum de la ville (case pleine, {} travailleurs)", rules::milliers(gain.capacite.into())), format!("{} (pas tout de suite)", ecarts(&gain.plein)), charte::DOUX);
         ligne_valeur(p, "Capacité de la case", format!("{} → {} travailleurs", rules::milliers(c.capacite.into()), rules::milliers(gain.capacite.into())), charte::TEXTE);
         if gain.defriche {
             ligne_valeur(p, "Défrichement", format!("la forêt est perdue pour le bois (+{} de coût)", intendant::COUT_DEFRICHEMENT), charte::ALERTE);
@@ -2880,14 +2962,16 @@ fn construire_actions(
     let confirmer = demande || mettre.iter().any(|i| appui(&i));
     if confirmer && let Some(a) = ecran.placement {
         let cases = cases_vues(&map.0, centre, v, &city, &territoire, &amenagements);
-        let cible = ecran.cible.or_else(|| conseil(&map.0, &cases, a, &Bareme::de(&city)));
-        if let Some(c) = cible.and_then(|h| cases.iter().find(|c| c.hex == h))
-            && let Ok(g) = gain_amenagement(&map.0, c, a)
-        {
+        let choix = {
+            let vl = Ville::new(&map.0, centre, v, &city, &territoire, &amenagements);
+            let cible = ecran.cible.or_else(|| conseil(&vl, &cases, a, &Bareme::de(&city)));
+            cible.and_then(|h| cases.iter().find(|c| c.hex == h)).and_then(|c| gain_amenagement(&vl, c, a).ok().map(|g| (c, g)))
+        };
+        if let Some((c, g)) = choix {
             let objet = rules::Production::Amenagement { hex: c.hex, kind: a, cost: g.cout };
             if city.state.mettre_en_file(objet) {
                 let n = city.state.file.len();
-                journal(format!(" met en file : {} ({}), position {n} ; à pleine capacité : {}.", a.nom(), c.nom.to_lowercase(), ecarts(&g.plein)));
+                journal(format!(" met en file : {} ({}), position {n} ; dans {TOURS_EFFET} tours : {}.", a.nom(), c.nom.to_lowercase(), ecarts(&g.dans)));
                 anim.flash_file = Some((n - 1, time.elapsed_secs_f64()));
                 ecran.placement = None;
                 ecran.cible = None;

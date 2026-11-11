@@ -669,6 +669,22 @@ remèdes et alertes en double ; trop d'orange. **Décisions de Benjamin** :
   (migrations, à venir) ; l'écran montre dans combien de tours il n'y aura plus d'emplois ;
 - **B4** : une **seule prévision** pour l'en-tête, le bandeau et les graphiques : la répartition de
   l'intendant simulée tour par tour ; la limite de nourriture se calcule sur les cases pleines.
+
+**Réalisation de B1, B3 et B4** : `rules::prevoir` simule la ville sur 100 tours (à chaque tour,
+`repartition_ville` avec les habitants du moment, puis la croissance ; mêmes cases, consignes et
+projet ; la file n'avance pas) ; `arret_de_croissance` donne le premier tour où la croissance passe
+sous 0,1 % par tour. L'en-tête lit le palier suivant dans la prévision ; le bandeau donne la limite
+(nourriture × 1 000 de toutes les cases pleines, centre compris) et le tour où la croissance s'arrête ;
+les graphiques tracent la prévision (plus de bande d'incertitude pour ces courbes). Un aménagement est
+jugé en simulant la ville avec lui (`Ville::effet`, gardé en mémoire le temps d'une reconstruction) :
+effet tout de suite et dans 10 tours ; la **valeur** (et le conseil, la rentabilité) se lit dans 10
+tours ; le maximum (case pleine) reste affiché, en second. Les emplois (capacités ÷ part active) sont
+une ligne du graphique et de l'onglet Population, avec le tour où il n'y aura plus d'emplois libres ;
+les sans-emploi sont une alerte verte, plus orange. Exemple (graine 777, Paris au palier 4, 5 804
+habitants, projet Peupler) : « palier 5 dans 47 tours » ; limite 11 000 habitants, croissance arrêtée
+dans ~81 tours vers 10 791 ; plus d'emplois libres dans ~3 tours ; champ conseillé sur la taïga :
++0,7 nourriture tout de suite, +1,8 dans 10 tours, +3,0 au maximum, valeur +1,7. Coût : une
+simulation de 10 tours par case et par aménagement, seulement quand l'écran se refait.
 Limite connue : en mode pilote, l'infobulle de la carte disparaît à la fin d'un ordre, parce que le
 pilote ramène alors le pointeur à sa position d'avant (`Input::Move(last_cursor)`) ; elle n'apparaît
 donc pas sur les captures.

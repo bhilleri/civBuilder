@@ -547,6 +547,48 @@ pub fn repartition_ville(map: &WorldMap, center: Hex, city: &CityState, cases: &
     intendant::repartir(cases, intendant::actifs(city.habitants), city.besoin_nourriture(), Rendements::from(center_yields(map, center)), &city.consignes)
 }
 
+/// Un tour de la prévision d'une ville.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pas {
+    /// Habitants à la fin du tour.
+    pub habitants: u64,
+    /// Rendements du tour (répartition de l'intendant avec les habitants du début du tour).
+    pub rendements: Rendements,
+    /// Variation des habitants pendant le tour.
+    pub variation: i64,
+    /// Actifs sans case pendant le tour.
+    pub chomeurs: u32,
+}
+
+/// Croissance (part des habitants par tour) sous laquelle la ville est jugée arrêtée.
+pub const CROISSANCE_ARRETEE: f64 = 0.001;
+
+/// Prévision de la ville sur `tours` tours : à chaque tour, la répartition de l'intendant refaite
+/// avec les habitants du moment, puis la croissance (mêmes cases, consignes et projet ; la file de
+/// construction n'avance pas). Une seule prévision sert à tout l'écran de la ville (décision B4).
+pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo], tours: usize) -> Vec<Pas> {
+    let mut st = city.clone();
+    (0..tours)
+        .map(|_| {
+            let r = repartition_ville(map, center, &st, cases);
+            let v = st.variation(r.rendements);
+            st.habitants = if v < 0 { st.habitants.saturating_sub(v.unsigned_abs()).max(HABITANTS_PLANCHER.min(st.habitants)) } else { st.habitants + v as u64 };
+            Pas { habitants: st.habitants, rendements: r.rendements, variation: v, chomeurs: r.chomeurs }
+        })
+        .collect()
+}
+
+/// Premier tour de la prévision (1 = le prochain) où la croissance s'arrête (moins de 0,1 % par
+/// tour, ou baisse), s'il y en a un.
+pub fn arret_de_croissance(prevision: &[Pas]) -> Option<usize> {
+    prevision.iter().position(|p| (p.variation as f64) < CROISSANCE_ARRETEE * (p.habitants as i64 - p.variation).max(1) as f64).map(|i| i + 1)
+}
+
+/// Premier tour de la prévision (1 = le prochain) où la ville atteint `habitants`.
+pub fn tours_jusqu_a(prevision: &[Pas], habitants: u64) -> Option<usize> {
+    prevision.iter().position(|p| p.habitants >= habitants).map(|i| i + 1)
+}
+
 /// Coût d'un pont (production) : de `BRIDGE_COST.0` sur la plus petite rivière (`RIVER_M3S`) à
 /// `BRIDGE_COST.1` sur les plus grands fleuves (`BRIDGE_COST_TOP_M3S`, l'Amazone), avec le
 /// logarithme du débit (choix de Benjamin, 08/11/2026), pour un pont de bois ; `BRIDGE_STONE_COST`
@@ -1538,6 +1580,35 @@ mod tests {
         let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &champ);
         let c = cases.iter().find(|c| c.hex == best).unwrap();
         assert_eq!((c.capacite, c.max.nourriture), (1_500, 4.0));
+    }
+
+    #[test]
+    fn la_prevision_refait_la_repartition_a_chaque_tour() {
+        let mut map = WorldMap::filled(10, 10, Terrain::Grassland);
+        let center = Hex::from_offset(5, 5);
+        let territory: Vec<Hex> = center.range(1).collect();
+        let city = CityState::new("Essai".into());
+        let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &Default::default());
+        let p = prevoir(&map, center, &city, &cases, 600);
+        // Le premier tour est celui de la répartition d'aujourd'hui
+        assert_eq!(p[0].rendements, repartition_ville(&map, center, &city, &cases).rendements);
+        // Les cases se remplissent : la croissance finit par s'arrêter, puis plus rien ne bouge
+        let arret = arret_de_croissance(&p).expect("arrêt de la croissance");
+        assert!(p[arret - 1].habitants > city.habitants);
+        assert!(p.last().unwrap().habitants <= p[arret - 1].habitants * 11 / 10);
+        assert!(p.last().unwrap().chomeurs > 0, "toutes les cases pleines");
+        assert_eq!(tours_jusqu_a(&p, city.habitants), Some(1));
+        assert_eq!(tours_jusqu_a(&p, u64::MAX), None);
+        // Sans nourriture hors du centre : la population baisse dès le premier tour
+        for h in center.range(1) {
+            map.set(h, Terrain::Desert);
+        }
+        let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &Default::default());
+        let mut grosse = city.clone();
+        grosse.habitants = 20_000;
+        let p = prevoir(&map, center, &grosse, &cases, 200);
+        assert_eq!(arret_de_croissance(&p), Some(1));
+        assert!((1_900..=2_000).contains(&p.last().unwrap().habitants), "le centre nourrit 2 000 habitants");
     }
 }
 

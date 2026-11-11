@@ -861,16 +861,20 @@ fn cities() -> Article {
             h("Écran de la ville"),
             p("Touche C (ou le bouton « Écran de la ville » du panneau de production) avec une ville sélectionnée :                l'écran de la ville s'ouvre en plein écran ; Échap le ferme (d'abord la fiche d'une case). En haut, le                palier, les habitants, la croissance et la construction en cours. L'onglet Rendements donne la                nourriture (comparée au besoin), la production et les deniers, et d'où ils viennent (centre, cases) ;                l'onglet Population, les habitants, les actifs et les sans-emploi. Les grandeurs et les onglets qui ne                sont pas encore dans le jeu (eau, recherche, culture, défense, bien-être, commerce, histoire) sont                affichés comme tels."),
             p("À droite, la carte des cases de la ville : couleur de la grandeur principale de chaque case (pâle si                personne n'y travaille), ou remplissage dans l'onglet Population (orange : presque pleine) ; rond vert :                aménagement (bouton de la légende pour le masquer). Survol : l'infobulle de la case ; clic : sa fiche                (aménagement, travailleurs, rendements, aménagements possibles) ; molette ou + et − : zoom ; glisser :                déplacer. La liste dessous éclaire sa case au survol."),
-            p("Clic sur une grandeur (ou touches 1 à 3) : son détail. Le graphique montre les derniers tours (10, 20                ou 40) et la prévision au rythme actuel, avec une bande d'incertitude et des repères (besoin et                croissance pleine pour la nourriture, équilibre pour les deniers) ; dessous, d'où vient la grandeur                et où elle va (réserve pour croître, excédent perdu, construction, trésor). La carte prend la couleur                de la grandeur et donne sa valeur par case ; la fiche d'une case dit ce que 100 travailleurs de plus                y rapporteraient. Échap remonte d'un cran (case, grandeur, écran)."),
+            p("Clic sur une grandeur (ou touches 1 à 3) : son détail. Le graphique montre les derniers tours (10, 20                ou 40) et la prévision des 20 prochains (l'intendant répartit les habitants à venir), avec des repères (besoin et                croissance pleine pour la nourriture, équilibre pour les deniers) ; dessous, d'où vient la grandeur                et où elle va (réserve pour croître, excédent perdu, construction, trésor). La carte prend la couleur                de la grandeur et donne sa valeur par case ; la fiche d'une case dit ce que 100 travailleurs de plus                y rapporteraient. Échap remonte d'un cran (case, grandeur, écran)."),
             p("L'onglet Population montre les habitants, les actifs (la moitié) et les sans-emploi, l'évolution de \
-               la population en échelle logarithmique avec sa prévision et ce que la ville peut porter : les \
-               habitants que sa nourriture nourrit (la croissance s'y arrête) et ceux qui trouvent un emploi (au-delà : \
-               des sans-emploi). Sa carte montre au choix le remplissage des cases en travailleurs ou la répartition \
+               la population en échelle logarithmique avec sa prévision et ce que la ville peut porter : la limite, \
+               les habitants que nourrirait la nourriture de toutes ses cases pleines (la croissance s'arrête avant), \
+               et les emplois, qui ne sont pas une limite : au-delà, la ville grandit encore avec des sans-emploi \
+               (le chômage baissera son attractivité quand les migrations seront dans le jeu) ; l'écran dit dans \
+               combien de tours il n'y aura plus d'emplois libres. Sa carte montre au choix le remplissage des cases en travailleurs ou la répartition \
                des habitants (pour l'instant, chacun vit là où il travaille ; les sans-emploi au centre)."),
             p("Sous l'en-tête, « Ce qui freine la croissance » donne une seule cause (famine, objectif de \
-               l'intendant, limite de la nourriture et le tour où elle sera atteinte) et des remèdes chiffrés : un \
+               l'intendant, limite de la nourriture des cases pleines et le tour où la croissance s'arrête) et des remèdes chiffrés : un \
                clic ouvre le placement de l'aménagement à la case conseillée, ou le réglage de l'intendant. Les \
-               autres alertes suivent (rien à produire, sans-emploi, long projet)."),
+               autres alertes suivent (rien à produire, sans-emploi, long projet). Une seule prévision sert à \
+               l'en-tête, au bandeau et aux graphiques : la ville simulée tour par tour, l'intendant refaisant sa \
+               répartition à chaque tour (mêmes cases, consignes et projet ; la file n'avance pas)."),
             p("L'onglet Histoire raconte la ville : fondation, paliers atteints, famines, ponts et aménagements \
                achevés, projets lancés, combats décisifs sur son territoire. Les lieux des événements sont cerclés \
                d'or sur la carte ; un clic sur une case ne garde que son histoire."),
@@ -895,8 +899,10 @@ fn cities() -> Article {
                sont pas encore dans le jeu. Le journal le rappelle tous les 10 tours. Sans projet ni construction, le tour \
                ne peut pas finir : l'écran de la ville s'ouvre sur son catalogue."),
             p("Aménager une case : dans l'écran de la ville, Construire (B) puis un aménagement. Chaque case montre la \
-               valeur de l'aménagement (nourriture × 1,5 + production + deniers, à pleine capacité ; une perte de \
-               nourriture près de la famine compte × 3) et ce qui la compose ; une hache et un anneau orange \
+               valeur de l'aménagement : son effet réel dans 10 tours, l'intendant refaisant sa répartition avec lui \
+               (nourriture × 1,5 + production + deniers ; une perte de nourriture près de la famine compte × 3), et \
+               ce qui la compose ; la fiche donne aussi l'effet tout de suite et ce que l'aménagement ajoute au \
+               maximum de la ville (case pleine), qu'on ne gagne pas tout de suite ; une hache et un anneau orange \
                signalent un défrichement, un anneau rouge un risque de famine. L'anneau doré marque le conseil de \
                l'intendant (la plus forte valeur) ; la fiche à gauche dit pourquoi. Dans la file, chaque ligne dit où se \
                construit l'élément et ce qu'il apporte ; survol ou clic : sa case est cerclée sur la carte ; on change \
