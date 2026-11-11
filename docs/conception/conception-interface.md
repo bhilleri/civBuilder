@@ -485,6 +485,10 @@ Maquette v2 analysée par deux agents (designer UX, game designer de 4X) ; déci
   des **parties déjà jouées**, avec des **favorites**. Au chargement d'une configuration, on
   demande s'il faut **garder la même graine** (le même monde) ou en **tirer une nouvelle**.
   « Mes configurations » remplace « Mes mondes ».
+- **Enregistrer la configuration aussi pendant la partie** (Benjamin, 11/11/2026) : c'est en jouant
+  qu'on voit si le monde est réussi. Menu Échap → « Enregistrer la configuration de ce monde… »,
+  la même fenêtre (nom, commentaire, favorite), avec la graine et les réglages de la partie en
+  cours ; la configuration rejoint « Mes configurations ».
 Corrections retenues : valeur chiffrée sous chaque choix (« Comme la Terre · 29 % ») et code au
 format de la doc ; ligne « Victoire : meilleur score d'héritage au tour 500 » ; pas de réglage
 « continuer après 500 » (partie libre déjà décidée) ; bascule « Premiers tours guidés » ; une ligne

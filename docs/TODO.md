@@ -406,7 +406,8 @@ climat, relief) ; tailles de carte à mesurer avec la génération ; arguments d
 devant les variables d'environnement (gardées pour les scripts).
 Décidé le 11/11 après la maquette : aperçu masqué par défaut, réglages à venir grisés, Grande
 expérimentale ; configurations enregistrées (nom, commentaire, favorites, parties jouées),
-rétablir par défaut, au chargement : même graine ou nouvelle.
+rétablir par défaut, au chargement : même graine ou nouvelle. Enregistrer la configuration aussi en cours de
+partie (menu Échap).
 
 ### [ ] 43. Prise en main (décidé le 10/11)
 Premiers tours guidés, conseillers par domaine, notifications hiérarchisées et réglables,
