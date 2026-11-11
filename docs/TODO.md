@@ -345,7 +345,8 @@ cartes »). Interfaces belles, intuitives, fluides, avec une charte commune (mod
 composants partagés, une couleur et une icône par grandeur). D'abord la **refonte de l'écran de
 la ville**, trop compliqué aujourd'hui (maquette à valider). Puis les écrans nationaux (économie,
 commerce, démographie, technologie, organisation politique, armée, diplomatie), chacun livré avec
-son système.
+son système. Maquette interactive de l'écran de la ville et de la construction faite le 11/11
+(`conception-interface.md`, « Maquette interactive ») ; la vraie carte 3D dans l'écran est reportée.
 
 ### [ ] 36. Nouvelles cartes thématiques (décidé le 10/11)
 Cartes en deux familles (Nature, Peuples). Nouvelles : géologie, institutions politiques,

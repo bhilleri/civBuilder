@@ -389,6 +389,57 @@ Remplace l'actuel, jugé trop compliqué :
 - l'intendant se règle par priorités simples ; les cases forcées sur la carte.
 Avant de coder : une maquette (image) à valider par Benjamin.
 
+#### Maquette interactive (11/11/2026, 17 versions avec Benjamin)
+Demandes de Benjamin : comprendre **d'où viennent** les grandeurs (cases, bâtiments, commerce),
+mettre en évidence les **limites** (eau, nourriture) quand on s'en approche, savoir où part
+l'Économie et comment on la gagne, des écrans nationaux, et **ne pas surcharger** la vue.
+Résultat (dernière version) :
+- **Disposition** : un panneau à gauche (synthèse et fiches), à droite une **carte de la ville**
+  (zoom à la molette ou par boutons, déplacement en glissant ; à partir de ×2, la nature des cases)
+  et, dessous, la **liste des bâtiments**. Pas de numéros de case pour le joueur : une case se
+  nomme par sa nature et sa direction depuis le centre (« Champs du nord-est », « lointain » en
+  troisième couronne). Pas d'effectifs sur la carte (ils sont dans l'onglet Population).
+- **Onglets** : Rendements, Commerce, Population (à venir).
+- **Rendements** : quatre cartes (Nourriture, Production, Économie, Eau) et une ligne de pastilles
+  pour les grandeurs sans production directe (Recherche, Culture, Militaire, Bien-être ; Religion
+  et Influence plus tard). Sans grandeur choisie : la **vue d'ensemble**, un tableau des grandeurs
+  par origine (centre, cases, bâtiments, commerce, total, état coloré) et des mini-barres
+  nourriture / production / Économie sur chaque case. Une grandeur choisie (recliquer la carte ou
+  Échap : retour à l'ensemble) donne sa synthèse **« D'où vient… »** : sources et usages (recettes
+  et dépenses pour l'Économie, net versé au trésor ou pris), avec une **jauge à seuils** pour la
+  nourriture (famine sous 1 × le besoin, croissance pleine à 1,5 ×) et l'eau (alerte à 80 %,
+  blocage à 100 %) ; l'eau détaille ses **prélèvements par source** en m³/s (fleuve, ruisseau,
+  nappes, citerne : prélevé sur prélevable). Les bâtiments y sont **regroupés en une ligne** sans
+  être nommés (leur détail est à droite) ; le commerce en une ligne qui mène à l'onglet Commerce.
+  La carte colore les cases selon la grandeur et trace les **flux commerciaux** chiffrés vers les
+  villes partenaires (vert : entre, rouge : sort).
+- **Bâtiments** (liste de droite) : **filtrée par la grandeur choisie**, triée par apport ; « tout
+  voir » pour les autres. Survol ou clic d'un bâtiment : sa case (or) et les cases qu'il améliore
+  (violet), avec le gain de la grandeur choisie seulement. Survol ou clic d'une case : ses
+  bâtiments et ceux qui l'améliorent. Le survol est un aperçu ; le clic garde la sélection, que
+  retirent un second clic, un clic dans le vide, « × » ou Échap.
+- **Commerce** : carte régionale des **axes** (épaisseur selon le volume, style selon la voie :
+  route, fleuve, col ; solde et durée sur chaque axe ; partenaire étranger marqué), tableau des
+  axes (voie, durée, marchandises envoyées et reçues, solde, risque), solde en Économie, transport
+  utilisé (chevaux et mulets du pays), dépendance (« 33 % du blé vient de Lyon ») ; fiche d'un axe
+  (capacité, marchandises, Économie de l'axe, risque).
+- **Écrans nationaux** : tableau des villes (habitants, couverture de la nourriture, eau,
+  production, Économie, alertes), recettes et dépenses du trésor par source, tableau des bâtiments
+  du pays ; une carte du commerce du pays.
+- **Construire un bâtiment** (maquette v1) : catalogue filtré par grandeur (bâtiments verrouillés
+  visibles avec ce qui manque, agrandissements comme des bâtiments, aménagements dans le même
+  catalogue) ; la carte colore les **cases possibles selon le gain** et marque le conseil de
+  l'intendant ; survol d'une case : son gain et les cases améliorées ; fiche : coût, durée (seule
+  et après la file), emplois, entretien, gain par grandeur, **origine des travailleurs** (sans
+  sans-emploi, l'intendant prend les moins utiles, avec la perte), bilan pour la ville, gain à
+  pleine capacité (paliers) ; « Mettre en file » (file unique, tours restants par élément).
+- **Reporté (Benjamin, 11/11/2026)** : utiliser **la vraie carte du jeu** (en 3D) au lieu de la
+  carte schématique de l'écran, ou proposer les deux. Repoussé parce que la carte elle-même va
+  beaucoup changer (sous-cases, quartiers, aménagements visibles).
+- **Questions ouvertes** : la fiche d'un bâtiment choisi s'ouvre-t-elle à gauche ou sous la liste de
+  droite ? Règles derrière les chiffres d'exemple (eau par habitant et part prélevable d'un cours
+  d'eau, recherche selon l'éducation, défense, calcul du Bien-être, liste et effets des bâtiments).
+
 ### Écrans nationaux (un panneau par thème, même gabarit)
 | Écran | Contenu |
 |---|---|
