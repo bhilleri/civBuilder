@@ -28,6 +28,7 @@ mod game;
 mod groupes;
 mod hasard;
 mod geography;
+mod graphique;
 mod hex;
 mod highlight;
 mod hostile;
