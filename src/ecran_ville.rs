@@ -881,7 +881,7 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool) {
 fn en_tete(e: &mut ChildSpawnerCommands, city: &City, images: &Images) {
     let c = &city.state;
     let y = city.travail.rendements;
-    let variation = rules::variation_des_habitants(c.habitants, y.nourriture);
+    let variation = c.variation(y);
     e.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(18.0), ..default() }).with_children(|l| {
         l.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() }).with_children(|n| {
             n.spawn(texte(c.name.clone(), 26.0, charte::TEXTE));
@@ -902,19 +902,25 @@ fn en_tete(e: &mut ChildSpawnerCommands, city: &City, images: &Images) {
         });
         l.spawn(Node { flex_grow: 1.0, ..default() });
         // Construction en cours
-        let en_cours = match c.producing {
-            Some(k) => {
-                let tours = delai(k.cost(), c.production_stock, y.production);
-                format!("En construction : {} · {}", k.name(), tours)
-            }
-            None => "Rien en construction".into(),
-        };
+        let en_cours = en_cours(c, y.production);
         l.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|b| {
             b.spawn(icone(images.grandeur(Grandeur::Production), 18.0, Grandeur::Production.couleur()));
             b.spawn(texte(en_cours, 14.0, charte::TEXTE));
         });
         l.spawn((Fermer, bouton(charte::SURFACE), children![texte("Fermer (Échap)", 14.0, charte::TEXTE)]));
     });
+}
+
+/// Ce que fait la ville de sa production, pour l'en-tête.
+fn en_cours(c: &rules::CityState, production: f64) -> String {
+    match (c.file.first(), c.projet) {
+        (Some(k), _) => {
+            let suite = if c.file.len() > 1 { format!(" · puis {} en file", c.file.len() - 1) } else { String::new() };
+            format!("En construction : {} · {}{suite}", k.objet.name(), delai(k.objet.cost(), k.investi, production))
+        }
+        (None, Some(p)) => format!("Projet : {} (depuis {} tours)", p.nom(), c.tours_en_projet),
+        (None, None) => "Rien à produire : la production est perdue".into(),
+    }
 }
 
 /// Délai d'une construction : « 3 tour(s) », « prête (attend une case libre) », « jamais au rythme actuel ».
@@ -970,9 +976,10 @@ fn cartes(g: &mut ChildSpawnerCommands, city: &City, images: &Images, choisie: O
     let couverture = y.nourriture / c.besoin_nourriture().max(0.001);
     let etat_n = if couverture < 1.0 { Etat::Grave } else if couverture < 1.5 { Etat::Alerte } else { Etat::Ok };
     let suite_n = if couverture < 1.0 { " : famine" } else { "" };
-    let prod = match c.producing {
-        Some(k) => format!("{} : {}", k.name(), delai(k.cost(), c.production_stock, y.production)),
-        None => "rien en construction".into(),
+    let prod = match (c.file.first(), c.projet) {
+        (Some(k), _) => format!("{} : {}", k.objet.name(), delai(k.objet.cost(), k.investi, y.production)),
+        (None, Some(p)) => format!("projet : {}", p.nom().to_lowercase()),
+        (None, None) => "rien à produire : perdue".into(),
     };
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         p.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|r| {
@@ -1192,9 +1199,10 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
             }
             u
         }
-        Grandeur::Production => match c.producing {
-            Some(k) => vec![(format!("Construction : {}", k.name()), Some(total), gr.couleur())],
-            None => vec![("Rien en construction : perdue".into(), Some(total), charte::ALERTE)],
+        Grandeur::Production => match (c.file.first(), c.projet) {
+            (Some(k), _) => vec![(format!("Construction : {}", k.objet.name()), Some(total), gr.couleur())],
+            (None, Some(p)) => vec![(format!("Projet : {}", p.nom()), Some(total), gr.couleur())],
+            (None, None) => vec![("Rien à produire : perdue".into(), Some(total), charte::ALERTE)],
         },
         _ => vec![("Versés au trésor".into(), Some(total), gr.couleur()), ("Entretien et solde : pas encore dans le jeu".into(), None, gr.couleur())],
     };

@@ -209,7 +209,7 @@ fn setup_ui(mut commands: Commands) {
                 HoverColors { normal: BUTTON_BG, hover: BUTTON_HOVER },
                 children![text("Écran de la ville (C)", 15.0)],
             ));
-            p.spawn(text("Production (clic ou touches 1 à 9)", 14.0));
+            p.spawn(text("Mettre en file (clic ou touches 1 à 9)", 14.0));
             for kind in UnitKind::ALL {
                 p.spawn((
                     ProduceButton(kind),
@@ -1085,9 +1085,9 @@ fn production_buttons(
     // (pas d'ordre tant que le passage de tour se joue)
     let Some((entity, mut city, center)) = selection.0.filter(|_| !replay.playing).and_then(|e| cities.get_mut(e).ok()) else { return };
     for (interaction, button) in &buttons {
-        if *interaction == UiPointer::Pressed && city.state.producing != Some(rules::Production::Unit(button.0)) {
-            city.state.producing = Some(rules::Production::Unit(button.0));
-            log.push(LogText::new().city(&city.state.name, entity, center.0).text(format!(" produit désormais : {}.", button.0.name())));
+        if *interaction == UiPointer::Pressed {
+            city.state.mettre_en_file(rules::Production::Unit(button.0));
+            log.push(LogText::new().city(&city.state.name, entity, center.0).text(format!(" met en file : {} ({} dans la file).", button.0.name(), city.state.file.len())));
         }
     }
 }
@@ -1110,7 +1110,8 @@ fn update_production_panel(
     for (i, (button, interaction, mut bg, children)) in buttons.iter_mut().enumerate() {
         let kind = button.0;
         let st = kind.stats();
-        let stock = if city.state.producing == Some(rules::Production::Unit(kind)) { city.state.production_stock } else { 0.0 };
+        let tete = city.state.file.first().filter(|c| c.objet == rules::Production::Unit(kind));
+        let stock = tete.map_or(0.0, |c| c.investi);
         let turns = rules::tours_restants(kind.cost(), stock, production).unwrap_or(999);
         let combat = if st.ranged_attack > 0 {
             format!(
@@ -1129,7 +1130,7 @@ fn update_production_panel(
         {
             t.0 = label;
         }
-        let color = if city.state.producing == Some(rules::Production::Unit(kind)) {
+        let color = if tete.is_some() {
             PRODUCE_ACTIVE
         } else if *interaction == UiPointer::Hovered {
             PRODUCE_HOVER
@@ -1311,14 +1312,16 @@ fn update_selection_panel(
             let city = cities.get(e).unwrap();
             let c = &city.state;
             let y = city.travail.rendements;
-            let variation = rules::variation_des_habitants(c.habitants, y.nourriture);
+            let variation = c.variation(y);
             let croissance = if variation >= 0 { format!("+{} habitants/tour", rules::milliers(variation as u64)) } else { format!("famine : −{} habitants/tour", rules::milliers(variation.unsigned_abs())) };
-            let production = match c.producing {
-                Some(k) => {
-                    let turns = rules::tours_restants(k.cost(), c.production_stock, y.production).map_or("∞".to_string(), |t| format!("{t} tours"));
-                    format!("{} {}/{} ({})", k.name(), c.production_stock.floor(), k.cost(), turns)
+            let production = match (c.file.first(), c.projet) {
+                (Some(k), _) => {
+                    let turns = rules::tours_restants(k.objet.cost(), k.investi, y.production).map_or("∞".to_string(), |t| format!("{t} tours"));
+                    let suite = if c.file.len() > 1 { format!(", puis {} en file", c.file.len() - 1) } else { String::new() };
+                    format!("{} {}/{} ({}){suite}", k.objet.name(), k.investi.floor(), k.objet.cost(), turns)
                 }
-                None => "rien".into(),
+                (None, Some(p)) => format!("projet « {} »", p.nom()),
+                (None, None) => "rien : la production est perdue".into(),
             };
             format!(
                 "{} — palier {} ({} habitants dans l'aire)\nNourriture : {} pour un besoin de {} ({})\nProduction : +{}/tour   Deniers : +{}/tour\nTravailleurs : {} sur {} case(s){}\nEn cours : {}\n\n{}",

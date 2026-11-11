@@ -596,7 +596,7 @@ fn end_turn(
     mut log: ResMut<GameLog>,
     mut fog: ResMut<Fog>,
     (blocked, occupancy, enemy_zoc): (Res<Blocked>, Res<Occupancy>, Res<EnemyZoc>),
-    (danger, amenagements): (Res<Danger>, Res<Amenagements>),
+    (danger, mut amenagements): (Res<Danger>, ResMut<Amenagements>),
     villages: Res<KnownVillages>,
     mut hostile_turn: ResMut<HostileTurnPending>,
     mut cues: ResMut<Cues>,
@@ -617,6 +617,7 @@ fn end_turn(
     assign_worked_tiles(map, &territory, &amenagements, &mut list);
     let mut new_units = Vec::new();
     let mut new_bridges = Vec::new();
+    let mut new_amenagements = Vec::new();
     for (entity, center, city) in list.iter_mut() {
         let yields = city.travail.rendements;
         let report = city.state.process_turn(yields);
@@ -630,9 +631,18 @@ fn end_turn(
         if report.starved {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" souffre de famine !"));
         }
+        if report.inactive {
+            log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" n'a rien à produire : sa production est perdue. Choisissez une construction ou un projet (touche C)."));
+        }
+        if report.rappel_projet
+            && let Some(p) = city.state.projet
+        {
+            log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(format!(" suit le projet « {} » depuis {} tours.", p.nom(), city.state.tours_en_projet)));
+        }
         match report.built {
             Some(rules::Production::Unit(kind)) => new_units.push((*entity, kind, *center, name)),
             Some(rules::Production::Bridge { at, .. }) => new_bridges.push((*entity, at, *center, name)),
+            Some(rules::Production::Amenagement { hex, kind, .. }) => new_amenagements.push((*entity, hex, kind, *center, name)),
             None => {}
         }
     }
@@ -682,7 +692,8 @@ fn end_turn(
             }
             None => {
                 if let Ok((_, _, mut city)) = cities.get_mut(city_entity) {
-                    city.state.production_stock += kind.cost() as f64;
+                    // (l'unité revient en tête de file, déjà payée)
+                    city.state.file.insert(0, rules::Commande { objet: rules::Production::Unit(kind), investi: kind.cost() as f64 });
                     if kind == UnitKind::Settler {
                         city.state.habitants += rules::HABITANTS_COLON;
                     }
@@ -705,9 +716,20 @@ fn end_turn(
         log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(format!(" a construit {what}.")));
     }
 
-    // 5) Puis la faction hostile joue (système suivant)
+    // 5) Aménagements construits : la case change (l'intendant y place ensuite les travailleurs)
+    for (city_entity, hex, kind, center, name) in new_amenagements {
+        amenagements.0.insert(hex, kind);
+        log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(format!(" a aménagé un {} : {}.", kind.nom().to_lowercase(), map_name(&game_map.0, hex))));
+    }
+
+    // 6) Puis la faction hostile joue (système suivant)
     hostile_turn.0 = true;
     state.turn += 1;
+}
+
+/// Nom d'une case pour le journal (« Prairie vallonnée »).
+fn map_name(map: &WorldMap, hex: Hex) -> String {
+    map.describe(hex).to_lowercase()
 }
 
 /// Maintient à jour les cases exploitées (nouvelle ville, territoire étendu, nouveau tour).

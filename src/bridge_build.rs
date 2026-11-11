@@ -106,14 +106,19 @@ fn bridge_button(
         return;
     }
     let Some(city) = selection.0.filter(|e| cities.contains(*e)) else { return };
-    let others = cities.iter().filter(|(e, _)| *e != city).filter_map(|(_, c)| match c.state.producing {
-        Some(Production::Bridge { at, .. }) => Some(at),
-        _ => None,
-    });
+    let others = cities.iter().filter(|(e, _)| *e != city).flat_map(|(_, c)| ponts_en_file(&c.state));
     let spots = city_spots(&map.0, &territory, city, others);
     if !spots.is_empty() {
         *placement = BridgePlacement { city: Some(city), hovered: None, spots };
     }
+}
+
+/// Ponts en file d'une ville.
+fn ponts_en_file(c: &rules::CityState) -> impl Iterator<Item = crate::map::BridgeAt> + '_ {
+    c.file.iter().filter_map(|c| match c.objet {
+        Production::Bridge { at, .. } => Some(at),
+        _ => None,
+    })
 }
 
 /// Libellé et visibilité du bouton « Pont… » : caché sans emplacement (ni pont en production).
@@ -128,21 +133,20 @@ fn update_bridge_button(
     mut texts: Query<&mut Text>,
 ) {
     let Some((city, state, _)) = selection.0.and_then(|e| cities.get(e).ok()) else { return };
-    let others = cities.iter().filter(|(e, _, _)| *e != city).filter_map(|(_, c, _)| match c.state.producing {
-        Some(Production::Bridge { at, .. }) => Some(at),
-        _ => None,
-    });
+    let others = cities.iter().filter(|(e, _, _)| *e != city).flat_map(|(_, c, _)| ponts_en_file(&c.state));
     let count = if placement.active() { placement.spots.len() } else { city_spots(&map.0, &territory, city, others).len() };
     let production = state.travail.rendements.production;
-    let (label, active) = match state.state.producing {
-        Some(item @ Production::Bridge { .. }) => {
-            let turns = rules::tours_restants(item.cost(), state.state.production_stock, production).map_or("∞".to_string(), |t| t.to_string());
-            (format!("     {}  —  {} ({} tours)  ·  autre emplacement : clic", item.name(), item.cost(), turns), true)
+    let en_file = state.state.file.iter().position(|c| matches!(c.objet, Production::Bridge { .. }));
+    let (label, active) = match en_file {
+        Some(i) => {
+            let item = state.state.file[i].objet;
+            let turns = state.state.tours_pour(i, production).map_or("∞".to_string(), |t| t.to_string());
+            (format!("     {}  —  {} (en file, {} tours)  ·  autre emplacement : clic", item.name(), item.cost(), turns), true)
         }
         _ if placement.active() => ("     Pont : cliquez un emplacement surligné (clic droit : annuler)".to_string(), true),
         _ => (format!("     Pont…  —  choisir l'emplacement ({count} possible{})", if count > 1 { "s" } else { "" }), false),
     };
-    let shown = count > 0 || matches!(state.state.producing, Some(Production::Bridge { .. }));
+    let shown = count > 0 || en_file.is_some();
     for (interaction, mut node, mut bg, children) in &mut buttons {
         let display = if shown { Display::Flex } else { Display::None };
         if node.display != display {
@@ -205,8 +209,10 @@ fn place_or_cancel(
     let Some(at) = placement.hovered else { return };
     if let Ok((mut city, pos)) = cities.get_mut(city_entity) {
         let item = Production::Bridge { at, cost: rules::bridge_cost(&map.0, at) };
-        city.state.producing = Some(item);
-        log.push(LogText::new().city(&city.state.name, city_entity, pos.0).text(format!(" produit désormais : {} ({}).", item.name(), item.cost())));
+        // (un seul pont en file par ville : le nouvel emplacement remplace l'ancien)
+        city.state.file.retain(|c| !matches!(c.objet, Production::Bridge { .. }));
+        city.state.mettre_en_file(item);
+        log.push(LogText::new().city(&city.state.name, city_entity, pos.0).text(format!(" met en file : {} ({}).", item.name(), item.cost())));
     }
     *placement = BridgePlacement::default();
 }

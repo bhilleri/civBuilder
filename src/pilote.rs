@@ -417,8 +417,12 @@ impl PlayerView<'_, '_> {
             crate::rules::decimal(c.travail.rendements.nourriture),
             crate::rules::decimal(c.travail.rendements.production),
             crate::rules::decimal(c.travail.rendements.deniers),
-            s.production_stock.floor(),
-            s.producing.map_or("rien".to_string(), |k| token(k.name()))
+            s.file.first().map_or(0.0, |c| c.investi.floor()),
+            match (s.file.first(), s.projet) {
+                (Some(c), _) => format!("{}{}", token(c.objet.name()), if s.file.len() > 1 { format!(" file={}", s.file.iter().map(|c| token(c.objet.name())).collect::<Vec<_>>().join(",")) } else { String::new() }),
+                (None, Some(p)) => format!("projet-{}", token(p.nom())),
+                (None, None) => "rien".to_string(),
+            }
         )
     }
 

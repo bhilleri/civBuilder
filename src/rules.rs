@@ -594,18 +594,20 @@ pub fn bridge_spots(map: &WorldMap, owned: impl Fn(Hex) -> bool, cells: impl Int
     spots
 }
 
-/// Ce que produit une ville : une unité, ou un pont à un emplacement choisi (au coût fixé au choix).
+/// Ce que construit une ville : une unité, un pont à un emplacement choisi, ou un aménagement
+/// sur une case (coûts fixés au choix).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Production {
     Unit(UnitKind),
     Bridge { at: crate::map::BridgeAt, cost: i32 },
+    Amenagement { hex: Hex, kind: Amenagement, cost: i32 },
 }
 
 impl Production {
     pub fn cost(self) -> i32 {
         match self {
             Production::Unit(kind) => kind.cost(),
-            Production::Bridge { cost, .. } => cost,
+            Production::Bridge { cost, .. } | Production::Amenagement { cost, .. } => cost,
         }
     }
 
@@ -614,9 +616,72 @@ impl Production {
             Production::Unit(kind) => kind.name(),
             Production::Bridge { at: crate::map::BridgeAt::Edge { .. }, .. } => "Pont sur la rivière",
             Production::Bridge { at: crate::map::BridgeAt::Fleuve { .. }, .. } => "Pont sur le fleuve",
+            Production::Amenagement { kind, .. } => kind.nom(),
+        }
+    }
+}
+
+/// Projet de ville : sans fin, il reçoit la production quand la file de construction est vide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Projet {
+    /// La production s'ajoute au surplus de nourriture pour la croissance.
+    Peupler,
+    /// Bien-être (livraison 4c).
+    GrandsJeux,
+    /// Recherche du pays (tâche 34).
+    Recherche,
+    /// Culture, qui étend le territoire (livraison 4d).
+    Culture,
+}
+
+impl Projet {
+    pub const TOUS: [Projet; 4] = [Projet::Peupler, Projet::GrandsJeux, Projet::Recherche, Projet::Culture];
+
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Projet::Peupler => "Peupler la ville",
+            Projet::GrandsJeux => "Grands jeux",
+            Projet::Recherche => "Projet de recherche",
+            Projet::Culture => "Développement de l'art et de la culture",
         }
     }
 
+    /// Nom court (console).
+    pub const fn code(self) -> &'static str {
+        match self {
+            Projet::Peupler => "peupler",
+            Projet::GrandsJeux => "jeux",
+            Projet::Recherche => "recherche",
+            Projet::Culture => "culture",
+        }
+    }
+
+    /// Ce que fait le projet, en une ligne.
+    pub const fn effet(self) -> &'static str {
+        match self {
+            Projet::Peupler => "la production s'ajoute au surplus de nourriture pour croître (2 production = 1 nourriture)",
+            Projet::GrandsJeux => "bien-être de la ville",
+            Projet::Recherche => "recherche du pays",
+            Projet::Culture => "culture, qui étend le territoire",
+        }
+    }
+
+    /// Le système du projet est-il dans le jeu ?
+    pub const fn disponible(self) -> bool {
+        matches!(self, Projet::Peupler)
+    }
+}
+
+/// Production pour croître équivalente à un point de nourriture (projet « Peupler la ville »).
+pub const PRODUCTION_PAR_NOURRITURE: f64 = 2.0;
+/// Le joueur est prévenu tous les `RAPPEL_PROJET` tours passés en projet.
+pub const RAPPEL_PROJET: u32 = 10;
+
+/// Élément de la file de construction, avec la production déjà investie.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Commande {
+    pub objet: Production,
+    pub investi: f64,
 }
 
 /// État économique d'une ville.
@@ -625,8 +690,12 @@ pub struct CityState {
     pub name: String,
     /// Habitants de toute l'aire de la ville (ville et campagnes).
     pub habitants: u64,
-    pub production_stock: f64,
-    pub producing: Option<Production>,
+    /// File de construction (la tête reçoit la production).
+    pub file: Vec<Commande>,
+    /// Projet suivi quand la file est vide.
+    pub projet: Option<Projet>,
+    /// Tours d'affilée passés en projet (pour le rappel).
+    pub tours_en_projet: u32,
     /// Ponts construits par la ville (une tour garde leur autre bout si elle est fortifiée).
     pub bridges: Vec<crate::map::BridgeAt>,
     /// Présence d'une fortification : la muraille n'existe que si elle est vraie. La règle de jeu
@@ -658,13 +727,17 @@ pub struct Releve {
 pub struct CityTurnReport {
     pub grew: bool,
     pub starved: bool,
+    /// Rien à produire (file vide, pas de projet) : production perdue.
+    pub inactive: bool,
+    /// Rappel : la ville est en projet depuis `tours_en_projet` tours.
+    pub rappel_projet: bool,
     pub built: Option<Production>,
     pub deniers: f64,
 }
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, production_stock: 0.0, producing: Some(Production::Unit(UnitKind::Militia)), bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -678,12 +751,53 @@ impl CityState {
         self.habitants as f64 / HABITANTS_PAR_NOURRITURE
     }
 
+    /// Projet qui reçoit la production ce tour-ci (la file est vide).
+    pub fn projet_actif(&self) -> Option<Projet> {
+        self.projet.filter(|_| self.file.is_empty())
+    }
+
+    /// Nourriture qui compte pour la croissance : celle des cases, plus la production du projet
+    /// « Peupler la ville » (seulement au-delà du besoin).
+    pub fn nourriture_pour_croitre(&self, yields: Rendements) -> f64 {
+        let n = yields.nourriture;
+        if self.projet_actif() == Some(Projet::Peupler) && n >= self.besoin_nourriture() {
+            n + yields.production / PRODUCTION_PAR_NOURRITURE
+        } else {
+            n
+        }
+    }
+
+    /// Variation des habitants au prochain tour avec ces rendements.
+    pub fn variation(&self, yields: Rendements) -> i64 {
+        variation_des_habitants(self.habitants, self.nourriture_pour_croitre(yields))
+    }
+
+    /// Ajoute un élément à la fin de la file (refusé s'il y est déjà : même pont, même case).
+    pub fn mettre_en_file(&mut self, objet: Production) -> bool {
+        let deja = |c: &Commande| match (c.objet, objet) {
+            (Production::Bridge { at: a, .. }, Production::Bridge { at: b, .. }) => a == b,
+            (Production::Amenagement { hex: a, .. }, Production::Amenagement { hex: b, .. }) => a == b,
+            _ => false,
+        };
+        if self.file.iter().any(deja) {
+            return false;
+        }
+        self.file.push(Commande { objet, investi: 0.0 });
+        true
+    }
+
+    /// Tours pour finir l'élément `i` de la file (ceux d'avant d'abord) au rythme `par_tour`.
+    pub fn tours_pour(&self, i: usize, par_tour: f64) -> Option<i32> {
+        let reste: f64 = self.file.iter().take(i + 1).map(|c| (c.objet.cost() as f64 - c.investi).max(0.0)).sum();
+        tours_restants(reste.ceil() as i32, 0.0, par_tour)
+    }
+
     pub fn process_turn(&mut self, yields: Rendements) -> CityTurnReport {
         let mut report = CityTurnReport { deniers: yields.deniers, ..Default::default() };
 
         // Croissance (ou famine) en habitants ; « a grandi » : nouveau palier atteint
         let palier = self.palier();
-        let variation = variation_des_habitants(self.habitants, yields.nourriture);
+        let variation = self.variation(yields);
         if variation < 0 {
             report.starved = true;
             self.habitants = self.habitants.saturating_sub(variation.unsigned_abs()).max(HABITANTS_PLANCHER.min(self.habitants));
@@ -696,22 +810,29 @@ impl CityState {
             self.historique.pop_front();
         }
 
-        // Production
-        if let Some(item) = self.producing {
-            self.production_stock += yields.production;
+        // Production : la tête de la file, sinon le projet, sinon perdue
+        if let Some(tete) = self.file.first_mut() {
+            self.tours_en_projet = 0;
+            tete.investi += yields.production;
+            let item = tete.objet;
             let settler = item == Production::Unit(UnitKind::Settler);
             let pop_ok = !settler || self.habitants >= 2 * HABITANTS_COLON;
-            if self.production_stock >= item.cost() as f64 && pop_ok {
-                self.production_stock -= item.cost() as f64;
+            if tete.investi >= item.cost() as f64 && pop_ok {
+                let surplus = tete.investi - item.cost() as f64;
+                self.file.remove(0);
+                if let Some(suivant) = self.file.first_mut() {
+                    suivant.investi += surplus;
+                }
                 if settler {
                     self.habitants -= HABITANTS_COLON;
                 }
                 report.built = Some(item);
-                // (un pont n'est construit qu'une fois : la ville revient à la milice)
-                if matches!(item, Production::Bridge { .. }) {
-                    self.producing = Some(Production::Unit(UnitKind::Militia));
-                }
             }
+        } else if self.projet.is_some() {
+            self.tours_en_projet += 1;
+            report.rappel_projet = self.tours_en_projet.is_multiple_of(RAPPEL_PROJET);
+        } else {
+            report.inactive = true;
         }
         report
     }
@@ -721,6 +842,42 @@ impl CityState {
 mod tests {
     use super::*;
     use crate::map::{Relief, Terrain};
+
+    #[test]
+    fn file_vide_projets_et_rappel() {
+        let y = Rendements::new(1.1, 4.0, 1.0);
+        // Rien à produire : la production est perdue et c'est signalé
+        let mut city = CityState::new("Essai".into());
+        assert!(city.process_turn(y).inactive);
+        // Peupler la ville : 4 production = 2 nourriture de plus pour croître
+        let mut sans = CityState::new("Sans".into());
+        sans.mettre_en_file(Production::Unit(UnitKind::Settler));
+        let mut avec = CityState::new("Avec".into());
+        avec.projet = Some(Projet::Peupler);
+        assert!(avec.variation(y) > sans.variation(y));
+        assert!((avec.nourriture_pour_croitre(y) - 3.1).abs() < 1e-9);
+        // jamais pour le besoin : en famine, le projet n'aide pas
+        let faim = Rendements::new(0.5, 4.0, 1.0);
+        assert_eq!(avec.variation(faim), sans.variation(faim));
+        // Rappel tous les 10 tours
+        let rappels: Vec<usize> = (1..=25).filter(|_| avec.process_turn(y).rappel_projet).collect();
+        assert_eq!(rappels, vec![10, 20]);
+        // Une construction reprend la main : le compteur repart
+        avec.mettre_en_file(Production::Unit(UnitKind::Militia));
+        avec.process_turn(y);
+        assert_eq!(avec.tours_en_projet, 0);
+    }
+
+    #[test]
+    fn la_file_refuse_un_doublon_de_case() {
+        let mut city = CityState::new("Essai".into());
+        let h = Hex::new(3, 4);
+        assert!(city.mettre_en_file(Production::Amenagement { hex: h, kind: Amenagement::Champ, cost: 20 }));
+        assert!(!city.mettre_en_file(Production::Amenagement { hex: h, kind: Amenagement::Paturage, cost: 15 }));
+        assert!(city.mettre_en_file(Production::Unit(UnitKind::Militia)));
+        assert!(city.mettre_en_file(Production::Unit(UnitKind::Militia)));
+        assert_eq!(city.tours_pour(2, 5.0), Some(10));
+    }
 
     #[test]
     fn l_historique_garde_les_quarante_derniers_tours() {
@@ -1277,8 +1434,16 @@ mod tests {
         // 1,5 % par tour : 1 000 → ≈ 1 160 en 10 tours (palier 1 encore)
         assert!((1_150..=1_170).contains(&city.habitants), "{}", city.habitants);
         assert_eq!(grew, 0);
-        // 50 de production sur 10 tours, milice à 15 : une unité tous les 3 tours
+        // File vide : rien n'est produit
+        assert!(built.is_empty());
+        // 50 de production sur 10 tours, trois milices en file (15 chacune) : le surplus passe à la suivante
+        let mut city = CityState::new("Test".into());
+        for _ in 0..3 {
+            city.mettre_en_file(Production::Unit(UnitKind::Militia));
+        }
+        let built: Vec<Production> = (0..10).filter_map(|_| city.process_turn(y).built).collect();
         assert_eq!(built, vec![Production::Unit(UnitKind::Militia); 3]);
+        assert!(city.file.is_empty());
         // Une famine ne descend pas sous le plancher
         let mut affame = CityState::new("Faim".into());
         for _ in 0..100 {
@@ -1290,8 +1455,8 @@ mod tests {
     #[test]
     fn colon_exige_deux_mille_habitants() {
         let mut city = CityState::new("Test".into());
-        city.producing = Some(Production::Unit(UnitKind::Settler));
-        city.production_stock = 100.0;
+        city.mettre_en_file(Production::Unit(UnitKind::Settler));
+        city.file[0].investi = 100.0;
         assert_eq!(city.process_turn(Rendements::from(Yields::new(1, 0, 0))).built, None);
         city.habitants = 2 * HABITANTS_COLON;
         assert_eq!(city.process_turn(Rendements::from(Yields::new(2, 0, 0))).built, Some(Production::Unit(UnitKind::Settler)));

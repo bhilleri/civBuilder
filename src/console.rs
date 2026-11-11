@@ -435,6 +435,12 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
                             city.state.consignes.priorites[*r] = *p;
                             format!("OK {} : {} {} ({place})", city.state.name, crate::intendant::RESSOURCES[*r], p.nom())
                         }
+                        debug_cmd::CityChange::Projet(p) => {
+                            city.state.projet = *p;
+                            city.state.tours_en_projet = 0;
+                            let effet = p.map_or(String::new(), |p| if p.disponible() { format!(" : {}", p.effet()) } else { " (pas encore dans le jeu)".into() });
+                            format!("OK {} : projet {}{effet}", city.state.name, p.map_or("aucun", |p| p.nom()))
+                        }
                         debug_cmd::CityChange::Forcer(case, n) => {
                             let forcees = &mut city.state.consignes.forcees;
                             forcees.retain(|(h, _)| h != case);

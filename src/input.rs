@@ -645,10 +645,8 @@ fn keyboard_commands(
         for (i, (k1, k2)) in choices.iter().enumerate() {
             if keys.just_pressed(*k1) || keys.just_pressed(*k2) {
                 let kind = UnitKind::ALL[i];
-                if city.state.producing != Some(rules::Production::Unit(kind)) {
-                    city.state.producing = Some(rules::Production::Unit(kind));
-                    log.push(LogText::new().city(&city.state.name, selected, center.0).text(format!(" produit désormais : {}.", kind.name())));
-                }
+                city.state.mettre_en_file(rules::Production::Unit(kind));
+                log.push(LogText::new().city(&city.state.name, selected, center.0).text(format!(" met en file : {} ({} dans la file).", kind.name(), city.state.file.len())));
             }
         }
     }

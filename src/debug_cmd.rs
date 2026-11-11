@@ -147,6 +147,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
     Spec { name: "pont", args: &[AT[0], AT[1], ("e|ne|no|o|so|se", Arg::Direction, false), ("oui|non", Arg::Switch, true)], help: "Pose (ou retire, « non ») un pont : sur la rivière de l'arête de la case dans cette direction, ou, si la case est un fleuve, en travers d'elle, de la rive de cette direction à la rive opposée (terre ferme des deux côtés). Rivière : traversée sans surcoût ; fleuve : on monte sur le pont par un bout pour 1 PM, sans s'arrêter. Voir le wiki, « Cours d'eau et lacs », Ponts.", group: Group::Game },
     Spec { name: "ville fortifier", args: &[AT[0], AT[1], ("oui|non", Arg::Switch, false)], help: "Pose ou retire la fortification de la ville de la case : sa muraille, ses portes.", group: Group::Game },
+    Spec { name: "ville projet", args: &[AT[0], AT[1], ("peupler|jeux|recherche|culture|aucun", Arg::Text, false)], help: "Projet de ville suivi quand la file de construction est vide.", group: Group::Game },
     Spec { name: "ville priorite", args: &[AT[0], AT[1], ("nourriture|production|deniers", Arg::Text, false), ("normale|prioritaire|maximale", Arg::Text, false)], help: "Priorité donnée à une ressource par l'intendant de la ville de la case.", group: Group::Game },
     Spec { name: "ville forcer", args: &[AT[0], AT[1], ("colonne", Arg::Col, false), ("ligne", Arg::Row, false), ("travailleurs", Arg::Number, false)], help: "Force l'effectif d'une case de la ville (0 : la rend à l'intendant).", group: Group::Game },
     Spec { name: "amenagement", args: &[AT[0], AT[1], ("champ|paturage|bois|aucun", Arg::Text, false)], help: "Pose (ou retire) l'aménagement rural de la case, sans le construire (s'il est possible sur la case).", group: Group::Game },
@@ -357,6 +358,8 @@ pub enum CityChange {
     Priorite(usize, crate::intendant::Priorite),
     /// Effectif forcé d'une case (0 : rendue à l'intendant).
     Forcer(Hex, u32),
+    /// Projet de ville suivi quand la file est vide (aucun : pas de projet).
+    Projet(Option<crate::rules::Projet>),
 }
 
 /// Changement de l'état d'une unité (`unite pv`, `unite pm`, `unite dette`, `unite soigner`).
@@ -523,6 +526,16 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             let r = crate::intendant::RESSOURCES.iter().position(|r| *r == token(args[2])).ok_or(format!("ressource : nourriture, production ou deniers, pas « {} »", args[2]))?;
             let p = crate::intendant::Priorite::ALL.into_iter().find(|p| p.nom() == token(args[3])).ok_or(format!("priorité : normale, prioritaire ou maximale, pas « {} »", args[3]))?;
             Command::CitySet(at()?, CityChange::Priorite(r, p))
+        }
+        "ville projet" => {
+            use crate::rules::Projet;
+            let code = token(args[2]);
+            let p = match Projet::TOUS.into_iter().find(|p| p.code() == code) {
+                Some(p) => Some(p),
+                None if code == "aucun" => None,
+                None => return Err(format!("projet : peupler, jeux, recherche, culture ou aucun, pas « {} »", args[2])),
+            };
+            Command::CitySet(at()?, CityChange::Projet(p))
         }
         "ville forcer" => Command::CitySet(at()?, CityChange::Forcer(cell(map, args[2], args[3])?, number(args[4], "travailleurs")?.max(0.0).round() as u32)),
         "amenagement" => {
