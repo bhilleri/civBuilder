@@ -84,6 +84,11 @@ Table de départ (à régler) :
   2. **la taille compte pour une ville** (« une ville d'indice 10 »), jamais pour plusieurs ;
   3. **rien qui croisse mécaniquement avec l'étendue** (nombre de villes, territoire) : on
      récompense le développement, pas l'expansion.
+  4. **plancher technique** (décidé le 11/11) : il faut toujours au moins **5 technologies de
+     base de l'ère sur 10**, plus **2 autres conditions au choix** parmi les 4 restantes (taille
+     d'une ville, population totale, lois, culture ou commerce). L'ère reste cohérente avec les
+     techniques, sans voie unique. La recherche est bornée à l'ère en cours plus la suivante : un
+     peuple n'a jamais plus d'une ère d'écart entre ses techniques et son ère.
 
 ### IA des peuples rivaux (conçues : `conception-ia.md`)
 - Plusieurs peuples sur la même planète, partis d'endroits différents, qui suivent les mêmes règles
