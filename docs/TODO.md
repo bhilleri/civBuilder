@@ -18,7 +18,7 @@ l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cou
    sélection multiple et groupes au clavier faits le 11/11 ; relève à venir) ; écarts code et conception (33).
 4. **Villes du Néolithique (28, 17)** : intendant, aménagements, Bien-être, hygiène, territoire par
    la Culture ; refonte de l'écran de la ville (35). Règles et chiffres validés le 11/11
-   (`conception-villes.md`, « Étape 4 ») ; 4a (travailleurs sur les cases) faite le 11/11.
+   (`conception-villes.md`, « Étape 4 ») ; 4a (travailleurs sur les cases) faite le 11/11 ; 4b (file et projets), 4c (bien-être et salubrité, puits) et 4d (territoire par la culture, achat de cases) faites le 12/11. Reste : le luxe (avec les ressources), le sanctuaire (premier bâtiment).
 5. **Sol et ressources (14, 12, 15, 16)** : géologie, fertilité, gisements, plantes et animaux.
 6. **Période nomade (22)** et **société de base (32)** : chefferie, conseil, dirigeant, Culture,
    influence, capacité de gouverner.
