@@ -80,7 +80,13 @@ Une ressource a une famille principale et au plus une seconde (le bois d'œuvre 
 stratégique).
 - **Stratégiques** : armes, montures… **avec reconversion économique** quand l'armée n'en a plus
   besoin (le bronze après le fer : statues, monnaie).
-- **Besoins de base** : à préciser (proposé : les textiles, lin et laine, à partir du Bronze).
+- **Besoins de base** : le **sel** (couvert : bonus de salubrité, proposé +5 ; il conserve aussi la
+  viande et le poisson) et les **vêtements** (décision de Benjamin, 12/11/2026) : une ressource
+  « Vêtements » dont la source suit le climat (lin, laine, coton, peaux) ; **en avoir ne rapporte
+  rien, en manquer donne un malus de salubrité** (proposé : jusqu'à −10, au prorata du manque) ;
+  exception voulue à « un bonus, jamais une punition ». Certains vêtements sont en plus des
+  produits de luxe (soie, fourrures, étoffes teintes) : ils couvrent aussi le besoin. Pas de bonus
+  de diversité des vêtements à part : la diversité passe par le luxe.
 - **Luxe** : produits de luxe → bien-être (+4 par sorte, attente qui grandit avec la ville, 4c).
 - **Matériaux** (compatibles avec stratégique) : pierre de taille, argile, chaux, bois d'œuvre.
 - **Santé, Culture, Savoir** : peut-être regroupés en une famille (nom proposé : « Développement » ;
