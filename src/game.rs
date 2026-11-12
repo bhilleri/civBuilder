@@ -654,8 +654,11 @@ fn end_turn(
         state.ajouter_deniers(Peuple::JOUEUR, report.deniers);
         let name = city.state.name.clone();
         if report.grew {
-            log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(" gagne un habitant."));
+            log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(format!(" atteint le palier {}.", city.state.palier())));
             claim_territory(&mut territory.0, *entity, *center, rules::territory_radius(city.state.palier()), map);
+        }
+        if report.colon_attend {
+            log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(format!(" : le colon est prêt, mais il faut {} habitants pour le former ; la file est bloquée.", rules::milliers(rules::CityState::HABITANTS_POUR_COLON))));
         }
         if report.starved {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" souffre de famine !"));
@@ -718,6 +721,14 @@ fn end_turn(
                 occupied.insert(at);
                 let unit = spawn_unit(&mut commands, kind, at);
                 log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(" a produit : ").unit(kind.name(), unit, at).text("."));
+                if kind == UnitKind::Settler
+                    && let Ok((_, _, mut city)) = cities.get_mut(city_entity)
+                {
+                    let h = city.state.habitants;
+                    let texte = format!("Un colon part avec {} habitants : il en reste {} (palier {} → {})", rules::milliers(rules::HABITANTS_COLON), rules::milliers(h), rules::palier_de(h + rules::HABITANTS_COLON), rules::palier_de(h));
+                    city.state.noter(tour, rules::GenreEvenement::Population, texte, Some(at));
+                    log.notify(Importance::Info, LogText::new().city(&name, city_entity, center).text(format!(" : {} habitants partent avec le colon.", rules::milliers(rules::HABITANTS_COLON))));
+                }
             }
             None => {
                 if let Ok((_, _, mut city)) = cities.get_mut(city_entity) {

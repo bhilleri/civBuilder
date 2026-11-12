@@ -820,6 +820,9 @@ pub struct CityTurnReport {
     pub rappel_projet: bool,
     pub built: Option<Production>,
     pub deniers: f64,
+    /// Le colon en tête de file vient d'être payé mais la ville n'a pas assez d'habitants : la file
+    /// est bloquée (dit une seule fois, au tour où il est payé).
+    pub colon_attend: bool,
 }
 
 impl CityState {
@@ -884,6 +887,14 @@ impl CityState {
         tours_restants(reste.ceil() as i32, 0.0, par_tour)
     }
 
+    /// Habitants qu'il faut pour former un colon (il en emporte la moitié).
+    pub const HABITANTS_POUR_COLON: u64 = 2 * HABITANTS_COLON;
+
+    /// Un colon en tête de file attend des habitants : rien d'autre n'avance.
+    pub fn colon_bloque(&self) -> bool {
+        self.file.first().is_some_and(|k| k.objet == Production::Unit(UnitKind::Settler)) && self.habitants < Self::HABITANTS_POUR_COLON
+    }
+
     pub fn process_turn(&mut self, yields: Rendements) -> CityTurnReport {
         let mut report = CityTurnReport { deniers: yields.deniers, ..Default::default() };
 
@@ -908,8 +919,10 @@ impl CityState {
             tete.investi += yields.production;
             let item = tete.objet;
             let settler = item == Production::Unit(UnitKind::Settler);
-            let pop_ok = !settler || self.habitants >= 2 * HABITANTS_COLON;
-            if tete.investi >= item.cost() as f64 && pop_ok {
+            let pop_ok = !settler || self.habitants >= Self::HABITANTS_POUR_COLON;
+            let paye = tete.investi >= item.cost() as f64;
+            report.colon_attend = settler && paye && !pop_ok && tete.investi - yields.production < item.cost() as f64;
+            if paye && pop_ok {
                 let surplus = tete.investi - item.cost() as f64;
                 self.file.remove(0);
                 if let Some(suivant) = self.file.first_mut() {
@@ -917,6 +930,10 @@ impl CityState {
                 }
                 if settler {
                     self.habitants -= HABITANTS_COLON;
+                    // (le solde du tour compte le départ)
+                    if let Some(r) = self.historique.back_mut() {
+                        r.habitants = self.habitants;
+                    }
                 }
                 report.built = Some(item);
             }
@@ -1553,10 +1570,16 @@ mod tests {
         let mut city = CityState::new("Test".into());
         city.mettre_en_file(Production::Unit(UnitKind::Settler));
         city.file[0].investi = 100.0;
-        assert_eq!(city.process_turn(Rendements::from(Yields::new(1, 0, 0))).built, None);
+        assert!(city.colon_bloque());
+        let r = city.process_turn(Rendements::from(Yields::new(1, 0, 0)));
+        assert_eq!(r.built, None);
+        assert!(!r.colon_attend, "payé depuis longtemps : déjà dit");
+        city.file[0].investi = Production::Unit(UnitKind::Settler).cost() as f64 - 1.0;
+        assert!(city.process_turn(Rendements::from(Yields::new(1, 3, 0))).colon_attend, "payé ce tour-ci");
         city.habitants = 2 * HABITANTS_COLON;
         assert_eq!(city.process_turn(Rendements::from(Yields::new(2, 0, 0))).built, Some(Production::Unit(UnitKind::Settler)));
         assert_eq!(city.habitants, HABITANTS_COLON);
+        assert_eq!(city.historique.back().unwrap().habitants, HABITANTS_COLON, "le départ compte dans le solde");
     }
 
     #[test]

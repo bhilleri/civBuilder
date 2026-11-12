@@ -333,6 +333,9 @@ fn frein(vl: &Ville, city: &City, cases: &[CaseVue]) -> Frein {
     }
     // Autres alertes (« rien à produire » est déjà dans l'en-tête et sur la carte de la production)
     let mut alertes = Vec::new();
+    if c.colon_bloque() {
+        alertes.push((Etat::Alerte, format!("Colon en tête de file : il faut {} habitants pour le former ; rien d'autre n'avance", rules::milliers(rules::CityState::HABITANTS_POUR_COLON)), Remede::Construire));
+    }
     if city.travail.chomeurs > 0 {
         let a = if cases.iter().any(|x| possible(map, x, Amenagement::Champ).is_ok()) { Remede::Placer(Amenagement::Champ) } else { Remede::Construire };
         // (Benjamin : pas une limite ; le chômage baissera l'attractivité de la ville, à venir)
@@ -1920,7 +1923,7 @@ fn en_cours(c: &rules::CityState, production: f64) -> String {
     match (c.file.first(), c.projet) {
         (Some(k), _) => {
             let suite = if c.file.len() > 1 { format!(" · puis {} en file", c.file.len() - 1) } else { String::new() };
-            format!("En construction : {} · {}{suite}", capitale(k.objet.name()), delai(k.objet.cost(), k.investi, production))
+            format!("En construction : {} · {}{suite}", capitale(k.objet.name()), delai(c, production))
         }
         (None, Some(p)) => format!("Projet : {} (depuis {} tours)", p.nom(), c.tours_en_projet),
         (None, None) => "Rien à produire : à choisir pour finir le tour".into(),
@@ -1928,10 +1931,14 @@ fn en_cours(c: &rules::CityState, production: f64) -> String {
 }
 
 /// Délai d'une construction : « 3 tour(s) », « prête (attend une case libre) », « jamais au rythme actuel ».
-fn delai(cout: i32, stock: f64, par_tour: f64) -> String {
-    match rules::tours_restants(cout, stock, par_tour) {
-        Some(0) => "prête (attend une case libre)".into(),
-        Some(t) => format!("{t} tour(s)"),
+fn delai(c: &rules::CityState, par_tour: f64) -> String {
+    let Some(k) = c.file.first() else { return String::new() };
+    let attente = if c.colon_bloque() { format!("attend {} habitants (file bloquée)", rules::milliers(rules::CityState::HABITANTS_POUR_COLON)) } else { String::new() };
+    match rules::tours_restants(k.objet.cost(), k.investi, par_tour) {
+        Some(0) if attente.is_empty() => "prête (attend une case libre)".into(),
+        Some(0) => format!("payé, {attente}"),
+        Some(t) if attente.is_empty() => format!("{t} tour(s)"),
+        Some(t) => format!("{t} tour(s), puis {attente}"),
         None => "jamais au rythme actuel".into(),
     }
 }
@@ -2005,7 +2012,7 @@ fn cartes(g: &mut ChildSpawnerCommands, city: &City, images: &Images, choisie: O
     let etat_n = if couverture < 1.0 { Etat::Grave } else if couverture < 1.5 { Etat::Alerte } else { Etat::Ok };
     let suite_n = if couverture < 1.0 { " : famine" } else { "" };
     let prod = match (c.file.first(), c.projet) {
-        (Some(k), _) => format!("{} : {}", capitale(k.objet.name()), delai(k.objet.cost(), k.investi, y.production)),
+        (Some(k), _) => format!("{} : {}", capitale(k.objet.name()), delai(c, y.production)),
         (None, Some(p)) => format!("projet : {}", p.nom().to_lowercase()),
         (None, None) => "rien à produire : à choisir".into(),
     };
@@ -2601,7 +2608,7 @@ fn bord_ligne(choisie: bool, glissee: bool) -> BorderColor {
 }
 
 /// Ce qu'apporte un élément de la file, en une ligne, et où il se construit.
-fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Production) -> (Option<String>, String) {
+fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Production, colons_avant: usize) -> (Option<String>, String) {
     let map = vl.map;
     let lieu = case_de(objet).map(|h| cases.iter().find(|c| c.hex == h).map_or_else(|| map.describe(h).to_lowercase(), |c| c.nom.to_lowercase()));
     let texte = match *objet {
@@ -2619,8 +2626,10 @@ fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Productio
             } else if k.is_military() {
                 format!("unité : attaque {}, défense {}, {} PM", st.melee_attack, st.melee_defense, st.moves)
             } else if k == rules::UnitKind::Settler {
-                let apres = rules::palier_de(city.state.habitants.saturating_sub(rules::HABITANTS_COLON));
-                format!("unité : {} PM · emmène {} habitants (palier {} → {})", st.moves, rules::milliers(rules::HABITANTS_COLON), city.state.palier(), apres)
+                // (les colons d'avant dans la file sont déjà partis)
+                let avant = city.state.habitants.saturating_sub(colons_avant as u64 * rules::HABITANTS_COLON);
+                let apres = rules::palier_de(avant.saturating_sub(rules::HABITANTS_COLON));
+                format!("unité : {} PM · emmène {} habitants (palier {} → {})", st.moves, rules::milliers(rules::HABITANTS_COLON), rules::palier_de(avant), apres)
             } else {
                 format!("unité : {} PM", st.moves)
             }
@@ -2645,7 +2654,8 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, vl
             p.spawn(texte("Glisser une ligne pour changer l'ordre · survol ou clic : sa case sur la carte", 12.0, charte::MUET));
         }
         for (i, k) in c.file.iter().enumerate() {
-            let (lieu, apport) = benefice(vl, city, cases, &k.objet);
+            let colons_avant = c.file[..i].iter().filter(|x| x.objet == rules::Production::Unit(rules::UnitKind::Settler)).count();
+            let (lieu, apport) = benefice(vl, city, cases, &k.objet, colons_avant);
             let choisi = choisie == Some(i);
             p.spawn((
                 LigneFile(i),
