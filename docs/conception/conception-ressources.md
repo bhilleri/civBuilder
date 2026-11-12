@@ -115,6 +115,10 @@ pêche et chasse pour les protéines), les sortes laissées à l'intendant.
 - **Seuils (décision)** : un type compte s'il couvre **15 % du besoin** (le besoin, pas la
   production : un excédent ne fait jamais perdre un type) ; une sorte compte si elle couvre **5 %
   du besoin**.
+- **Seigle et avoine (décision du 12/11/2026)** : disponibles à l'âge du bronze, ils **ignorent le
+  malus des sols pauvres et acides** (classe × 0,7 de la fertilité, 5b) et le seigle supporte mieux
+  le froid que l'orge : les terres du nord (granite, bord de la taïga, landes) deviennent bonnes à
+  cultiver (« la conquête des terres froides »), comme la Charrue lourde pour les sols lourds.
 - **Pertes du stock selon la sorte, pas le type (décision)** (les grains se gardent des années, la
   viande fraîche quelques jours) ; idée de l'historien : séchage et fumage (climat froid ou aride)
   réduisent aussi la perte, sans sel.
