@@ -54,6 +54,7 @@ bouton numéro|texte : clic sur un bouton de l'interface\n\
 clic-ecran x y : clic gauche sur un point de l'écran, en pixels\n\
 glisser x1 y1 x2 y2 : glisser-déposer à l'écran (appui en x1 y1, relâché en x2 y2), en pixels\n\
 appuyer x y, deplacer x y, relacher : le même geste en plusieurs ordres (capture pendant le glissement)\n\
+molette x y crans : la molette au point d'écran (positif : vers le haut ; listes, zoom de la carte)\n\
 zoom échelle : zoom de la vue 2D (0,3 à 8 ; petit = de près)\n\
 Console : aller, vue, camera, carte, geographie, lignes-maree, fleches-maree, capture, attendre, tour, quitter";
 
@@ -121,6 +122,8 @@ pub enum Order {
     /// Geste en plusieurs ordres (pour capturer un glissement en cours) : appuyer, déplacer, relâcher.
     Appuyer(Vec2),
     Deplacer(Vec2),
+    /// Molette au point d'écran donné (crans ; positif : vers le haut).
+    Molette(Vec2, f32),
     Relacher,
     Zoom(f32),
     /// Ordre joué en tenant une touche (Maj, Ctrl).
@@ -231,6 +234,13 @@ pub fn route(map: &WorldMap, line: &str) -> Route {
             _ => Err(format!("usage : {first} x y")),
         },
         "relacher" => Ok(Order::Relacher),
+        "molette" => match words[1..] {
+            [x, y, n] => match (x.parse(), y.parse(), n.replace(',', ".").parse()) {
+                (Ok(x), Ok(y), Ok(n)) => Ok(Order::Molette(Vec2::new(x, y), n)),
+                _ => Err(format!("valeurs illisibles : {x} {y} {n}")),
+            },
+            _ => Err("usage : molette x y crans (négatif : vers le bas)".to_string()),
+        },
         "zoom" => match words[1..] {
             [scale] => scale.replace(',', ".").parse::<f32>().map(|s| Order::Zoom(s.clamp(0.3, 8.0))).map_err(|_| format!("échelle illisible : {scale}")),
             _ => Err("usage : zoom échelle".to_string()),
@@ -283,6 +293,7 @@ enum Input {
     Move(Vec2),
     Press,
     Release,
+    Wheel(f32),
 }
 
 /// Ordre en cours : sa ligne, son décodage et les images écoulées.
@@ -348,6 +359,7 @@ pub fn inject_inputs(
     window: Single<Entity, With<PrimaryWindow>>,
     mut keyboard: MessageWriter<KeyboardInput>,
     mut mouse: MessageWriter<MouseButtonInput>,
+    mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>,
     mut events: MessageWriter<WindowEvent>,
 ) {
     let window = *window;
@@ -371,6 +383,11 @@ pub fn inject_inputs(
             Input::Release => {
                 mouse.write(button(ButtonState::Released));
                 events.write(WindowEvent::MouseButtonInput(button(ButtonState::Released)));
+            }
+            Input::Wheel(y) => {
+                let w = bevy::input::mouse::MouseWheel { unit: bevy::input::mouse::MouseScrollUnit::Line, x: 0.0, y, window, phase: bevy::input::touch::TouchPhase::Moved };
+                wheel.write(w);
+                events.write(WindowEvent::MouseWheel(w));
             }
         }
     }
@@ -675,6 +692,18 @@ pub fn run_orders(
             }
             done_after = 6;
         }
+        Order::Molette(a, n) => {
+            if frame == 1 {
+                pilot.cursor = None;
+            }
+            match frame {
+                1..=3 => inputs.push(Input::Move(*a)),
+                5 => inputs.push(Input::Wheel(*n)),
+                9 => inputs.push(Input::Move(last_cursor)),
+                _ => {}
+            }
+            done_after = 11;
+        }
         Order::Relacher => {
             match frame {
                 1 => inputs.push(Input::Release),
@@ -758,7 +787,7 @@ pub fn run_orders(
             lines
         }
         (Order::Click(h, button, _), _) => vec![format!("OK clic {} sur {}", if *button == MouseButton::Left { "gauche" } else { "droit" }, view.place(*h)), view.selection_line()],
-        (Order::Avec(..), _) | (Order::Key(..), _) | (Order::Button(_), _) | (Order::ScreenClick(_), _) | (Order::Glisser(..), _) | (Order::Appuyer(_), _) | (Order::Deplacer(_), _) | (Order::Relacher, _) => vec![format!("OK tour={}", view.state.turn), view.selection_line()],
+        (Order::Avec(..), _) | (Order::Key(..), _) | (Order::Button(_), _) | (Order::ScreenClick(_), _) | (Order::Glisser(..), _) | (Order::Appuyer(_), _) | (Order::Deplacer(_), _) | (Order::Molette(..), _) | (Order::Relacher, _) => vec![format!("OK tour={}", view.state.turn), view.selection_line()],
     };
     // Messages parus depuis la réponse précédente (`etat` donne déjà tout le journal)
     let seen = orders.log_seen;

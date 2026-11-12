@@ -662,7 +662,7 @@ impl Plugin for EcranVillePlugin {
             .add_systems(Startup, construire)
             .add_systems(
                 Update,
-                (ouvrir_fermer, commandes, carte_souris, glisser_file, construire_actions, reconstruire, placer_plan, afficher)
+                (ouvrir_fermer, commandes, carte_souris, defiler, glisser_file, construire_actions, reconstruire, placer_plan, afficher)
                     .chain()
                     .in_set(EcranVilleSet)
                     .before(crate::menu::toggle_menu),
@@ -1184,6 +1184,30 @@ fn case_sous(p: Vec2, s: f32) -> Hex {
         rz = -rx - ry;
     }
     Hex::new(rx as i32, rz as i32)
+}
+
+/// Molette sur une colonne de l'écran (gauche, liste de droite) : la fait défiler.
+fn defiler(ecran: Res<EcranVille>, scroll: Res<AccumulatedMouseScroll>, pointeurs: Query<(&PointerId, &PointerLocation)>, mut colonnes: Query<(&mut ScrollPosition, &ComputedNode, &UiGlobalTransform), Or<(With<Gauche>, With<Liste>)>>) {
+    if !ecran.ouvert() || scroll.delta.y == 0.0 {
+        return;
+    }
+    let Some(souris) = pointeurs.iter().find(|(id, _)| **id == PointerId::Mouse).and_then(|(_, l)| l.location.as_ref()).map(|l| l.position) else { return };
+    let pas = match scroll.unit {
+        MouseScrollUnit::Line => scroll.delta.y * 48.0,
+        MouseScrollUnit::Pixel => scroll.delta.y,
+    };
+    for (mut position, noeud, transform) in &mut colonnes {
+        let k = noeud.inverse_scale_factor();
+        if !noeud.contains_point(*transform, souris / k) {
+            continue;
+        }
+        // (pas au-delà du contenu)
+        let bout = ((noeud.content_size().y - noeud.size().y) * k).max(0.0);
+        let y = (position.y - pas).clamp(0.0, bout);
+        if y != position.y {
+            position.y = y;
+        }
+    }
 }
 
 /// Souris sur la carte : survol (infobulle, contour), clic (fiche de la case), glisser (déplacer),
@@ -1863,7 +1887,7 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         });
         l.spawn(texte(format!("{} hab.", rules::milliers(hi.round() as u64)), 12.5, charte::TEXTE));
         pastille(l, Color::srgb(0.086, 0.106, 0.145), "personne");
-        l.spawn(texte("chiffres : habitants de la case (pour l'instant, chacun vit là où il travaille)", 12.5, charte::MUET));
+        l.spawn(texte("chiffres : habitants de la case (pour l'instant, chacun vit là où il travaille ; les sans-emploi au centre)", 12.5, charte::MUET));
         return;
     }
     if let ModeCarte::Placement(a, _) = mode {
@@ -1905,7 +1929,8 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         BorderColor::all(charte::TRAIT2),
         children![
             (Node { width: Val::Px(12.0), height: Val::Px(12.0), border: UiRect::all(Val::Px(1.5)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() }, BackgroundColor(charte::AMENAGEMENT_FOND), BorderColor::all(charte::AMENAGEMENT)),
-            texte("Aménagements", 13.0, if caches { charte::MUET } else { charte::TEXTE }),
+            // (« Aménagements » seul se confondait avec l'onglet du catalogue)
+            texte("Voir les aménagements", 13.0, if caches { charte::MUET } else { charte::TEXTE }),
         ],
     ));
 }
@@ -1961,7 +1986,8 @@ fn en_cours(c: &rules::CityState, production: f64) -> String {
             let suite = if c.file.len() > 1 { format!(" · puis {} en file", c.file.len() - 1) } else { String::new() };
             format!("En construction : {} · {}{suite}", capitale(k.objet.name()), delai(c, production))
         }
-        (None, Some(p)) => format!("Projet : {} (depuis {} tours)", p.nom(), c.tours_en_projet),
+        (None, Some(p)) if c.tours_en_projet == 0 => format!("Projet : {}", p.nom()),
+        (None, Some(p)) => format!("Projet : {} (depuis {} tour{})", p.nom(), c.tours_en_projet, if c.tours_en_projet > 1 { "s" } else { "" }),
         (None, None) => "Rien à produire : à choisir pour finir le tour".into(),
     }
 }
@@ -1987,8 +2013,9 @@ fn bandeau_frein(e: &mut ChildSpawnerCommands, f: &Frein) {
             l.spawn(texte("Ce qui freine la croissance :", 13.5, charte::TEXTE));
             l.spawn(texte(f.texte.clone(), 13.5, f.etat.couleur()));
         });
-        if !f.remedes.is_empty() || !f.alertes.is_empty() {
-            b.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
+        // (ligne toujours là : les onglets dessous ne bougent pas quand des remèdes apparaissent)
+        {
+            b.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, min_height: Val::Px(26.0), ..default() }).with_children(|l| {
                 if !f.remedes.is_empty() {
                     l.spawn(texte("Remèdes :", 12.5, charte::MUET));
                 }
@@ -2174,7 +2201,7 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], imag
             format!("{} sans emploi aujourd'hui", rules::milliers(city.travail.chomeurs.into()))
         } else {
             match prevision.iter().position(|p| p.chomeurs > 0) {
-                Some(t) => format!("plus d'emplois libres dans ~{} tours", t + 1),
+                Some(t) => format!("plus aucun emploi libre dans ~{} tours", t + 1),
                 None => format!("emplois libres pour {} tours au moins", prevision.len()),
             }
         };
@@ -2511,6 +2538,8 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
         // Période et explication
         p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
             l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("À gauche le passé, à droite la prévision (l'intendant répartit les habitants à venir)", 12.5, charte::DOUX)]));
+            // (le passé montré ; la prévision reste de 20 tours)
+            l.spawn(texte("passé :", 12.5, charte::MUET));
             for (n, t) in [(10, "10 tours"), (20, "20 tours"), (40, "40 tours")] {
                 let actif = periode == n || (periode == 0 && n == 40);
                 l.spawn((
@@ -2615,14 +2644,16 @@ fn effectif(p: &mut ChildSpawnerCommands, c: &CaseVue, f: &VueForcage) {
     let depart = f.propose.map_or(c.travailleurs, |(n, _)| n);
     p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
         l.spawn(texte("Forcer l'effectif :", 13.0, charte::TEXTE));
-        // (on ne propose que ce qui change quelque chose : pas de −100 à zéro, pas de +100 case pleine)
-        if depart > 0 {
-            l.spawn((Forcage::Proposer(c.hex, depart.saturating_sub(100)), bouton(Color::NONE), children![texte("−100", 13.0, charte::TEXTE)]));
-        }
-        l.spawn(texte(format!("{} / {}", rules::milliers(depart.into()), rules::milliers(c.capacite.into())), 13.5, charte::TEXTE));
-        if depart < c.capacite {
-            l.spawn((Forcage::Proposer(c.hex, (depart + 100).min(c.capacite)), bouton(Color::NONE), children![texte("+100", 13.0, charte::TEXTE)]));
-        }
+        // (boutons toujours à la même place ; éteints quand ils ne changeraient rien : à zéro, case pleine)
+        let pas = |l: &mut ChildSpawnerCommands, t: &str, actif: bool, n: u32| {
+            let mut b = l.spawn((bouton(Color::NONE), children![texte(t, 13.0, if actif { charte::TEXTE } else { charte::MUET })]));
+            if actif {
+                b.insert(Forcage::Proposer(c.hex, n));
+            }
+        };
+        pas(l, "−100", depart > 0, depart.saturating_sub(100));
+        l.spawn((Node { min_width: Val::Px(110.0), justify_content: JustifyContent::Center, ..default() }, children![texte(format!("{} / {}", rules::milliers(depart.into()), rules::milliers(c.capacite.into())), 13.5, charte::TEXTE)]));
+        pas(l, "+100", depart < c.capacite, (depart + 100).min(c.capacite));
     });
     if let Some((n, d)) = f.propose {
         p.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), padding: UiRect::axes(Val::Px(9.0), Val::Px(7.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(7.0)), ..default() }, BorderColor::all(charte::TRAIT2))).with_children(|a| {
@@ -2695,7 +2726,8 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, vl
             }
         });
         if c.file.is_empty() {
-            p.spawn(texte("Vide : la ville suit son projet ; sans projet, le tour ne peut pas finir.", 13.0, charte::MUET));
+            // (ce qui se passe alors : la ligne du projet, plus bas)
+            p.spawn(texte("Vide.", 13.0, charte::MUET));
         } else if c.file.len() > 1 {
             p.spawn(texte("Glisser une ligne pour changer l'ordre · survol ou clic : sa case sur la carte", 12.0, charte::MUET));
         }
@@ -2722,8 +2754,8 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, vl
                 if i > 0 {
                     l.spawn((ActionFile::Monter(i), bouton(Color::NONE), children![texte("avancer", 12.5, charte::DOUX)]));
                 }
-                let retirer = if k.investi > 0.0 { "retirer (production perdue)" } else { "retirer" };
-                l.spawn((ActionFile::Retirer(i), bouton(Color::NONE), children![texte(retirer, 12.5, charte::DOUX)]));
+                // (libellé fixe : le bouton ne bouge pas ; la production investie se lit sur la ligne)
+                l.spawn((ActionFile::Retirer(i), bouton(Color::NONE), children![texte("retirer", 12.5, charte::DOUX)]));
             });
         }
         let projet = match c.projet {
