@@ -98,6 +98,30 @@ stratégique).
   agissent : salubrité, culture, recherche).
 - **Nourriture** : par type et par diversité (ci-dessous).
 
+### Outils, armes et montures (décisions de Benjamin, 12/11/2026)
+Après l'avis d'un géographe, d'un économiste et d'un historien, puis d'un game designer et d'un
+joueur (page de synthèse publiée : familles, ressources, bonus) :
+- **Huit familles** : Nourriture, Besoins de base, Luxe, Métaux précieux, Matériaux, **Outils et
+  armes**, **Montures et bêtes de bât**, Développement (santé, culture, savoir).
+- **Outils** : une ressource porte le tag « outils » avec un **niveau** : 1 pierre (silex,
+  obsidienne, pierre dure), 2 cuivre, 3 bronze (cuivre + étain ; l'étain seul n'a aucun effet), 4 fer.
+  Proposé : rendements des cases aménagées +5 / +10 / +15 / +20 % ; seul le meilleur niveau couvert
+  compte (pas d'addition) ; les outils s'usent (0,1 par tour pour 1 000 travailleurs : la demande),
+  bonus au prorata de la couverture ; pas d'atelier d'outils au début (la ressource sert d'outil).
+- **Bonus propres** (Benjamin) : une ressource peut garder un bonus à elle, qui s'ajoute et continue
+  de s'appliquer après son remplacement par un meilleur niveau. Proposé : silex (faucilles,
+  tribulum : +5 % de nourriture des champs), obsidienne (luxe), pierre dure (mégalithes, lieu de
+  culte ; meules), cuivre (vaisselle, petite monnaie : +5 % de deniers), bronze (cloches, statues :
+  +1 culture), fer (sols lourds × 1,15 avec la Charrue lourde).
+- **Armes** (étape 8) : une seule ressource « Armes » (conception du combat), avec le **niveau** de
+  son matériau ; le même métal sert aux champs et à l'armée (arbitrage).
+- **Montures** (Benjamin) : **elles ne font pas partie du matériel militaire** ; elles sont gérées à
+  part et **doivent alimenter le front** (les bêtes perdues sont remplacées depuis les villes).
+  Bêtes de bât : coût du trajet par la route −50 % (proposé).
+- **Bois d'œuvre** : exigé seulement pour les grands navires (voile, galères, cogues) ; pirogues et
+  barques au bois ordinaire.
+- Le bronze à l'arsenic est retiré : sans étain, le cuivre reste au niveau 2.
+
 ### Nourriture par type et par diversité (Benjamin)
 - La nourriture est rangée **par type** ; **avoir les différents types donne un bonus de
   croissance** (nourriture équilibrée). La ville cherche d'abord à obtenir chaque type.
