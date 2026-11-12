@@ -860,6 +860,22 @@ fn cities() -> Article {
                  un colon attend ces habitants et bloque la file (l'écran de la ville et le journal le disent)."
             )),
             table(&["Palier", "Habitants de l'aire"], paliers),
+            h("Bien-être et salubrité"),
+            p("Le bien-être (0 à 100, 60 au départ) dit l'humeur de la ville : mécontente sous 40, satisfaite, \
+               prospère au-dessus de 70. Chaque tour, la ville vise 60, moins 15 en famine, moins 1 par tranche de \
+               2 % d'actifs sans emploi (au plus −20), plus le projet « Grands jeux » (1 point pour 5 de production, \
+               au plus +15) ; le luxe (pierres précieuses, soie, encens…) s'y ajoutera avec les ressources et le \
+               marché, une ville plus grande en attendant davantage. Le bien-être s'approche du visé d'un cinquième de \
+               l'écart par tour. Effet : la croissance naturelle est multipliée par 1 + (bien-être − 60) / 100 \
+               (× 1 à 60, × 1,15 à 75, × 0,6 à 20)."),
+            p("La salubrité (0 à 100) part de 60 : eau courante voisine (rivière, fleuve) +15, lac voisin +5, \
+               marais voisin jusqu'à −15 selon la chaleur de l'été (les fièvres : rien sous 15 °C, tout au-dessus de \
+               20 °C), −1 par pâturage du territoire (maladies du bétail, au plus −10), puits +10, et −1 par millier \
+               d'habitants au-delà de 5 000 (le double sans eau courante, au plus −40). Sous 50, les maladies \
+               emportent des habitants, jusqu'à 1 % par tour à 0 ; elle n'est montrée sous les cartes de l'écran de \
+               la ville que sous 50. L'onglet Population détaille les deux et la croissance du prochain tour, cause \
+               par cause (naturelle, Peupler, maladies, famine). Le puits se construit dans la file (Construire, \
+               « Constructions de la ville », 15 de production), sur le centre ; plus tard, il donnera aussi de l'eau."),
             h("Écran de la ville"),
             p("Touche C (ou le bouton « Écran de la ville » du panneau de production) avec une ville sélectionnée :                l'écran de la ville s'ouvre en plein écran ; Échap le ferme (d'abord la fiche d'une case). En haut, le                palier, les habitants, la croissance et la construction en cours. L'onglet Rendements donne la                nourriture (comparée au besoin), la production et les deniers, et d'où ils viennent (centre, cases) ;                l'onglet Population, les habitants, les actifs et les sans-emploi. Les grandeurs et les onglets qui ne                sont pas encore dans le jeu (eau, recherche, culture, défense, bien-être, commerce, histoire) sont                affichés comme tels."),
             p("À droite, la carte des cases de la ville : couleur de la grandeur principale de chaque case (pâle si                personne n'y travaille), ou remplissage dans l'onglet Population (orange : presque pleine) ; rond vert :                aménagement (bouton de la légende pour le masquer). Survol : l'infobulle de la case ; clic : sa fiche                (aménagement, travailleurs, rendements, aménagements possibles) ; molette ou + et − : zoom ; glisser :                déplacer. La liste dessous éclaire sa case au survol."),
@@ -906,8 +922,9 @@ fn cities() -> Article {
                occupé, elle attend en tête de file. Un colon coûte en plus 1 000 habitants."),
             p("Quand la file est vide, la ville suit son projet de ville, sans fin : « Peupler la ville » augmente la \
                croissance (0,1 % par tour par point de production rapporté au besoin de nourriture, jusqu'à \
-               +1,5 % ; rien si la ville a faim) ; « Grands jeux », « Projet de recherche » et « Développement de l'art et de la culture » ne \
-               sont pas encore dans le jeu. Le journal le rappelle tous les 10 tours. Sans projet ni construction, le tour \
+               +1,5 % ; rien si la ville a faim) ; « Grands jeux » fait monter le bien-être (1 point pour 5 de production, jusqu'à +15) ; \
+               « Développement de l'art et de la culture » donne de la culture ; « Projet de recherche » n'est pas \
+               encore dans le jeu. Le journal le rappelle tous les 10 tours. Sans projet ni construction, le tour \
                ne peut pas finir : l'écran de la ville s'ouvre sur son catalogue."),
             p("Aménager une case : dans l'écran de la ville, Construire (B) puis un aménagement. Chaque case montre la \
                valeur de l'aménagement : son effet réel dans 10 tours, l'intendant refaisant sa répartition avec lui \

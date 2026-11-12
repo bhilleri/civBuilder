@@ -533,6 +533,7 @@ pub fn tours_restants(cout: i32, stock: f64, par_tour: f64) -> Option<i32> {
 
 /// Variation des habitants en un tour selon la nourriture produite : croissance naturelle quand
 /// la nourriture dépasse le besoin (pleine à 50 % de surplus), famine quand elle manque.
+#[cfg(test)]
 pub fn variation_des_habitants(habitants: u64, nourriture: f64) -> i64 {
     let besoin = (habitants as f64 / HABITANTS_PAR_NOURRITURE).max(0.001);
     let couverture = nourriture.max(0.0) / besoin;
@@ -587,6 +588,130 @@ pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: 
     cases
 }
 
+// ---------------------------------------------------------------- Bien-être et salubrité (4c)
+
+/// Bien-être neutre (et de départ) : la croissance naturelle n'y change pas.
+pub const BIEN_ETRE_NEUTRE: f64 = 60.0;
+/// Bien-être visé en moins pendant une famine.
+pub const BIEN_ETRE_FAMINE: f64 = 15.0;
+/// Bien-être visé en moins par point de % de chômeurs parmi les actifs (1 par tranche de 2 %), au plus.
+pub const BIEN_ETRE_PAR_CHOMAGE: f64 = 0.5;
+pub const BIEN_ETRE_CHOMAGE_MAX: f64 = 20.0;
+/// Grands jeux : bien-être visé en plus par point de production (1 pour 5), au plus.
+pub const BIEN_ETRE_PAR_PRODUCTION_JEUX: f64 = 0.2;
+pub const BIEN_ETRE_JEUX_MAX: f64 = 15.0;
+/// Part de l'écart au bien-être visé comblée chaque tour (il suit avec retard).
+pub const BIEN_ETRE_INERTIE: f64 = 0.2;
+/// Salubrité d'une ville sans rien de particulier.
+pub const SALUBRITE_BASE: f64 = 60.0;
+/// Eau courante voisine (rivière, fleuve) : boire, laver, évacuer.
+pub const SALUBRITE_EAU_COURANTE: f64 = 15.0;
+/// Lac voisin : de l'eau, mais qui se renouvelle mal (parasites).
+pub const SALUBRITE_LAC: f64 = 5.0;
+/// Marais voisin : les fièvres, de tout leur poids là où l'été est chaud.
+pub const SALUBRITE_MARAIS: f64 = 15.0;
+/// Été (saison la plus chaude) sous lequel un marais ne donne pas de fièvres, et au-dessus duquel
+/// il pèse de tout son poids (°C).
+pub const MARAIS_ETE_FROID: f64 = 15.0;
+pub const MARAIS_ETE_CHAUD: f64 = 20.0;
+/// Pâturages exploités (maladies venues du bétail) : par pâturage, au plus.
+pub const SALUBRITE_PAR_PATURAGE: f64 = 1.0;
+pub const SALUBRITE_PATURAGES_MAX: f64 = 10.0;
+/// Taille : salubrité en moins par millier d'habitants au-delà de `SALUBRITE_TAILLE_DEBUT` (le
+/// double sans eau courante), au plus.
+pub const SALUBRITE_TAILLE_DEBUT: f64 = 5_000.0;
+pub const SALUBRITE_PAR_MILLIER: f64 = 1.0;
+pub const SALUBRITE_TAILLE_MAX: f64 = 40.0;
+/// Puits de la ville.
+pub const SALUBRITE_PUITS: f64 = 10.0;
+/// Salubrité sous laquelle la ville perd des habitants (maladies), jusqu'à `PERTE_INSALUBRITE_MAX`
+/// par tour à 0 ; elle n'est montrée que sous ce seuil.
+pub const SALUBRITE_SEUIL: f64 = 50.0;
+pub const PERTE_INSALUBRITE_MAX: f64 = 0.01;
+/// Coût du puits (production).
+pub const PUITS_COUT: i32 = 15;
+
+/// Ce que le lieu de la ville donne à sa salubrité (calculé depuis la carte, gardé dans la ville
+/// pour ses tours et sa prévision).
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Site {
+    /// Rivière ou fleuve sur la case du centre ou une voisine.
+    pub eau_courante: bool,
+    /// Lac (ou petit lac) sur le centre ou une voisine.
+    pub lac: bool,
+    /// Marais voisin, pondéré par la chaleur de l'été (0 à 1).
+    pub marais: f64,
+    /// Pâturages exploités dans le territoire.
+    pub paturages: u32,
+}
+
+/// Site de la ville au centre `centre` : eau courante, lac, marais (selon l'été), pâturages du territoire.
+pub fn site_de_la_ville(map: &WorldMap, centre: Hex, territoire: &[Hex], amenagements: &std::collections::BTreeMap<Hex, Amenagement>) -> Site {
+    let autour: Vec<Hex> = std::iter::once(centre).chain(map.neighbors(centre)).map(|h| map.canonical(h)).filter(|h| map.contains(*h)).collect();
+    let eau_courante = autour.iter().any(|&h| map.is_fleuve(h)) || (0..6).any(|d| map.river_flow(centre, d) > 0.0);
+    let lac = autour.iter().any(|&h| map.get(h) == Some(crate::map::Terrain::Lake) || map.small_lake(h));
+    let marais = autour
+        .iter()
+        .filter(|&&h| map.get(h) == Some(crate::map::Terrain::Marsh))
+        .map(|&h| {
+            let ete = map.warmest_season(h).unwrap_or(0.0) as f64;
+            ((ete - MARAIS_ETE_FROID) / (MARAIS_ETE_CHAUD - MARAIS_ETE_FROID)).clamp(0.0, 1.0)
+        })
+        .fold(0.0, f64::max);
+    let paturages = territoire.iter().filter(|h| amenagements.get(h) == Some(&Amenagement::Paturage)).count() as u32;
+    Site { eau_courante, lac, marais, paturages }
+}
+
+/// Humeur de la ville, dite en mots (le bien-être en chiffres reste dans la fiche).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Humeur {
+    Mecontente,
+    Satisfaite,
+    Prospere,
+}
+
+impl Humeur {
+    /// Humeur pour un bien-être : mécontente sous 40, prospère au-dessus de 70.
+    pub fn de(bien_etre: f64) -> Humeur {
+        if bien_etre < 40.0 {
+            Humeur::Mecontente
+        } else if bien_etre > 70.0 {
+            Humeur::Prospere
+        } else {
+            Humeur::Satisfaite
+        }
+    }
+
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Humeur::Mecontente => "mécontente",
+            Humeur::Satisfaite => "satisfaite",
+            Humeur::Prospere => "prospère",
+        }
+    }
+}
+
+/// Croissance d'une ville en un tour, par cause (parts des habitants ; la somme fait la variation).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Croissance {
+    /// Croissance naturelle (surplus de nourriture), bien-être compris.
+    pub naturelle: f64,
+    /// Facteur du bien-être sur la croissance naturelle (1 à 60).
+    pub facteur_bien_etre: f64,
+    /// Projet « Peupler la ville ».
+    pub peupler: f64,
+    /// Maladies d'une salubrité sous 50 (négatif).
+    pub insalubrite: f64,
+    /// Famine (négatif).
+    pub famine: f64,
+}
+
+impl Croissance {
+    pub fn total(&self) -> f64 {
+        self.naturelle + self.peupler + self.insalubrite + self.famine
+    }
+}
+
 /// Travailleurs de la ville placés par l'intendant, et son rendement total (centre compris).
 pub fn repartition_ville(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo]) -> Repartition {
     intendant::repartir(cases, intendant::actifs(city.habitants), city.besoin_nourriture(), Rendements::from(center_yields(map, center)), &city.consignes)
@@ -603,6 +728,8 @@ pub struct Pas {
     pub variation: i64,
     /// Actifs sans case pendant le tour.
     pub chomeurs: u32,
+    /// Bien-être à la fin du tour.
+    pub bien_etre: f64,
 }
 
 /// Croissance (part des habitants par tour) sous laquelle la ville est jugée arrêtée.
@@ -620,14 +747,14 @@ pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo
             let v = st.variation(r.rendements);
             // Le tour comme en jeu (croissance, puis la file avance : décision C1) ; un aménagement
             // achevé change sa case pour les tours suivants
-            let rapport = st.process_turn(r.rendements);
+            let rapport = st.passer_le_tour(r.rendements, r.chomeurs);
             if let Some(Production::Amenagement { hex, kind, .. }) = rapport.built
                 && let Some(c) = cases.iter_mut().find(|c| c.hex == hex)
             {
                 c.max = intendant::rendement_max(map, hex, Some(kind));
                 c.capacite = intendant::capacite(Some(kind));
             }
-            Pas { habitants: st.habitants, rendements: r.rendements, variation: v, chomeurs: r.chomeurs }
+            Pas { habitants: st.habitants, rendements: r.rendements, variation: v, chomeurs: r.chomeurs, bien_etre: st.bien_etre }
         })
         .collect()
 }
@@ -697,6 +824,8 @@ pub enum Production {
     Unit(UnitKind),
     Bridge { at: crate::map::BridgeAt, cost: i32 },
     Amenagement { hex: Hex, kind: Amenagement, cost: i32 },
+    /// Puits de la ville (salubrité ; plus tard, de l'eau) : un par ville, sur le centre.
+    Puits,
 }
 
 impl Production {
@@ -704,6 +833,7 @@ impl Production {
         match self {
             Production::Unit(kind) => kind.cost(),
             Production::Bridge { cost, .. } | Production::Amenagement { cost, .. } => cost,
+            Production::Puits => PUITS_COUT,
         }
     }
 
@@ -713,6 +843,7 @@ impl Production {
             Production::Bridge { at: crate::map::BridgeAt::Edge { .. }, .. } => "Pont sur la rivière",
             Production::Bridge { at: crate::map::BridgeAt::Fleuve { .. }, .. } => "Pont sur le fleuve",
             Production::Amenagement { kind, .. } => kind.nom(),
+            Production::Puits => "Puits",
         }
     }
 }
@@ -756,7 +887,7 @@ impl Projet {
     pub const fn effet(self) -> &'static str {
         match self {
             Projet::Peupler => "la production augmente la croissance (jusqu'à +1,5 % par tour, si la ville n'a pas faim)",
-            Projet::GrandsJeux => "bien-être de la ville",
+            Projet::GrandsJeux => "le bien-être de la ville monte (1 point pour 5 de production, jusqu'à +15)",
             Projet::Recherche => "recherche du pays",
             Projet::Culture => "la production donne de la culture (1 pour 5), qui étend le territoire",
         }
@@ -764,7 +895,7 @@ impl Projet {
 
     /// Le système du projet est-il dans le jeu ?
     pub const fn disponible(self) -> bool {
-        matches!(self, Projet::Peupler | Projet::Culture)
+        matches!(self, Projet::Peupler | Projet::GrandsJeux | Projet::Culture)
     }
 }
 
@@ -819,6 +950,22 @@ pub struct CityState {
     /// Cases gagnées par la culture ou achetées (le seuil suivant en dépend).
     #[serde(default)]
     pub cases_gagnees: u32,
+    /// Bien-être (0 à 100, 60 au départ) : il suit le bien-être visé avec retard (4c).
+    #[serde(default = "bien_etre_de_depart")]
+    pub bien_etre: f64,
+    /// Ce que le lieu donne à la salubrité (mis à jour depuis la carte).
+    #[serde(default)]
+    pub site: Site,
+    /// La ville a son puits.
+    #[serde(default)]
+    pub puits: bool,
+    /// La salubrité était-elle sous le seuil au tour précédent (début et fin dans la chronique) ?
+    #[serde(default)]
+    pub insalubre: bool,
+}
+
+fn bien_etre_de_depart() -> f64 {
+    BIEN_ETRE_NEUTRE
 }
 
 /// Genre d'un moment de l'histoire d'une ville.
@@ -876,6 +1023,7 @@ pub struct Releve {
 #[derive(Debug, Default, PartialEq)]
 pub struct CityTurnReport {
     pub grew: bool,
+    /// La nourriture n'a pas couvert le besoin (la population baisse).
     pub starved: bool,
     /// Rien à produire (file vide, pas de projet) : production perdue.
     pub inactive: bool,
@@ -890,7 +1038,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0 }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -925,9 +1073,67 @@ impl CityState {
         }
     }
 
-    /// Variation des habitants au prochain tour avec ces rendements (projet compris).
+    /// Croissance au prochain tour avec ces rendements, par cause : nourriture (et bien-être),
+    /// projet, salubrité, famine.
+    pub fn croissance(&self, yields: Rendements) -> Croissance {
+        let besoin = self.besoin_nourriture().max(0.001);
+        let couverture = yields.nourriture.max(0.0) / besoin;
+        let facteur_bien_etre = (1.0 + (self.bien_etre - BIEN_ETRE_NEUTRE) / 100.0).max(0.0);
+        let s = self.salubrite();
+        let insalubrite = if s < SALUBRITE_SEUIL { -PERTE_INSALUBRITE_MAX * (SALUBRITE_SEUIL - s) / SALUBRITE_SEUIL } else { 0.0 };
+        if couverture >= 1.0 {
+            let naturelle = CROISSANCE_NATURELLE * ((couverture - 1.0) / SURPLUS_POUR_CROITRE).min(1.0) * facteur_bien_etre;
+            Croissance { naturelle, facteur_bien_etre, peupler: self.bonus_peupler(yields), insalubrite, famine: 0.0 }
+        } else {
+            let famine = -(FAMINE_MIN + (FAMINE_MAX - FAMINE_MIN) * (1.0 - couverture));
+            Croissance { naturelle: 0.0, facteur_bien_etre, peupler: 0.0, insalubrite, famine }
+        }
+    }
+
+    /// Variation des habitants au prochain tour avec ces rendements (projet, bien-être et salubrité compris).
     pub fn variation(&self, yields: Rendements) -> i64 {
-        variation_des_habitants(self.habitants, yields.nourriture) + (self.habitants as f64 * self.bonus_peupler(yields)).round() as i64
+        (self.habitants as f64 * self.croissance(yields).total()).round() as i64
+    }
+
+    /// Ce qui fait la salubrité, en points (le lieu, le puits, la taille), sans la base.
+    pub fn termes_salubrite(&self) -> Vec<(&'static str, f64)> {
+        let s = &self.site;
+        let taille_k = if s.eau_courante { 1.0 } else { 2.0 };
+        let taille = ((self.habitants as f64 - SALUBRITE_TAILLE_DEBUT).max(0.0) / 1_000.0 * SALUBRITE_PAR_MILLIER * taille_k).min(SALUBRITE_TAILLE_MAX);
+        let termes = [
+            ("eau courante voisine", if s.eau_courante { SALUBRITE_EAU_COURANTE } else { 0.0 }),
+            ("lac voisin", if s.lac { SALUBRITE_LAC } else { 0.0 }),
+            ("marais voisin (fièvres)", -SALUBRITE_MARAIS * s.marais),
+            ("bétail des pâturages", -(SALUBRITE_PAR_PATURAGE * s.paturages as f64).min(SALUBRITE_PATURAGES_MAX)),
+            ("puits", if self.puits { SALUBRITE_PUITS } else { 0.0 }),
+            (if s.eau_courante { "taille de la ville" } else { "taille de la ville, sans eau courante" }, -taille),
+        ];
+        termes.into_iter().filter(|(_, v)| v.abs() >= 0.05).collect()
+    }
+
+    /// Salubrité (0 à 100) : le lieu, le puits et la taille de la ville.
+    pub fn salubrite(&self) -> f64 {
+        (SALUBRITE_BASE + self.termes_salubrite().iter().map(|(_, v)| v).sum::<f64>()).clamp(0.0, 100.0)
+    }
+
+    /// Ce qui fait le bien-être visé ce tour, en points (sans la base) : famine, chômage, Grands
+    /// jeux (le luxe viendra avec les ressources).
+    pub fn termes_bien_etre(&self, yields: Rendements, chomeurs: u32) -> Vec<(&'static str, f64)> {
+        let famine = if yields.nourriture < self.besoin_nourriture() { -BIEN_ETRE_FAMINE } else { 0.0 };
+        let part = chomeurs as f64 / intendant::actifs(self.habitants).max(1) as f64;
+        let chomage = -(part * 100.0 * BIEN_ETRE_PAR_CHOMAGE).min(BIEN_ETRE_CHOMAGE_MAX);
+        let jeux = if self.projet_actif() == Some(Projet::GrandsJeux) { (BIEN_ETRE_PAR_PRODUCTION_JEUX * yields.production.max(0.0)).min(BIEN_ETRE_JEUX_MAX) } else { 0.0 };
+        [("famine", famine), ("chômage", chomage), ("Grands jeux", jeux)].into_iter().filter(|(_, v)| v.abs() >= 0.05).collect()
+    }
+
+    /// Bien-être visé ce tour (0 à 100) ; le bien-être de la ville s'en approche d'un cinquième de l'écart.
+    pub fn bien_etre_vise(&self, yields: Rendements, chomeurs: u32) -> f64 {
+        (BIEN_ETRE_NEUTRE + self.termes_bien_etre(yields, chomeurs).iter().map(|(_, v)| v).sum::<f64>()).clamp(0.0, 100.0)
+    }
+
+    /// Humeur de la ville.
+    pub fn humeur(&self) -> Humeur {
+        Humeur::de(self.bien_etre)
     }
 
     /// Ajoute un élément à la fin de la file (refusé s'il y est déjà : même pont, même case).
@@ -937,7 +1143,7 @@ impl CityState {
             (Production::Amenagement { hex: a, .. }, Production::Amenagement { hex: b, .. }) => a == b,
             _ => false,
         };
-        if self.file.iter().any(deja) {
+        if self.file.iter().any(deja) || objet == Production::Puits && (self.puits || self.file.iter().any(|c| c.objet == Production::Puits)) {
             return false;
         }
         self.file.push(Commande { objet, investi: 0.0 });
@@ -966,6 +1172,10 @@ impl CityState {
             en_famine: self.en_famine,
             culture: self.culture,
             cases_gagnees: self.cases_gagnees,
+            bien_etre: self.bien_etre,
+            site: self.site,
+            puits: self.puits,
+            insalubre: self.insalubre,
         }
     }
 
@@ -988,14 +1198,22 @@ impl CityState {
         self.file.first().is_some_and(|k| k.objet == Production::Unit(UnitKind::Settler)) && self.habitants < Self::HABITANTS_POUR_COLON
     }
 
+    /// Un tour de la ville sans chômeurs (tests).
+    #[cfg(test)]
     pub fn process_turn(&mut self, yields: Rendements) -> CityTurnReport {
+        self.passer_le_tour(yields, 0)
+    }
+
+    /// Un tour de la ville : croissance, bien-être, culture, production.
+    pub fn passer_le_tour(&mut self, yields: Rendements, chomeurs: u32) -> CityTurnReport {
         let mut report = CityTurnReport { deniers: yields.deniers, ..Default::default() };
 
-        // Croissance (ou famine) en habitants ; « a grandi » : nouveau palier atteint
+        // Croissance (ou famine, maladies) en habitants ; « a grandi » : nouveau palier atteint
         let palier = self.palier();
         let variation = self.variation(yields);
+        let vise = self.bien_etre_vise(yields, chomeurs);
+        report.starved = yields.nourriture < self.besoin_nourriture();
         if variation < 0 {
-            report.starved = true;
             self.habitants = self.habitants.saturating_sub(variation.unsigned_abs()).max(HABITANTS_PLANCHER.min(self.habitants));
         } else {
             self.habitants += variation as u64;
@@ -1005,6 +1223,9 @@ impl CityState {
         while self.historique.len() > HISTORIQUE_TOURS {
             self.historique.pop_front();
         }
+
+        // Bien-être : il s'approche du bien-être visé au début du tour
+        self.bien_etre += (vise - self.bien_etre) * BIEN_ETRE_INERTIE;
 
         // Culture : la ville, plus le projet (les cases gagnées sont choisies par le jeu, qui voit la carte)
         self.culture += self.culture_du_tour(yields);
@@ -1023,6 +1244,9 @@ impl CityState {
                 self.file.remove(0);
                 if let Some(suivant) = self.file.first_mut() {
                     suivant.investi += surplus;
+                }
+                if item == Production::Puits {
+                    self.puits = true;
                 }
                 if settler {
                     self.habitants -= HABITANTS_COLON;
@@ -1075,6 +1299,84 @@ mod tests {
         avec.mettre_en_file(Production::Unit(UnitKind::Militia));
         avec.process_turn(y);
         assert_eq!(avec.tours_en_projet, 0);
+    }
+
+    #[test]
+    fn le_bien_etre_suit_sa_visee_et_module_la_croissance() {
+        let rassasie = Rendements::new(3.0, 40.0, 1.0);
+        let mut c = CityState::new("Essai".into());
+        // Neutre à 60 : la croissance naturelle ne change pas
+        assert_eq!((c.bien_etre, c.variation(rassasie)), (60.0, 15));
+        assert_eq!(c.humeur(), Humeur::Satisfaite);
+        // Famine : visée 45, le bien-être en prend un cinquième par tour
+        let faim = Rendements::new(0.5, 4.0, 1.0);
+        assert_eq!(c.bien_etre_vise(faim, 0), 45.0);
+        assert!(c.passer_le_tour(faim, 0).starved);
+        assert!((c.bien_etre - 57.0).abs() < 1e-9);
+        // Chômage : −1 par tranche de 2 % des actifs (20 % → −10), au plus −20
+        let c = CityState::new("Essai".into());
+        assert_eq!(c.bien_etre_vise(rassasie, 100), 50.0);
+        assert_eq!(c.bien_etre_vise(rassasie, 500), 40.0);
+        // Grands jeux : 1 point pour 5 de production, au plus +15
+        let mut jeux = CityState::new("Jeux".into());
+        jeux.projet = Some(Projet::GrandsJeux);
+        assert!(Projet::GrandsJeux.disponible());
+        assert_eq!(jeux.bien_etre_vise(Rendements::new(3.0, 20.0, 1.0), 0), 64.0);
+        assert_eq!(jeux.bien_etre_vise(rassasie, 0), 68.0);
+        assert_eq!(jeux.bien_etre_vise(Rendements::new(3.0, 100.0, 1.0), 0), 75.0);
+        // Effet : × (1 + (bien-être − 60) / 100) sur la croissance naturelle
+        let mut heureuse = CityState::new("Heureuse".into());
+        heureuse.bien_etre = 80.0;
+        assert_eq!(heureuse.variation(rassasie), 18);
+        assert_eq!(heureuse.humeur(), Humeur::Prospere);
+        heureuse.bien_etre = 20.0;
+        assert_eq!((heureuse.variation(rassasie), heureuse.humeur()), (9, Humeur::Mecontente));
+    }
+
+    #[test]
+    fn la_salubrite_depend_du_lieu_de_la_taille_et_du_puits() {
+        let rassasie = Rendements::new(3.0, 4.0, 1.0);
+        let mut c = CityState::new("Essai".into());
+        assert_eq!(c.salubrite(), 60.0);
+        // Marais en été chaud : 45, sous le seuil : les maladies emportent 0,1 % par tour
+        c.site.marais = 1.0;
+        assert_eq!(c.salubrite(), 45.0);
+        assert_eq!(c.variation(rassasie), 14);
+        let r = c.passer_le_tour(rassasie, 0);
+        assert!(!r.starved, "des maladies, pas une famine");
+        // Le puits : +10, au-dessus du seuil
+        assert!(c.mettre_en_file(Production::Puits));
+        assert!(!c.mettre_en_file(Production::Puits), "un seul puits en file");
+        let built: Vec<Production> = (0..10).filter_map(|_| c.process_turn(Rendements::new(3.0, 5.0, 1.0)).built).collect();
+        assert_eq!(built, vec![Production::Puits]);
+        assert!(c.puits && !c.mettre_en_file(Production::Puits), "un puits par ville");
+        assert_eq!(c.salubrite(), 55.0);
+        // Taille : −1 par millier au-delà de 5 000, le double sans eau courante
+        let mut grande = CityState::new("Grande".into());
+        grande.habitants = 15_000;
+        assert_eq!(grande.salubrite(), 40.0);
+        grande.site.eau_courante = true;
+        assert_eq!(grande.salubrite(), 65.0);
+        grande.site.lac = true;
+        grande.site.paturages = 14;
+        assert_eq!(grande.salubrite(), 60.0, "+5 de lac, −10 de bétail au plus");
+    }
+
+    #[test]
+    fn le_site_voit_le_lac_et_les_paturages() {
+        let mut map = WorldMap::filled(12, 12, Terrain::Grassland);
+        let centre = Hex::from_offset(6, 6);
+        let voisine = map.neighbors(centre)[0];
+        let loin = Hex::from_offset(6, 9);
+        map.set(loin, Terrain::Lake);
+        let territoire: Vec<Hex> = centre.range(1).collect();
+        let mut amenagements = std::collections::BTreeMap::new();
+        amenagements.insert(voisine, Amenagement::Paturage);
+        amenagements.insert(loin, Amenagement::Paturage);
+        let site = site_de_la_ville(&map, centre, &territoire, &amenagements);
+        assert_eq!(site, Site { eau_courante: false, lac: false, marais: 0.0, paturages: 1 });
+        map.set(voisine, Terrain::Lake);
+        assert!(site_de_la_ville(&map, centre, &territoire, &amenagements).lac);
     }
 
     #[test]

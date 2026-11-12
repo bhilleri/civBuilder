@@ -92,7 +92,7 @@ fn case_de(objet: &rules::Production) -> Option<Hex> {
     match *objet {
         rules::Production::Amenagement { hex, .. } => Some(hex),
         rules::Production::Bridge { at: crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. }, .. } => Some(hex),
-        rules::Production::Unit(_) => None,
+        rules::Production::Unit(_) | rules::Production::Puits => None,
     }
 }
 
@@ -230,6 +230,8 @@ enum Element {
     Unite(crate::rules::UnitKind),
     Amenagement(Amenagement),
     Projet(crate::rules::Projet),
+    /// Puits de la ville (sur le centre, un par ville).
+    Puits,
 }
 #[derive(Component)]
 struct ChoixCatalogue(Element);
@@ -445,8 +447,8 @@ impl<'a> Ville<'a> {
         possedees.sort();
         let c = &city.state;
         let mut h = std::hash::DefaultHasher::new();
-        (v, centre, c.habitants, c.tours_en_projet, c.en_famine).hash(&mut h);
-        format!("{:?}{:?}{:?}", c.file, c.consignes, c.projet).hash(&mut h);
+        (v, centre, c.habitants, c.tours_en_projet, c.en_famine, c.bien_etre.to_bits(), c.puits).hash(&mut h);
+        format!("{:?}{:?}{:?}{:?}", c.file, c.consignes, c.projet, c.site).hash(&mut h);
         for p in &possedees {
             (p, amenagements.0.get(p)).hash(&mut h);
         }
@@ -2217,10 +2219,19 @@ fn en_cours(c: &rules::CityState, production: f64) -> String {
 
 /// Gain réel d'un projet pour la ville aujourd'hui (décision C4), s'il est dans le jeu.
 fn gain_projet(city: &City, pj: rules::Projet) -> Option<String> {
+    let y = city.travail.rendements;
+    if pj == rules::Projet::GrandsJeux {
+        let mut sans = city.state.allege();
+        sans.file.clear();
+        sans.projet = None;
+        let mut avec = sans.clone();
+        avec.projet = Some(pj);
+        let gain = avec.bien_etre_vise(y, city.travail.chomeurs) - sans.bien_etre_vise(y, city.travail.chomeurs);
+        return Some(format!("ici : bien-être visé +{gain:.0} (file vide)"));
+    }
     if pj != rules::Projet::Peupler {
         return None;
     }
-    let y = city.travail.rendements;
     let mut sans = city.state.allege();
     sans.file.clear();
     sans.projet = None;
@@ -2337,9 +2348,29 @@ fn cartes(g: &mut ChildSpawnerCommands, city: &City, images: &Images, choisie: O
             let quand = c.tours_avant_case(par_tour).map_or(String::new(), |t| if t <= 1 { " · une case au prochain tour".into() } else { format!(" · une case dans {t} tours") });
             carte_grandeur(r, images, Grandeur::Culture, format!("+{}", rules::decimal(par_tour)), "par tour", Etat::Ok, format!("{} / {}{quand}", rules::decimal(c.culture), rules::decimal(seuil)), false);
         });
-        // Les autres grandeurs : affichées pour dire qu'elles n'existent pas encore
+        // Bien-être (en mots), salubrité quand elle est basse ; les autres grandeurs n'existent pas encore
         p.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, ..default() }).with_children(|r| {
-            for g in [Grandeur::Eau, Grandeur::Recherche, Grandeur::Defense, Grandeur::BienEtre] {
+            let puce = |r: &mut ChildSpawnerCommands, g: Grandeur, nom: &str, valeur: String, couleur: Color| {
+                r.spawn((Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(11.0), Val::Px(4.0)), border_radius: BorderRadius::all(Val::Px(14.0)), ..default() }, BackgroundColor(charte::SURFACE))).with_children(|t| {
+                    t.spawn(icone(images.grandeur(g), 16.0, g.couleur()));
+                    t.spawn(texte(nom.to_string(), 13.0, charte::DOUX));
+                    t.spawn(texte(valeur, 13.0, couleur));
+                });
+            };
+            let be = c.bien_etre;
+            let vise = c.bien_etre_vise(y, city.travail.chomeurs);
+            let couleur = match c.humeur() {
+                rules::Humeur::Mecontente => charte::GRAVE,
+                rules::Humeur::Satisfaite => charte::TEXTE,
+                rules::Humeur::Prospere => charte::OK,
+            };
+            let tendance = if vise > be + 1.0 { format!(" ↗ {vise:.0}") } else if vise < be - 1.0 { format!(" ↘ {vise:.0}") } else { String::new() };
+            puce(r, Grandeur::BienEtre, "Bien-être", format!("{be:.0} · {}{tendance}", c.humeur().nom()), couleur);
+            let s = c.salubrite();
+            if s < rules::SALUBRITE_SEUIL {
+                puce(r, Grandeur::BienEtre, "Salubrité", format!("{s:.0} : maladies"), charte::GRAVE);
+            }
+            for g in [Grandeur::Eau, Grandeur::Recherche, Grandeur::Defense] {
                 r.spawn((Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(11.0), Val::Px(4.0)), border_radius: BorderRadius::all(Val::Px(14.0)), ..default() }, BackgroundColor(charte::SURFACE))).with_children(|t| {
                     t.spawn(icone(images.grandeur(g), 16.0, g.couleur()));
                     t.spawn(texte(g.nom(), 13.0, charte::DOUX));
@@ -2460,6 +2491,8 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], imag
         p.spawn(texte("Au-delà des emplois, la ville grandit encore, mais le chômage baissera son attractivité (migrations : pas encore dans le jeu).", 12.5, charte::MUET));
         ligne_valeur(p, "Eau", "pas encore dans le jeu".into(), charte::MUET);
     });
+    // Bien-être et salubrité (4c) : ce qui les fait, ce qu'ils font à la croissance
+    bien_etre_et_salubrite(g, city, images);
     // Mouvement de la population
     let dernier = c.historique.iter().rev().take(2).map(|r| r.habitants as i64).collect::<Vec<_>>();
     let solde = if dernier.len() == 2 { Some(dernier[0] - dernier[1]) } else { None };
@@ -2471,6 +2504,52 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], imag
     });
     vide(g, "Cultures et religions", "Une seule culture pour l'instant : les cultures et les religions ne sont pas encore dans le jeu.");
     vide(g, "Ordres de la société", "Paysans, artisans, marchands, prêtres, guerriers : pas encore dans le jeu.");
+}
+
+/// Pourcentage signé : « +1,5 % », « −0,2 % ».
+fn pourcent(x: f64) -> String {
+    let v = x * 100.0;
+    if v.abs() < 0.005 { "0 %".into() } else { format!("{}{} %", if v > 0.0 { "+" } else { "−" }, rules::decimal(v.abs())) }
+}
+
+/// Termes d'une grandeur : « base 60 · famine −15 · chômage −4 ».
+fn termes(base: f64, t: &[(&str, f64)]) -> String {
+    std::iter::once(format!("base {base:.0}")).chain(t.iter().map(|(n, v)| format!("{n} {}{:.0}", if *v >= 0.0 { "+" } else { "−" }, v.abs()))).collect::<Vec<_>>().join(" · ")
+}
+
+/// Panneau « Bien-être et salubrité » de l'onglet Population : valeurs, causes, effet sur la croissance.
+fn bien_etre_et_salubrite(g: &mut ChildSpawnerCommands, city: &City, images: &Images) {
+    let c = &city.state;
+    let y = city.travail.rendements;
+    let cr = c.croissance(y);
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|r| {
+            r.spawn(icone(images.grandeur(Grandeur::BienEtre), 20.0, Grandeur::BienEtre.couleur()));
+            titre(r, "Bien-être et salubrité");
+        });
+        let vise = c.bien_etre_vise(y, city.travail.chomeurs);
+        let couleur = if c.humeur() == rules::Humeur::Mecontente { charte::GRAVE } else { charte::TEXTE };
+        ligne_valeur(p, "Bien-être", format!("{:.0} sur 100 · {} (visé : {vise:.0})", c.bien_etre, c.humeur().nom()), couleur);
+        p.spawn(texte(format!("Visé : {} · le luxe viendra avec les ressources. Le bien-être s'en approche d'un cinquième de l'écart par tour.", termes(rules::BIEN_ETRE_NEUTRE, &c.termes_bien_etre(y, city.travail.chomeurs))), 12.5, charte::MUET));
+        let s = c.salubrite();
+        ligne_valeur(p, "Salubrité", format!("{s:.0} sur 100{}", if s < rules::SALUBRITE_SEUIL { " : les maladies emportent des habitants" } else { "" }), if s < rules::SALUBRITE_SEUIL { charte::GRAVE } else { charte::TEXTE });
+        p.spawn(texte(format!("{} · sous {:.0}, des habitants meurent de maladies (jusqu'à 1 % par tour à 0).", termes(rules::SALUBRITE_BASE, &c.termes_salubrite()), rules::SALUBRITE_SEUIL), 12.5, charte::MUET));
+        // La croissance du prochain tour, cause par cause
+        let mut parts = Vec::new();
+        if cr.famine < 0.0 {
+            parts.push(format!("famine {}", pourcent(cr.famine)));
+        } else {
+            parts.push(format!("naturelle {} (× {} par le bien-être)", pourcent(cr.naturelle), rules::decimal(cr.facteur_bien_etre)));
+        }
+        if cr.peupler > 0.0 {
+            parts.push(format!("Peupler {}", pourcent(cr.peupler)));
+        }
+        if cr.insalubrite < 0.0 {
+            parts.push(format!("maladies {}", pourcent(cr.insalubrite)));
+        }
+        ligne_valeur(p, "Croissance du prochain tour", pourcent(cr.total()), if cr.total() < 0.0 { charte::GRAVE } else { charte::TEXTE });
+        p.spawn(texte(parts.join(" · "), 12.5, charte::MUET));
+    });
 }
 
 /// Onglet Histoire : les moments marquants de la ville, triés par tour, filtrés par genre et par lieu.
@@ -2948,6 +3027,10 @@ fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Productio
             None => "case hors du territoire".into(),
         },
         rules::Production::Bridge { .. } => "franchir le cours d'eau sans détour ni surcoût".into(),
+        rules::Production::Puits => {
+            let s = city.state.salubrite();
+            format!("salubrité {:.0} → {:.0} (eau plus propre ; plus tard, de l'eau pour grandir)", s, (s + rules::SALUBRITE_PUITS).min(100.0))
+        }
         rules::Production::Unit(k) => {
             let st = k.stats();
             if st.ranged_attack > 0 {
@@ -3073,6 +3156,19 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
         let titre = if placement == Some(a) { format!("{} — en placement : choisissez une case sur la carte", capitale(a.nom())) } else { capitale(a.nom()) };
         item(l, Element::Amenagement(a), titre, detail, une_case, placement == Some(a));
     }
+    groupe(l, "Constructions de la ville : sur le centre, sans travailleurs");
+    let c = &city.state;
+    let en_file = c.file.iter().any(|k| k.objet == rules::Production::Puits);
+    let detail = if c.puits {
+        "déjà creusé".to_string()
+    } else if en_file {
+        "déjà dans la file".to_string()
+    } else {
+        let s = c.salubrite();
+        let tours = rules::tours_restants(rules::PUITS_COUT, 0.0, prod).map_or("—".to_string(), |t| format!("{t} tour(s) seul"));
+        format!("salubrité {s:.0} → {:.0} (eau plus propre ; plus tard, de l'eau pour grandir) · {} production · {tours}", (s + rules::SALUBRITE_PUITS).min(100.0), rules::PUITS_COUT)
+    };
+    item(l, Element::Puits, "Puits".into(), detail, !c.puits && !en_file, false);
     }
     // Projets de ville
     if groupe_vu == GroupeCatalogue::Projets {
@@ -3370,6 +3466,11 @@ fn construire_actions(
                     Some(p) => format!(" se lance dans le projet « {} » quand sa file est vide.", p.nom()),
                     None => " arrête son projet.".into(),
                 });
+            }
+            Element::Puits => {
+                if city.state.mettre_en_file(rules::Production::Puits) {
+                    journal(format!(" met en file : puits ({} dans la file).", city.state.file.len()));
+                }
             }
             Element::Amenagement(_) => {}
         }

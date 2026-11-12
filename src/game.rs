@@ -609,6 +609,11 @@ pub fn assign_worked_tiles(map: &WorldMap, territory: &Territory, amenagements: 
     let mut taken: HashSet<Hex> = HashSet::new();
     for (entity, center, city) in cities.iter_mut() {
         let owned: Vec<Hex> = territory.0.iter().filter(|(_, e)| *e == entity).map(|(h, _)| *h).collect();
+        // Ce que le lieu donne à la salubrité (eau, marais, pâturages : 4c)
+        let site = rules::site_de_la_ville(map, *center, &owned, &amenagements.0);
+        if city.state.site != site {
+            city.state.site = site;
+        }
         let cases = rules::cases_de_la_ville(map, *center, &owned, &taken, &amenagements.0);
         let travail = rules::repartition_ville(map, *center, &city.state, &cases);
         taken.extend(travail.cases.iter().map(|(h, _)| *h));
@@ -652,7 +657,9 @@ fn end_turn(
     let tour = state.turn;
     for (entity, center, city) in list.iter_mut() {
         let yields = city.travail.rendements;
-        let report = city.state.process_turn(yields);
+        let humeur = city.state.humeur();
+        let chomeurs = city.travail.chomeurs;
+        let report = city.state.passer_le_tour(yields, chomeurs);
         // Histoire de la ville : paliers, famines, constructions marquantes
         if report.grew {
             let (p, h) = (city.state.palier(), city.state.habitants);
@@ -662,6 +669,13 @@ fn end_turn(
             let texte = if report.starved { "Début d'une famine : la population baisse" } else { "Fin de la famine" };
             city.state.noter(tour, rules::GenreEvenement::Famine, texte, None);
             city.state.en_famine = report.starved;
+        }
+        // Salubrité sous le seuil : les maladies font perdre des habitants (4c)
+        let insalubre = city.state.salubrite() < rules::SALUBRITE_SEUIL;
+        if insalubre != city.state.insalubre {
+            let texte = if insalubre { "La salubrité tombe sous 50 : les maladies emportent des habitants" } else { "La salubrité remonte : moins de maladies" };
+            city.state.noter(tour, rules::GenreEvenement::Population, texte, None);
+            city.state.insalubre = insalubre;
         }
         match report.built {
             Some(rules::Production::Bridge { at, .. }) => {
@@ -674,6 +688,7 @@ fn end_turn(
                 let texte = format!("Aménagement achevé : {} ({})", kind.nom(), map.describe(hex).to_lowercase());
                 city.state.noter(tour, rules::GenreEvenement::Construction, texte, Some(hex));
             }
+            Some(rules::Production::Puits) => city.state.noter(tour, rules::GenreEvenement::Construction, "Puits creusé : la salubrité monte", Some(*center)),
             _ => {}
         }
         // (seul le joueur a des villes pour l'instant ; la fraction de deniers est gardée par le trésor)
@@ -698,6 +713,13 @@ fn end_turn(
         if report.starved {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" souffre de famine !"));
         }
+        if insalubre && !report.starved {
+            log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(format!(" : salubrité {:.0} sur 100, les maladies emportent des habitants.", city.state.salubrite())));
+        }
+        if city.state.humeur() != humeur {
+            let importance = if city.state.humeur() == rules::Humeur::Mecontente { Importance::Warning } else { Importance::Info };
+            log.notify(importance, LogText::new().city(&name, *entity, *center).text(format!(" est maintenant {} (bien-être {:.0}).", city.state.humeur().nom(), city.state.bien_etre)));
+        }
         if report.inactive {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" n'a rien à produire : sa production est perdue. Choisissez une construction ou un projet (touche C)."));
         }
@@ -710,6 +732,7 @@ fn end_turn(
             Some(rules::Production::Unit(kind)) => new_units.push((*entity, kind, *center, name)),
             Some(rules::Production::Bridge { at, .. }) => new_bridges.push((*entity, at, *center, name)),
             Some(rules::Production::Amenagement { hex, kind, .. }) => new_amenagements.push((*entity, hex, kind, *center, name)),
+            Some(rules::Production::Puits) => log.push(LogText::new().city(&name, *entity, *center).text(" a creusé son puits : la salubrité monte.")),
             None => {}
         }
     }

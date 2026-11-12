@@ -325,11 +325,48 @@ choix à l'écran viennent en 4b.
     sans rien : sa production est alors perdue et le journal le signale.
 
 ### 4c. Bien-être et hygiène (0 à 100)
-- **Bien-être** (60 au départ) : + nourriture couverte (jusqu'à +10 avec un surplus), − famine
-  (−20), − chômage. Deux effets : croissance naturelle (× 0,5 à × 1,5) et productivité.
-- **Hygiène** : + eau douce proche (+20 pour une rivière ou un lac voisin), − entassement, −
-  famine. Effet pour l'instant : la mortalité (croissance nette) ; les épidémies plus tard (tâche
-  40). Affichée seulement sous 50.
+- (Proposition d'origine, remplacée ci-dessous.) **Bien-être** (60 au départ) : + nourriture
+  couverte (jusqu'à +10 avec un surplus), − famine (−20), − chômage. Deux effets : croissance
+  naturelle (× 0,5 à × 1,5) et productivité. **Hygiène** : + eau douce proche (+20 pour une
+  rivière ou un lac voisin), − entassement, − famine. Affichée seulement sous 50.
+- **Révision du 12/11/2026** (remarque de Benjamin : « l'eau peut aussi amener des maladies » ;
+  avis de trois agents, game designer, historien du Néolithique, concepteur de systèmes ; version
+  consolidée validée par Benjamin) :
+  - Constats : l'entassement par case du territoire ne mordait jamais (230 habitants par case au
+    tour 50, 1 900 au tour 220 : 1,4 hab/km², une campagne normale) et faisait de l'achat d'une
+    case un remède absurde ; × (0,5 + bien-être / 100) cassait le calage de 4a (× 1,1 à 60) ; la
+    famine comptait trois fois ; l'effet sur la productivité (±2,5 %) était invisible ; ni le
+    bien-être ni l'hygiène n'avaient de levier pour le joueur ; « hygiène » est un mot du XIXe siècle.
+  - **Bien-être** : visée = 60 − 15 en famine − 1 par tranche de 2 % de chômeurs parmi les actifs
+    (au plus −20) + Grands jeux (1 point pour 5 de production, au plus +15) + **luxe** (décision
+    de Benjamin : biens de luxe de la production locale ou du marché, pierres précieuses, soie… ;
+    +4 par sorte consommée, au plus +16, et une attente qui grandit avec la ville : à partir du
+    palier 5, une sorte de plus attendue tous les 5 paliers, −4 par sorte attendue qui manque ;
+    vient avec les ressources et le marché). Le bien-être s'approche du visé d'un cinquième de
+    l'écart par tour. **Un seul effet** : croissance naturelle × (1 + (bien-être − 60) / 100).
+    Humeur en mots : mécontente sous 40, satisfaite, prospère au-dessus de 70. Le bonus de surplus
+    de nourriture est retiré (la nourriture règle déjà la croissance ; la variété de la nourriture,
+    tâche 16, prendra sa place) ; l'effet sur la productivité est reporté.
+  - **Salubrité** (nom proposé par l'historien) : base 60 ; eau courante voisine +15 ; lac voisin
+    +5 (eau qui se renouvelle mal) ; marais voisin −15 pondéré par l'été (paludisme : rien sous
+    15 °C, tout au-dessus de 20 °C) ; −1 par pâturage du territoire (zoonoses), au plus −10 ;
+    taille : −1 par millier d'habitants au-delà de 5 000, doublé sans eau courante, au plus −40 ;
+    **puits** +10. Pas de malus de famine (un seul effet de la famine en plus de la perte
+    d'habitants). Effet : sous 50, la croissance perd jusqu'à 1 point de % par tour à 0
+    (mortalité ; message distinct de la famine). Montrée seulement sous 50.
+  - **Puits** (décision de Benjamin) : construction de la ville, dans la file, sur le centre, un
+    par ville, 15 de production ; +10 de salubrité ; il donnera aussi de la **capacité en eau**
+    quand l'Eau sera dans le jeu. Les fontaines (âge du Bronze) et l'assèchement des grands
+    marais sont anachroniques au Néolithique ; plus tard : dépotoirs à l'écart, drains de marais.
+- **Fait le 12/11/2026** : `CityState.bien_etre`, `site`, `puits`, `insalubre` ; `rules::Croissance`
+  (croissance par cause), `CityState::bien_etre_vise`, `termes_bien_etre`, `salubrite`,
+  `termes_salubrite`, `rules::site_de_la_ville` (mis à jour avec les cases exploitées) ;
+  `CityState::passer_le_tour(rendements, chômeurs)` ; `Production::Puits` ; la prévision simule
+  le bien-être. Écran de la ville : puce du bien-être sous les cartes (salubrité si sous 50),
+  panneau « Bien-être et salubrité » de l'onglet Population, puits dans le catalogue, gain des
+  Grands jeux. Pas encore : le luxe (ressources), la part active selon le bien-être, les
+  épidémies (tâche 40). Remarque de l'historien à garder : 1,5 % par tour n'est réaliste que si
+  un tour dure plusieurs années.
 
 ### 4d. Territoire par la Culture
 - Départ : la ville et ses 6 voisines.
