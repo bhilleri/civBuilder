@@ -72,6 +72,8 @@ pub struct EcranVille {
     pub file_choisie: Option<usize>,
     /// Groupe montré par le catalogue (aménagements, projets, unités) : tout tient à l'écran.
     pub catalogue_groupe: GroupeCatalogue,
+    /// Dernière ville montrée (une autre ville s'ouvre sur l'onglet Rendements).
+    derniere: Option<Entity>,
 }
 
 /// Groupes du catalogue de construction.
@@ -880,6 +882,7 @@ fn fin_de_tour_joueur(
     );
     selection.0 = Some(e);
     ecran.ville = Some(e);
+    ecran.derniere = Some(e);
     ecran.onglet = Onglet::Rendements;
     ecran.case = None;
     ecran.grandeur = None;
@@ -909,9 +912,14 @@ fn ouvrir_fermer(
     let ville = selection.0.filter(|e| cities.contains(*e));
     if *tour_vu != state.turn {
         *tour_vu = state.turn;
-        if ecran.file_choisie.is_some() {
+        if ecran.file_choisie.is_some() || ecran.forcer.is_some() {
             ecran.file_choisie = None;
+            ecran.forcer = None;
         }
+    }
+    // (l'effectif proposé ne vaut que pour la case ouverte)
+    if ecran.forcer.is_some_and(|(h, _)| ecran.case != Some(h)) {
+        ecran.forcer = None;
     }
     if ecran.ouvert() {
         let echap = keys.just_pressed(KeyCode::Escape) && !wiki.open;
@@ -976,6 +984,11 @@ fn ouvrir_fermer(
         && !menu.open
         && (keys.just_pressed(KeyCode::KeyC) || ouvrir.iter().any(|i| appui(&i)))
     {
+        if ecran.derniere != Some(v) {
+            ecran.onglet = Onglet::Rendements;
+            ecran.histoire_genre = None;
+            ecran.derniere = Some(v);
+        }
         ecran.ville = Some(v);
         ecran.case = None;
         ecran.grandeur = None;
@@ -2308,12 +2321,20 @@ fn courbe(city: &City, g: Grandeur, periode: usize, prevision: &[rules::Pas]) ->
     passe.push(valeur(&city.travail.rendements, g));
     let passe = passe[passe.len().saturating_sub(n)..].to_vec();
     let besoin = city.state.besoin_nourriture();
+    // Le besoin suit les habitants : passés (historique), prévus (prévision)
+    let mut habitants: Vec<f64> = city.state.historique.iter().map(|r| r.habitants as f64).collect();
+    habitants.push(city.state.habitants as f64);
+    let habitants = habitants[habitants.len().saturating_sub(passe.len())..].to_vec();
+    let besoins = |k: f64| -> Option<(Vec<f64>, Vec<f64>)> {
+        let par = k / rules::HABITANTS_PAR_NOURRITURE;
+        Some((habitants.iter().map(|h| h * par).collect(), prevision.iter().skip(1).take(20).map(|p| p.habitants as f64 * par).collect()))
+    };
     let seuils = match g {
         Grandeur::Nourriture => vec![
-            Seuil { valeur: besoin, libelle: "besoin".into(), couleur: charte::GRAVE },
-            Seuil { valeur: besoin * (1.0 + rules::SURPLUS_POUR_CROITRE), libelle: "croissance pleine (1,5 ×)".into(), couleur: charte::ALERTE },
+            Seuil { valeur: besoin, libelle: "besoin".into(), couleur: charte::GRAVE, serie: besoins(1.0) },
+            Seuil { valeur: besoin * (1.0 + rules::SURPLUS_POUR_CROITRE), libelle: "croissance pleine (1,5 ×)".into(), couleur: charte::ALERTE, serie: besoins(1.0 + rules::SURPLUS_POUR_CROITRE) },
         ],
-        Grandeur::Deniers => vec![Seuil { valeur: 0.0, libelle: "équilibre".into(), couleur: charte::ALERTE }],
+        Grandeur::Deniers => vec![Seuil { valeur: 0.0, libelle: "équilibre".into(), couleur: charte::ALERTE, serie: None }],
         _ => Vec::new(),
     };
     // (le premier pas de la prévision est le tour présent, déjà au bout du passé)
@@ -2377,11 +2398,13 @@ fn poser_graphique(p: &mut ChildSpawnerCommands, image: Handle<Image>, cb: &crat
             poser(gph, 0.0, tr.y(v) - 8.0, MARGE_GAUCHE - 6.0, true, t, charte::MUET);
         }
         // (deux seuils proches : le second à gauche, pour que les libellés ne se chevauchent pas)
+        // (libellé à droite : à la hauteur du seuil au bout de la prévision)
+        let fin = |s: &crate::graphique::Seuil| s.serie.as_ref().and_then(|(_, b)| b.last().copied()).unwrap_or(s.valeur);
         let mut seuils: Vec<&crate::graphique::Seuil> = cb.seuils.iter().collect();
-        seuils.sort_by(|a, b| tr.y(a.valeur).total_cmp(&tr.y(b.valeur)));
+        seuils.sort_by(|a, b| tr.y(fin(a)).total_cmp(&tr.y(fin(b))));
         let mut dernier: Option<(f32, bool)> = None;
         for s in seuils {
-            let y = tr.y(s.valeur);
+            let y = tr.y(fin(s));
             let droite = !matches!(dernier, Some((y0, true)) if (y - y0).abs() < 16.0);
             let gauche = if droite { MARGE_GAUCHE } else { MARGE_GAUCHE + 4.0 };
             gph.spawn((
@@ -2427,11 +2450,11 @@ fn courbe_population(city: &City, cases: &[CaseVue], prevision: &[rules::Pas]) -
     let prevision: Vec<f64> = prevision.iter().take(40).map(|p| p.habitants as f64).collect();
     let (nourriture, travail) = (limite_nourriture(cases), emplois(cases));
     let mut seuils = vec![
-        Seuil { valeur: nourriture.max(1.0), libelle: format!("limite (nourriture) : {}", rules::milliers(nourriture as u64)), couleur: Grandeur::Nourriture.couleur() },
-        Seuil { valeur: travail.max(1.0), libelle: format!("emplois : {}", rules::milliers(travail as u64)), couleur: Grandeur::Production.couleur() },
+        Seuil { valeur: nourriture.max(1.0), libelle: format!("limite (nourriture) : {}", rules::milliers(nourriture as u64)), couleur: Grandeur::Nourriture.couleur(), serie: None },
+        Seuil { valeur: travail.max(1.0), libelle: format!("emplois : {}", rules::milliers(travail as u64)), couleur: Grandeur::Production.couleur(), serie: None },
     ];
     let palier = city.state.palier() + 1;
-    seuils.push(Seuil { valeur: rules::habitants_du_palier(palier) as f64, libelle: format!("palier {palier}"), couleur: charte::MUET });
+    seuils.push(Seuil { valeur: rules::habitants_du_palier(palier) as f64, libelle: format!("palier {palier}"), couleur: charte::MUET, serie: None });
     Courbe { passe, futur: prevision.len().max(1), seuils, couleur: Grandeur::Habitants.couleur(), prevision: Some(prevision), log: true }
 }
 

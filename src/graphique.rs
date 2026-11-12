@@ -9,9 +9,13 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 /// Ligne horizontale de repère (besoin, limite, équilibre…).
 #[derive(Clone, Debug)]
 pub struct Seuil {
+    /// Valeur d'aujourd'hui (le libellé s'y pose).
     pub valeur: f64,
     pub libelle: String,
     pub couleur: Color,
+    /// Seuil qui change avec le temps : ses valeurs passées (alignées sur `Courbe::passe`) et
+    /// prévues (alignées sur la prévision) ; sinon une droite horizontale.
+    pub serie: Option<(Vec<f64>, Vec<f64>)>,
 }
 
 /// Ce que montre un graphique : le passé (le plus ancien d'abord, le dernier est « aujourd'hui »),
@@ -80,7 +84,8 @@ impl Trace {
             Some(p) => p.clone(),
             None => vec![fin + inc, fin - inc],
         };
-        let valeurs = c.passe.iter().copied().chain(prevues).chain(c.seuils.iter().map(|s| s.valeur));
+        let series = c.seuils.iter().filter_map(|s| s.serie.as_ref()).flat_map(|(a, b)| a.iter().chain(b.iter()).copied());
+        let valeurs = c.passe.iter().copied().chain(prevues).chain(c.seuils.iter().map(|s| s.valeur)).chain(series);
         let (mut min, mut max) = valeurs.filter(|v| !c.log || *v > 0.0).fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(v), b.max(v)));
         if c.log {
             // (bornée autour des valeurs utiles, pas depuis zéro)
@@ -237,10 +242,23 @@ pub fn dessiner(c: &Courbe, tr: &Trace, grille: Color, aujourdhui: Color) -> Ima
     for v in tr.graduations() {
         t.segment(Vec2::new(MARGE_GAUCHE, tr.y(v)), Vec2::new(tr.taille.x - MARGE_DROITE, tr.y(v)), 1.0, grille, 1.0, None, 0.0);
     }
-    for s in &c.seuils {
-        t.segment(Vec2::new(MARGE_GAUCHE, tr.y(s.valeur)), Vec2::new(tr.taille.x - MARGE_DROITE, tr.y(s.valeur)), 1.2, s.couleur, 1.0, Some((6.0, 4.0)), 0.0);
-    }
     let n = c.passe.len();
+    for s in &c.seuils {
+        match &s.serie {
+            Some((avant, apres)) => {
+                // (le passé finit aujourd'hui, la prévision part de là)
+                let k0 = avant.len() as f64 - 1.0;
+                let pts: Vec<Vec2> = avant
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| Vec2::new(tr.x(i as f64 - k0), tr.y(*v)))
+                    .chain(apres.iter().enumerate().map(|(k, v)| Vec2::new(tr.x(k as f64 + 1.0), tr.y(*v))))
+                    .collect();
+                t.ligne(&pts, 1.2, s.couleur, 1.0, Some((6.0, 4.0)));
+            }
+            None => t.segment(Vec2::new(MARGE_GAUCHE, tr.y(s.valeur)), Vec2::new(tr.taille.x - MARGE_DROITE, tr.y(s.valeur)), 1.2, s.couleur, 1.0, Some((6.0, 4.0)), 0.0),
+        }
+    }
     let passe: Vec<Vec2> = c.passe.iter().enumerate().map(|(i, v)| Vec2::new(tr.x(i as f64 - (n as f64 - 1.0)), tr.y(*v))).collect();
     let v0 = c.passe.last().copied().unwrap_or(0.0);
     match &c.prevision {
@@ -277,7 +295,7 @@ mod tests {
 
     #[test]
     fn l_echelle_contient_la_courbe_les_seuils_et_zero() {
-        let c = Courbe::simple(vec![3.0, 4.0, 5.0], 20, vec![Seuil { valeur: 8.0, libelle: "besoin".into(), couleur: Color::WHITE }], Color::WHITE);
+        let c = Courbe::simple(vec![3.0, 4.0, 5.0], 20, vec![Seuil { valeur: 8.0, libelle: "besoin".into(), couleur: Color::WHITE, serie: None }], Color::WHITE);
         let tr = Trace::new(&c, Vec2::new(400.0, 200.0));
         assert!(tr.min <= 0.0 && tr.max >= 8.0);
         assert!(tr.x(-2.0) < tr.x(0.0) && tr.x(0.0) < tr.x(20.0));
@@ -287,7 +305,7 @@ mod tests {
 
     #[test]
     fn echelle_logarithmique_bornee_autour_des_valeurs() {
-        let c = Courbe { passe: vec![1_000.0, 1_500.0, 2_400.0], futur: 3, seuils: vec![Seuil { valeur: 9_000.0, libelle: "nourriture".into(), couleur: Color::WHITE }], couleur: Color::WHITE, prevision: Some(vec![2_600.0, 2_800.0, 3_000.0]), log: true };
+        let c = Courbe { passe: vec![1_000.0, 1_500.0, 2_400.0], futur: 3, seuils: vec![Seuil { valeur: 9_000.0, libelle: "nourriture".into(), couleur: Color::WHITE, serie: None }], couleur: Color::WHITE, prevision: Some(vec![2_600.0, 2_800.0, 3_000.0]), log: true };
         let tr = Trace::new(&c, Vec2::new(400.0, 200.0));
         assert!(tr.min > 0.0 && tr.min <= 1_000.0 && tr.max >= 9_000.0);
         // à rapport égal, même écart à l'écran
