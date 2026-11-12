@@ -440,6 +440,10 @@ fn possible(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> Result<(
     if c.en_file {
         return Err("un aménagement y est déjà en file");
     }
+    // Un champ ou un pâturage sur une forêt l'a défrichée : il n'y a plus d'arbres (Benjamin).
+    if a == Amenagement::CoupeDeBois && matches!(c.amenagement, Some(Amenagement::Champ | Amenagement::Paturage)) {
+        return Err("forêt défrichée : plus d'arbres à couper");
+    }
     a.possible(map, c.hex)
 }
 
@@ -642,6 +646,7 @@ impl Plugin for EcranVillePlugin {
 // ------------------------------------------------------------------ Données d'une case
 
 /// Ce que la carte et les fiches montrent d'une case de la ville.
+#[derive(Clone)]
 struct CaseVue {
     hex: Hex,
     /// Position par rapport au centre (en tenant compte du tour du monde).
@@ -2600,7 +2605,8 @@ fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Productio
     let map = vl.map;
     let lieu = case_de(objet).map(|h| cases.iter().find(|c| c.hex == h).map_or_else(|| map.describe(h).to_lowercase(), |c| c.nom.to_lowercase()));
     let texte = match *objet {
-        rules::Production::Amenagement { hex, kind, .. } => match cases.iter().find(|c| c.hex == hex).map(|c| gain_amenagement(vl, c, kind)) {
+        // L'élément jugé est lui-même en file : la case est jugée sans lui.
+        rules::Production::Amenagement { hex, kind, .. } => match cases.iter().find(|c| c.hex == hex).map(|c| gain_amenagement(vl, &CaseVue { en_file: false, ..c.clone() }, kind)) {
             Some(Ok(g)) => format!("dans {TOURS_EFFET} tours : {} · valeur {}", ecarts(&g.dans), signe(evaluation(&g, &Bareme::de(city)).valeur)),
             Some(Err(e)) => format!("plus possible : {e}"),
             None => "case hors du territoire".into(),
@@ -3173,6 +3179,18 @@ mod tests {
         let bord = evaluer(plein, maintenant, 15, &Bareme { poids_nourriture: POIDS_FREIN, nourriture: 6.5, besoin: 5.0 });
         assert!(matches!(bord.risque, Risque::BordDeFamine(_)));
         assert!(bord.valeur < large.valeur);
+    }
+
+    #[test]
+    fn pas_de_coupe_de_bois_sur_une_foret_defrichee() {
+        let map = crate::map::WorldMap::filled(6, 6, crate::map::Terrain::Forest);
+        let h = Hex::from_offset(2, 2);
+        let r = Rendements::default();
+        let mut c = CaseVue { hex: h, local: Hex::new(1, 0), centre: false, nom: String::new(), travailleurs: 0, capacite: 0, max: r, rendement: r, amenagement: None, habitants: 0.0, en_file: false, force: None };
+        assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_ok());
+        c.amenagement = Some(Amenagement::Champ);
+        assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_err(), "plus d'arbres");
+        assert!(possible(&map, &c, Amenagement::Paturage).is_ok());
     }
 
     #[test]
