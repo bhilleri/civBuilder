@@ -172,6 +172,27 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   `Rendements` reste l'agrégat, avec un panier par sorte à côté ; une sorte par case, choisie à
   l'aménagement ; prévision simplifiée (sans usure ni marché).
 
+### Décisions pour les livraisons 5a à 5c (Benjamin, 13/11/2026)
+- **5a Géologie** : huit roches (granite et gneiss, roches volcaniques d'arc, basalte, calcaire,
+  grès, argile et marnes, alluvions, lœss), déduites des plaques, du relief et de l'eau ; le
+  **karst** seulement affiché (pas de changement de l'hydrologie ; à revoir avec la refonte
+  graphique) ; la roche visible dans l'**infobulle** d'une case explorée, rien sur la carte
+  principale (« sinon trop d'information ») ; une **couche en plus** : terrain, relief et biomes
+  inchangés, mondes et sauvegardes identiques.
+- **5b Sols** : les sept classes et leurs multiplicateurs (alluviaux 1,4 ; volcaniques jeunes 1,3 ;
+  noirs et lœss 1,3 ; bruns 1,0 ; lourds 0,85 ; pauvres acides 0,7 ; lessivés tropicaux 0,65) ;
+  seulement sur la nourriture que le champ tire du terrain ; pâturages un tiers de l'écart ; ni
+  cueillette, ni bois, ni eau douce. Le sol dans l'infobulle et la fiche de case, et une **carte
+  de la fertilité des sols** (ou la future carte des ressources). Répartition cible (10 % alluviaux,
+  15 % noirs et lœss, 40 % bruns) **selon la géographie de chaque monde** ; vérifier qu'aucune
+  vallée alluviale ne devient une métropole dès le Néolithique.
+- **5c Nourriture par type** : **une seule sorte présentée par type et par case, la plus adaptée et
+  la plus rentable** (Benjamin) ; surveiller que les sortes se répartissent bien dans le monde ;
+  cases non aménagées : leur type selon le biome ; **jardin d'appoint** (fruits et légumes, petite
+  capacité ; peut-être un peu de bien-être : promenade) ; légumineuses à 60 % d'un champ de
+  céréales ; seuils et effets déjà décidés ; **les pourcentages des types se comptent sur la
+  consommation, pas sur la production** (Benjamin).
+
 ### Nourriture par type et par diversité (Benjamin)
 - La nourriture est rangée **par type** ; **avoir les différents types donne un bonus de
   croissance** (nourriture équilibrée). La ville cherche d'abord à obtenir chaque type.
