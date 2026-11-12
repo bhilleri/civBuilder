@@ -330,9 +330,12 @@ fn frein(vl: &Ville, city: &City, cases: &[CaseVue]) -> Frein {
         }
     };
     remedes.truncate(3);
-    if etat == Etat::Ok {
+    // (palier suivant hors de portée : les remèdes restent, le texte y renvoie)
+    let hors_de_portee = rules::habitants_du_palier(c.palier() + 1) as f64 > limite;
+    if etat == Etat::Ok && !hors_de_portee {
         remedes.clear();
     }
+    let etat = if etat == Etat::Ok && hors_de_portee { Etat::Alerte } else { etat };
     // Autres alertes (« rien à produire » est déjà dans l'en-tête et sur la carte de la production)
     let mut alertes = Vec::new();
     if c.colon_bloque() {
@@ -1920,12 +1923,13 @@ fn en_tete(e: &mut ChildSpawnerCommands, city: &City, images: &Images, catalogue
                 m.spawn(texte(format!("palier {} · {} habitants", c.palier(), rules::milliers(c.habitants)), 14.0, charte::DOUX));
                 let (t, couleur) = if variation > 0 {
                     let suivant = rules::habitants_du_palier(c.palier() + 1);
-                    let quand = match rules::tours_jusqu_a(prevision, suivant) {
-                        Some(t) => format!("palier {} dans {t} tour{}", c.palier() + 1, if t > 1 { "s" } else { "" }),
-                        None if rules::arret_de_croissance(prevision).is_some() => format!("palier {} hors de portée (nourriture)", c.palier() + 1),
-                        None => format!("palier {} dans plus de {} tours", c.palier() + 1, prevision.len()),
+                    let (quand, couleur) = match rules::tours_jusqu_a(prevision, suivant) {
+                        Some(t) => (format!("palier {} dans {t} tour{}", c.palier() + 1, if t > 1 { "s" } else { "" }), charte::OK),
+                        // (même couleur que dans le bandeau : il faut agir)
+                        None if rules::arret_de_croissance(prevision).is_some() => (format!("palier {} hors de portée (nourriture)", c.palier() + 1), charte::ALERTE),
+                        None => (format!("palier {} dans plus de {} tours", c.palier() + 1, prevision.len()), charte::OK),
                     };
-                    (format!("+{} par tour · {quand}", rules::milliers(variation as u64)), charte::OK)
+                    (format!("+{} par tour · {quand}", rules::milliers(variation as u64)), couleur)
                 } else if variation == 0 {
                     ("population stable".into(), charte::ALERTE)
                 } else {
