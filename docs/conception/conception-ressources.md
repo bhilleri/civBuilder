@@ -124,10 +124,31 @@ pêche et chasse pour les protéines), les sortes laissées à l'intendant.
   serait trop compliqué).
 - **Fête** quand le grenier est plein et varié : attention à l'effet boule de neige ; un délai
   entre deux fêtes (Benjamin ; chiffres à proposer).
-- **Effet de l'équilibre : en discussion.** Proposé : croissance naturelle × 1,10 avec deux types,
-  × 1,25 avec trois. Remarque de Benjamin : historiquement, la population a été bornée par la
-  nourriture, pas par le rythme de la croissance démographique ; avis demandés à un historien et à
-  un géographe du peuplement.
+- **Effet de l'équilibre (décision du 12/11/2026)**, après l'avis d'un historien démographe et
+  d'un géographe du peuplement (la population pré-industrielle était bornée par ce que la terre
+  nourrissait, pas par le rythme des naissances ; la diversité relevait la capacité de charge :
+  bétail sur les terres non labourables, fumure, pêche, jardins ; et amortissait les mauvaises
+  années), puis d'un game designer et d'un joueur (« c'est la limite qu'on regarde ») :
+  - **la limite de la ville** × 1,10 avec deux types, × 1,20 avec trois (1 point de nourriture
+    nourrit 1 100 ou 1 200 habitants ; le seuil de 15 % se calcule sur le besoin avant ce bonus) ;
+  - **famines adoucies** : pertes × 0,75 avec deux types, × 0,5 avec trois, affichées en
+    permanence (« en cas de disette : pertes × 0,75 ») et rappelées dans le journal ;
+  - **pas de bonus de rythme** tiré de l'équilibre ; **un effet par cause** : les types relèvent
+    la limite, les sortes donnent du bien-être ;
+  - **taux par tour, quelle que soit l'ère** (Benjamin : « ne pas trop coller à la réalité au
+    détriment du jeu » ; un taux par an avec une durée de tour qui varie, ou par saison, donnerait
+    des choses bizarres) ; au besoin un coefficient par ère réglé en jouant ;
+  - **pas d'oscillations à la limite** : une zone d'équilibre (croissance nulle entre 100 et
+    environ 103 % du besoin), l'état affiché « à la limite du territoire » ;
+  - affichage séparé de la **limite**, du **rythme** et de la **disette** ; trois jauges avec le
+    seuil de 15 % ; l'aménagement en choix annonce son gain de limite ;
+  - à surveiller : fertilité (× 1,4) et équilibre (× 1,2) se multiplient (× 1,68) : bilan sur les
+    graines 777 et 2 pour éviter des métropoles alluviales dès le Néolithique.
+- **Croissance (Benjamin)** : elle reste intéressante, avec d'autres facteurs que l'équilibre.
+  Facteurs actuels : surplus, bien-être, « Peupler la ville », salubrité. Pistes proposées : front
+  pionnier (une jeune ville loin de sa limite grandit plus vite : contre l'effet boule de neige),
+  attractivité et migrations (déjà prévues), techniques (bouillies de sevrage avec la Poterie),
+  paix et sécurité.
 - Pas de carences (le nutritionniste proposait protéines manquantes × 0,8 sur la croissance,
   scorbut −10 de salubrité) : écartées au nom du « bonus jamais une punition » ; le scorbut pourra
   revenir pour une ville assiégée qui vit sur ses greniers.
