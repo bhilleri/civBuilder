@@ -196,9 +196,11 @@ fn open_close(
     mut panel: Single<&mut Node, With<OptionsPanel>>,
     mut open_button: Query<(Ref<UiPointer>, &mut BackgroundColor), (With<OptionsButton>, Without<CloseButton>)>,
     mut close_button: Query<(Ref<UiPointer>, &mut BackgroundColor), (With<CloseButton>, Without<OptionsButton>)>,
+    ecran: Res<crate::ecran_ville::EcranVille>,
 ) {
     let mut open = panel.display == Display::Flex;
-    if keys.just_pressed(KeyCode::KeyO) {
+    // (pas sous l'écran de la ville, qui couvre la carte)
+    if keys.just_pressed(KeyCode::KeyO) && !ecran.ouvert() {
         open = !open;
     }
     for (interaction, mut bg) in &mut open_button {
@@ -229,8 +231,9 @@ fn label_toggles(
     keys: Res<ButtonInput<KeyCode>>,
     mut filter: ResMut<LabelFilter>,
     mut buttons: Query<(Ref<UiPointer>, &LabelToggle, &mut BackgroundColor)>,
+    ecran: Res<crate::ecran_ville::EcranVille>,
 ) {
-    if keys.just_pressed(KeyCode::KeyN) {
+    if keys.just_pressed(KeyCode::KeyN) && !ecran.ouvert() {
         let any = filter.rivers || filter.lakes || filter.seas || filter.lands || filter.reliefs || filter.regions || filter.cities || filter.sites;
         *filter = LabelFilter { rivers: !any, lakes: !any, seas: !any, lands: !any, reliefs: !any, regions: !any, cities: !any, sites: !any };
     }

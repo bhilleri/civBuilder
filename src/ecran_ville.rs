@@ -532,9 +532,13 @@ fn evaluation(g: &GainAmenagement, b: &Bareme) -> Evaluation {
     evaluer(g.dans, g.maintenant, g.cout, b)
 }
 
-/// Case conseillée par l'intendant : la plus forte valeur, hors risque de famine (s'il y a mieux).
+/// Valeur sous laquelle un aménagement n'apporte rien (pas de conseil).
+const VALEUR_UTILE: f64 = 0.05;
+
+/// Case conseillée par l'intendant : la plus forte valeur, hors risque de famine (s'il y a mieux) ;
+/// aucune si rien n'apporte quelque chose.
 fn conseil(vl: &Ville, cases: &[CaseVue], a: Amenagement, b: &Bareme) -> Option<Hex> {
-    let notes: Vec<(Hex, Evaluation)> = cases.iter().filter_map(|c| gain_amenagement(vl, c, a).ok().map(|g| (c.hex, evaluation(&g, b)))).collect();
+    let notes: Vec<(Hex, Evaluation)> = cases.iter().filter_map(|c| gain_amenagement(vl, c, a).ok().map(|g| (c.hex, evaluation(&g, b)))).filter(|(_, e)| e.valeur >= VALEUR_UTILE).collect();
     let sures: Vec<&(Hex, Evaluation)> = notes.iter().filter(|(_, e)| !matches!(e.risque, Risque::Famine(_))).collect();
     let liste = if sures.is_empty() { notes.iter().collect() } else { sures };
     liste.into_iter().max_by(|x, y| x.1.valeur.total_cmp(&y.1.valeur).then(y.0.cmp(&x.0))).map(|(h, _)| *h)
@@ -542,7 +546,22 @@ fn conseil(vl: &Ville, cases: &[CaseVue], a: Amenagement, b: &Bareme) -> Option<
 
 /// Chiffre signé à une décimale (« +4,5 », « −2,0 »).
 fn signe(v: f64) -> String {
+    // (pas de « −0,0 » : ce qui s'arrondit à zéro n'a pas de signe)
+    if v.abs() < 0.05 {
+        return rules::decimal(0.0);
+    }
     format!("{}{}", if v >= 0.0 { "+" } else { "−" }, rules::decimal(v.abs()))
+}
+
+/// Couleur d'une valeur selon son signe (gain, perte, rien).
+fn couleur_signe(v: f64) -> Color {
+    if v >= VALEUR_UTILE {
+        charte::OK
+    } else if v <= -VALEUR_UTILE {
+        charte::GRAVE
+    } else {
+        charte::MUET
+    }
 }
 
 /// Comment l'intendant compte la valeur, en une ligne.
@@ -1714,7 +1733,7 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, mode: ModeCarte, 
             match gain {
                 Some((g, e)) => {
                     // La valeur (en grand), puis ce qui la compose (vert : gain, rouge : perte)
-                    h.spawn(centre(texte(signe(e.valeur), (s * 0.36).clamp(11.0, 19.0), charte::TEXTE)));
+                    h.spawn(centre(texte(signe(e.valeur), (s * 0.36).clamp(11.0, 19.0), couleur_signe(e.valeur))));
                     if s >= 30.0 {
                         h.spawn(Node { column_gap: Val::Px(4.0), flex_wrap: FlexWrap::Wrap, justify_content: JustifyContent::Center, max_width: Val::Px(s * 1.5), ..default() }).with_children(|r| {
                             for (gr, court) in [(Grandeur::Nourriture, "nourr."), (Grandeur::Production, "prod."), (Grandeur::Deniers, "den.")] {
@@ -2734,12 +2753,14 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
     groupe(l, "Aménagements de production : un par case, l'intendant y met ensuite les travailleurs");
     for a in Amenagement::ALL {
         let meilleure = conseil(vl, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|c| c.hex == h));
+        let une_case = cases.iter().any(|c| possible(vl.map, c, a).is_ok());
         let detail = match meilleure.and_then(|c| gain_amenagement(vl, c, a).ok().map(|g| (c, g))) {
             Some((c, g)) => format!("conseil : {} · valeur {} (dans {TOURS_EFFET} tours : {}) · {} production", c.nom.to_lowercase(), signe(evaluation(&g, &Bareme::de(city)).valeur), ecarts(&g.dans), g.cout),
+            None if une_case => format!("aucun aménagement utile maintenant : aucune case n'y gagne dans {TOURS_EFFET} tours"),
             None => "aucune case possible dans la ville".into(),
         };
         let titre = if placement == Some(a) { format!("{} — en placement : choisissez une case sur la carte", capitale(a.nom())) } else { capitale(a.nom()) };
-        item(l, Element::Amenagement(a), titre, detail, meilleure.is_some(), placement == Some(a));
+        item(l, Element::Amenagement(a), titre, detail, une_case, placement == Some(a));
     }
     }
     // Projets de ville

@@ -996,8 +996,10 @@ fn map_layer_controls(
     mut menu: Single<&mut Node, (With<MapLayerMenu>, Without<Legend>)>,
     mut legends: Query<(&Legend, &mut Node), Without<MapLayerMenu>>,
     mut texts: Query<&mut Text>,
+    ecran: Res<crate::ecran_ville::EcranVille>,
 ) {
-    if keys.just_pressed(KeyCode::KeyT) {
+    // (pas sous l'écran de la ville, qui couvre la carte)
+    if keys.just_pressed(KeyCode::KeyT) && !ecran.ouvert() {
         *layer = layer.next();
     }
     let mut open = menu.display == Display::Flex;

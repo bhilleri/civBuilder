@@ -1228,8 +1228,9 @@ fn spawn_decor(commands: &mut Commands, kit: &DecorKit, map: &crate::map::WorldM
         .collect()
 }
 
-fn toggle_view_key(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<ViewMode>) {
-    if keys.just_pressed(KeyCode::KeyV) {
+fn toggle_view_key(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<ViewMode>, ecran: Res<crate::ecran_ville::EcranVille>) {
+    // (pas sous l'écran de la ville, qui couvre la carte)
+    if keys.just_pressed(KeyCode::KeyV) && !ecran.ouvert() {
         mode.is_3d = !mode.is_3d;
     }
 }
