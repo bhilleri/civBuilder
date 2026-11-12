@@ -122,6 +122,44 @@ joueur (page de synthèse publiée : familles, ressources, bonus) :
   barques au bois ordinaire.
 - Le bronze à l'arsenic est retiré : sans étain, le cuivre reste au niveau 2.
 
+### Revue par six rôles et décisions (Benjamin, 13/11/2026)
+Revue de la page de synthèse par un game designer systèmes, un joueur, un historien, un économiste,
+un designer d'interface et un développeur. Décisions de Benjamin :
+- **Commerce** : les villes commercent entre elles, et le jeu se jouera contre d'autres peuples.
+  Idée de Benjamin : des **cités-États** (comme dans Civilization), états stables, plus ou moins
+  pacifiques, qui ne fondent pas de nouvelles villes : des partenaires de commerce.
+- **Matériaux** : la carte est grande, réunir tous les matériaux ne sera pas facile ; **augmenter un
+  peu les rendements des outils, sans exagérer** : tout l'enjeu est l'équilibre (proposé : outils
+  +10 / +15 / +20 / +25 %, à vérifier par un bilan).
+- **Recette du bronze** (« comme dans Minecraft ») : proposé 3 cuivre + 1 étain.
+- **Culture tirée des ressources plafonnée à +3 par ville** ; le marbre +1 par bâtiment, au plus +3 ;
+  la cire perdue ne donne plus de culture.
+- **Bonus de nourriture des champs : un seul réservoir additif, plafonné à +40 %** ; les faucilles de
+  silex sont supprimées (doublon avec son niveau d'outil).
+- **Légumineuses** : une sorte de Protéines (lentilles, pois, fèves), au rendement réduit (reprise de
+  la décision « pas de légumineuses pour le moment »).
+- **Rangs de luxe** : commun +2, fin +4, rare +6, même plafond de +16 (la soie et les épices valent
+  plus que l'ocre locale).
+- **Bien-être utile à la limite** : part active de 40 à 60 % selon le bien-être (prévu en 4a) ; le
+  bien-être a alors deux effets (croissance naturelle, part active).
+- Corrections consensuelles (à appliquer) : outils couverts par tranches (le niveau inférieur couvre
+  le reste), usure 0,05 par tour pour 1 000 travailleurs ; métaux précieux sans prix plancher avant
+  la Monnaie (l'argent pesé facilite un peu le commerce), frappe bornée à rendement décroissant
+  après ; « +5 % de deniers » du cuivre seulement après la Monnaie ; au plus deux effets par
+  ressource (l'huile perd la salubrité, l'encens la culture ; le collier d'épaule devient une
+  technologie qui exige des chevaux, condition de pré-acquisition comme dans
+  `conception-recherche.md`) ; parures fusionnées avec les pierres précieuses ; « Papyrus et
+  parchemin » (savoir) ; bitume **ou poix** pour le calfatage ; ânes au Néolithique final,
+  dromadaires au Fer ; soie et vigne au Néolithique final dans leur foyer ; bœufs : « traction :
+  araire » ; sel des côtes tempérées (saumure chauffée) et sel gemme ; montures qui demandent des
+  pâturages ; demande chiffrée (sel et vêtements 0,1 pour 1 000 habitants ; luxe 0,1 × palier par
+  sorte, stock qui s'use) ; un poids par ressource quand il s'écarte de sa famille ; rareté comptée
+  une fois.
+- **Ordre des livraisons (développeur)** : roches et sols → nourriture par type → diversité →
+  greniers → gisements → besoins de base et luxe → outils → matériaux, montures et marché.
+  `Rendements` reste l'agrégat, avec un panier par sorte à côté ; une sorte par case, choisie à
+  l'aménagement ; prévision simplifiée (sans usure ni marché).
+
 ### Nourriture par type et par diversité (Benjamin)
 - La nourriture est rangée **par type** ; **avoir les différents types donne un bonus de
   croissance** (nourriture équilibrée). La ville cherche d'abord à obtenir chaque type.
