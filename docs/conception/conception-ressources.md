@@ -71,6 +71,74 @@ usage civil. Fait suite à la discussion sur les unités par ère (`conception-r
 | Pierre de taille | partout, mais belle pierre rare | Production des grands bâtiments (décision des volcans : pas une ressource commune) |
 | Argile fine | plaines alluviales | Production (poterie), Culture |
 
+## Révision du 12/11/2026 : familles, nourriture, stocks (étape 5)
+Après l'avis de trois agents (pédologue, historien des techniques, game designer ; synthèse plus
+bas), Benjamin a donné ces directions. Ce qui est marqué « proposé » reste à valider.
+
+### Familles de ressources (Benjamin ; en cours)
+Une ressource a une famille principale et au plus une seconde (le bois d'œuvre est matériau et
+stratégique).
+- **Stratégiques** : armes, montures… **avec reconversion économique** quand l'armée n'en a plus
+  besoin (le bronze après le fer : statues, monnaie).
+- **Besoins de base** : à préciser (proposé : les textiles, lin et laine, à partir du Bronze).
+- **Luxe** : produits de luxe → bien-être (+4 par sorte, attente qui grandit avec la ville, 4c).
+- **Matériaux** (compatibles avec stratégique) : pierre de taille, argile, chaux, bois d'œuvre.
+- **Santé, Culture, Savoir** : peut-être regroupés en une famille (nom proposé : « Développement » ;
+  ressources consommées par les bâtiments et les institutions, l'infobulle dit sur quoi elles
+  agissent : salubrité, culture, recherche).
+- **Nourriture** : par type et par diversité (ci-dessous).
+
+### Nourriture par type et par diversité (Benjamin)
+- La nourriture est rangée **par type** ; **avoir les différents types donne un bonus de
+  croissance** (nourriture équilibrée). La ville cherche d'abord à obtenir chaque type.
+- **Diversité au sein d'un même type** (plusieurs sortes : blé et orge, bœuf et chèvre…) :
+  **bien-être**. La ville cherche d'abord la première sorte de chaque type, puis la seconde.
+- **L'intendant tient compte de la diversité.** Il priorise : 1) **nourrir tout le monde**
+  (sinon la famine) ; 2) **une nourriture équilibrée** (croissance) ; 3) **la diversité des
+  apports** (bien-être). Il peut passer par le **marché** pour équilibrer.
+- **Richesse interne de la ville** : elle lui permet d'acheter et de vendre au marché.
+- Proposé : trois types, **féculents** (céréales, tubercules ; champs, cueillette de graines),
+  **protéines** (viande, laitages, poisson ; pâturages, chasse, pêche), **fruits et légumes**
+  (cueillette, vergers, jardins) ; un type compte s'il couvre au moins 15 % du besoin ; croissance
+  naturelle × (1 + 0,1 par type au-delà du premier) ; diversité : +2 de bien-être par sorte au-delà
+  de la première de chaque type, au plus +8 (distinct du luxe).
+
+### Stocks et conservation (Benjamin)
+- Une ville a un **stock de nourriture**, utilisé **en cas de famine ou de siège**, disponible avec
+  le **grenier** et d'autres bâtiments de stockage.
+- La ville **cherche à remplir ses stocks** et **préfère stocker les nourritures qui se gardent
+  longtemps**.
+- La viande et le poisson se dégradent vite : **perte d'un pourcentage du stock à chaque tour**
+  (sans calcul compliqué) ; **le sel limite la perte**. Même chose pour le **commerce** : une perte
+  selon la distance, compensée par le sel.
+- Proposé : perte par tour, grains 2 %, fruits et légumes 10 %, viande et poisson 20 % (5 % salés) ;
+  1 de sel conserve 4 de viande ou de poisson ; le stock se remplit de l'excédent au-delà de ce que
+  la croissance utilise (1,5 × le besoin ; l'objectif « Excédent » de l'intendant sert à remplir les
+  stocks) ; capacité donnée par le grenier.
+
+### Analyses des agents (12/11/2026, à valider)
+- **Fertilité (pédologue)** : le sol dépend de la roche **et** du climat (un basalte tropical très
+  arrosé donne un sol lessivé) ; les bassins sédimentaires agissent par leurs roches (marnes et
+  limons fertiles, craie à nu et sables pauvres) ; la fertilité touche surtout les **champs**, les
+  pâturages d'un tiers de l'écart (l'herbe suit la pluie ; ils occupent les sols qu'on ne labourait
+  pas), ni la cueillette ni le bois. Sept classes : alluviaux × 1,4 ; volcaniques jeunes × 1,3 ;
+  noirs et lœss × 1,3 ; bruns × 1,0 ; lourds × 0,85 (× 1,15 avec la Charrue lourde) ; pauvres acides
+  × 0,7 ; lessivés tropicaux × 0,65. Seulement sur la nourriture que le champ tire du terrain.
+- **Chronologie (historien)** : Néolithique : silex, obsidienne, ocre, argile, chaux, sel, jade,
+  lin, peaux et fourrures, coquillages, plantes médicinales (cuivre natif et or en parure à la fin) ;
+  Bronze : cuivre, étain, or, argent, plomb, bitume, natron, sel gemme, lapis-lazuli, vigne,
+  olivier, chevaux, ambre, pourpre, cèdre ; Fer et Antiquité : fer, marbre, encens, poivre, soie,
+  dromadaires, éléphants, verre ; Moyen Âge : laine, épices, sucre, alun, fourrures, poisson salé,
+  papier. Placement : subductions (cuivre, or, jade, obsidienne, mercure), collisions (marbre,
+  lapis), granites (étain), bassins (fer, bitume, sel, silex de la craie), déserts (natron), marais
+  (fer des marais).
+- **Jeu (game designer)** : classer par effet ; test du « plus » (son absence se voit et a un
+  remède, et elle change où l'on s'installe ou crée un choix ; effet en une ligne) ; 20 à 25
+  ressources au plus ; découverte en trois couches : indices visibles (roche de surface,
+  affleurements révélés par l'exploration), savoir (une technologie montre les zones favorables),
+  prospection (automatique dans le territoire, l'éclaireur au-dehors ; l'or d'un fleuve signale un
+  filon en amont). Les gisements sont **à découvrir** (Benjamin).
+
 ## Marché entre les villes (décisions de Benjamin, 10/11/2026)
 **Réalisation en deux temps (révision du 10/11, relecture, validé)** : d'abord les surplus envoyés
 aux villes reliées selon la capacité de transport, avec un **dépôt national de l'armée** alimenté
