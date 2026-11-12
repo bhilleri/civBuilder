@@ -147,8 +147,10 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   la Monnaie (l'argent pesé facilite un peu le commerce), frappe bornée à rendement décroissant
   après ; « +5 % de deniers » du cuivre seulement après la Monnaie ; au plus deux effets par
   ressource (l'huile perd la salubrité, l'encens la culture ; le collier d'épaule devient une
-  technologie qui exige des chevaux, condition de pré-acquisition comme dans
-  `conception-recherche.md`) ; parures fusionnées avec les pierres précieuses ; « Papyrus et
+  technologie : les chevaux **accélèrent** sa recherche (pré-acquisition de
+  `conception-recherche.md` : des points jusqu'à 50 % du coût, pas une condition), et son **effet**
+  (labour au collier) demande des chevaux ; une technologie se connaît sans la ressource, c'est son
+  usage qui la demande) ; parures fusionnées avec les pierres précieuses ; « Papyrus et
   parchemin » (savoir) ; bitume **ou poix** pour le calfatage ; ânes au Néolithique final,
   dromadaires au Fer ; soie et vigne au Néolithique final dans leur foyer ; bœufs : « traction :
   araire » ; sel des côtes tempérées (saumure chauffée) et sel gemme ; montures qui demandent des
