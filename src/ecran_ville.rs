@@ -291,7 +291,7 @@ struct Frein {
 
 /// Diagnostic de la croissance de la ville.
 fn frein(vl: &Ville, city: &City, cases: &[CaseVue]) -> Frein {
-    let (map, prevision) = (vl.map, &vl.prevision);
+    let (map, prevision) = (vl.map, vl.prevision);
     let c = &city.state;
     let y = city.travail.rendements;
     let besoin = c.besoin_nourriture().max(1e-6);
@@ -397,42 +397,90 @@ fn capitale(s: &str) -> String {
 /// Tours après lesquels se lit l'effet d'un aménagement (décision B1).
 const TOURS_EFFET: usize = 10;
 
-/// La ville telle que la voit l'intendant : ses cases exploitables, la prévision sans rien changer
-/// (décision B4) et les effets des aménagements déjà simulés (une simulation par case et par
-/// aménagement, gardée pour le conseil, la carte et les fiches).
+/// Durée d'une reconstruction de l'écran, écrite dans la console quand elle dépasse 15 ms.
+struct Mesure(std::time::Instant);
+
+impl Drop for Mesure {
+    fn drop(&mut self) {
+        let ms = self.0.elapsed().as_secs_f64() * 1000.0;
+        if ms > 15.0 {
+            info!("écran de la ville refait en {ms:.0} ms");
+        }
+    }
+}
+
+/// Simulations de la ville gardées d'une image et d'une reconstruction à l'autre : refaites
+/// seulement quand la ville (habitants, file, consignes, projet), ses cases ou leurs aménagements
+/// changent.
+#[derive(Resource, Default)]
+struct CacheVille {
+    cle: Option<u64>,
+    dispo: Vec<intendant::CaseDispo>,
+    prevision: Vec<rules::Pas>,
+    /// Base des effets : la ville sans sa file, sur `TOURS_EFFET` tours (l'effet d'un aménagement seul).
+    base: Vec<rules::Pas>,
+    effets: std::sync::Mutex<std::collections::HashMap<(Hex, Amenagement), (Rendements, Rendements)>>,
+}
+
+/// La ville telle que la voit l'intendant : ses cases exploitables, la prévision (décision B4 ; la
+/// file avance, décision C1) et les effets des aménagements déjà simulés (une simulation par case et
+/// par aménagement, gardée pour le conseil, la carte et les fiches).
 struct Ville<'a> {
     map: &'a crate::map::WorldMap,
     centre: Hex,
     etat: &'a rules::CityState,
-    dispo: Vec<intendant::CaseDispo>,
-    prevision: Vec<rules::Pas>,
-    effets: std::cell::RefCell<Vec<((Hex, Amenagement), (Rendements, Rendements))>>,
+    dispo: &'a [intendant::CaseDispo],
+    prevision: &'a [rules::Pas],
+    cache: &'a CacheVille,
 }
 
 impl<'a> Ville<'a> {
-    /// Cases et prévision de la ville `v`.
-    fn new(map: &'a crate::map::WorldMap, centre: Hex, v: Entity, city: &'a City, territoire: &Territory, amenagements: &Amenagements) -> Self {
-        let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == v).map(|(h, _)| *h).collect();
-        let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
-        let prevision = rules::prevoir(map, centre, &city.state, &dispo, HORIZON);
-        Ville { map, centre, etat: &city.state, dispo, prevision, effets: Default::default() }
+    /// Cases et prévision de la ville `v` (du cache s'il est à jour).
+    fn new(cache: &'a mut CacheVille, map: &'a crate::map::WorldMap, centre: Hex, v: Entity, city: &'a City, territoire: &Territory, amenagements: &Amenagements) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == v).map(|(h, _)| *h).collect();
+        possedees.sort();
+        let c = &city.state;
+        let mut h = std::hash::DefaultHasher::new();
+        (v, centre, c.habitants, c.tours_en_projet, c.en_famine).hash(&mut h);
+        format!("{:?}{:?}{:?}", c.file, c.consignes, c.projet).hash(&mut h);
+        for p in &possedees {
+            (p, amenagements.0.get(p)).hash(&mut h);
+        }
+        let cle = h.finish();
+        if cache.cle != Some(cle) {
+            let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
+            cache.prevision = rules::prevoir(map, centre, c, &dispo, HORIZON);
+            let mut sans_file = c.allege();
+            sans_file.file.clear();
+            cache.base = rules::prevoir(map, centre, &sans_file, &dispo, TOURS_EFFET);
+            cache.dispo = dispo;
+            cache.effets.get_mut().unwrap_or_else(|e| e.into_inner()).clear();
+            cache.cle = Some(cle);
+        }
+        let cache: &'a CacheVille = cache;
+        Ville { map, centre, etat: c, dispo: &cache.dispo, prevision: &cache.prevision, cache }
     }
 
     /// Effet réel de l'aménagement `a` sur la case `h` : la ville simulée avec lui, comparée à la
-    /// prévision, tout de suite et dans `TOURS_EFFET` tours.
+    /// même ville sans lui, tout de suite et dans `TOURS_EFFET` tours (sans la file : l'effet de
+    /// l'aménagement seul, même s'il est déjà en file).
     fn effet(&self, h: Hex, a: Amenagement) -> (Rendements, Rendements) {
-        if let Some((_, e)) = self.effets.borrow().iter().find(|(k, _)| *k == (h, a)) {
+        let effets = || self.cache.effets.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(e) = effets().get(&(h, a)) {
             return *e;
         }
-        let mut dispo = self.dispo.clone();
+        let mut dispo = self.dispo.to_vec();
         if let Some(c) = dispo.iter_mut().find(|c| c.hex == h) {
             c.max = intendant::rendement_max(self.map, h, Some(a));
             c.capacite = intendant::capacite(Some(a));
         }
-        let p = rules::prevoir(self.map, self.centre, self.etat, &dispo, TOURS_EFFET);
-        let k = TOURS_EFFET - 1;
-        let e = (p[0].rendements - self.prevision[0].rendements, p[k].rendements - self.prevision[k].rendements);
-        self.effets.borrow_mut().push(((h, a), e));
+        let mut sans_file = self.etat.allege();
+        sans_file.file.clear();
+        let p = rules::prevoir(self.map, self.centre, &sans_file, &dispo, TOURS_EFFET);
+        let (b, k) = (&self.cache.base, TOURS_EFFET - 1);
+        let e = (p[0].rendements - b[0].rendements, p[k].rendements - b[k].rendements);
+        effets().insert((h, a), e);
         e
     }
 }
@@ -654,6 +702,7 @@ pub struct EcranVillePlugin;
 impl Plugin for EcranVillePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EcranVille>()
+            .init_resource::<CacheVille>()
             .init_resource::<VueCarte>()
             .init_resource::<FinDeTourJoueur>()
             .init_resource::<AnimEcran>()
@@ -1221,7 +1270,7 @@ fn carte_souris(
     window: Single<&Window, With<PrimaryWindow>>,
     cadre: Single<(&UiGlobalTransform, &ComputedNode), With<Cadre>>,
     pointeurs: Query<(&PointerId, &PointerLocation)>,
-    (map, territoire, amenagements): (Res<GameMap>, Res<Territory>, Res<Amenagements>),
+    (map, territoire, amenagements, mut cache): (Res<GameMap>, Res<Territory>, Res<Amenagements>, ResMut<CacheVille>),
     cities: Query<(&City, &HexPos)>,
     choix: Query<(&UiPointer, &ChoixCase)>,
     mut contour: Query<(&mut Node, &mut ImageNode), (With<ContourSurvol>, Without<Bulle>)>,
@@ -1352,7 +1401,7 @@ fn carte_souris(
             if *montre != Some(c.hex) || ecran.is_changed() {
                 *montre = Some(c.hex);
                 commands.entity(bulle_e).despawn_related::<Children>();
-                let vl = Ville::new(&map.0, centre, city.0, city.1, &territoire, &amenagements);
+                let vl = Ville::new(&mut cache, &map.0, centre, city.0, city.1, &territoire, &amenagements);
                 let placement = ecran.placement.map(|a| (a, gain_amenagement(&vl, c, a)));
                 commands.entity(bulle_e).with_children(|b| match placement {
                     Some((a, g)) => infobulle_placement(b, c, a, g, &Bareme::de(city.1)),
@@ -1467,7 +1516,7 @@ fn reconstruire(
     ecran: Res<EcranVille>,
     vue: Res<VueCarte>,
     images: Res<Images>,
-    (map, territoire, amenagements, state): (Res<GameMap>, Res<Territory>, Res<Amenagements>, Res<GameState>),
+    (map, territoire, amenagements, state, mut cache): (Res<GameMap>, Res<Territory>, Res<Amenagements>, Res<GameState>, ResMut<CacheVille>),
     cities: Query<(Ref<City>, &HexPos)>,
     (entete, gauche, legende, plan, titre, liste): (Single<Entity, With<EnTete>>, Single<Entity, With<Gauche>>, Single<Entity, With<Legende>>, Single<Entity, With<Plan>>, Single<Entity, With<TitreListe>>, Single<Entity, With<Liste>>),
     (cadre, largeur_gauche, barre): (Single<&ComputedNode, With<Cadre>>, Single<&ComputedNode, With<Gauche>>, Single<(Entity, &mut Node), With<BarreValidation>>),
@@ -1492,12 +1541,14 @@ fn reconstruire(
     }
     *en_attente = false;
     *derniere = cle;
+    // (une reconstruction lente se lit dans la console)
+    let _mesure = Mesure(std::time::Instant::now());
     let cases = cases_vues(&map.0, centre.0, v, &city, &territoire, &amenagements);
     let choisie = ecran.case.and_then(|h| cases.iter().find(|c| c.hex == h));
 
     // Une seule prévision pour l'en-tête, le bandeau et les graphiques (décision B4)
-    let vl = Ville::new(&map.0, centre.0, v, &city, &territoire, &amenagements);
-    let (dispo, prevision) = (&vl.dispo, &vl.prevision);
+    let vl = Ville::new(&mut cache, &map.0, centre.0, v, &city, &territoire, &amenagements);
+    let (dispo, prevision) = (vl.dispo, vl.prevision);
     let diagnostic = frein(&vl, &city, &cases);
     commands.entity(*entete).despawn_related::<Children>().with_children(|e| {
         en_tete(e, &city, &images, ecran.catalogue, prevision);
@@ -1675,6 +1726,9 @@ fn reconstruire(
             cartes(g, &city, &images, None);
             match cible {
                 Some((a, c)) => placement(g, &vl, &city, &cases, a, c, ecran.cible.is_none()),
+                None if ecran.placement.is_some_and(|a| cases.iter().any(|c| possible(&map.0, c, a).is_ok())) => {
+                    vide(g, "Placement", &format!("Aucune case n'y gagne dans {TOURS_EFFET} tours : pas de conseil. Cliquez une case pour voir sa fiche et la choisir quand même."))
+                }
                 None if ecran.placement.is_some() => vide(g, "Placement", "Aucune case de la ville ne peut porter cet aménagement."),
                 None => file_et_projet(g, &city, true, &vl, &cases, ecran.file_choisie),
             }
@@ -3027,7 +3081,7 @@ struct Glisse {
 fn construire_actions(
     mut ecran: ResMut<EcranVille>,
     replay: Res<crate::feedback::TurnReplay>,
-    (map, territoire, amenagements): (Res<GameMap>, Res<Territory>, Res<Amenagements>),
+    (map, territoire, amenagements, mut cache): (Res<GameMap>, Res<Territory>, Res<Amenagements>, ResMut<CacheVille>),
     mut cities: Query<(&mut City, &HexPos)>,
     (mut log, state): (ResMut<crate::game::GameLog>, Res<GameState>),
     catalogue: Query<(Ref<UiPointer>, &ChoixCatalogue)>,
@@ -3059,7 +3113,7 @@ fn construire_actions(
     if confirmer && let Some(a) = ecran.placement {
         let cases = cases_vues(&map.0, centre, v, &city, &territoire, &amenagements);
         let choix = {
-            let vl = Ville::new(&map.0, centre, v, &city, &territoire, &amenagements);
+            let vl = Ville::new(&mut cache, &map.0, centre, v, &city, &territoire, &amenagements);
             let cible = ecran.cible.or_else(|| conseil(&vl, &cases, a, &Bareme::de(&city)));
             cible.and_then(|h| cases.iter().find(|c| c.hex == h)).and_then(|c| gain_amenagement(&vl, c, a).ok().map(|g| (c, g)))
         };

@@ -567,12 +567,21 @@ pub const CROISSANCE_ARRETEE: f64 = 0.001;
 /// avec les habitants du moment, puis la croissance (mêmes cases, consignes et projet ; la file de
 /// construction n'avance pas). Une seule prévision sert à tout l'écran de la ville (décision B4).
 pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo], tours: usize) -> Vec<Pas> {
-    let mut st = city.clone();
+    let mut st = city.allege();
+    let mut cases = cases.to_vec();
     (0..tours)
         .map(|_| {
-            let r = repartition_ville(map, center, &st, cases);
+            let r = repartition_ville(map, center, &st, &cases);
             let v = st.variation(r.rendements);
-            st.habitants = if v < 0 { st.habitants.saturating_sub(v.unsigned_abs()).max(HABITANTS_PLANCHER.min(st.habitants)) } else { st.habitants + v as u64 };
+            // Le tour comme en jeu (croissance, puis la file avance : décision C1) ; un aménagement
+            // achevé change sa case pour les tours suivants
+            let rapport = st.process_turn(r.rendements);
+            if let Some(Production::Amenagement { hex, kind, .. }) = rapport.built
+                && let Some(c) = cases.iter_mut().find(|c| c.hex == hex)
+            {
+                c.max = intendant::rendement_max(map, hex, Some(kind));
+                c.capacite = intendant::capacite(Some(kind));
+            }
             Pas { habitants: st.habitants, rendements: r.rendements, variation: v, chomeurs: r.chomeurs }
         })
         .collect()
@@ -885,6 +894,23 @@ impl CityState {
     pub fn tours_pour(&self, i: usize, par_tour: f64) -> Option<i32> {
         let reste: f64 = self.file.iter().take(i + 1).map(|c| (c.objet.cost() as f64 - c.investi).max(0.0)).sum();
         tours_restants(reste.ceil() as i32, 0.0, par_tour)
+    }
+
+    /// Copie pour une simulation : sans nom, historique ni chronique (plus légère).
+    pub fn allege(&self) -> CityState {
+        CityState {
+            name: String::new(),
+            habitants: self.habitants,
+            file: self.file.clone(),
+            projet: self.projet,
+            tours_en_projet: self.tours_en_projet,
+            bridges: Vec::new(),
+            fortified: self.fortified,
+            consignes: self.consignes.clone(),
+            historique: Default::default(),
+            chronique: Vec::new(),
+            en_famine: self.en_famine,
+        }
     }
 
     /// Habitants qu'il faut pour former un colon (il en emporte la moitié).
@@ -1632,6 +1658,29 @@ mod tests {
         let p = prevoir(&map, center, &grosse, &cases, 200);
         assert_eq!(arret_de_croissance(&p), Some(1));
         assert!((1_900..=2_000).contains(&p.last().unwrap().habitants), "le centre nourrit 2 000 habitants");
+    }
+
+    #[test]
+    fn la_prevision_fait_avancer_la_file() {
+        let map = WorldMap::filled(10, 10, Terrain::Grassland);
+        let center = Hex::from_offset(5, 5);
+        let territory: Vec<Hex> = center.range(1).collect();
+        let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &Default::default());
+        let mut city = CityState::new("Essai".into());
+        city.habitants = 4_000;
+        let sans = prevoir(&map, center, &city, &cases, 60);
+        // Un champ en file : achevé, il donne plus de nourriture pour les tours suivants
+        let h = territory.iter().copied().find(|h| *h != center).unwrap();
+        city.mettre_en_file(Production::Amenagement { hex: h, kind: Amenagement::Champ, cost: 20 });
+        let avec = prevoir(&map, center, &city, &cases, 60);
+        assert!(avec.last().unwrap().habitants > sans.last().unwrap().habitants, "{} ≤ {}", avec.last().unwrap().habitants, sans.last().unwrap().habitants);
+        // Un colon en file : 1 000 habitants partent quand il est formé
+        let mut colon = CityState::new("Colon".into());
+        colon.habitants = 3_000;
+        colon.mettre_en_file(Production::Unit(UnitKind::Settler));
+        colon.file[0].investi = Production::Unit(UnitKind::Settler).cost() as f64;
+        let p = prevoir(&map, center, &colon, &cases, 2);
+        assert!(p[0].habitants < 3_000 - HABITANTS_COLON + 100, "{}", p[0].habitants);
     }
 }
 
