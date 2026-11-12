@@ -482,7 +482,8 @@ pub fn found_city(
 }
 
 /// Achète la case `h` pour la ville (4d) : une voisine de son territoire, à personne, payée en
-/// deniers (20 + 10 × distance au centre). Rend le prix payé, ou la raison du refus.
+/// deniers (20 + 10 × distance au centre) ; elle relève le seuil de culture comme une case gagnée.
+/// Rend le prix payé, ou la raison du refus.
 #[allow(clippy::too_many_arguments)]
 pub fn acheter_case(map: &WorldMap, territoire: &mut Territory, state: &mut GameState, ville: Entity, centre: Hex, city: &mut rules::CityState, h: Hex, tour: u32) -> Result<i32, String> {
     let h = map.canonical(h);
@@ -499,6 +500,8 @@ pub fn acheter_case(map: &WorldMap, territoire: &mut Territory, state: &mut Game
     }
     *tresor -= prix;
     territoire.0.insert(h, ville);
+    // (une case achetée relève aussi le seuil de culture de la suivante ; Benjamin, 12/11/2026)
+    city.cases_gagnees += 1;
     let lieu = map.describe(h).to_lowercase();
     city.noter(tour, rules::GenreEvenement::Territoire, format!("Case achetée pour {prix} deniers : {lieu}"), Some(h));
     Ok(prix)
@@ -886,6 +889,27 @@ fn update_fog(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acheter_une_case_coute_des_deniers_et_releve_le_seuil_de_culture() {
+        let map = WorldMap::filled(12, 12, crate::map::Terrain::Grassland);
+        let centre = Hex::from_offset(6, 6);
+        let ville = Entity::from_raw_u32(1).unwrap();
+        let mut territoire = Territory::default();
+        claim_territory(&mut territoire.0, ville, centre, 1, &map);
+        let mut state = GameState::new();
+        let mut city = rules::CityState::new("Essai".into());
+        let loin = Hex::from_offset(6, 9);
+        let voisine = *rules::cases_gagnables(&map, ville, &territoire.0).first().unwrap();
+        // Trésor de départ (10) : trop peu
+        assert!(acheter_case(&map, &mut territoire, &mut state, ville, centre, &mut city, voisine, 1).is_err());
+        *state.tresor_mut(Peuple::JOUEUR) = 100;
+        assert!(acheter_case(&map, &mut territoire, &mut state, ville, centre, &mut city, loin, 1).is_err(), "pas voisine du territoire");
+        assert_eq!(acheter_case(&map, &mut territoire, &mut state, ville, centre, &mut city, voisine, 1), Ok(40));
+        assert_eq!((state.tresor_joueur(), territoire.0.get(&voisine), city.cases_gagnees), (60, Some(&ville), 1));
+        assert_eq!(rules::seuil_culture(city.cases_gagnees), 16.0);
+        assert!(acheter_case(&map, &mut territoire, &mut state, ville, centre, &mut city, voisine, 1).is_err(), "déjà à la ville");
+    }
 
     #[test]
     fn message_du_journal_en_morceaux() {
