@@ -692,8 +692,12 @@ sa case pour les tours suivants, un colon emporte ses habitants. Les effets d'un
 mesurent sans la file (l'aménagement seul, même déjà en file). **C2** le territoire n'est pas prévu
 (il grandira case par case avec la Culture, lot 4d : dans la marge d'erreur). **C4** les projets
 disent leur gain (« Peupler » : habitants de plus par tour ici, rien en famine). **C5** pas de coupe
-de bois sur une forêt défrichée. **C3** (valeur en habitants gagnés ou nourriture comptée selon son
-utilité) : en attente. Performance : les simulations (prévision, base sans file, effets) sont gardées
+de bois sur une forêt défrichée. **C3** la nourriture compte selon son utilité (option B) : × 1,5 entre le
+besoin et l'objectif de l'intendant (1,5 × le besoin par défaut), rien au-delà, × 4,5 sous le besoin
+(famine) ; mesurée dans 10 tours, sur la prévision sans file (`Bareme::de`). Conséquence (graine 777,
+Paris au palier 4, 5 500 habitants, 1,9 × le besoin) : aucun champ n'est conseillé (valeur −2,0 sur
+la taïga : la nourriture gagnée ne fait plus grandir la ville, la production perdue compte), la coupe
+de bois l'est (+2,6) ; le champ redevient utile quand la croissance rattrape la nourriture. Performance : les simulations (prévision, base sans file, effets) sont gardées
 dans `CacheVille` tant que la ville, ses cases et leurs aménagements ne changent pas (clé : habitants,
 file, consignes, projet, cases) ; une reconstruction de plus de 15 ms s'écrit dans la console.
 Défauts corrigés (liste A2) : élément en file jugé « plus possible », colon qui bloque la file sans le

@@ -301,7 +301,7 @@ fn frein(vl: &Ville, city: &City, cases: &[CaseVue]) -> Frein {
     let mut nourrir: Vec<(f64, Remede, String)> = [Amenagement::Champ, Amenagement::Paturage]
         .into_iter()
         .filter_map(|a| {
-            let case = conseil(vl, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|x| x.hex == h))?;
+            let case = conseil(vl, cases, a, &Bareme::de(vl)).and_then(|h| cases.iter().find(|x| x.hex == h))?;
             let g = gain_amenagement(vl, case, a).ok()?;
             (g.plein.nourriture > 0.05).then(|| {
                 (g.plein.nourriture, Remede::Placer(a), format!("{} : limite +{} habitants (+{} nourriture case pleine)", capitale(a.nom()), rules::milliers((g.plein.nourriture * rules::HABITANTS_PAR_NOURRITURE) as u64), rules::decimal(g.plein.nourriture)))
@@ -514,28 +514,47 @@ fn gain_amenagement(vl: &Ville, c: &CaseVue, a: Amenagement) -> Result<GainAmena
     Ok(GainAmenagement { maintenant, dans, plein: max - c.max, cout, defriche: cout > a.cout_de_base(), capacite: cap })
 }
 
-/// La grandeur qui freine la ville compte un peu plus dans la valeur d'un aménagement.
+/// Poids de la nourriture utile, entre le besoin et l'objectif de l'intendant (c'est elle qui fait
+/// grandir la ville).
 const POIDS_FREIN: f64 = 1.5;
 /// Couverture du besoin sous laquelle une perte de nourriture menace de famine.
 const BORD_FAMINE: f64 = 1.15;
-/// Poids d'une perte de nourriture qui menace de famine (Benjamin : la prendre en considération).
+/// Poids en plus de la nourriture sous le besoin : la famine (Benjamin : la prendre en considération).
 const POIDS_PERTE_FAMINE: f64 = 3.0;
 
-/// Barème de l'intendant pour juger un aménagement : poids de la nourriture, nourriture et besoin.
+/// Barème de l'intendant pour juger un aménagement (décision C3 : la nourriture compte selon son
+/// utilité) : nourriture et besoin aujourd'hui (risque de famine) et dans `TOURS_EFFET` tours
+/// (valeur), objectif de l'intendant (× le besoin) au-delà duquel la nourriture ne compte plus.
 #[derive(Clone, Copy, Debug)]
 struct Bareme {
-    poids_nourriture: f64,
     nourriture: f64,
     besoin: f64,
+    nourriture_dans: f64,
+    besoin_dans: f64,
+    plafond: f64,
 }
 
 impl Bareme {
-    /// La nourriture compte ×1,5 (c'est elle qui borne la croissance), sauf si l'objectif de
-    /// l'intendant ne vise pas la croissance pleine.
-    fn de(city: &City) -> Bareme {
-        let c = &city.state;
-        let poids = if c.consignes.objectif.cible() < 1.0 + rules::SURPLUS_POUR_CROITRE { 1.0 } else { POIDS_FREIN };
-        Bareme { poids_nourriture: poids, nourriture: city.travail.rendements.nourriture, besoin: c.besoin_nourriture().max(1e-6) }
+    /// Barème de la ville, d'après sa prévision sans file (celle des effets).
+    fn de(vl: &Ville) -> Bareme {
+        let b = &vl.cache.base;
+        let besoin = vl.etat.besoin_nourriture().max(1e-6);
+        let k = TOURS_EFFET - 1;
+        // (les rendements d'un tour viennent des habitants du début du tour)
+        let besoin_dans = (b[k - 1].habitants as f64 / rules::HABITANTS_PAR_NOURRITURE).max(1e-6);
+        Bareme { nourriture: b[0].rendements.nourriture, besoin, nourriture_dans: b[k].rendements.nourriture, besoin_dans, plafond: vl.etat.consignes.objectif.cible().max(1.0) }
+    }
+
+    /// Valeur d'une quantité de nourriture : ×(1,5 + 3) sous le besoin, ×1,5 jusqu'à l'objectif,
+    /// rien au-delà.
+    fn utilite(&self, n: f64, besoin: f64) -> f64 {
+        let n = n.max(0.0);
+        (POIDS_FREIN + POIDS_PERTE_FAMINE) * n.min(besoin) + POIDS_FREIN * (n.clamp(besoin, besoin * self.plafond) - besoin)
+    }
+
+    /// Valeur d'un écart de nourriture dans `TOURS_EFFET` tours.
+    fn nourriture_utile(&self, ecart: f64) -> f64 {
+        self.utilite(self.nourriture_dans + ecart, self.besoin_dans) - self.utilite(self.nourriture_dans, self.besoin_dans)
     }
 }
 
@@ -552,13 +571,15 @@ enum Risque {
 #[derive(Clone, Copy, Debug)]
 struct Evaluation {
     valeur: f64,
+    /// Part de la nourriture dans la valeur (ce qu'elle vaut une fois comptée selon son utilité).
+    nourriture: f64,
     risque: Risque,
     /// Tours pour que le gain rembourse le coût.
     rentabilite: Option<f64>,
 }
 
-/// Valeur = nourriture × poids + production + deniers de l'effet réel dans `TOURS_EFFET` tours ;
-/// une perte de nourriture qui rapproche la ville de la famine compte en plus, lourdement.
+/// Valeur = nourriture utile + production + deniers de l'effet réel dans `TOURS_EFFET` tours
+/// (décision C3) ; une perte de nourriture qui met la ville en famine dès maintenant compte aussi.
 fn evaluer(effet: Rendements, maintenant: Rendements, cout: i32, b: &Bareme) -> Evaluation {
     let perte = maintenant.nourriture.min(effet.nourriture);
     let risque = if perte < -0.05 {
@@ -573,11 +594,13 @@ fn evaluer(effet: Rendements, maintenant: Rendements, cout: i32, b: &Bareme) -> 
     } else {
         Risque::Aucun
     };
-    let mut valeur = b.poids_nourriture * effet.nourriture + effet.production + effet.deniers;
+    let mut nourriture = b.nourriture_utile(effet.nourriture);
     if risque != Risque::Aucun {
-        valeur += POIDS_PERTE_FAMINE * perte;
+        // (la pire des deux : la famine tout de suite, ou dans 10 tours)
+        nourriture = nourriture.min(b.utilite(b.nourriture + perte, b.besoin) - b.utilite(b.nourriture, b.besoin));
     }
-    Evaluation { valeur, risque, rentabilite: (valeur > 0.05).then(|| cout as f64 / valeur) }
+    let valeur = nourriture + effet.production + effet.deniers;
+    Evaluation { valeur, nourriture, risque, rentabilite: (valeur > 0.05).then(|| cout as f64 / valeur) }
 }
 
 /// Évaluation d'un aménagement sur une case.
@@ -619,11 +642,12 @@ fn couleur_signe(v: f64) -> Color {
 
 /// Comment l'intendant compte la valeur, en une ligne.
 fn regle_valeur(b: &Bareme) -> String {
-    if b.poids_nourriture > 1.0 {
-        format!("valeur = effet réel dans {TOURS_EFFET} tours (l'intendant refait sa répartition) : nourriture × {} + production + deniers (la nourriture compte plus : c'est elle qui borne la croissance) ; une perte de nourriture près de la famine compte × {}", rules::decimal(b.poids_nourriture), rules::decimal(POIDS_PERTE_FAMINE))
-    } else {
-        format!("valeur = effet réel dans {TOURS_EFFET} tours (l'intendant refait sa répartition) : nourriture + production + deniers ; une perte de nourriture près de la famine compte × {}", rules::decimal(POIDS_PERTE_FAMINE))
-    }
+    format!(
+        "valeur = effet réel dans {TOURS_EFFET} tours (l'intendant refait sa répartition) : nourriture utile + production + deniers ; la nourriture compte × {} jusqu'à {} × le besoin (objectif de l'intendant), rien au-delà, × {} sous le besoin (famine)",
+        rules::decimal(POIDS_FREIN),
+        rules::decimal(b.plafond),
+        rules::decimal(POIDS_FREIN + POIDS_PERTE_FAMINE)
+    )
 }
 
 /// Écarts de rendement en texte (« +2,0 nourriture · −1,0 production »).
@@ -1404,7 +1428,7 @@ fn carte_souris(
                 let vl = Ville::new(&mut cache, &map.0, centre, city.0, city.1, &territoire, &amenagements);
                 let placement = ecran.placement.map(|a| (a, gain_amenagement(&vl, c, a)));
                 commands.entity(bulle_e).with_children(|b| match placement {
-                    Some((a, g)) => infobulle_placement(b, c, a, g, &Bareme::de(city.1)),
+                    Some((a, g)) => infobulle_placement(b, c, a, g, &Bareme::de(&vl)),
                     None if ecran.onglet == Onglet::Histoire => {
                         b.spawn(texte(c.nom.clone(), 14.0, charte::TEXTE));
                         let ev: Vec<&rules::Evenement> = city.1.state.chronique.iter().filter(|e| e.lieu == Some(c.hex)).collect();
@@ -1634,7 +1658,7 @@ fn reconstruire(
         (Onglet::Population, None) => population(g, &city, &cases, &images, courbe.as_ref(), prevision),
         (Onglet::Commerce, None) => vide(g, "Commerce", "Aucun axe de commerce : les échanges entre villes ne sont pas encore dans le jeu."),
     });
-    let bareme = Bareme::de(&city);
+    let bareme = Bareme::de(&vl);
     let gains: Vec<Option<(GainAmenagement, Evaluation)>> = cases.iter().map(|c| ecran.placement.and_then(|a| gain_amenagement(&vl, c, a).ok()).map(|g| { let e = evaluation(&g, &bareme); (g, e) })).collect();
     let conseillee = ecran.placement.and_then(|a| conseil(&vl, &cases, a, &bareme));
     // Cases dont un aménagement est déjà en file (pastille « file n° »)
@@ -1956,7 +1980,7 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         pastille(l, charte::SURFACE, "hache : défrichement");
         pastille(l, charte::GRAVE, "risque de famine");
         pastille(l, charte::SELECTION, "case choisie");
-        l.spawn(texte(if bareme.poids_nourriture > 1.0 { "chiffres : valeur (effet réel dans 10 tours : nourriture ×1,5 + production + deniers), puis ce qui la compose" } else { "chiffres : valeur (effet réel dans 10 tours : nourriture + production + deniers), puis ce qui la compose" }, 12.0, charte::MUET));
+        l.spawn(texte(format!("chiffres : valeur (effet réel dans {TOURS_EFFET} tours : nourriture utile, jusqu'à {} × le besoin, + production + deniers), puis ce qui la compose", rules::decimal(bareme.plafond)), 12.0, charte::MUET));
         return;
     }
     if let ModeCarte::Grandeur(g, _) = mode {
@@ -2764,7 +2788,7 @@ fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Productio
     let texte = match *objet {
         // L'élément jugé est lui-même en file : la case est jugée sans lui.
         rules::Production::Amenagement { hex, kind, .. } => match cases.iter().find(|c| c.hex == hex).map(|c| gain_amenagement(vl, &CaseVue { en_file: false, ..c.clone() }, kind)) {
-            Some(Ok(g)) => format!("dans {TOURS_EFFET} tours : {} · valeur {}", ecarts(&g.dans), signe(evaluation(&g, &Bareme::de(city)).valeur)),
+            Some(Ok(g)) => format!("dans {TOURS_EFFET} tours : {} · valeur {}", ecarts(&g.dans), signe(evaluation(&g, &Bareme::de(vl)).valeur)),
             Some(Err(e)) => format!("plus possible : {e}"),
             None => "case hors du territoire".into(),
         },
@@ -2884,10 +2908,10 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
     if groupe_vu == GroupeCatalogue::Amenagements {
     groupe(l, "Aménagements de production : un par case, l'intendant y met ensuite les travailleurs");
     for a in Amenagement::ALL {
-        let meilleure = conseil(vl, cases, a, &Bareme::de(city)).and_then(|h| cases.iter().find(|c| c.hex == h));
+        let meilleure = conseil(vl, cases, a, &Bareme::de(vl)).and_then(|h| cases.iter().find(|c| c.hex == h));
         let une_case = cases.iter().any(|c| possible(vl.map, c, a).is_ok());
         let detail = match meilleure.and_then(|c| gain_amenagement(vl, c, a).ok().map(|g| (c, g))) {
-            Some((c, g)) => format!("conseil : {} · valeur {} (dans {TOURS_EFFET} tours : {}) · {} production", c.nom.to_lowercase(), signe(evaluation(&g, &Bareme::de(city)).valeur), ecarts(&g.dans), g.cout),
+            Some((c, g)) => format!("conseil : {} · valeur {} (dans {TOURS_EFFET} tours : {}) · {} production", c.nom.to_lowercase(), signe(evaluation(&g, &Bareme::de(vl)).valeur), ecarts(&g.dans), g.cout),
             None if une_case => format!("aucun aménagement utile maintenant : aucune case n'y gagne dans {TOURS_EFFET} tours"),
             None => "aucune case possible dans la ville".into(),
         };
@@ -2921,7 +2945,7 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
 /// Fiche du placement d'un aménagement sur une case.
 fn placement(g: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[CaseVue], a: Amenagement, c: &CaseVue, conseil_seul: bool) {
     let Ok(gain) = gain_amenagement(vl, c, a) else { return };
-    let bareme = Bareme::de(city);
+    let bareme = Bareme::de(vl);
     let e = evaluation(&gain, &bareme);
     let prod = city.travail.rendements.production;
     // Pourquoi cette case : la comparer à celle qui donne le plus de la grandeur visée
@@ -2952,7 +2976,7 @@ fn placement(g: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
             t.spawn(texte("›", 14.0, charte::MUET));
             t.spawn(texte("③ Mettre en file", 14.0, charte::DOUX));
         });
-        ligne_valeur(p, "Valeur pour la ville", format!("{}{}", signe(e.valeur), e.rentabilite.map_or(String::new(), |r| format!(" · rentabilisé en {} tours", r.ceil()))), charte::AMENAGEMENT);
+        ligne_valeur(p, "Valeur pour la ville", format!("{}{}", signe(e.valeur), e.rentabilite.map_or(String::new(), |r| format!(" · rentabilisé en {} tours", r.ceil()))), couleur_signe(e.valeur));
         if let Some(t) = &pourquoi {
             p.spawn(texte(t.clone(), 12.5, if t.starts_with("Attention") { charte::ALERTE } else { CONSEIL }));
         }
@@ -2963,6 +2987,12 @@ fn placement(g: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
         }
         ligne_valeur(p, "Tout de suite (l'intendant répartit les travailleurs)", ecarts(&gain.maintenant), charte::TEXTE);
         ligne_valeur(p, &format!("Dans {TOURS_EFFET} tours (avec la croissance)"), ecarts(&gain.dans), charte::AMENAGEMENT);
+        if gain.dans.nourriture.abs() >= 0.05 {
+            // (la nourriture au-delà de l'objectif de l'intendant ne fait plus grandir la ville)
+            let pleine = POIDS_FREIN * gain.dans.nourriture;
+            let note = if gain.dans.nourriture > 0.0 && e.nourriture < pleine - 0.05 { " : au-delà de l'objectif de l'intendant, elle ne fait plus grandir la ville" } else { "" };
+            ligne_valeur(p, "Part de la nourriture dans la valeur", format!("{}{note}", signe(e.nourriture)), charte::DOUX);
+        }
         ligne_valeur(p, &format!("Maximum de la ville (case pleine, {} travailleurs)", rules::milliers(gain.capacite.into())), format!("{} (pas tout de suite)", ecarts(&gain.plein)), charte::DOUX);
         ligne_valeur(p, "Capacité de la case", format!("{} → {} travailleurs", rules::milliers(c.capacite.into()), rules::milliers(gain.capacite.into())), charte::TEXTE);
         if gain.defriche {
@@ -3137,7 +3167,7 @@ fn construire_actions(
         let cases = cases_vues(&map.0, centre, v, &city, &territoire, &amenagements);
         let choix = {
             let vl = Ville::new(&mut cache, &map.0, centre, v, &city, &territoire, &amenagements);
-            let cible = ecran.cible.or_else(|| conseil(&vl, &cases, a, &Bareme::de(&city)));
+            let cible = ecran.cible.or_else(|| conseil(&vl, &cases, a, &Bareme::de(&vl)));
             cible.and_then(|h| cases.iter().find(|c| c.hex == h)).and_then(|c| gain_amenagement(&vl, c, a).ok().map(|g| (c, g)))
         };
         if let Some((c, g)) = choix {
@@ -3322,28 +3352,38 @@ fn liste_droite(l: &mut ChildSpawnerCommands, onglet: Onglet, cases: &[CaseVue],
 mod tests {
     use super::*;
 
+    /// Barème d'une ville qui a `nourriture` pour un besoin `besoin`, aujourd'hui et dans 10 tours.
+    fn bareme(nourriture: f64, besoin: f64) -> Bareme {
+        Bareme { nourriture, besoin, nourriture_dans: nourriture, besoin_dans: besoin, plafond: 1.0 + rules::SURPLUS_POUR_CROITRE }
+    }
+
     #[test]
     fn la_valeur_compte_les_pertes_et_le_frein() {
-        let b = Bareme { poids_nourriture: POIDS_FREIN, nourriture: 10.0, besoin: 5.0 };
+        let b = bareme(5.5, 5.0);
         // Forêt défrichée en champ : +4 nourriture, −2 production ; prairie en champ : +3 nourriture
         let foret = evaluer(Rendements::new(4.0, -2.0, 0.0), Rendements::new(0.8, -2.5, 0.0), 30, &b);
         let prairie = evaluer(Rendements::new(3.0, 0.0, 0.0), Rendements::new(1.0, 0.0, 0.0), 20, &b);
-        assert!((foret.valeur - 4.0).abs() < 1e-9 && (prairie.valeur - 4.5).abs() < 1e-9);
+        // (de 5,5 à 7,5 : 2 de nourriture utile × 1,5 ; au-delà de 1,5 × le besoin, rien)
+        assert!((foret.valeur - 1.0).abs() < 1e-9 && (prairie.valeur - 3.0).abs() < 1e-9, "{} {}", foret.valeur, prairie.valeur);
         assert!(prairie.valeur > foret.valeur, "la prairie vaut mieux : pas de production perdue");
-        assert!((prairie.rentabilite.unwrap() - 20.0 / 4.5).abs() < 1e-9);
+        assert!((prairie.rentabilite.unwrap() - 20.0 / 3.0).abs() < 1e-9);
+        // Ville déjà au plafond : la nourriture ne compte plus, la production si
+        let rassasiee = bareme(10.0, 5.0);
+        assert!(evaluer(Rendements::new(3.0, 0.0, 0.0), Rendements::new(1.0, 0.0, 0.0), 20, &rassasiee).valeur.abs() < 1e-9);
+        assert!(evaluer(Rendements::new(0.0, 2.0, 0.0), Rendements::new(0.0, 1.0, 0.0), 15, &rassasiee).valeur > 1.9);
     }
 
     #[test]
     fn une_perte_de_nourriture_pres_de_la_famine_pese_lourd() {
         // Coupe de bois sur une case nourricière : −1 nourriture, +3 production
         let (plein, maintenant) = (Rendements::new(-1.0, 3.0, 0.0), Rendements::new(-1.0, 1.5, 0.0));
-        let large = evaluer(plein, maintenant, 15, &Bareme { poids_nourriture: POIDS_FREIN, nourriture: 10.0, besoin: 5.0 });
+        let large = evaluer(plein, maintenant, 15, &bareme(10.0, 5.0));
         assert_eq!(large.risque, Risque::Aucun);
-        assert!((large.valeur - 1.5).abs() < 1e-9);
-        let juste = evaluer(plein, maintenant, 15, &Bareme { poids_nourriture: POIDS_FREIN, nourriture: 5.2, besoin: 5.0 });
+        assert!((large.valeur - 3.0).abs() < 1e-9, "au-delà du plafond, la nourriture perdue ne compte pas");
+        let juste = evaluer(plein, maintenant, 15, &bareme(5.2, 5.0));
         assert!(matches!(juste.risque, Risque::Famine(k) if k < 1.0));
         assert!(juste.valeur < 0.0, "{}", juste.valeur);
-        let bord = evaluer(plein, maintenant, 15, &Bareme { poids_nourriture: POIDS_FREIN, nourriture: 6.5, besoin: 5.0 });
+        let bord = evaluer(plein, maintenant, 15, &bareme(6.5, 5.0));
         assert!(matches!(bord.risque, Risque::BordDeFamine(_)));
         assert!(bord.valeur < large.valeur);
     }

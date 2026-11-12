@@ -904,7 +904,8 @@ fn cities() -> Article {
                ne peut pas finir : l'écran de la ville s'ouvre sur son catalogue."),
             p("Aménager une case : dans l'écran de la ville, Construire (B) puis un aménagement. Chaque case montre la \
                valeur de l'aménagement : son effet réel dans 10 tours, l'intendant refaisant sa répartition avec lui \
-               (nourriture × 1,5 + production + deniers ; une perte de nourriture près de la famine compte × 3), et \
+               (nourriture utile + production + deniers : la nourriture compte × 1,5 jusqu'à l'objectif de \
+               l'intendant, 1,5 × le besoin par défaut, rien au-delà, et × 4,5 sous le besoin, en famine), et \
                ce qui la compose ; la fiche donne aussi l'effet tout de suite et ce que l'aménagement ajoute au \
                maximum de la ville (case pleine), qu'on ne gagne pas tout de suite ; une hache et un anneau orange \
                signalent un défrichement, un anneau rouge un risque de famine. L'anneau doré marque le conseil de \
