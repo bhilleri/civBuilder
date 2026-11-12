@@ -672,7 +672,7 @@ remèdes et alertes en double ; trop d'orange. **Décisions de Benjamin** :
 
 **Réalisation de B1, B3 et B4** : `rules::prevoir` simule la ville sur 100 tours (à chaque tour,
 `repartition_ville` avec les habitants du moment, puis la croissance ; mêmes cases, consignes et
-projet ; la file n'avance pas) ; `arret_de_croissance` donne le premier tour où la croissance passe
+projet ; la file avance depuis C1, plus bas) ; `arret_de_croissance` donne le premier tour où la croissance passe
 sous 0,1 % par tour. L'en-tête lit le palier suivant dans la prévision ; le bandeau donne la limite
 (nourriture × 1 000 de toutes les cases pleines, centre compris) et le tour où la croissance s'arrête ;
 les graphiques tracent la prévision (plus de bande d'incertitude pour ces courbes). Un aménagement est
@@ -685,6 +685,24 @@ habitants, projet Peupler) : « palier 5 dans 47 tours » ; limite 11 000 habita
 dans ~81 tours vers 10 791 ; plus d'emplois libres dans ~3 tours ; champ conseillé sur la taïga :
 +0,7 nourriture tout de suite, +1,8 dans 10 tours, +3,0 au maximum, valeur +1,7. Coût : une
 simulation de 10 tours par case et par aménagement, seulement quand l'écran se refait.
+**Après la deuxième campagne de tests (six agents, dont un sur la performance)** — décisions de
+Benjamin : **C1** la prévision fait avancer la file, « à condition que ça ne soit pas trop gourmand » :
+`prevoir` joue `process_turn` sur un état allégé (`CityState::allege`) ; un aménagement achevé change
+sa case pour les tours suivants, un colon emporte ses habitants. Les effets d'un aménagement se
+mesurent sans la file (l'aménagement seul, même déjà en file). **C2** le territoire n'est pas prévu
+(il grandira case par case avec la Culture, lot 4d : dans la marge d'erreur). **C4** les projets
+disent leur gain (« Peupler » : habitants de plus par tour ici, rien en famine). **C5** pas de coupe
+de bois sur une forêt défrichée. **C3** (valeur en habitants gagnés ou nourriture comptée selon son
+utilité) : en attente. Performance : les simulations (prévision, base sans file, effets) sont gardées
+dans `CacheVille` tant que la ville, ses cases et leurs aménagements ne changent pas (clé : habitants,
+file, consignes, projet, cases) ; une reconstruction de plus de 15 ms s'écrit dans la console.
+Défauts corrigés (liste A2) : élément en file jugé « plus possible », colon qui bloque la file sans le
+dire (alerte, délai, journal, chronique, solde du tour), colons en file enchaînés, V/T/O/N sous
+l'écran, conseil sur une valeur nulle (plus de conseil, valeur colorée par son signe, pas de « −0,0 »),
+contrôles qui bougeaient (forcer ±100, retirer, ligne des remèdes), effectif proposé qui survivait,
+seuils du graphique figés (le besoin suit les habitants), palier hors de portée vert, molette (et
+ordre `molette` du pilote), libellés (« atteint le palier N », « plus aucun emploi libre », etc.).
+
 Limite connue : en mode pilote, l'infobulle de la carte disparaît à la fin d'un ordre, parce que le
 pilote ramène alors le pointeur à sa position d'avant (`Input::Move(last_cursor)`) ; elle n'apparaît
 donc pas sur les captures.

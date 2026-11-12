@@ -95,7 +95,7 @@ pub fn debug_article() -> Article {
     blocks.push(p("CIVBUILDER_SCRIPT=<fichier> cargo run exécute les commandes du fichier, une par image, en mode debug (lignes vides et lignes commençant par # ignorées). Chaque commande et sa réponse sont écrites dans CIVBUILDER_SCRIPT_OUT (sinon <script>.reponses.txt à côté du script) et dans la console du terminal. Une réponse commence par OK ou ERREUR, suivie de lignes clé=valeur. « capture » attend que le relief 3D soit construit puis enregistre l'écran, sans la console ; « quitter » ferme le jeu. « journal <fichier> » écrit les commandes de la séance en script, avec la graine et la taille de la carte en tête : un cas trouvé à la main se rejoue tel quel."));
     blocks.push(p("Exemple : trouver relief=montagne terrain=foret voisin=pic max=1 · aller 52 37 · vue 3d · camera 300 · capture montagne · terrain 52 37 neige · capture montagne_neige · quitter"));
     blocks.push(h("Mode joueur pilotable (agents de test)"));
-    blocks.push(p("scripts/pilote.sh lancer <dossier> 777 lance une partie normale, sans mode debug, qui suit le fichier d'ordres CIVBUILDER_PILOTE pendant la partie ; scripts/pilote.sh <dossier> \"etat\" \"clic 66 39\" \"touche b\" envoie des ordres et rend les réponses. Ordres : etat, alentours, survol, clic, clic-droit, touche, interface, bouton, clic-ecran, zoom, et les commandes de caméra, de carte, de capture et de fin de tour (« aide » les liste). Les réponses ne donnent que ce que le joueur peut savoir. CIVBUILDER_FENETRE=1920x1080 règle la taille de la fenêtre."));
+    blocks.push(p("scripts/pilote.sh lancer <dossier> 777 lance une partie normale, sans mode debug, qui suit le fichier d'ordres CIVBUILDER_PILOTE pendant la partie ; scripts/pilote.sh <dossier> \"etat\" \"clic 66 39\" \"touche b\" envoie des ordres et rend les réponses. Ordres : etat, alentours, survol, clic, clic-droit, touche, interface, bouton, clic-ecran, molette, zoom, et les commandes de caméra, de carte, de capture et de fin de tour (« aide » les liste). Les réponses ne donnent que ce que le joueur peut savoir. CIVBUILDER_FENETRE=1920x1080 règle la taille de la fenêtre."));
     blocks.push(h("GIF des actions"));
     blocks.push(p("scripts/animations.sh (ou CIVBUILDER_CAPTURE=docs/animations CIVBUILDER_CAPTURE_GIF=1 cargo run --release) joue chaque action — déplacement, trajet de plusieurs tours, échange, corps à corps, charge, tir, attaque perdue, attaque hostile en fin de tour, village (commerce, habitants, embuscade), camp — avec une souris pilotée, en 2D puis en 3D, et en fait des GIF avec ffmpeg (page docs/ANIMATIONS.md du dépôt). CIVBUILDER_CAPTURE_GIF=tir,camp limite aux scènes nommées."));
     Article { title: "Console de debug", icon: "icons/wiki_mechanics.png", blocks }
@@ -846,7 +846,8 @@ fn cities() -> Article {
                     vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2".into()],
                 ],
             ),
-            p("Un champ ou un pâturage pris sur la forêt la défriche : la case devient une prairie (le bois est perdu). \
+            p("Un champ ou un pâturage pris sur la forêt la défriche : la case devient une prairie (le bois est perdu, \
+               plus de coupe de bois possible). \
                La construction des aménagements par la ville arrive ; pour l'instant, la console les pose \
                (`amenagement`), et règle les consignes de l'intendant (`ville priorite`, `ville forcer`)."),
             h("Croissance"),
@@ -855,7 +856,8 @@ fn cities() -> Article {
                  nourriture nourrit 1 000 habitants. Avec un surplus, la population grandit de 1,5 % par tour au plus \
                  (atteint avec 50 % de nourriture en plus du besoin) ; en famine, elle perd de 2 à 5 % par tour. Le palier \
                  résume la taille : il fixe le territoire et le stade de la ville. Un colon \
-                 emporte {HABITANTS_COLON} habitants, d'une ville qui en compte au moins le double."
+                 emporte {HABITANTS_COLON} habitants, d'une ville qui en compte au moins le double : en tête de file, \
+                 un colon attend ces habitants et bloque la file (l'écran de la ville et le journal le disent)."
             )),
             table(&["Palier", "Habitants de l'aire"], paliers),
             h("Écran de la ville"),
@@ -874,7 +876,9 @@ fn cities() -> Article {
                clic ouvre le placement de l'aménagement à la case conseillée, ou le réglage de l'intendant. Les \
                autres alertes suivent (rien à produire, sans-emploi, long projet). Une seule prévision sert à \
                l'en-tête, au bandeau et aux graphiques : la ville simulée tour par tour, l'intendant refaisant sa \
-               répartition à chaque tour (mêmes cases, consignes et projet ; la file n'avance pas)."),
+               répartition à chaque tour ; la file avance comme en jeu (aménagements achevés, colons qui partent, \
+               projet quand elle est vide), mais le territoire ne grandit pas. « Peupler la ville » dit ce qu'il \
+               rapporte ici (habitants de plus par tour, rien en famine)."),
             p("L'onglet Histoire raconte la ville : fondation, paliers atteints, famines, ponts et aménagements \
                achevés, projets lancés, combats décisifs sur son territoire. Les lieux des événements sont cerclés \
                d'or sur la carte ; un clic sur une case ne garde que son histoire."),

@@ -2046,6 +2046,25 @@ fn en_cours(c: &rules::CityState, production: f64) -> String {
     }
 }
 
+/// Gain réel d'un projet pour la ville aujourd'hui (décision C4), s'il est dans le jeu.
+fn gain_projet(city: &City, pj: rules::Projet) -> Option<String> {
+    if pj != rules::Projet::Peupler {
+        return None;
+    }
+    let y = city.travail.rendements;
+    let mut sans = city.state.allege();
+    sans.file.clear();
+    sans.projet = None;
+    let mut avec = sans.clone();
+    avec.projet = Some(pj);
+    let gain = avec.variation(y) - sans.variation(y);
+    Some(if y.nourriture < city.state.besoin_nourriture() {
+        "ici : rien tant que la ville a faim".into()
+    } else {
+        format!("ici : +{} habitants par tour (file vide)", rules::milliers(gain.max(0) as u64))
+    })
+}
+
 /// Délai d'une construction : « 3 tour(s) », « prête (attend une case libre) », « jamais au rythme actuel ».
 fn delai(c: &rules::CityState, par_tour: f64) -> String {
     let Some(k) = c.file.first() else { return String::new() };
@@ -2813,7 +2832,7 @@ fn file_et_projet(g: &mut ChildSpawnerCommands, city: &City, catalogue: bool, vl
             });
         }
         let projet = match c.projet {
-            Some(pj) => format!("Quand la file est vide : projet « {} » ({})", pj.nom(), pj.effet()),
+            Some(pj) => format!("Quand la file est vide : projet « {} » ({}){}", pj.nom(), pj.effet(), gain_projet(city, pj).map_or(String::new(), |g| format!(" · {g}"))),
             None => "Quand la file est vide : aucun projet (il faut construire ou choisir un projet pour finir le tour)".into(),
         };
         p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
@@ -2880,7 +2899,11 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
     if groupe_vu == GroupeCatalogue::Projets {
     groupe(l, "Projets de ville : sans fin, ils reçoivent la production quand la file est vide");
     for pj in crate::rules::Projet::TOUS {
-        let detail = if pj.disponible() { pj.effet().to_string() } else { format!("{} : pas encore dans le jeu", pj.effet()) };
+        let detail = match (pj.disponible(), gain_projet(city, pj)) {
+            (true, Some(g)) => format!("{} · {g}", pj.effet()),
+            (true, None) => pj.effet().to_string(),
+            (false, _) => format!("{} : pas encore dans le jeu", pj.effet()),
+        };
         item(l, Element::Projet(pj), pj.nom().into(), detail, pj.disponible(), city.state.projet == Some(pj));
     }
     }
