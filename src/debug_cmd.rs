@@ -148,11 +148,12 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "pont", args: &[AT[0], AT[1], ("e|ne|no|o|so|se", Arg::Direction, false), ("oui|non", Arg::Switch, true)], help: "Pose (ou retire, « non ») un pont : sur la rivière de l'arête de la case dans cette direction, ou, si la case est un fleuve, en travers d'elle, de la rive de cette direction à la rive opposée (terre ferme des deux côtés). Rivière : traversée sans surcoût ; fleuve : on monte sur le pont par un bout pour 1 PM, sans s'arrêter. Voir le wiki, « Cours d'eau et lacs », Ponts.", group: Group::Game },
     Spec { name: "ville fortifier", args: &[AT[0], AT[1], ("oui|non", Arg::Switch, false)], help: "Pose ou retire la fortification de la ville de la case : sa muraille, ses portes.", group: Group::Game },
     Spec { name: "ville projet", args: &[AT[0], AT[1], ("peupler|jeux|recherche|culture|aucun", Arg::Text, false)], help: "Projet de ville suivi quand la file de construction est vide.", group: Group::Game },
+    Spec { name: "ville acheter", args: &[AT[0], AT[1], ("colonne", Arg::Col, false), ("ligne", Arg::Row, false)], help: "Achète une case voisine du territoire de la ville de la case, en deniers (20 + 10 × distance au centre).", group: Group::Game },
     Spec { name: "ville priorite", args: &[AT[0], AT[1], ("production|deniers", Arg::Text, false), ("normale|prioritaire|maximale", Arg::Text, false)], help: "Priorité donnée à la production ou aux deniers par l'intendant de la ville de la case.", group: Group::Game },
     Spec { name: "ville objectif", args: &[AT[0], AT[1], ("nourrir|croitre|maximale|excedent", Arg::Text, false)], help: "Objectif de nourriture de l'intendant de la ville de la case (1 ; 1,25 ; 1,5 ; 2 fois le besoin).", group: Group::Game },
     Spec { name: "ville forcer", args: &[AT[0], AT[1], ("colonne", Arg::Col, false), ("ligne", Arg::Row, false), ("travailleurs", Arg::Number, false)], help: "Force l'effectif d'une case de la ville (0 : la rend à l'intendant).", group: Group::Game },
     Spec { name: "amenagement", args: &[AT[0], AT[1], ("champ|paturage|bois|aucun", Arg::Text, false)], help: "Pose (ou retire) l'aménagement rural de la case, sans le construire (s'il est possible sur la case).", group: Group::Game },
-    Spec { name: "ville population", args: &[AT[0], AT[1], ("palier", Arg::Number, false)], help: "Palier de population de la ville de la case (1 à 30) : ses habitants deviennent ceux du début du palier, son stade (hameau, bourg, ville) suit. Le territoire n'est pas recalculé.", group: Group::Game },
+    Spec { name: "ville population", args: &[AT[0], AT[1], ("palier", Arg::Number, false)], help: "Palier de population de la ville de la case (1 à 30) : ses habitants deviennent ceux du début du palier, son stade (hameau, bourg, ville) suit. Le territoire n'en dépend pas (il grandit par la culture).", group: Group::Game },
     Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
@@ -363,6 +364,8 @@ pub enum CityChange {
     Objectif(crate::intendant::ObjectifNourriture),
     /// Projet de ville suivi quand la file est vide (aucun : pas de projet).
     Projet(Option<crate::rules::Projet>),
+    /// Achat d'une case voisine du territoire.
+    Acheter(Hex),
 }
 
 /// Changement de l'état d'une unité (`unite pv`, `unite pm`, `unite dette`, `unite soigner`).
@@ -545,6 +548,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             };
             Command::CitySet(at()?, CityChange::Projet(p))
         }
+        "ville acheter" => Command::CitySet(at()?, CityChange::Acheter(cell(map, args[2], args[3])?)),
         "ville forcer" => Command::CitySet(at()?, CityChange::Forcer(cell(map, args[2], args[3])?, number(args[4], "travailleurs")?.max(0.0).round() as u32)),
         "amenagement" => {
             let a = match token(args[2]).as_str() {

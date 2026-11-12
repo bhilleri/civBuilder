@@ -5,7 +5,8 @@ use crate::map::{KnownMap, MoveCosts, StepCost, WorldMap, Yields, turn_moves};
 use crate::combat::{self, AttackKind};
 use crate::pathfinding::{find_path, find_path_turns};
 use crate::intendant::{self, Amenagement, CaseDispo, Consignes, Rendements, Repartition};
-use bevy::platform::collections::HashSet;
+use bevy::ecs::entity::Entity;
+use bevy::platform::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------- Unités
 
@@ -408,9 +409,53 @@ pub fn path_turns(map: &impl MoveCosts, from: Hex, path: &[Hex], moves_left: u32
 
 pub const MIN_CITY_DISTANCE: i32 = 4;
 
-/// Rayon du territoire d'une ville selon sa population.
-pub fn territory_radius(population: i32) -> i32 {
-    if population >= 3 { 2 } else { 1 }
+// ---------------------------------------------------------------- Territoire par la Culture (4d)
+
+/// Culture produite par toute ville, par tour (+2 avec un sanctuaire, quand il existera).
+pub const CULTURE_PAR_TOUR: f64 = 1.0;
+/// Projet « Développement de l'art et de la culture » : culture par point de production (chiffre
+/// proposé, à régler en jouant).
+pub const CULTURE_PAR_PRODUCTION: f64 = 0.2;
+
+/// Stock de culture qui fait gagner une case quand la ville en a déjà gagné `gagnees` :
+/// 10 + 6 × `gagnees` (conception des villes, 4d).
+pub fn seuil_culture(gagnees: u32) -> f64 {
+    10.0 + 6.0 * gagnees as f64
+}
+
+/// Prix d'achat d'une case, en deniers : 20 + 10 × sa distance au centre.
+pub fn prix_case(distance: i32) -> i32 {
+    20 + 10 * distance
+}
+
+/// Cases que la ville peut gagner : voisines de son territoire, à personne, dans la carte.
+pub fn cases_gagnables(map: &WorldMap, ville: Entity, territoire: &HashMap<Hex, Entity>) -> Vec<Hex> {
+    let mut v: Vec<Hex> = territoire
+        .iter()
+        .filter(|(_, e)| **e == ville)
+        .flat_map(|(h, _)| map.neighbors(*h))
+        .filter(|h| map.contains(*h) && !territoire.contains_key(h))
+        .collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// Case que la culture fait gagner : la meilleure voisine (ce qu'elle rapporterait aménagée au
+/// mieux), la plus proche du centre à valeur égale ; les atouts (ressources) d'abord, quand ils
+/// existeront.
+pub fn case_par_la_culture(map: &WorldMap, centre: Hex, ville: Entity, territoire: &HashMap<Hex, Entity>) -> Option<Hex> {
+    let valeur = |h: Hex| {
+        std::iter::once(None)
+            .chain(Amenagement::possibles(map, h).into_iter().map(Some))
+            .map(|a| intendant::rendement_max(map, h, a).total())
+            .fold(0.0, f64::max)
+    };
+    cases_gagnables(map, ville, territoire)
+        .into_iter()
+        .map(|h| (h, valeur(h), map.distance(centre, h)))
+        .max_by(|a, b| a.1.total_cmp(&b.1).then(b.2.cmp(&a.2)).then(b.0.cmp(&a.0)))
+        .map(|(h, _, _)| h)
 }
 
 // ---------------------------------------------------------------- Population de l'aire
@@ -713,13 +758,13 @@ impl Projet {
             Projet::Peupler => "la production augmente la croissance (jusqu'à +1,5 % par tour, si la ville n'a pas faim)",
             Projet::GrandsJeux => "bien-être de la ville",
             Projet::Recherche => "recherche du pays",
-            Projet::Culture => "culture, qui étend le territoire",
+            Projet::Culture => "la production donne de la culture (1 pour 5), qui étend le territoire",
         }
     }
 
     /// Le système du projet est-il dans le jeu ?
     pub const fn disponible(self) -> bool {
-        matches!(self, Projet::Peupler)
+        matches!(self, Projet::Peupler | Projet::Culture)
     }
 }
 
@@ -768,6 +813,12 @@ pub struct CityState {
     /// La ville était-elle en famine au tour précédent (début et fin de famine dans la chronique) ?
     #[serde(default)]
     pub en_famine: bool,
+    /// Stock de culture (une case de plus au seuil, 4d).
+    #[serde(default)]
+    pub culture: f64,
+    /// Cases gagnées par la culture ou achetées (le seuil suivant en dépend).
+    #[serde(default)]
+    pub cases_gagnees: u32,
 }
 
 /// Genre d'un moment de l'histoire d'une ville.
@@ -779,10 +830,12 @@ pub enum GenreEvenement {
     Famine,
     Bataille,
     Projet,
+    /// Case gagnée par la culture ou achetée.
+    Territoire,
 }
 
 impl GenreEvenement {
-    pub const TOUS: [GenreEvenement; 6] = [GenreEvenement::Fondation, GenreEvenement::Population, GenreEvenement::Construction, GenreEvenement::Famine, GenreEvenement::Bataille, GenreEvenement::Projet];
+    pub const TOUS: [GenreEvenement; 7] = [GenreEvenement::Fondation, GenreEvenement::Population, GenreEvenement::Construction, GenreEvenement::Territoire, GenreEvenement::Famine, GenreEvenement::Bataille, GenreEvenement::Projet];
 
     /// Nom du filtre.
     pub const fn nom(self) -> &'static str {
@@ -793,6 +846,7 @@ impl GenreEvenement {
             GenreEvenement::Famine => "Famines",
             GenreEvenement::Bataille => "Batailles",
             GenreEvenement::Projet => "Projets",
+            GenreEvenement::Territoire => "Territoire",
         }
     }
 }
@@ -836,7 +890,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0 }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -910,7 +964,20 @@ impl CityState {
             historique: Default::default(),
             chronique: Vec::new(),
             en_famine: self.en_famine,
+            culture: self.culture,
+            cases_gagnees: self.cases_gagnees,
         }
+    }
+
+    /// Culture produite ce tour : la ville, plus le projet « Développement de l'art et de la culture ».
+    pub fn culture_du_tour(&self, yields: Rendements) -> f64 {
+        CULTURE_PAR_TOUR + if self.projet_actif() == Some(Projet::Culture) { CULTURE_PAR_PRODUCTION * yields.production.max(0.0) } else { 0.0 }
+    }
+
+    /// Tours avant la prochaine case gagnée par la culture, au rythme `par_tour`.
+    pub fn tours_avant_case(&self, par_tour: f64) -> Option<u32> {
+        let reste = seuil_culture(self.cases_gagnees) - self.culture;
+        (par_tour > 0.0).then(|| (reste / par_tour).ceil().max(0.0) as u32)
     }
 
     /// Habitants qu'il faut pour former un colon (il en emporte la moitié).
@@ -938,6 +1005,9 @@ impl CityState {
         while self.historique.len() > HISTORIQUE_TOURS {
             self.historique.pop_front();
         }
+
+        // Culture : la ville, plus le projet (les cases gagnées sont choisies par le jeu, qui voit la carte)
+        self.culture += self.culture_du_tour(yields);
 
         // Production : la tête de la file, sinon le projet, sinon perdue
         if let Some(tete) = self.file.first_mut() {
@@ -1658,6 +1728,34 @@ mod tests {
         let p = prevoir(&map, center, &grosse, &cases, 200);
         assert_eq!(arret_de_croissance(&p), Some(1));
         assert!((1_900..=2_000).contains(&p.last().unwrap().habitants), "le centre nourrit 2 000 habitants");
+    }
+
+    #[test]
+    fn la_culture_fait_gagner_la_meilleure_case_voisine() {
+        let mut map = WorldMap::filled(12, 12, Terrain::Desert);
+        let centre = Hex::from_offset(6, 6);
+        let ville = Entity::from_raw_u32(1).unwrap();
+        let mut territoire: HashMap<Hex, Entity> = centre.range(1).map(|h| (h, ville)).collect();
+        // Seuils : 10, 16, 22…
+        assert_eq!((seuil_culture(0), seuil_culture(1), seuil_culture(2)), (10.0, 16.0, 22.0));
+        assert_eq!(prix_case(2), 40);
+        // 12 cases voisines, toutes à personne ; une prairie parmi les déserts : c'est elle
+        assert_eq!(cases_gagnables(&map, ville, &territoire).len(), 12);
+        let prairie = *centre.range(2).filter(|h| map.distance(centre, *h) == 2).collect::<Vec<_>>().last().unwrap();
+        map.set(prairie, Terrain::Grassland);
+        assert_eq!(case_par_la_culture(&map, centre, ville, &territoire), Some(prairie));
+        // Une case d'une autre ville n'est pas à prendre
+        territoire.insert(prairie, Entity::from_raw_u32(2).unwrap());
+        assert_ne!(case_par_la_culture(&map, centre, ville, &territoire), Some(prairie));
+        // Culture du tour : 1, plus 1 pour 5 de production avec le projet (file vide)
+        let mut city = CityState::new("Essai".into());
+        let y = Rendements::new(3.0, 10.0, 0.0);
+        assert_eq!(city.culture_du_tour(y), 1.0);
+        city.projet = Some(Projet::Culture);
+        assert!((city.culture_du_tour(y) - 3.0).abs() < 1e-9);
+        assert_eq!(city.tours_avant_case(3.0), Some(4));
+        city.process_turn(y);
+        assert!((city.culture - 3.0).abs() < 1e-9);
     }
 
     #[test]

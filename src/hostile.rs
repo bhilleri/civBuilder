@@ -7,7 +7,7 @@
 use crate::battle::{self, Side};
 use crate::combat::{self, Fate};
 use crate::feedback::{Actor, Cues, Tone};
-use crate::game::{City, GameLog, GameMap, GameState, HexPos, Ident, Importance, LogText, Selection, Territory, Unit, claim_territory, rang, spawn_unit};
+use crate::game::{City, GameLog, GameMap, GameState, HexPos, Ident, Importance, LogText, Selection, Unit, rang, spawn_unit};
 use crate::search::MapTarget;
 use crate::hex::Hex;
 use crate::map::MoveCosts;
@@ -150,7 +150,6 @@ pub fn visit_sites(
     mut forced: ResMut<NextVillageEvent>,
     map: Res<GameMap>,
     mut state: ResMut<GameState>,
-    mut territory: ResMut<Territory>,
     mut log: ResMut<GameLog>,
     mut cues: ResMut<Cues>,
     movers: Query<(Entity, &Unit, &HexPos), (Without<Hostile>, Changed<HexPos>)>,
@@ -199,8 +198,6 @@ pub fn visit_sites(
                 let target = sites::nearest(&map.0, pos.0, &city_list).expect("au moins une ville");
                 let (entity, center, mut city) = cities.get_mut(target).unwrap();
                 city.state.habitants += VILLAGE_HABITANTS;
-                let radius = rules::territory_radius(city.state.palier());
-                claim_territory(&mut territory.0, entity, center.0, radius, &map.0);
                 log.notify(
                     Importance::Success,
                     LogText::new()

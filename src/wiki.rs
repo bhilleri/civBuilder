@@ -855,7 +855,7 @@ fn cities() -> Article {
                 "La population compte les habitants de toute l'aire de la ville, ses campagnes comprises. Un point de \
                  nourriture nourrit 1 000 habitants. Avec un surplus, la population grandit de 1,5 % par tour au plus \
                  (atteint avec 50 % de nourriture en plus du besoin) ; en famine, elle perd de 2 à 5 % par tour. Le palier \
-                 résume la taille : il fixe le territoire et le stade de la ville. Un colon \
+                 résume la taille : il fixe le stade de la ville (le territoire grandit par la culture). Un colon \
                  emporte {HABITANTS_COLON} habitants, d'une ville qui en compte au moins le double : en tête de file, \
                  un colon attend ces habitants et bloque la file (l'écran de la ville et le journal le disent)."
             )),
@@ -889,8 +889,12 @@ fn cities() -> Article {
                travailleurs (aperçu de l'effet, puis confirmer) ; l'intendant ne la change plus jusqu'à ce qu'on la \
                lui rende."),
             h("Territoire"),
-            p("Le territoire s'étend à 1 case autour de la ville, puis à 2 cases à partir du palier 3. Il sert \
-               aux cases exploitées et aux soins (+20 PV par tour en territoire ami)."),
+            p("Une ville naît avec sa case et ses 6 voisines. Elle produit de la culture : 1 par tour, plus 1 pour 5 \
+               de production avec le projet « Développement de l'art et de la culture ». Quand le stock atteint \
+               10 + 6 × les cases déjà gagnées (10, puis 16, 22…), la ville gagne une case : la meilleure voisine \
+               de son territoire, la plus proche du centre à valeur égale. Une case voisine peut aussi s'acheter, \
+               20 + 10 × sa distance au centre en deniers (console : `ville acheter`). Le territoire sert aux cases \
+               exploitées et aux soins (+20 PV par tour en territoire ami)."),
             h("Production"),
             p("Chaque ville a une file de construction : unités, ponts et aménagements, chacun avec la production \
                déjà investie (perdue s'il est retiré) ; le surplus d'un élément fini passe au suivant. Une nouvelle \

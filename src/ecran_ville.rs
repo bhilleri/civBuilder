@@ -2143,13 +2143,17 @@ fn vide(g: &mut ChildSpawnerCommands, t: &str, explication: &str) {
 /// Carte d'une grandeur : icône, nom, valeur, état.
 #[allow(clippy::too_many_arguments)]
 fn carte_grandeur(r: &mut ChildSpawnerCommands, images: &Images, g: Grandeur, valeur: String, unite: &str, etat: Etat, ligne: String, choisie: bool) {
-    r.spawn((
-        ChoixGrandeur(g),
+    let mut carte = r.spawn((
         UiPointer::default(),
         Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), flex_grow: 1.0, flex_basis: Val::Px(0.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(9.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(8.0)), ..default() },
         BackgroundColor(charte::SURFACE),
         BorderColor::all(if choisie { charte::SELECTION } else { Color::NONE }),
-    ))
+    ));
+    // (seules les grandeurs détaillées s'ouvrent au clic)
+    if DETAILLABLES.contains(&g) {
+        carte.insert(ChoixGrandeur(g));
+    }
+    carte
         .with_children(|c| {
             c.spawn(Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, ..default() }).with_children(|t| {
                 t.spawn(icone(images.grandeur(g), 18.0, g.couleur()));
@@ -2182,10 +2186,15 @@ fn cartes(g: &mut ChildSpawnerCommands, city: &City, images: &Images, choisie: O
             let etat_p = if c.file.is_empty() && c.projet.is_none() { Etat::Alerte } else { Etat::Ok };
             carte_grandeur(r, images, Grandeur::Production, rules::decimal(y.production), "par tour", etat_p, prod, choisie == Some(Grandeur::Production));
             carte_grandeur(r, images, Grandeur::Deniers, format!("+{}", rules::decimal(y.deniers)), "par tour", Etat::Ok, "versés au trésor".into(), choisie == Some(Grandeur::Deniers));
+            // Culture (4d) : son stock fait gagner une case au seuil
+            let par_tour = c.culture_du_tour(y);
+            let seuil = rules::seuil_culture(c.cases_gagnees);
+            let quand = c.tours_avant_case(par_tour).map_or(String::new(), |t| if t <= 1 { " · une case au prochain tour".into() } else { format!(" · une case dans {t} tours") });
+            carte_grandeur(r, images, Grandeur::Culture, format!("+{}", rules::decimal(par_tour)), "par tour", Etat::Ok, format!("{} / {}{quand}", rules::decimal(c.culture), rules::decimal(seuil)), false);
         });
         // Les autres grandeurs : affichées pour dire qu'elles n'existent pas encore
         p.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center, ..default() }).with_children(|r| {
-            for g in [Grandeur::Eau, Grandeur::Recherche, Grandeur::Culture, Grandeur::Defense, Grandeur::BienEtre] {
+            for g in [Grandeur::Eau, Grandeur::Recherche, Grandeur::Defense, Grandeur::BienEtre] {
                 r.spawn((Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(11.0), Val::Px(4.0)), border_radius: BorderRadius::all(Val::Px(14.0)), ..default() }, BackgroundColor(charte::SURFACE))).with_children(|t| {
                     t.spawn(icone(images.grandeur(g), 16.0, g.couleur()));
                     t.spawn(texte(g.nom(), 13.0, charte::DOUX));
@@ -2357,7 +2366,7 @@ fn histoire(g: &mut ChildSpawnerCommands, city: &City, genre: Option<rules::Genr
                 });
             });
         }
-        p.spawn(texte("Pas encore inscrits : commerce, guerres, culture (leurs systèmes ne sont pas encore dans le jeu).", 12.5, charte::MUET));
+        p.spawn(texte("Pas encore inscrits : commerce, guerres (leurs systèmes ne sont pas encore dans le jeu).", 12.5, charte::MUET));
     });
 }
 
@@ -2371,6 +2380,7 @@ fn couleur_genre(g: rules::GenreEvenement) -> Color {
         Famine => charte::GRAVE,
         Bataille => charte::ALERTE,
         Projet => Grandeur::Culture.couleur(),
+        Territoire => charte::AMENAGEMENT,
     }
 }
 

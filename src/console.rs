@@ -357,7 +357,7 @@ struct ConsoleContext<'w, 's> {
     commands: Commands<'w, 's>,
     game: (ResMut<'w, GameState>, ResMut<'w, Territory>, ResMut<'w, Selection>),
     cities: Query<'w, 's, &'static HexPos, With<City>>,
-    city_states: Query<'w, 's, (&'static HexPos, &'static mut City)>,
+    city_states: Query<'w, 's, (Entity, &'static HexPos, &'static mut City)>,
     units: Query<'w, 's, (Entity, &'static mut Unit, &'static HexPos, Has<Hostile>)>,
     chrono: Res<'w, crate::game::ChronoTour>,
     sauvegarde: ResMut<'w, crate::sauvegarde::DemandeSauvegarde>,
@@ -419,9 +419,9 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
         }
         Some(Effect::CitySet(at, change)) => {
             let place = debug_cmd::coords(&ctx.map.0, *at);
-            match ctx.city_states.iter_mut().find(|(p, _)| p.0 == *at) {
+            match ctx.city_states.iter_mut().find(|(_, p, _)| p.0 == *at) {
                 None => refuse(&mut lines, format!("aucune ville en {place}")),
-                Some((_, mut city)) => {
+                Some((ville, _, mut city)) => {
                     lines = vec![match change {
                         debug_cmd::CityChange::Fortified(yes) => {
                             city.state.fortified = *yes;
@@ -444,6 +444,17 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
                             city.state.tours_en_projet = 0;
                             let effet = p.map_or(String::new(), |p| if p.disponible() { format!(" : {}", p.effet()) } else { " (pas encore dans le jeu)".into() });
                             format!("OK {} : projet {}{effet}", city.state.name, p.map_or("aucun", |p| p.nom()))
+                        }
+                        debug_cmd::CityChange::Acheter(case) => {
+                            let (state, territory, _) = &mut ctx.game;
+                            let tour = state.turn;
+                            match crate::game::acheter_case(&ctx.map.0, territory, state, ville, *at, &mut city.state, *case, tour) {
+                                Ok(prix) => format!("OK {} achète {} pour {prix} deniers", city.state.name, debug_cmd::coords(&ctx.map.0, *case)),
+                                Err(e) => {
+                                    ok = false;
+                                    format!("ERREUR achat impossible en {} : {e}", debug_cmd::coords(&ctx.map.0, *case))
+                                }
+                            }
                         }
                         debug_cmd::CityChange::Forcer(case, n) => {
                             let forcees = &mut city.state.consignes.forcees;

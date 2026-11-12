@@ -337,6 +337,14 @@ choix à l'écran viennent en 4b.
 - Une case de plus quand le stock atteint 10 + 6 × (cases déjà gagnées) ; choisie automatiquement
   (la meilleure voisine, atouts d'abord). **Achat d'une case précise** en Économie : 20 + 10 × distance.
 - Remplace `rules::territory_radius` ; la borne par la capacité de gouverner vient avec la tâche 32.
+- **Fait le 12/11/2026** : stock `CityState.culture` (+1 par tour, dans `process_turn`), seuil
+  `rules::seuil_culture`, case choisie par `rules::case_par_la_culture` (voisine à personne, la
+  meilleure valeur aménagée au mieux, la plus proche du centre à égalité ; les atouts viendront avec
+  les ressources) ; projet « Développement de l'art et de la culture » : 1 culture pour 5 de
+  production (**chiffre proposé**, à régler) ; achat `game::acheter_case` (20 + 10 × distance ; un
+  achat ne relève pas le seuil de culture : choix provisoire). Pas encore : le sanctuaire (pas de
+  bâtiments), l'achat depuis l'écran de la ville (console seulement), la prévision du territoire
+  (décision C2 : non). Les villes des anciennes sauvegardes gardent leur territoire.
 
 ## Questions ouvertes
 - Chiffres : consommation, seuils de croissance, conversion habitants → indice, rythme mensuel des rendements.

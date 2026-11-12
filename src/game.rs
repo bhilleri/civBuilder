@@ -481,6 +481,29 @@ pub fn found_city(
     Ok((city, name))
 }
 
+/// Achète la case `h` pour la ville (4d) : une voisine de son territoire, à personne, payée en
+/// deniers (20 + 10 × distance au centre). Rend le prix payé, ou la raison du refus.
+#[allow(clippy::too_many_arguments)]
+pub fn acheter_case(map: &WorldMap, territoire: &mut Territory, state: &mut GameState, ville: Entity, centre: Hex, city: &mut rules::CityState, h: Hex, tour: u32) -> Result<i32, String> {
+    let h = map.canonical(h);
+    if let Some(e) = territoire.0.get(&h) {
+        return Err(if *e == ville { "la case est déjà à la ville".into() } else { "la case est à une autre ville".into() });
+    }
+    if !rules::cases_gagnables(map, ville, &territoire.0).contains(&h) {
+        return Err("la case doit toucher le territoire de la ville".into());
+    }
+    let prix = rules::prix_case(map.distance(centre, h));
+    let tresor = state.tresor_mut(Peuple::JOUEUR);
+    if *tresor < prix {
+        return Err(format!("il faut {prix} deniers (trésor : {})", *tresor));
+    }
+    *tresor -= prix;
+    territoire.0.insert(h, ville);
+    let lieu = map.describe(h).to_lowercase();
+    city.noter(tour, rules::GenreEvenement::Territoire, format!("Case achetée pour {prix} deniers : {lieu}"), Some(h));
+    Ok(prix)
+}
+
 pub(crate) fn claim_territory(territory: &mut HashMap<Hex, Entity>, city: Entity, center: Hex, radius: i32, map: &WorldMap) {
     for h in map.range(center, radius).filter(|&h| map.contains(h)) {
         territory.entry(h).or_insert(city);
@@ -655,7 +678,16 @@ fn end_turn(
         let name = city.state.name.clone();
         if report.grew {
             log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(format!(" atteint le palier {}.", city.state.palier())));
-            claim_territory(&mut territory.0, *entity, *center, rules::territory_radius(city.state.palier()), map);
+        }
+        // Territoire par la culture (4d) : une case de plus à chaque seuil (le palier ne le fixe plus)
+        while city.state.culture >= rules::seuil_culture(city.state.cases_gagnees) {
+            let Some(h) = rules::case_par_la_culture(map, *center, *entity, &territory.0) else { break };
+            city.state.culture -= rules::seuil_culture(city.state.cases_gagnees);
+            city.state.cases_gagnees += 1;
+            territory.0.insert(h, *entity);
+            let lieu = map.describe(h).to_lowercase();
+            city.state.noter(tour, rules::GenreEvenement::Territoire, format!("La culture gagne une case : {lieu}"), Some(h));
+            log.notify(Importance::Info, LogText::new().city(&name, *entity, *center).text(format!(" gagne une case par la culture ({lieu}).")));
         }
         if report.colon_attend {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(format!(" : le colon est prêt, mais il faut {} habitants pour le former ; la file est bloquée.", rules::milliers(rules::CityState::HABITANTS_POUR_COLON))));
