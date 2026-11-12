@@ -341,9 +341,11 @@ choix à l'écran viennent en 4b.
   `rules::seuil_culture`, case choisie par `rules::case_par_la_culture` (voisine à personne, la
   meilleure valeur aménagée au mieux, la plus proche du centre à égalité ; les atouts viendront avec
   les ressources) ; projet « Développement de l'art et de la culture » : 1 culture pour 5 de
-  production (**chiffre proposé**, à régler) ; achat `game::acheter_case` (20 + 10 × distance ; une
-  case achetée relève aussi le seuil de culture de la suivante : Benjamin, 12/11/2026). Pas encore : le sanctuaire (pas de
-  bâtiments), l'achat depuis l'écran de la ville (console seulement), la prévision du territoire
+  production (proposé, validé par Benjamin le 12/11/2026) ; achat `game::acheter_case` (20 + 10 × distance ; une
+  case achetée relève aussi le seuil de culture de la suivante : Benjamin, 12/11/2026). Achat depuis l'écran de la ville
+  (décision de Benjamin) : les voisines à acheter en pointillé sur la carte avec leur prix, leur fiche
+  et son bouton « Acheter » (`ecran_ville::fiche_achat`). Pas encore : le sanctuaire (pas de
+  bâtiments), la prévision du territoire
   (décision C2 : non). Les villes des anciennes sauvegardes gardent leur territoire.
 
 ## Questions ouvertes

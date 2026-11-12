@@ -893,8 +893,10 @@ fn cities() -> Article {
                de production avec le projet « Développement de l'art et de la culture ». Quand le stock atteint \
                10 + 6 × les cases déjà gagnées (10, puis 16, 22…), la ville gagne une case : la meilleure voisine \
                de son territoire, la plus proche du centre à valeur égale. Une case voisine peut aussi s'acheter, \
-               20 + 10 × sa distance au centre en deniers (console : `ville acheter`) ; elle compte alors comme une \
-               case gagnée pour le seuil suivant. Le territoire sert aux cases \
+               20 + 10 × sa distance au centre en deniers : sur la carte de l'écran de la ville, les voisines \
+               à acheter sont en pointillé avec leur prix ; un clic ouvre leur fiche (ce qu'elles rapporteraient, \
+               si la culture les prendra d'elle-même) et son bouton « Acheter » (console : `ville acheter`). \
+               Une case achetée compte comme une case gagnée pour le seuil suivant. Le territoire sert aux cases \
                exploitées et aux soins (+20 PV par tour en territoire ami)."),
             h("Production"),
             p("Chaque ville a une file de construction : unités, ponts et aménagements, chacun avec la production \
