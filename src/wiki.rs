@@ -868,12 +868,12 @@ fn cities() -> Article {
                marché, une ville plus grande en attendant davantage. Le bien-être s'approche du visé d'un cinquième de \
                l'écart par tour. Effet : la croissance naturelle est multipliée par 1 + (bien-être − 60) / 100 \
                (× 1 à 60, × 1,15 à 75, × 0,6 à 20)."),
-            p("La salubrité (0 à 100) part de 60 : eau courante voisine (rivière, fleuve) +15, lac voisin +5, \
+            p("La salubrité (0 à 100) part de 50 : eau courante voisine (rivière, fleuve) +15, lac voisin +5, \
                marais voisin jusqu'à −15 selon la chaleur de l'été (les fièvres : rien sous 15 °C, tout au-dessus de \
                20 °C), −1 par pâturage du territoire (maladies du bétail, au plus −10), puits +10, et −1 par millier \
-               d'habitants au-delà de 5 000 (le double sans eau courante, au plus −40). Sous 50, les maladies \
+               d'habitants au-delà de 5 000 (le double sans eau courante, au plus −40). Sous 40, les maladies \
                emportent des habitants, jusqu'à 1 % par tour à 0 ; elle n'est montrée sous les cartes de l'écran de \
-               la ville que sous 50. L'onglet Population détaille les deux et la croissance du prochain tour, cause \
+               la ville que sous 40. L'onglet Population détaille les deux et la croissance du prochain tour, cause \
                par cause (naturelle, Peupler, maladies, famine). Le puits se construit dans la file (Construire, \
                « Constructions de la ville », 15 de production), sur le centre ; plus tard, il donnera aussi de l'eau."),
             h("Écran de la ville"),

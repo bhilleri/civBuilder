@@ -85,12 +85,13 @@ stratégique).
   - **Sel** : un **bonus** (la norme est de ne pas en avoir) : couvert, +5 de salubrité (proposé) ;
     il conserve aussi la viande et le poisson.
   - **Vêtements** : **couverts, rien ; en manque, un malus de salubrité** (proposé : jusqu'à −10, au
-    prorata), parce que la salubrité a déjà beaucoup de sources de gain. Couverts par **Fibres et
+    prorata ; validé le 13/11/2026), parce que la salubrité a déjà beaucoup de sources de gain. Couverts par **Fibres et
     peaux** (lin, laine, coton ou peaux selon le climat ; famille principale Besoins de base), et par
     la **soie** et les **fourrures** (Luxe, seconde famille Besoins de base). Les teintures restent du
     luxe seul. Pas de bonus de diversité des vêtements : la diversité passe par le luxe.
-  - Proposé : baisser la base de la salubrité à 50 et le seuil des maladies à 40 (même marge
-    qu'aujourd'hui, plafond d'une ville très bien fournie à 87).
+  - **Décidé le 13/11/2026** : base de la salubrité 50, seuil des maladies 40 (même marge
+    qu'avant, plafond d'une ville très bien fournie à 87) ; pas de bonus à forte salubrité pour
+    l'instant (plus tard, moindre prise des épidémies).
 - **Luxe** : produits de luxe → bien-être (+4 par sorte, attente qui grandit avec la ville, 4c).
 - **Matériaux** (compatibles avec stratégique) : pierre de taille, argile, chaux, bois d'œuvre.
 - **Santé, Culture, Savoir** : peut-être regroupés en une famille (nom proposé : « Développement » ;
@@ -105,7 +106,7 @@ joueur (page de synthèse publiée : familles, ressources, bonus) :
   armes**, **Montures et bêtes de bât**, Développement (santé, culture, savoir).
 - **Outils** : une ressource porte le tag « outils » avec un **niveau** : 1 pierre (silex,
   obsidienne, pierre dure), 2 cuivre, 3 bronze (cuivre + étain ; l'étain seul n'a aucun effet), 4 fer.
-  Proposé : rendements des cases aménagées +5 / +10 / +15 / +20 % ; seul le meilleur niveau couvert
+  Rendements des cases aménagées **+10 / +15 / +20 / +25 %** (validé le 13/11/2026) ; seul le meilleur niveau couvert
   compte (pas d'addition) ; les outils s'usent (0,1 par tour pour 1 000 travailleurs : la demande),
   bonus au prorata de la couverture ; pas d'atelier d'outils au début (la ressource sert d'outil).
 - **Bonus propres** (Benjamin) : une ressource peut garder un bonus à elle, qui s'ajoute et continue
@@ -123,6 +124,9 @@ joueur (page de synthèse publiée : familles, ressources, bonus) :
 - Le bronze à l'arsenic est retiré : sans étain, le cuivre reste au niveau 2.
 
 ### Revue par six rôles et décisions (Benjamin, 13/11/2026)
+**Ressources validées par Benjamin le 13/11/2026** (familles, liste, bonus, outils +10 à +25 %,
+affichage par effet avec un onglet « Marché », salubrité base 50 et seuil 40, vêtements −10) ; les
+chiffres encore « proposés » se calent par les bilans au fil des livraisons.
 Revue de la page de synthèse par un game designer systèmes, un joueur, un historien, un économiste,
 un designer d'interface et un développeur. Décisions de Benjamin :
 - **Commerce** : les villes commercent entre elles, et le jeu se jouera contre d'autres peuples.

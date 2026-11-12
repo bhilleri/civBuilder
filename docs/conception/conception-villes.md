@@ -347,7 +347,10 @@ choix à l'écran viennent en 4b.
     Humeur en mots : mécontente sous 40, satisfaite, prospère au-dessus de 70. Le bonus de surplus
     de nourriture est retiré (la nourriture règle déjà la croissance ; la variété de la nourriture,
     tâche 16, prendra sa place) ; l'effet sur la productivité est reporté.
-  - **Salubrité** (nom proposé par l'historien) : base 60 ; eau courante voisine +15 ; lac voisin
+  - **Salubrité** (nom proposé par l'historien) : base 60 (**50 depuis le 13/11/2026**, seuil des
+    maladies 40 au lieu de 50 : même marge, mais les bonus des ressources gardent de l'effet sous
+    100 ; pas de bonus à forte salubrité pour l'instant, elle sert quand la population augmente ;
+    plus tard, elle réduira la prise des épidémies) ; eau courante voisine +15 ; lac voisin
     +5 (eau qui se renouvelle mal) ; marais voisin −15 pondéré par l'été (paludisme : rien sous
     15 °C, tout au-dessus de 20 °C) ; −1 par pâturage du territoire (zoonoses), au plus −10 ;
     taille : −1 par millier d'habitants au-delà de 5 000, doublé sans eau courante, au plus −40 ;

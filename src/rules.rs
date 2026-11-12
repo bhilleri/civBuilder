@@ -603,7 +603,7 @@ pub const BIEN_ETRE_JEUX_MAX: f64 = 15.0;
 /// Part de l'écart au bien-être visé comblée chaque tour (il suit avec retard).
 pub const BIEN_ETRE_INERTIE: f64 = 0.2;
 /// Salubrité d'une ville sans rien de particulier.
-pub const SALUBRITE_BASE: f64 = 60.0;
+pub const SALUBRITE_BASE: f64 = 50.0;
 /// Eau courante voisine (rivière, fleuve) : boire, laver, évacuer.
 pub const SALUBRITE_EAU_COURANTE: f64 = 15.0;
 /// Lac voisin : de l'eau, mais qui se renouvelle mal (parasites).
@@ -626,7 +626,7 @@ pub const SALUBRITE_TAILLE_MAX: f64 = 40.0;
 pub const SALUBRITE_PUITS: f64 = 10.0;
 /// Salubrité sous laquelle la ville perd des habitants (maladies), jusqu'à `PERTE_INSALUBRITE_MAX`
 /// par tour à 0 ; elle n'est montrée que sous ce seuil.
-pub const SALUBRITE_SEUIL: f64 = 50.0;
+pub const SALUBRITE_SEUIL: f64 = 40.0;
 pub const PERTE_INSALUBRITE_MAX: f64 = 0.01;
 /// Coût du puits (production).
 pub const PUITS_COUT: i32 = 15;
@@ -1337,10 +1337,10 @@ mod tests {
     fn la_salubrite_depend_du_lieu_de_la_taille_et_du_puits() {
         let rassasie = Rendements::new(3.0, 4.0, 1.0);
         let mut c = CityState::new("Essai".into());
-        assert_eq!(c.salubrite(), 60.0);
-        // Marais en été chaud : 45, sous le seuil : les maladies emportent 0,1 % par tour
+        assert_eq!(c.salubrite(), 50.0);
+        // Marais en été chaud : 35, sous le seuil de 40 : les maladies emportent 0,125 % par tour
         c.site.marais = 1.0;
-        assert_eq!(c.salubrite(), 45.0);
+        assert_eq!(c.salubrite(), 35.0);
         assert_eq!(c.variation(rassasie), 14);
         let r = c.passer_le_tour(rassasie, 0);
         assert!(!r.starved, "des maladies, pas une famine");
@@ -1350,16 +1350,16 @@ mod tests {
         let built: Vec<Production> = (0..10).filter_map(|_| c.process_turn(Rendements::new(3.0, 5.0, 1.0)).built).collect();
         assert_eq!(built, vec![Production::Puits]);
         assert!(c.puits && !c.mettre_en_file(Production::Puits), "un puits par ville");
-        assert_eq!(c.salubrite(), 55.0);
+        assert_eq!(c.salubrite(), 45.0);
         // Taille : −1 par millier au-delà de 5 000, le double sans eau courante
         let mut grande = CityState::new("Grande".into());
         grande.habitants = 15_000;
-        assert_eq!(grande.salubrite(), 40.0);
+        assert_eq!(grande.salubrite(), 30.0);
         grande.site.eau_courante = true;
-        assert_eq!(grande.salubrite(), 65.0);
+        assert_eq!(grande.salubrite(), 55.0);
         grande.site.lac = true;
         grande.site.paturages = 14;
-        assert_eq!(grande.salubrite(), 60.0, "+5 de lac, −10 de bétail au plus");
+        assert_eq!(grande.salubrite(), 50.0, "+5 de lac, −10 de bétail au plus");
     }
 
     #[test]
