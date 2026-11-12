@@ -103,6 +103,35 @@ stratégique).
   naturelle × (1 + 0,1 par type au-delà du premier) ; diversité : +2 de bien-être par sorte au-delà
   de la première de chaque type, au plus +8 (distinct du luxe).
 
+### Types de nourriture : avis de cinq agents et décisions (Benjamin, 12/11/2026)
+Avis demandés à un historien de l'alimentation, un géographe du peuplement, un nutritionniste, un
+spécialiste du gameplay et un joueur. Accord : trois types, les féculents comme base (60 à 80 %
+des calories), un **bonus jamais une punition** (une ville de taïga sans fruits n'a pas de malus,
+seulement pas le bonus), un type principal par aménagement (jardin tôt pour les fruits et légumes,
+pêche et chasse pour les protéines), les sortes laissées à l'intendant.
+- **Trois types (décision)** : **Céréales et féculents**, **Protéines** (viande, laitages, poisson),
+  **Fruits et légumes** (les oléagineux ne forment pas un type : « on remplace oléagineux par
+  fruit »). **Pas de légumineuses pour le moment.**
+- **Seuils (décision)** : un type compte s'il couvre **15 % du besoin** (le besoin, pas la
+  production : un excédent ne fait jamais perdre un type) ; une sorte compte si elle couvre **5 %
+  du besoin**.
+- **Pertes du stock selon la sorte, pas le type (décision)** (les grains se gardent des années, la
+  viande fraîche quelques jours) ; idée de l'historien : séchage et fumage (climat froid ou aride)
+  réduisent aussi la perte, sans sel.
+- **Tout doit se voir (décision)** : dans l'onglet de la nourriture, dans la croissance et dans le
+  bien-être.
+- **Pas de spécialités régionales nommées** (décision : caler l'économie sur des spécialités locales
+  serait trop compliqué).
+- **Fête** quand le grenier est plein et varié : attention à l'effet boule de neige ; un délai
+  entre deux fêtes (Benjamin ; chiffres à proposer).
+- **Effet de l'équilibre : en discussion.** Proposé : croissance naturelle × 1,10 avec deux types,
+  × 1,25 avec trois. Remarque de Benjamin : historiquement, la population a été bornée par la
+  nourriture, pas par le rythme de la croissance démographique ; avis demandés à un historien et à
+  un géographe du peuplement.
+- Pas de carences (le nutritionniste proposait protéines manquantes × 0,8 sur la croissance,
+  scorbut −10 de salubrité) : écartées au nom du « bonus jamais une punition » ; le scorbut pourra
+  revenir pour une ville assiégée qui vit sur ses greniers.
+
 ### Stocks et conservation (Benjamin)
 - Une ville a un **stock de nourriture**, utilisé **en cas de famine ou de siège**, disponible avec
   le **grenier** et d'autres bâtiments de stockage.
