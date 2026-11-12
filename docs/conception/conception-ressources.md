@@ -148,7 +148,11 @@ pêche et chasse pour les protéines), les sortes laissées à l'intendant.
   Facteurs actuels : surplus, bien-être, « Peupler la ville », salubrité. Pistes proposées : front
   pionnier (une jeune ville loin de sa limite grandit plus vite : contre l'effet boule de neige),
   attractivité et migrations (déjà prévues), techniques (bouillies de sevrage avec la Poterie),
-  paix et sécurité.
+  paix et sécurité. **Décision de Benjamin (12/11/2026)** : des **technologies** débloquent des
+  bonus de croissance liés à la **baisse de la mortalité infantile**, et peut-être des
+  **bâtiments** (l'hôpital). Proposé, selon l'ère : Poterie (bouillies de sevrage, Néolithique) ;
+  sanctuaire de guérison (type Asclépiéion, Antiquité, avec la technologie Médecine et hygiène) ;
+  hôtel-Dieu ou hospice (Moyen Âge) ; chaque bonus affiché dans la croissance, cause par cause.
 - Pas de carences (le nutritionniste proposait protéines manquantes × 0,8 sur la croissance,
   scorbut −10 de salubrité) : écartées au nom du « bonus jamais une punition » ; le scorbut pourra
   revenir pour une ville assiégée qui vit sur ses greniers.
