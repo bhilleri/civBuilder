@@ -157,6 +157,12 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   pâturages ; demande chiffrée (sel et vêtements 0,1 pour 1 000 habitants ; luxe 0,1 × palier par
   sorte, stock qui s'use) ; un poids par ressource quand il s'écarte de sa famille ; rareté comptée
   une fois.
+- **Pas de ressource bloquante (Benjamin)** : exiger une ressource pour un bâtiment ou une unité
+  serait trop bloquant pour les joueurs qui n'y ont pas accès. Une ressource rend une chose
+  **meilleure ou moins chère**, jamais possible ou impossible. Proposé : temple en pierre locale,
+  et en marbre s'il y en a (+ culture) ; mégalithe en pierre locale, moins cher avec la pierre dure ;
+  grands navires au bois ordinaire (+50 % de production), au coût normal avec le bois d'œuvre ;
+  unités montées formées sans montures, avec le malus d'équipement incomplet déjà décidé.
 - **Ordre des livraisons (développeur)** : roches et sols → nourriture par type → diversité →
   greniers → gisements → besoins de base et luxe → outils → matériaux, montures et marché.
   `Rendements` reste l'agrégat, avec un panier par sorte à côté ; une sorte par case, choisie à
