@@ -845,21 +845,23 @@ fn cities() -> Article {
                champ ou un champ de légumineuses, 1 200 pour un pâturage, 600 pour une coupe de bois ou un maraîchage. \
                Chaque grandeur a sa courbe : elle croît avec les travailleurs, de moins en moins vite. La cueillette \
                s'épuise vite (la moitié des places donne 62 % du rendement) ; un aménagement s'étend avec le travail (la \
-               moitié donne 55 %). La cueillette rapporte plus par travailleur (1 de nourriture pour 300 sur une plaine), \
-               la ferme fait vivre beaucoup plus de monde (un champ de plaine : 7,5 pour 3 000). Un aménagement ne rend \
-               jamais moins que la nature avec les mêmes travailleurs : la cueillette d'une forêt continue à côté de la \
-               coupe de bois, la production d'une plaine à côté du champ. Seul un défrichement (la forêt est perdue) ou \
-               une exploitation (la case ne sert plus qu'à extraire) retire quelque chose. Au-delà des places, les \
-               habitants sont sans emploi : il faut aménager des cases."),
+               moitié donne 55 %). Une case sans aménagement ne donne que la cueillette, le travail des chasseurs-cueilleurs. \
+               Sur une case aménagée, chacun fait son travail (champ, coupe…) et vit aussi de ce qu'il trouve autour : la \
+               subsistance (petite chasse, cueillette d'appoint, bois de chauffe), 75 % de la cueillette du terrain, \
+               atteinte à 500 personnes ; les technologies la relèveront. Le travail est réglé pour que l'aménagement plein \
+               garde son total (un champ de plaine : 7,5 de nourriture pour 3 000 travailleurs, dont 0,75 de subsistance), \
+               et la subsistance garde la différence entre les terrains (une prairie reste plus riche qu'une plaine). La \
+               cueillette rapporte plus par travailleur ; la ferme fait vivre beaucoup plus de monde. Au-delà des places, \
+               les habitants sont sans emploi : il faut aménager des cases."),
             table(
                 &["Aménagement", "Cases", "Plein (sol brun)"],
                 vec![
-                    vec!["champ (céréales)".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 7,5 (fertilité du sol) pour 3 000 ; la production de la case reste".into()],
+                    vec!["champ (céréales)".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 7,5 (fertilité du sol) pour 3 000 ; production : la subsistance".into()],
                     vec!["champ de légumineuses (protéines)".into(), "comme un champ".into(), "80 % d'un champ".into()],
                     vec!["pâturage (protéines)".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 3 pour 1 200 ; production +1 pour 800".into()],
                     vec!["maraîchage (fruits et légumes)".into(), "comme un champ".into(), "nourriture × 1,8 pour 600".into()],
-                    vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2,5 pour 600 ; la cueillette reste".into()],
-                    vec!["exploitation (saline, minière, carrière…)".into(), "un gisement connu, montagne comprise (pas un pic) ; 500 travailleurs".into(), "1 unité de la ressource par tour, production +1, plus de nourriture".into()],
+                    vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2,5 pour 600 ; nourriture : la subsistance".into()],
+                    vec!["exploitation (saline, minière, carrière…)".into(), "un gisement connu, montagne comprise (pas un pic) ; 500 travailleurs".into(), "1 unité de la ressource par tour, production +1 ; nourriture : la subsistance".into()],
                 ],
             ),
             p("Gisements (lot néolithique) : sel (côtes chaudes et sèches, lacs salés, sel gemme), silex (craie et \

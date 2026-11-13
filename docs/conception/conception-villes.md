@@ -288,9 +288,9 @@ nourriture de la forêt étalée sur 1 000 places). Règles retenues (`intendant
   aménagements 0,85 (on étend le travail : une parcelle, des arbres de plus). Avec 0,7, un champ
   de 300 travailleurs aurait donné 50 % de plus que la cueillette ; avec 0,85, 6 % (« une petite
   variation », Benjamin) ;
-- **jamais moins que la nature** : pour chaque grandeur, un aménagement donne au moins la nature
-  avec les mêmes travailleurs (le maximum des deux courbes). Exceptions : le défrichement (la
-  forêt devient une prairie) et l'exploitation d'un gisement (la case ne sert plus qu'à extraire) ;
+- ~~jamais moins que la nature (le maximum des deux courbes)~~ : remplacé le même jour par la
+  subsistance (plus bas) : le maximum comptait les mêmes travailleurs deux fois, et la courbe n'était
+  plus régulière (l'intendant sous-estimait un champ de 150 à 200 travailleurs) ;
 - **coupe de bois** : 600 places (une coupe ne prend qu'une partie de la forêt), production × 2,5
   (5 sur une forêt), soit 0,0083 par bûcheron contre 0,0067 par cueilleur ; la nourriture de la
   forêt reste (plafond 300) ; avec 300 travailleurs : 2,8 de production au lieu de 2 ;
@@ -306,6 +306,26 @@ travailleurs, la courbe d'un aménagement reste proche de la nature
 aménagements (habitants nourris et production selon les travailleurs). Limite : la part des types
 de nourriture d'une case aménagée est celle de l'aménagement, même quand la nature donne plus (peu
 de travailleurs). Bilan `bilan_croissance` (inchangé, la croissance reste bornée par le taux naturel).
+
+**Subsistance (13/11/2026, proposition de Benjamin, avis d'un game designer, d'un ergonome et
+d'un joueur)** : une case sans aménagement ne donne que la **cueillette**, le travail des
+chasseurs-cueilleurs (pas de subsistance en plus). Une case aménagée donne son **travail plus la
+subsistance** de ceux qui y vivent (petite chasse, cueillette d'appoint, bois de chauffe…),
+indépendante de l'aménagement : **75 % de la cueillette du terrain, atteinte à 500 personnes**
+(`TAUX_SUBSISTANCE`, `PLACES_SUBSISTANCE`, exposant 0,7) ; elle montera avec les technologies,
+jusqu'à dépasser 100 %. À nombre égal, elle rapporte moins que la cueillette. Le **travail est
+réduit d'autant** : l'aménagement plein garde le total décidé (champ de plaine : 6,75 + 0,75 =
+7,5 ; légumineuses 6 ; maraîchage 1,8 ; pâturage 3 de nourriture et 2 de production ; coupe de
+bois 5 de production). La subsistance garde la **différence entre plaine et prairie** (Benjamin).
+Conséquences : la grandeur que l'aménagement ne produit pas vient de la subsistance (champ de
+plaine : 0,75 de production au lieu de 1 ; coupe de bois : 0,75 de nourriture au lieu de 1 ;
+exploitation : elle a maintenant la nourriture de la subsistance) ; un champ de 300 travailleurs
+donne ≈ 1,47 de nourriture (le travail et la subsistance), contre 1 pour la cueillette. Types et
+sortes : ceux du travail, plus ceux de la nature au prorata de la subsistance (un champ de prairie :
+surtout des céréales, et du gibier). Tests : `la_subsistance_rapporte_moins_que_la_cueillette`,
+`un_amenagement_plein_garde_son_total`, `la_prairie_reste_plus_riche_que_la_plaine`,
+`l_intendant_remplit_une_coupe_de_bois`. Affichage (maquette « Rendement des cases ») : à faire,
+avec la subsistance en cellules hachurées et la décomposition « travail + subsistance » dans la fiche.
 
 Premier bilan `bilan_croissance` (graines 777 et 2, villes de plaine de 19 cases,
 200 tours) : en cueillette, 9 000 → 5 400 places ; avec champs et pâturages, nourriture pleine × 1,8

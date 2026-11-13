@@ -1140,7 +1140,8 @@ mod tests {
         assert!(Amenagement::Exploitation.possible(&map, h).is_ok());
         assert!(Amenagement::Exploitation.possible(&map, vide).is_err());
         assert_eq!(capacite(&map, h, Some(Amenagement::Exploitation)), 500);
-        assert_eq!(rendement_max(&map, h, Some(Amenagement::Exploitation)).nourriture, 0.0);
+        // (sa nourriture : la subsistance de ceux qui y travaillent)
+        assert!((rendement_max(&map, h, Some(Amenagement::Exploitation)).nourriture - crate::intendant::TAUX_SUBSISTANCE * rendement_max(&map, h, None).nourriture).abs() < 1e-9);
         assert!((unites_extraites(500, 500) - 1.0).abs() < 1e-9 && unites_extraites(250, 500) < 1.0 && unites_extraites(0, 500) == 0.0);
         let mut ville = rules::CityState::new("Essai".into());
         ville.ajouter_ressource(r, 0.5);
