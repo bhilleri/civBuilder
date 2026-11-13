@@ -955,9 +955,12 @@ fn cities() -> Article {
             p("À droite, la fiche de ce que vous touchez ou réglez : une case, une case à acheter, une grandeur et ses \
                réglages, un placement. En bas, le tiroir (Tab l'ouvre ou le replie) : les cases de la ville et d'où \
                viennent les rendements. Au-dessus de la carte, la barre de la carte : cases à acheter, zoom, Recentrer, \
-               et la couche (Aménagements, Emplois, Habitants, la grandeur détaillée, Histoire ; l'onglet en choisit \
-               une). Sur la carte : la teinte de chaque case, ses chiffres, les cases à acheter en pointillé avec leur \
-               prix. Survol : l'infobulle de la case ; clic : sa fiche. La molette, le bouton du milieu et le clavier \
+               et la couche (Rendement, Aménagements, Emplois, Habitants, la grandeur détaillée, Ressources, \
+               Histoire ; l'onglet en choisit une). Couche Rendement : sur chaque case, une barre d'unités par grandeur \
+               (pleine pour ce qu'elle donne aujourd'hui, plus pâle pour la subsistance, en contour pour ce qu'elle \
+               donnerait pleine), « maintenant / plein », et un anneau des travailleurs sur les places. Les cases à \
+               acheter sont en pointillé avec leur prix ; la fiche d'une case montre ce qu'elle donne selon ses \
+               travailleurs, et un placement ce qu'on gagnera une fois la case remplie. Survol : l'infobulle de la case ; clic : sa fiche. La molette, le bouton du milieu et le clavier \
                déplacent la caméra comme d'habitude. Sous le nom : ce qui freine la croissance ce tour et à \
                terme, et le remède le plus rentable, chiffré en habitants par tour (« 2 autres + » déplie les autres). \
                Dans le tiroir, F agrandit le graphique (Échap le réduit) ; la molette y change la période."),

@@ -767,6 +767,13 @@ variante B : gauche, droite, tiroir). L'écran n'est plus un plein écran avec u
   une icône par élément ; placement : gains en couleur et pertes en rouge sur chaque case et en deux
   colonnes dans la fiche, avec le gisement de la case et l'effet en habitants par tour ; carte des
   ressources : nom de la ressource au lieu du sigle.
+- **Rendement des cases (13/11, maquette « Rendement des cases », trois avis)** : couche Rendement
+  (barres d'unités : pleines aujourd'hui, pâles pour la subsistance, en contour pour la case pleine ;
+  deux grandeurs au plus ; au-delà de 10 unités, une cellule en compte plusieurs) ; anneau des
+  travailleurs (douze segments au bord de la case, `ville_carte.rs`) ; fiche d'une case : facteurs,
+  histogramme travail et subsistance selon les travailleurs, tableau aujourd'hui, +100, pleine ;
+  placement : « rempli +X » sous le gain dans 10 tours ; tiroir de l'onglet Bâtiments : tableau des
+  cases. Pas encore : le sélecteur d'horizon (aujourd'hui, 10 tours, rempli) qui piloterait la teinte.
 - Écarts avec la maquette v7 et limites : pas de temps de trajet entre villes (la décision « distance =
   temps de transport » reste à faire : seulement les cases) ; pas d'infobulles de décomposition sur
   chaque nombre ; pas de verrou de case ; la molette ne zoome pas dans le temps au-delà des 40 tours

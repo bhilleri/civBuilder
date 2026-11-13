@@ -62,6 +62,8 @@ pub enum Couche {
     Echanges,
     /// Type de nourriture de chaque case (céréales, protéines, fruits et légumes).
     Types,
+    /// Rendement de chaque case : maintenant et plein (unités), travailleurs sur les places.
+    Rendement,
 }
 
 impl Couche {
@@ -75,6 +77,7 @@ impl Couche {
             Couche::Gisements => "Gisements",
             Couche::Echanges => "Échanges",
             Couche::Types => "Types",
+            Couche::Rendement => "Rendement",
         }
     }
 }
@@ -194,6 +197,8 @@ enum ModeCarte {
     Histoire,
     /// Type de nourriture de chaque case.
     Types,
+    /// Rendement de chaque case : barres d'unités (maintenant, plein ; la subsistance plus pâle).
+    Rendement,
 }
 
 /// Anneau de la case conseillée par l'intendant (or : le conseil).
@@ -1927,7 +1932,7 @@ fn couches_proposees(ecran: &EcranVille) -> Vec<Couche> {
         (_, Some(Grandeur::Nourriture)) if !ecran.catalogue => vec![Couche::Quantite, Couche::Types, Couche::Amenagements],
         (_, Some(_)) if !ecran.catalogue => vec![Couche::Quantite, Couche::Amenagements, Couche::Emplois],
         (Onglet::Ressources, _) => vec![Couche::Gisements, Couche::Echanges, Couche::Amenagements],
-        (Onglet::Rendements, _) => vec![Couche::Amenagements, Couche::Emplois],
+        (Onglet::Rendements, _) => vec![Couche::Rendement, Couche::Amenagements, Couche::Emplois],
         (Onglet::Population, _) => vec![Couche::Emplois, Couche::Habitants, Couche::Amenagements],
         (Onglet::Histoire, _) => vec![Couche::Histoire, Couche::Amenagements],
     }
@@ -2227,6 +2232,7 @@ fn reconstruire(
         },
         Couche::Amenagements | Couche::Gisements | Couche::Echanges => ModeCarte::Dominante,
         Couche::Types => ModeCarte::Types,
+        Couche::Rendement => ModeCarte::Rendement,
     };
     commands.entity(*couches_barre).despawn_related::<Children>().with_children(|b| {
         b.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), ..default() }, BackgroundColor(charte::FOND), children![texte("COUCHE", 11.5, charte::MUET)]));
@@ -2267,6 +2273,9 @@ fn reconstruire(
                 (c.hex, if a > 0.0 { COULEURS_TYPES[i].with_alpha(a) } else { Color::srgba(0.0, 0.0, 0.0, 0.15) })
             })
             .collect();
+    }
+    if matches!(couche, Couche::Rendement | Couche::Emplois) && ecran.placement.is_none() {
+        voulu.occupations = cases.iter().filter(|c| !c.centre && c.capacite > 0).map(|c| (c.hex, c.remplissage())).collect();
     }
     if couche == Couche::Gisements && ecran.placement.is_none() {
         // (les cases d'un gisement en couleur, les autres à peine)
@@ -2372,7 +2381,7 @@ fn reconstruire(
             let manque = crate::gisements::Ressource::TOUTES.iter().filter(|&&r| city.state.demande(r) > 0.0 && city.state.couverture(r) < 0.95).count();
             format!("Ressources de la ville · {manque} besoin{} pas couvert{} · le reste : sans effet ou un bonus à gagner", if manque > 1 { "s" } else { "" }, if manque > 1 { "s" } else { "" })
         }
-        _ => format!("Cases de la ville · {} cases · {travaillees} travaillées · {} travailleurs placés · {} places libres", cases.len(), rules::milliers(actifs.into()), rules::milliers(places.saturating_sub(actifs).into())),
+        _ => format!("Cases de la ville · {} cases · {travaillees} travaillées · {} travailleurs · {} places libres · maintenant → pleine", cases.len(), rules::milliers(actifs.into()), rules::milliers(places.saturating_sub(actifs).into())),
     };
     if let Ok(mut t) = textes.get_mut(*titre) {
         t.0 = titre_liste;
@@ -2406,11 +2415,52 @@ fn reconstruire(
             return;
         }
         if ecran.onglet == Onglet::Rendements {
+            tableau_cases(l, &cases, ecran.case);
             ensemble(l, &city, &cases);
+            return;
         }
         {
             let gr = None;
             liste_droite(l, ecran.onglet, &cases, ecran.case, gr, couche == Couche::Habitants, &city.state.chronique);
+        }
+    });
+}
+
+/// Barres d'unités d'une case (couche Rendement) : pour la nourriture et la production, une cellule
+/// par unité ; pleine pour ce qu'elle donne aujourd'hui (plus pâle : la subsistance), en contour pour
+/// ce qu'elle donnerait pleine ; « maintenant / plein » et les travailleurs sur les places.
+fn barres_unites(h: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, images: &Images) {
+    let sub = c.courbe.subsistance_de(c.travailleurs);
+    let lignes: Vec<(Grandeur, f64, f64, f64)> = [(Grandeur::Nourriture, c.rendement.nourriture, sub.nourriture, c.max.nourriture), (Grandeur::Production, c.rendement.production, sub.production, c.max.production)]
+        .into_iter()
+        .filter(|(_, v, _, m)| *m > 0.05 || *v > 0.05)
+        .collect();
+    let taille = (s * 0.12).clamp(7.0, 11.0);
+    let txt = (s * 0.21).clamp(10.0, 12.5);
+    h.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), padding: UiRect::axes(Val::Px(5.0), Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() }, BackgroundColor(charte::FOND.with_alpha(0.8)))).with_children(|b| {
+        for (g, v, sub, m) in lignes {
+            // (une cellule par unité, au plus 10 ; au-delà, chacune en compte plusieurs)
+            let unite = (m / 10.0).ceil().max(1.0);
+            let n = ((m / unite).ceil() as usize).max(1);
+            b.spawn(Node { column_gap: Val::Px(2.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
+                l.spawn(icone(images.grandeur(g), taille + 3.0, g.couleur()));
+                for i in 0..n {
+                    let plein = ((v - sub) / unite - i as f64).clamp(0.0, 1.0) as f32;
+                    let pale = ((v / unite - i as f64).clamp(0.0, 1.0) as f32 - plein).max(0.0);
+                    l.spawn((Node { width: Val::Px(taille), height: Val::Px(taille), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(2.0)), ..default() }, BorderColor::all(g.couleur().with_alpha(0.8)))).with_children(|cel| {
+                        if plein > 0.0 {
+                            cel.spawn((Node { width: Val::Percent(plein * 100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(g.couleur())));
+                        }
+                        if pale > 0.0 {
+                            cel.spawn((Node { width: Val::Percent(pale * 100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(g.couleur().with_alpha(0.45))));
+                        }
+                    });
+                }
+                l.spawn((texte_carte(format!("{} / {}", rules::decimal(v), rules::decimal(m)), txt, charte::TEXTE), Node { margin: UiRect::left(Val::Px(3.0)), ..default() }));
+            });
+        }
+        if !c.centre && c.capacite > 0 {
+            b.spawn(texte_carte(format!("{} / {}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())), txt, Color::srgb(0.79, 0.70, 1.0)));
         }
     });
 }
@@ -2436,7 +2486,7 @@ fn teinte(c: &CaseVue, mode: ModeCarte, gain: Option<&(GainAmenagement, Evaluati
             let part = c.remplissage();
             (if part >= 0.9 { Color::srgb(0.62, 0.55, 0.92) } else { charte::OK }).with_alpha(0.18 + 0.42 * part)
         }
-        ModeCarte::Dominante | ModeCarte::Histoire | ModeCarte::Types => match c.dominante() {
+        ModeCarte::Dominante | ModeCarte::Histoire | ModeCarte::Types | ModeCarte::Rendement => match c.dominante() {
             Some(g) => g.couleur().with_alpha(if c.travailleurs > 0 { 0.32 } else { 0.12 }),
             None => Color::NONE,
         },
@@ -2517,6 +2567,17 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, sur: Hex, mode: M
                     if s >= 26.0 {
                         ligne(h, false, petit);
                     }
+                    // (et une fois la case remplie : le long terme à côté de l'immédiat)
+                    let rempli: Vec<(Grandeur, f64)> = [Grandeur::Nourriture, Grandeur::Production, Grandeur::Deniers].into_iter().map(|gr| (gr, valeur(&g.plein, gr))).filter(|(_, v)| *v >= 0.05).collect();
+                    if !rempli.is_empty() && s >= 26.0 {
+                        h.spawn((Node { column_gap: Val::Px(3.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), margin: UiRect::top(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() }, BackgroundColor(charte::FOND.with_alpha(0.6)))).with_children(|r| {
+                            r.spawn(texte("rempli", petit * 0.9, charte::DOUX));
+                            for (gr, v) in rempli {
+                                r.spawn(texte(signe(v), petit, gr.couleur()));
+                                r.spawn(icone(images.grandeur(gr), petit, gr.couleur()));
+                            }
+                        });
+                    }
                     if rien {
                         h.spawn(centre(texte("rien à gagner", petit, charte::MUET)));
                     }
@@ -2547,6 +2608,8 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, sur: Hex, mode: M
             }
         } else if let (ModeCarte::Grandeur(g, _), true) = (mode, s >= 22.0) {
             h.spawn(centre(texte(rules::decimal(valeur(&c.rendement, g)), (s * 0.34).clamp(11.0, 18.0), charte::TEXTE)));
+        } else if let (ModeCarte::Rendement, true) = (mode, s >= 22.0) {
+            barres_unites(h, c, s, images);
         } else if s >= 22.0 && !c.centre && mode != ModeCarte::Histoire {
             // (pas le nom du terrain : il est dans l'infobulle ; l'aménagement et le gisement)
             if let Some(a) = c.amenagement.filter(|_| amenagements) {
@@ -2702,6 +2765,15 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         pastille(l, charte::GRAVE, "risque de famine");
         pastille(l, charte::SELECTION, "case choisie");
         l.spawn(texte(format!("chiffres : ce qu'on gagne (en couleur, avec l'icône de la grandeur) et ce qu'on perd (en rouge) dans {TOURS_EFFET} tours · ◆ gisement de la case · couleur de la case : valeur pour la ville (nourriture utile jusqu'à {} × le besoin)", rules::decimal(bareme.plafond)), 12.0, charte::MUET));
+        return;
+    }
+    if mode == ModeCarte::Rendement {
+        pastille(l, Grandeur::Nourriture.couleur(), "unité produite");
+        pastille(l, Grandeur::Nourriture.couleur().with_alpha(0.45), "dont la subsistance");
+        l.spawn((Node { width: Val::Px(14.0), height: Val::Px(10.0), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(2.0)), ..default() }, BorderColor::all(Grandeur::Nourriture.couleur())));
+        l.spawn(texte("possible, case pleine", 12.5, charte::TEXTE));
+        pastille(l, Color::srgb(0.79, 0.70, 1.0), "anneau : travailleurs sur les places");
+        l.spawn(texte("chiffres : maintenant / case pleine", 12.5, charte::MUET));
         return;
     }
     if mode == ModeCarte::Types {
@@ -3271,6 +3343,9 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, image
                 l.spawn(barre(c.remplissage(), 90.0, if c.remplissage() >= 0.9 { charte::ALERTE } else { charte::OK }));
             });
         }
+        if !c.centre && c.capacite > 0 {
+            facteurs_case(p, c, images);
+        }
         let part = if c.capacite > 0 && c.max.total() > 0.0 { c.rendement.total() / c.max.total() } else { 1.0 };
         // Gain de 100 travailleurs de plus (l'intendant place des blocs de 100)
         let plus = if c.capacite > c.travailleurs { Some(c.courbe.rendement((c.travailleurs + 100).min(c.capacite)) - c.rendement) } else { None };
@@ -3311,6 +3386,132 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, image
             }
         }
     });
+}
+
+/// Tiroir de l'onglet Bâtiments : une ligne par case (travailleurs sur les places, nourriture et
+/// production maintenant et pleine, ce que donneraient 100 travailleurs de plus), la plus prometteuse
+/// d'abord. Clic : sa fiche.
+fn tableau_cases(l: &mut ChildSpawnerCommands, cases: &[CaseVue], choisie: Option<Hex>) {
+    let mut lignes: Vec<(&CaseVue, Rendements)> = cases
+        .iter()
+        .filter(|c| !c.centre && c.capacite > 0)
+        .map(|c| (c, c.courbe.rendement((c.travailleurs + 100).min(c.capacite)) - c.rendement))
+        .collect();
+    lignes.sort_by(|a, b| (b.1.nourriture * 1.5 + b.1.production + b.1.deniers).total_cmp(&(a.1.nourriture * 1.5 + a.1.production + a.1.deniers)).then(a.0.hex.cmp(&b.0.hex)));
+    let largeurs = [0.0, 130.0, 150.0, 150.0, 170.0];
+    let colonnes = |l: &mut ChildSpawnerCommands, t: [String; 5], couleurs: [Color; 5], taille: f32, choix: Option<Hex>, actif: bool| {
+        let mut ligne = l.spawn((
+            Node { column_gap: Val::Px(10.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
+            BackgroundColor(Color::NONE),
+            BorderColor::all(if actif { charte::SELECTION } else { Color::NONE }),
+        ));
+        if let Some(h) = choix {
+            ligne.insert((ChoixCase(h), UiPointer::default()));
+        }
+        ligne.with_children(|r| {
+            for (i, x) in t.into_iter().enumerate() {
+                let w = largeurs[i];
+                r.spawn((
+                    Node { width: if w > 0.0 { Val::Px(w) } else { Val::Auto }, flex_grow: if w > 0.0 { 0.0 } else { 1.0 }, min_width: Val::Px(0.0), justify_content: if i == 0 { JustifyContent::FlexStart } else { JustifyContent::FlexEnd }, overflow: Overflow::clip(), ..default() },
+                    children![(texte(x, taille, couleurs[i]), TextLayout::new(Justify::Left, bevy::text::LineBreak::NoWrap))],
+                ));
+            }
+        });
+    };
+    colonnes(l, ["CASE".into(), "TRAVAILLEURS".into(), "NOURRITURE".into(), "PRODUCTION".into(), "100 DE PLUS".into()], [charte::MUET; 5], 11.0, None, false);
+    for (c, plus) in lignes {
+        let nom = match c.amenagement {
+            Some(a) => format!("{} · {}", c.nom, a.nom()),
+            None => c.nom.clone(),
+        };
+        let gain = if c.travailleurs >= c.capacite {
+            "pleine".to_string()
+        } else {
+            [(plus.nourriture, "nourr."), (plus.production, "prod.")].iter().filter(|(v, _)| *v >= 0.005).map(|(v, n)| format!("+{} {n}", rules::decimal(*v))).collect::<Vec<_>>().join(" ")
+        };
+        colonnes(
+            l,
+            [
+                nom,
+                format!("{} / {}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())),
+                format!("{} → {}", rules::decimal(c.rendement.nourriture), rules::decimal(c.max.nourriture)),
+                format!("{} → {}", rules::decimal(c.rendement.production), rules::decimal(c.max.production)),
+                gain,
+            ],
+            [charte::TEXTE, Color::srgb(0.79, 0.70, 1.0), Grandeur::Nourriture.couleur(), Grandeur::Production.couleur(), charte::OK],
+            13.0,
+            Some(c.hex),
+            choisie == Some(c.hex),
+        );
+    }
+}
+
+/// Fiche d'une case : ses trois facteurs (places, rendement plein, travailleurs), ce qu'elle donne
+/// selon ses travailleurs (une colonne par tranche : le travail, la subsistance plus pâle, les colonnes
+/// au-delà des travailleurs d'aujourd'hui en contour), et un tableau aujourd'hui, +100, pleine.
+fn facteurs_case(p: &mut ChildSpawnerCommands, c: &CaseVue, images: &Images) {
+    let plein = c.max;
+    p.spawn(Node { column_gap: Val::Px(6.0), ..default() }).with_children(|r| {
+        for (v, t) in [(rules::milliers(c.capacite.into()), "places"), (rules::decimal(plein.nourriture + plein.production), "rendement plein (nourr. + prod.)"), (rules::milliers(c.travailleurs.into()), "travailleurs aujourd'hui")] {
+            r.spawn((Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, flex_basis: Val::Px(0.0), padding: UiRect::all(Val::Px(7.0)), border_radius: BorderRadius::all(Val::Px(7.0)), ..default() }, BackgroundColor(charte::SURFACE)))
+                .with_children(|b| {
+                    b.spawn(texte(v, 16.0, charte::TEXTE));
+                    b.spawn(texte(t, 11.5, charte::MUET));
+                });
+        }
+    });
+    // Histogramme : 24 colonnes de 0 aux places ; nourriture et production empilées
+    let n = 24usize;
+    let haut = 70.0;
+    let maxi = (plein.nourriture + plein.production).max(0.01);
+    p.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() }).with_children(|b| {
+        b.spawn(Node { column_gap: Val::Px(2.0), align_items: AlignItems::FlexEnd, height: Val::Px(haut), ..default() }).with_children(|cols| {
+            for i in 1..=n {
+                let t = (c.capacite as f64 * i as f64 / n as f64).round() as u32;
+                let r = c.courbe.rendement(t);
+                let s = c.courbe.subsistance_de(t);
+                let actif = t <= c.travailleurs.max(1);
+                let morceau = |v: f64| Val::Px((v / maxi * haut as f64) as f32);
+                cols.spawn(Node { flex_direction: FlexDirection::ColumnReverse, flex_grow: 1.0, flex_basis: Val::Px(0.0), ..default() }).with_children(|col| {
+                    for (g, total, dont) in [(Grandeur::Nourriture, r.nourriture, s.nourriture), (Grandeur::Production, r.production, s.production)] {
+                        let k = g.couleur();
+                        let (travail, sub) = ((total - dont).max(0.0), dont);
+                        for (v, a) in [(travail, 1.0), (sub, 0.5)] {
+                            if v > 1e-6 {
+                                col.spawn((Node { height: morceau(v), border: UiRect::all(Val::Px(if actif { 0.0 } else { 1.0 })), ..default() }, BackgroundColor(if actif { k.with_alpha(a) } else { Color::NONE }), BorderColor::all(k.with_alpha(0.5 * a))));
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        b.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|l| {
+            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("0", 11.0, charte::MUET)]));
+            l.spawn(texte(format!("plein : en couleur aujourd'hui, en contour ce qui reste à remplir · pâle : la subsistance · {} places", rules::milliers(c.capacite.into())), 11.0, charte::MUET));
+        });
+    });
+    // Aujourd'hui, avec 100 travailleurs de plus, pleine ; et ce qu'en donne la subsistance
+    let plus = c.courbe.rendement((c.travailleurs + 100).min(c.capacite));
+    let sub = c.courbe.subsistance_de(c.capacite);
+    p.spawn(Node { flex_direction: FlexDirection::Column, ..default() }).with_children(|t| {
+        let ligne = |t: &mut ChildSpawnerCommands, cellules: [String; 4], couleur: Color, taille: f32| {
+            t.spawn((Node { column_gap: Val::Px(6.0), padding: UiRect::vertical(Val::Px(3.0)), border: UiRect::top(Val::Px(1.0)), ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
+                for (i, x) in cellules.into_iter().enumerate() {
+                    l.spawn((Node { width: if i == 0 { Val::Auto } else { Val::Px(78.0) }, flex_grow: if i == 0 { 1.0 } else { 0.0 }, justify_content: if i == 0 { JustifyContent::FlexStart } else { JustifyContent::FlexEnd }, ..default() }, children![texte(x, taille, if i == 0 { couleur } else { charte::TEXTE })]));
+                }
+            });
+        };
+        ligne(t, ["".into(), "aujourd'hui".into(), "+100".into(), "pleine".into()], charte::MUET, 11.0);
+        for g in [Grandeur::Nourriture, Grandeur::Production] {
+            if valeur(&plein, g) > 0.05 {
+                ligne(t, [g.nom().into(), rules::decimal(valeur(&c.rendement, g)), rules::decimal(valeur(&plus, g)), rules::decimal(valeur(&plein, g))], g.couleur(), 13.0);
+            }
+        }
+        if c.amenagement.is_some() && sub.total() > 0.0 {
+            t.spawn(texte(format!("Pleine, dont la subsistance de ceux qui y vivent : {} nourriture, {} production (75 % de la cueillette du terrain)", rules::decimal(sub.nourriture), rules::decimal(sub.production)), 12.0, charte::MUET));
+        }
+    });
+    let _ = images;
 }
 
 /// Courbe d'une grandeur : les tours de l'historique, puis aujourd'hui (rendement actuel) ; seuils.

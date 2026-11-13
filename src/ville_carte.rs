@@ -66,6 +66,28 @@ pub struct CoucheVille {
     pub contours: Vec<Contour>,
     /// Échanges du tour avec les autres villes.
     pub fleches: Vec<Fleche>,
+    /// Anneau des travailleurs : part des places occupées de chaque case (couches Rendement et Emplois).
+    pub occupations: Vec<(Hex, f32)>,
+}
+
+/// Couleur de l'anneau des travailleurs (violet des habitants).
+const ANNEAU: Color = Color::srgb(0.79, 0.70, 1.0);
+/// Segments de l'anneau des travailleurs (deux par côté).
+const SEGMENTS: usize = 12;
+
+/// Segments de l'anneau d'une case (monde 2D), et s'ils sont pleins.
+fn anneau(h: Hex, part: f32, centre: Hex, wrap: crate::hex::Wrap) -> Vec<(Vec2, Vec2, bool)> {
+    let h = wrap.nearest(centre, h);
+    let (x, y) = h.to_world();
+    let m = Vec2::new(x, y);
+    let s = sommets(h).map(|p| p.lerp(m, 0.13));
+    (0..SEGMENTS)
+        .map(|i| {
+            let (a, b) = (s[i / 2], s[(i / 2 + 1) % 6]);
+            let (t0, t1) = ((i % 2) as f32 / 2.0 + 0.04, (i % 2) as f32 / 2.0 + 0.46);
+            (a.lerp(b, t0), a.lerp(b, t1), (i as f32 + 0.5) / SEGMENTS as f32 <= part + 1e-6)
+        })
+        .collect()
 }
 
 /// Case survolée sur la carte pendant que l'écran est ouvert (contour blanc), et case de la file
@@ -336,6 +358,11 @@ fn contours(couche: Res<CoucheVille>, survol: Res<SurvolVille>, mode: Res<ViewMo
             gizmos.line_2d(a, b, f.couleur);
         }
     }
+    for &(h, part) in &couche.occupations {
+        for (a, b, plein) in anneau(h, part, couche.centre, wrap) {
+            gizmos.line_2d(a, b, if plein { ANNEAU } else { ANNEAU.with_alpha(0.22) });
+        }
+    }
 }
 
 /// Contours en 3D : chaque trait échantillonné sur le sol (il suit le relief et les vraies cases).
@@ -356,6 +383,11 @@ fn contours_3d(couche: Res<CoucheVille>, survol: Res<SurvolVille>, mode: Res<Vie
         for (a, b) in segments_fleche(f, couche.centre, wrap) {
             let n = ((b - a).length() / 8.0).ceil().max(1.0) as usize;
             gizmos.linestrip((0..=n).map(|k| a.lerp(b, k as f32 / n as f32)).map(|p| relief.on_ground(p.x, p.y, LEVEE_3D + 3.0)), f.couleur);
+        }
+    }
+    for &(h, part) in &couche.occupations {
+        for (a, b, plein) in anneau(h, part, couche.centre, wrap) {
+            gizmos.linestrip((0..=3).map(|k| a.lerp(b, k as f32 / 3.0)).map(|p| relief.on_ground(p.x, p.y, LEVEE_3D + 0.8)), if plein { ANNEAU } else { ANNEAU.with_alpha(0.22) });
         }
     }
 }
@@ -539,7 +571,7 @@ mod tests {
         let map = crate::map::WorldMap::filled(60, 60, crate::map::Terrain::Grassland);
         let centre = Hex::from_offset(30, 30);
         let claires: HashSet<Hex> = map.range(centre, 1).filter(|h| map.contains(*h)).collect();
-        let couche = CoucheVille { ouverte: true, centre, teintes: vec![(centre, Color::WHITE)], claires: claires.clone(), contours: Vec::new(), fleches: Vec::new() };
+        let couche = CoucheVille { ouverte: true, centre, teintes: vec![(centre, Color::WHITE)], claires: claires.clone(), ..Default::default() };
         let cases = cases_teintees(&map, &couche);
         // la ville : sa teinte seulement, sans ombre
         for h in &claires {
