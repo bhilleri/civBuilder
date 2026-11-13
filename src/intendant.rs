@@ -20,8 +20,13 @@ pub const CAPACITE_SANS_AMENAGEMENT: u32 = 300;
 /// travailleurs à 1,25 × le minimum vital contre 300 à 1,67 × pour la cueillette (une case
 /// cultivée porte dix fois plus d'habitants, chacun y rapporte un quart de moins).
 pub const FACTEUR_CHAMP: f64 = 7.5;
-/// Exposant des rendements décroissants (la moitié de la capacité donne ≈ 62 % du maximum).
+/// Exposant des rendements décroissants de la cueillette et de la chasse : les ressources sauvages
+/// s'épuisent vite (la moitié de la capacité donne ≈ 62 % du maximum).
 pub const EXPOSANT: f64 = 0.7;
+/// Exposant des aménagements : chaque travailleur de plus étend le travail (une parcelle, des arbres
+/// de plus), le rendement baisse lentement (la moitié de la capacité donne ≈ 55 % du maximum ; décision
+/// de Benjamin du 13/11/2026).
+pub const EXPOSANT_AMENAGEMENT: f64 = 0.85;
 /// Plus petit bloc de travailleurs placé d'un coup.
 pub const BLOC: u32 = 100;
 /// Pluie annuelle (mm) au-dessous de laquelle un champ demande de l'eau douce voisine.
@@ -38,17 +43,18 @@ pub enum Amenagement {
     Paturage,
     CoupeDeBois,
     /// Champ de légumineuses (lentilles, pois, fèves) : des protéines sans élevage, au rendement
-    /// réduit (60 % d'un champ de céréales).
+    /// réduit (80 % d'un champ de céréales).
     Legumineuses,
-    /// Jardin d'appoint : fruits et légumes, petite capacité.
-    Jardin,
+    /// Maraîchage (ex-jardin) : fruits et légumes, peu de places (les sauvegardes d'avant disent « Jardin »).
+    #[serde(alias = "Jardin")]
+    Maraichage,
     /// Exploitation d'un gisement connu (saline, minière, carrière, coupe de bois d'œuvre…) : une
     /// unité de sa ressource par tour à pleine capacité, un peu de production (décision D2).
     Exploitation,
 }
 
 impl Amenagement {
-    pub const ALL: [Amenagement; 6] = [Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin, Amenagement::CoupeDeBois, Amenagement::Exploitation];
+    pub const ALL: [Amenagement; 6] = [Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Maraichage, Amenagement::CoupeDeBois, Amenagement::Exploitation];
 
     /// Nom affiché.
     pub fn nom(self) -> &'static str {
@@ -57,7 +63,7 @@ impl Amenagement {
             Amenagement::Paturage => "pâturage",
             Amenagement::CoupeDeBois => "coupe de bois",
             Amenagement::Legumineuses => "champ de légumineuses",
-            Amenagement::Jardin => "jardin",
+            Amenagement::Maraichage => "maraîchage",
             Amenagement::Exploitation => "exploitation",
         }
     }
@@ -69,7 +75,7 @@ impl Amenagement {
             Amenagement::Paturage => "paturage",
             Amenagement::CoupeDeBois => "bois",
             Amenagement::Legumineuses => "legumineuses",
-            Amenagement::Jardin => "jardin",
+            Amenagement::Maraichage => "maraichage",
             Amenagement::Exploitation => "exploitation",
         }
     }
@@ -79,8 +85,8 @@ impl Amenagement {
         match self {
             Amenagement::Champ | Amenagement::Legumineuses => 3_000,
             Amenagement::Paturage => 1_200,
-            Amenagement::CoupeDeBois => 1_000,
-            Amenagement::Jardin => 600,
+            Amenagement::CoupeDeBois => 600,
+            Amenagement::Maraichage => 600,
             Amenagement::Exploitation => 500,
         }
     }
@@ -90,7 +96,7 @@ impl Amenagement {
         match self {
             Amenagement::Champ | Amenagement::Legumineuses => 20,
             Amenagement::Paturage | Amenagement::CoupeDeBois => 15,
-            Amenagement::Jardin => 10,
+            Amenagement::Maraichage => 10,
             Amenagement::Exploitation => 20,
         }
     }
@@ -122,7 +128,7 @@ impl Amenagement {
             return Err("pas en montagne");
         }
         match self {
-            Amenagement::Champ | Amenagement::Legumineuses | Amenagement::Jardin => {
+            Amenagement::Champ | Amenagement::Legumineuses | Amenagement::Maraichage => {
                 if relief > Relief::Hills {
                     return Err("relief trop accidenté pour un champ");
                 }
@@ -158,6 +164,8 @@ impl Amenagement {
 
     /// Code de la console → aménagement.
     pub fn depuis_code(code: &str) -> Option<Amenagement> {
+        // (« jardin » : l'ancien nom du maraîchage)
+        let code = if code == "jardin" { "maraichage" } else { code };
         Amenagement::ALL.into_iter().find(|a| a.code() == code)
     }
 }
@@ -173,17 +181,21 @@ pub const PRODUCTION_EXPLOITATION: f64 = 1.0;
 /// Unités de ressource que tirent `travailleurs` d'une exploitation (rendements décroissants
 /// comme les autres cases, `UNITES_PAR_TOUR` à pleine capacité).
 pub fn unites_extraites(travailleurs: u32, capacite: u32) -> f64 {
-    rendement(Rendements::new(crate::gisements::UNITES_PAR_TOUR, 0.0, 0.0), travailleurs, capacite).nourriture
+    crate::gisements::UNITES_PAR_TOUR * part(travailleurs, capacite, EXPOSANT_AMENAGEMENT)
 }
 
-/// Rendement d'un champ de légumineuses, rapporté à un champ de céréales.
-pub const RENDEMENT_LEGUMINEUSES: f64 = 0.6;
-/// Nourriture d'un jardin, rapportée à la case (d'appoint : peu de nourriture, peu de travailleurs ;
-/// par travailleur, trois quarts de la cueillette, comme le champ).
-pub const RENDEMENT_JARDIN: f64 = 1.5;
-/// Nourriture d'un pâturage plein, rapportée à la case (par travailleur, trois quarts de la cueillette).
+/// Rendement d'un champ de légumineuses, rapporté à un champ de céréales (80 % : ses travailleurs
+/// et leurs familles en vivent tout juste ; décision de Benjamin du 13/11/2026).
+pub const RENDEMENT_LEGUMINEUSES: f64 = 0.8;
+/// Fruits et légumes d'un maraîchage plein, rapportés à la nourriture de la case (600 places : 0,003
+/// par maraîcher, moins que la cueillette, et autant qu'elle avec 300 travailleurs).
+pub const RENDEMENT_MARAICHAGE: f64 = 1.8;
+/// Nourriture d'un pâturage plein, rapportée à la case.
 pub const FACTEUR_PATURAGE: f64 = 3.0;
-/// Production d'une coupe de bois pleine, rapportée à la case (par travailleur, trois quarts de la cueillette du bois).
+/// Travailleurs au-delà desquels la production d'un pâturage n'augmente plus.
+pub const CAPACITE_PRODUCTION_PATURAGE: u32 = 800;
+/// Production d'une coupe de bois pleine, rapportée à la forêt (600 bûcherons : 0,0083 chacun contre
+/// 0,0067 pour un cueilleur ; une coupe ne prend qu'une partie de la forêt).
 pub const FACTEUR_COUPE: f64 = 2.5;
 
 /// Types de nourriture (livraison 5c) : l'équilibre entre eux relève la limite de la ville.
@@ -218,7 +230,7 @@ pub fn parts_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>
     match amenagement {
         Some(Amenagement::Champ) => [1.0, 0.0, 0.0],
         Some(Amenagement::Legumineuses | Amenagement::Paturage) => [0.0, 1.0, 0.0],
-        Some(Amenagement::Jardin) => [0.0, 0.0, 1.0],
+        Some(Amenagement::Maraichage) => [0.0, 0.0, 1.0],
         // (pas de nourriture)
         Some(Amenagement::Exploitation) => [0.0, 0.0, 0.0],
         Some(Amenagement::CoupeDeBois) | None => {
@@ -305,7 +317,7 @@ impl Sorte {
             Sorte::Gibier => "gibier",
             Sorte::Poisson => "poisson",
             Sorte::Baies => "baies et champignons",
-            Sorte::Legumes => "légumes du jardin",
+            Sorte::Legumes => "légumes",
             Sorte::FruitsTropicaux => "fruits tropicaux",
             Sorte::Dattes => "dattes",
         }
@@ -368,7 +380,7 @@ pub fn sortes_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement
         Some(Amenagement::Champ) => [Some(cereale()), None, None],
         Some(Amenagement::Legumineuses) => [None, Some(Sorte::Legumineuses), None],
         Some(Amenagement::Paturage) => [None, Some(betail()), None],
-        Some(Amenagement::Jardin) => [None, None, Some(jardin())],
+        Some(Amenagement::Maraichage) => [None, None, Some(jardin())],
         Some(Amenagement::Exploitation) => [None, None, None],
         Some(Amenagement::CoupeDeBois) | None => {
             if map.is_fleuve(h) || t.is_some_and(|t| t.is_water()) {
@@ -393,7 +405,7 @@ pub fn sortes_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement
 pub fn sortes_du_centre(map: &WorldMap, h: Hex) -> [Option<Sorte>; 3] {
     let c = sortes_de_la_case(map, h, Some(Amenagement::Champ))[0];
     let b = sortes_de_la_case(map, h, Some(Amenagement::Paturage))[1];
-    let j = sortes_de_la_case(map, h, Some(Amenagement::Jardin))[2];
+    let j = sortes_de_la_case(map, h, Some(Amenagement::Maraichage))[2];
     [c, b, j]
 }
 
@@ -493,11 +505,60 @@ pub fn capacite(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> u32
     if map.get(h) == Some(Terrain::Oasis) { (f64::from(c) * CAPACITE_OASIS).round() as u32 } else { c }
 }
 
-/// Rendement de la case à pleine capacité.
-pub fn rendement_max(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> Rendements {
+/// Ce que donne une case selon ses travailleurs (règle du 13/11/2026) : chaque grandeur a sa courbe et
+/// sa capacité ; la nature (cueillette, chasse : 300 places, exposant 0,7) est un plancher, qu'un
+/// aménagement dépasse (exposant 0,85) sans jamais rendre moins, sauf l'exploitation d'un gisement,
+/// qui remplace la cueillette.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Courbe {
+    /// Nature : rendement plein et places.
+    pub nature: Rendements,
+    pub places_nature: u32,
+    /// Aménagement : rendement plein de chaque grandeur et ses places (0 : la nature seule).
+    pub amenagement: Rendements,
+    pub places: [u32; 3],
+}
+
+/// Part du maximum que donnent `t` travailleurs sur `capacite` places.
+fn part(t: u32, capacite: u32, exposant: f64) -> f64 {
+    if t == 0 || capacite == 0 { 0.0 } else { (t as f64 / capacite as f64).min(1.0).powf(exposant) }
+}
+
+impl Courbe {
+    /// Une courbe simple : un rendement plein sur `places` (exposant de la nature).
+    pub fn simple(max: Rendements, places: u32) -> Self {
+        Courbe { nature: max, places_nature: places, ..Default::default() }
+    }
+
+    /// Rendement avec `t` travailleurs : pour chaque grandeur, le meilleur de la nature et de l'aménagement.
+    pub fn rendement(&self, t: u32) -> Rendements {
+        let n = self.nature.fois(part(t, self.places_nature, EXPOSANT));
+        let a = |v: f64, i: usize| v * part(t, self.places[i], EXPOSANT_AMENAGEMENT);
+        let am = Rendements::new(a(self.amenagement.nourriture, 0), a(self.amenagement.production, 1), a(self.amenagement.deniers, 2));
+        Rendements::new(n.nourriture.max(am.nourriture), n.production.max(am.production), n.deniers.max(am.deniers))
+    }
+
+    /// Places de la case (la plus grande capacité).
+    pub fn capacite(&self) -> u32 {
+        self.places.iter().copied().fold(self.places_nature, u32::max)
+    }
+
+    /// Rendement à pleine capacité.
+    pub fn max(&self) -> Rendements {
+        self.rendement(self.capacite())
+    }
+
+    /// La courbe, multipliée (les outils des cases aménagées).
+    pub fn fois(&self, k: f64) -> Self {
+        Courbe { nature: self.nature.fois(k), amenagement: self.amenagement.fois(k), ..*self }
+    }
+}
+
+/// Courbe d'une case : ce qu'elle donne selon ses travailleurs, avec son aménagement.
+pub fn courbe(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> Courbe {
     let mut y = map.yields(h).unwrap_or_default();
-    // (champ ou pâturage pris sur la forêt : le bois est perdu, la terre devient une prairie)
-    if matches!(amenagement, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Jardin)) && defriche(map, h) {
+    // (champ, pâturage ou maraîchage pris sur la forêt : le bois est perdu, la terre devient une prairie)
+    if matches!(amenagement, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Maraichage)) && defriche(map, h) {
         y = Yields::new(y.food + 1, (y.production - 2).max(0), y.deniers);
     }
     let r = Rendements::from(y);
@@ -508,20 +569,44 @@ pub fn rendement_max(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -
     let sol = map.sol(h);
     let fertile = |m: f64| terre * m + eau.min(r.nourriture);
     let champ = fertile(sol.map_or(1.0, |s| s.fertilite())) * FACTEUR_CHAMP;
-    match amenagement {
-        None => r,
-        Some(Amenagement::Champ) => Rendements::new(champ, r.production, r.deniers),
-        Some(Amenagement::Legumineuses) => Rendements::new(champ * RENDEMENT_LEGUMINEUSES, r.production, r.deniers),
-        Some(Amenagement::Jardin) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite())) * RENDEMENT_JARDIN, r.production, r.deniers),
-        Some(Amenagement::Paturage) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite_paturage())) * FACTEUR_PATURAGE, r.production + 1.0, r.deniers),
-        Some(Amenagement::CoupeDeBois) => Rendements::new(r.nourriture, r.production * FACTEUR_COUPE, r.deniers),
-        // (la case sert à l'extraction : plus de nourriture, un peu de production)
-        Some(Amenagement::Exploitation) => Rendements::new(0.0, r.production + PRODUCTION_EXPLOITATION, r.deniers),
+    // (une oasis est petite : la moitié des places)
+    let k = if map.get(h) == Some(Terrain::Oasis) { CAPACITE_OASIS } else { 1.0 };
+    let pl = |p: u32| (f64::from(p) * k).round() as u32;
+    let nature = Courbe::simple(r, pl(CAPACITE_SANS_AMENAGEMENT));
+    let (amen, places) = match amenagement {
+        None => return nature,
+        Some(Amenagement::Champ) => (Rendements::new(champ, 0.0, 0.0), [3_000, 0, 0]),
+        Some(Amenagement::Legumineuses) => (Rendements::new(champ * RENDEMENT_LEGUMINEUSES, 0.0, 0.0), [3_000, 0, 0]),
+        Some(Amenagement::Maraichage) => (Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite())) * RENDEMENT_MARAICHAGE, 0.0, 0.0), [600, 0, 0]),
+        Some(Amenagement::Paturage) => (Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite_paturage())) * FACTEUR_PATURAGE, r.production + 1.0, 0.0), [1_200, CAPACITE_PRODUCTION_PATURAGE, 0]),
+        Some(Amenagement::CoupeDeBois) => (Rendements::new(0.0, r.production * FACTEUR_COUPE, 0.0), [0, 600, 0]),
+        // (la case sert à l'extraction : plus de cueillette, un peu de production)
+        Some(Amenagement::Exploitation) => {
+            let c = pl(Amenagement::Exploitation.capacite());
+            return Courbe { nature: Rendements::default(), places_nature: 0, amenagement: Rendements::new(0.0, r.production + PRODUCTION_EXPLOITATION, r.deniers), places: [0, c, c] };
+        }
+    };
+    Courbe { amenagement: amen, places: places.map(pl), ..nature }
+}
+
+/// Rendement de la case à pleine capacité.
+pub fn rendement_max(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> Rendements {
+    courbe(map, h, amenagement).max()
+}
+
+impl CaseDispo {
+    /// La case avec un autre aménagement : sa courbe, son maximum, ses places.
+    pub fn amenager(&mut self, map: &WorldMap, a: Option<Amenagement>) {
+        self.courbe = courbe(map, self.hex, a);
+        self.max = self.courbe.max();
+        self.capacite = self.courbe.capacite();
+        self.amenagee = a.is_some();
     }
 }
 
-/// Rendement de `travailleurs` sur une case (rendements décroissants jusqu'à la capacité).
-pub fn rendement(max: Rendements, travailleurs: u32, capacite: u32) -> Rendements {
+/// Rendement de `travailleurs` sur une case simple (une seule courbe, celle de la nature).
+#[cfg(test)]
+fn rendement(max: Rendements, travailleurs: u32, capacite: u32) -> Rendements {
     if travailleurs == 0 || capacite == 0 {
         return Rendements::default();
     }
@@ -627,7 +712,10 @@ pub struct Consignes {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CaseDispo {
     pub hex: Hex,
+    /// Rendement à pleine capacité.
     pub max: Rendements,
+    /// Ce qu'elle donne selon ses travailleurs.
+    pub courbe: Courbe,
     /// Part de chaque type dans sa nourriture.
     pub parts: Parts,
     /// Sorte de chaque type.
@@ -701,11 +789,11 @@ pub fn repartir_avec(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, c
             forcee[i] = true;
         }
     }
-    let total = |n: &[u32]| cases.iter().zip(n).fold(centre, |acc, (c, &k)| acc + rendement(c.max, k, c.capacite));
+    let total = |n: &[u32]| cases.iter().zip(n).fold(centre, |acc, (c, &k)| acc + c.courbe.rendement(k));
     let par_type = |n: &[u32]| {
         let mut t = PARTS_CENTRE.map(|p| p * centre.nourriture);
         for (c, &k) in cases.iter().zip(n) {
-            let f = rendement(c.max, k, c.capacite).nourriture;
+            let f = c.courbe.rendement(k).nourriture;
             for (x, p) in t.iter_mut().zip(c.parts) {
                 *x += f * p;
             }
@@ -723,7 +811,7 @@ pub fn repartir_avec(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, c
         };
         ajoute(sortes_centre, PARTS_CENTRE, centre.nourriture);
         for (c, &k) in cases.iter().zip(n) {
-            ajoute(c.sortes, c.parts, rendement(c.max, k, c.capacite).nourriture);
+            ajoute(c.sortes, c.parts, c.courbe.rendement(k).nourriture);
         }
         s
     };
@@ -746,7 +834,7 @@ pub fn repartir_avec(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, c
                 continue;
             }
             let k = (n[i] + b).min(c.capacite);
-            let gain = rendement(c.max, k, c.capacite) - rendement(c.max, n[i], c.capacite);
+            let gain = c.courbe.rendement(k) - c.courbe.rendement(n[i]);
             let eloignement = (1.0 - PENALITE_DISTANCE * (c.distance - 1).max(0) as f64).max(0.5);
             // (gain par travailleur : un bloc tronqué par la capacité n'est pas avantagé)
             let mut equilibre: f64 = c.parts.iter().zip(manque).map(|(p, m)| gain.nourriture * p * m).sum();
@@ -766,8 +854,8 @@ pub fn repartir_avec(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, c
         }
         let Some((i, _)) = meilleur else { break };
         let k = (n[i] + b).min(cases[i].capacite);
-        let avant = rendement(cases[i].max, n[i], cases[i].capacite);
-        let apres = rendement(cases[i].max, k, cases[i].capacite);
+        let avant = cases[i].courbe.rendement(n[i]);
+        let apres = cases[i].courbe.rendement(k);
         courant = courant - avant + apres;
         for (x, p) in types.iter_mut().zip(cases[i].parts) {
             *x += (apres.nourriture - avant.nourriture) * p;
@@ -813,7 +901,7 @@ mod tests {
     }
 
     fn case(col: i32, max: Rendements, capacite: u32) -> CaseDispo {
-        CaseDispo { hex: Hex::from_offset(col, 0), max, parts: [1.0, 0.0, 0.0], sortes: [None; 3], capacite, distance: 1, amenagee: false }
+        CaseDispo { hex: Hex::from_offset(col, 0), max, courbe: Courbe::simple(max, capacite), parts: [1.0, 0.0, 0.0], sortes: [None; 3], capacite, distance: 1, amenagee: false }
     }
 
     #[test]
@@ -929,7 +1017,7 @@ mod tests {
         map.set(o, Terrain::Oasis);
         // Le désert : rien ; les rives vertes et l'oasis : champs, légumineuses, pâturages, jardins
         assert!(Amenagement::possibles(&map, d).is_empty());
-        let tout = vec![Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin];
+        let tout = vec![Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Maraichage];
         assert_eq!(Amenagement::possibles(&map, o), tout);
         map.set_fleuve(Hex::from_offset(4, 5));
         assert_eq!(Amenagement::possibles(&map, r), tout);
@@ -946,40 +1034,89 @@ mod tests {
     fn amenagements_selon_la_case() {
         let mut map = WorldMap::filled(6, 6, Terrain::Grassland);
         let h = Hex::from_offset(2, 2);
-        assert_eq!(Amenagement::possibles(&map, h), vec![Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin]);
+        assert_eq!(Amenagement::possibles(&map, h), vec![Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Maraichage]);
         let champ = rendement_max(&map, h, Some(Amenagement::Champ));
         assert_eq!(champ.nourriture, FACTEUR_CHAMP * rendement_max(&map, h, None).nourriture);
-        // Légumineuses : 60 % d'un champ ; jardin : 1,5 × la case, petite capacité
-        assert!((rendement_max(&map, h, Some(Amenagement::Legumineuses)).nourriture - 0.6 * champ.nourriture).abs() < 1e-9);
-        assert_eq!(rendement_max(&map, h, Some(Amenagement::Jardin)).nourriture, RENDEMENT_JARDIN * rendement_max(&map, h, None).nourriture);
-        assert_eq!(capacite(&map, h, Some(Amenagement::Jardin)), 600);
-        // La cueillette rapporte plus par travailleur ; le champ, le pâturage et le jardin portent
-        // plus de monde (trois quarts de la cueillette par travailleur, au moins le minimum vital)
+        // Légumineuses : 80 % d'un champ ; maraîchage : 1,8 × la case, 600 places
+        assert!((rendement_max(&map, h, Some(Amenagement::Legumineuses)).nourriture - 0.8 * champ.nourriture).abs() < 1e-9);
+        assert!((rendement_max(&map, h, Some(Amenagement::Maraichage)).nourriture - RENDEMENT_MARAICHAGE * rendement_max(&map, h, None).nourriture).abs() < 1e-9);
+        assert_eq!(capacite(&map, h, Some(Amenagement::Maraichage)), 600);
+        // La cueillette rapporte plus par travailleur ; les cultures portent plus de monde, et
+        // chacun de leurs travailleurs nourrit au moins sa famille (le minimum vital)
         let par_travailleur = |a: Option<Amenagement>| rendement_max(&map, h, a).nourriture / f64::from(capacite(&map, h, a));
         let cueillette = par_travailleur(None);
-        for a in [Amenagement::Champ, Amenagement::Paturage, Amenagement::Jardin] {
-            let k = par_travailleur(Some(a)) / cueillette;
-            assert!((0.7..0.8).contains(&k), "{a:?} : {k}");
+        let minimum_vital = 1.0 / (crate::rules::HABITANTS_PAR_NOURRITURE * PART_ACTIVE);
+        for a in [Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Maraichage] {
+            assert!(par_travailleur(Some(a)) < cueillette, "{a:?}");
+            assert!(par_travailleur(Some(a)) >= minimum_vital - 1e-12, "{a:?}");
             assert!(capacite(&map, h, Some(a)) > capacite(&map, h, None));
         }
-        let minimum_vital = 1.0 / (crate::rules::HABITANTS_PAR_NOURRITURE * PART_ACTIVE);
-        assert!(par_travailleur(Some(Amenagement::Champ)) > minimum_vital);
         // Types : champ → céréales, légumineuses et pâturage → protéines, jardin → fruits et légumes
         assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Champ)), [1.0, 0.0, 0.0]);
         assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Legumineuses)), [0.0, 1.0, 0.0]);
-        assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Jardin)), [0.0, 0.0, 1.0]);
+        assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Maraichage)), [0.0, 0.0, 1.0]);
         assert_eq!(parts_de_la_case(&map, h, None), [0.4, 0.6, 0.0], "prairie : graines sauvages et gibier");
         map.set(h, Terrain::Forest);
         let sans_gisement: Vec<Amenagement> = Amenagement::ALL.into_iter().filter(|&a| a != Amenagement::Exploitation).collect();
         assert_eq!(Amenagement::possibles(&map, h), sans_gisement, "forêt : bois, ou défrichement (pas d'exploitation sans gisement)");
         assert_eq!(Amenagement::Champ.cout(&map, h), 30);
         assert_eq!(Amenagement::CoupeDeBois.cout(&map, h), 15);
-        assert_eq!(rendement_max(&map, h, Some(Amenagement::CoupeDeBois)).production, 2.0 * FACTEUR_COUPE);
+        assert_eq!(rendement_max(&map, h, Some(Amenagement::CoupeDeBois)), Rendements::new(1.0, 2.0 * FACTEUR_COUPE, 0.0), "la cueillette reste");
+        // Un bûcheron rapporte plus de production qu'un cueilleur ; avec les 300 travailleurs de la
+        // forêt, la coupe donne déjà plus, sans perdre de nourriture
+        let bois = courbe(&map, h, Some(Amenagement::CoupeDeBois));
+        let foret = courbe(&map, h, None);
+        assert!(bois.max().production / 600.0 > foret.max().production / 300.0);
+        assert!(bois.rendement(300).production > foret.rendement(300).production + 0.5);
+        assert_eq!(bois.rendement(300).nourriture, foret.rendement(300).nourriture);
         assert_eq!(rendement_max(&map, h, Some(Amenagement::Champ)), Rendements::new(2.0 * FACTEUR_CHAMP, 0.0, 0.0), "défriché : une prairie");
         map.set(h, Terrain::Desert);
         assert!(Amenagement::possibles(&map, h).is_empty());
         map.set(h, Terrain::Grassland);
         map.set_relief(h, Relief::Rugged);
         assert_eq!(Amenagement::possibles(&map, h), vec![Amenagement::Paturage]);
+    }
+
+    #[test]
+    fn un_amenagement_ne_rend_jamais_moins_que_la_nature() {
+        // (sauf ce qu'il détruit : la forêt défrichée, la cueillette remplacée par une exploitation)
+        for terrain in [Terrain::Plains, Terrain::Grassland, Terrain::Forest, Terrain::Savanna] {
+            let map = WorldMap::filled(6, 6, terrain);
+            let h = Hex::from_offset(2, 2);
+            for a in Amenagement::possibles(&map, h).into_iter().filter(|&a| a != Amenagement::Exploitation && !(defriche(&map, h) && a != Amenagement::CoupeDeBois)) {
+                let (am, nat) = (courbe(&map, h, Some(a)), courbe(&map, h, None));
+                for t in (0..=3_000).step_by(50) {
+                    let (x, y) = (am.rendement(t), nat.rendement(t));
+                    assert!(x.nourriture >= y.nourriture - 1e-9 && x.production >= y.production - 1e-9 && x.deniers >= y.deniers - 1e-9, "{terrain:?} {a:?} {t} : {x:?} < {y:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn un_champ_avec_peu_de_travailleurs_reste_proche_de_la_nature() {
+        // (décision de Benjamin : une petite variation seulement, la courbe des aménagements est plus droite)
+        let map = WorldMap::filled(6, 6, Terrain::Plains);
+        let h = Hex::from_offset(2, 2);
+        let (champ, plaine) = (courbe(&map, h, Some(Amenagement::Champ)), courbe(&map, h, None));
+        let k = champ.rendement(300).nourriture / plaine.rendement(300).nourriture;
+        assert!((1.0..1.1).contains(&k), "{k}");
+        assert!((champ.rendement(3_000).nourriture - 7.5).abs() < 1e-9);
+        assert_eq!(champ.rendement(3_000).production, plaine.max().production, "la production de la plaine reste");
+    }
+
+    #[test]
+    fn l_intendant_remplit_une_coupe_de_bois() {
+        // Une forêt avec sa coupe et une plaine sans aménagement : 900 actifs, la production prioritaire
+        let map = WorldMap::filled(6, 6, Terrain::Forest);
+        let h = Hex::from_offset(2, 2);
+        let bois = courbe(&map, h, Some(Amenagement::CoupeDeBois));
+        let coupe = CaseDispo { hex: h, max: bois.max(), courbe: bois, parts: [0.4, 0.6, 0.0], sortes: [None; 3], capacite: bois.capacite(), distance: 1, amenagee: true };
+        let plaine = CaseDispo { hex: Hex::from_offset(3, 2), courbe: Courbe::simple(Rendements::new(1.0, 1.0, 0.0), 300), max: Rendements::new(1.0, 1.0, 0.0), parts: [0.5, 0.5, 0.0], sortes: [None; 3], capacite: 300, distance: 1, amenagee: false };
+        let mut cons = Consignes::default();
+        cons.priorites[1] = Priorite::Maximale;
+        let r = repartir(&[coupe, plaine], 900, 0.5, Rendements::new(2.0, 2.0, 1.0), &cons);
+        let sur_coupe = r.cases.iter().find(|(c, _)| *c == h).map_or(0, |(_, n)| *n);
+        assert!(sur_coupe > 300, "la coupe dépasse le socle de la cueillette : {sur_coupe}");
     }
 }

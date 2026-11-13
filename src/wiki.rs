@@ -842,20 +842,23 @@ fn cities() -> Article {
                est le plus fort : la nourriture pèse lourd tant que la ville ne se nourrit pas (puis pour croître), la \
                production et les deniers prennent ensuite le relais ; les cases lointaines rapportent un peu moins."),
             p("Chaque case a une capacité en travailleurs : 300 sans aménagement (cueillette, chasse), 3 000 pour un \
-               champ ou un champ de légumineuses, 1 200 pour un pâturage, 1 000 pour une coupe de bois, 600 pour un jardin. \
-               La cueillette rapporte plus par travailleur (1 de nourriture pour 300 sur une plaine), la ferme fait vivre \
-               dix fois plus de monde (un champ de plaine : 7,5 pour 3 000) ; un champ tout juste construit, avec peu de \
-               travailleurs, rend moins que la nature : il faut le remplir. Son rendement croît avec les travailleurs, de moins en \
-               moins vite (la moitié de la capacité donne 62 % du rendement de la case) : une petite ville se répartit \
-               sur plusieurs cases. Au-delà des capacités, les habitants sont sans emploi : il faut aménager des cases."),
+               champ ou un champ de légumineuses, 1 200 pour un pâturage, 600 pour une coupe de bois ou un maraîchage. \
+               Chaque grandeur a sa courbe : elle croît avec les travailleurs, de moins en moins vite. La cueillette \
+               s'épuise vite (la moitié des places donne 62 % du rendement) ; un aménagement s'étend avec le travail (la \
+               moitié donne 55 %). La cueillette rapporte plus par travailleur (1 de nourriture pour 300 sur une plaine), \
+               la ferme fait vivre beaucoup plus de monde (un champ de plaine : 7,5 pour 3 000). Un aménagement ne rend \
+               jamais moins que la nature avec les mêmes travailleurs : la cueillette d'une forêt continue à côté de la \
+               coupe de bois, la production d'une plaine à côté du champ. Seul un défrichement (la forêt est perdue) ou \
+               une exploitation (la case ne sert plus qu'à extraire) retire quelque chose. Au-delà des places, les \
+               habitants sont sans emploi : il faut aménager des cases."),
             table(
-                &["Aménagement", "Cases", "Rendement à pleine capacité"],
+                &["Aménagement", "Cases", "Plein (sol brun)"],
                 vec![
-                    vec!["champ (céréales)".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 2 (fertilité du sol)".into()],
-                    vec!["champ de légumineuses (protéines)".into(), "comme un champ".into(), "60 % d'un champ".into()],
-                    vec!["pâturage (protéines)".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 1,5, +1 production".into()],
-                    vec!["jardin (fruits et légumes)".into(), "comme un champ ; d'appoint (300 travailleurs)".into(), "nourriture × 0,75".into()],
-                    vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2".into()],
+                    vec!["champ (céréales)".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 7,5 (fertilité du sol) pour 3 000 ; la production de la case reste".into()],
+                    vec!["champ de légumineuses (protéines)".into(), "comme un champ".into(), "80 % d'un champ".into()],
+                    vec!["pâturage (protéines)".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 3 pour 1 200 ; production +1 pour 800".into()],
+                    vec!["maraîchage (fruits et légumes)".into(), "comme un champ".into(), "nourriture × 1,8 pour 600".into()],
+                    vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2,5 pour 600 ; la cueillette reste".into()],
                     vec!["exploitation (saline, minière, carrière…)".into(), "un gisement connu, montagne comprise (pas un pic) ; 500 travailleurs".into(), "1 unité de la ressource par tour, production +1, plus de nourriture".into()],
                 ],
             ),
@@ -881,7 +884,7 @@ fn cities() -> Article {
                meilleur niveau couvre d'abord, un niveau inférieur le reste, chacun pour sa part. Les matériaux viendront \
                ensuite."),
             p("Types de nourriture : un champ donne des céréales et féculents ; un pâturage ou des légumineuses, des \
-               protéines ; un jardin, des fruits et légumes ; une case non aménagée, selon son biome (forêt : gibier et \
+               protéines ; un maraîchage, des fruits et légumes ; une case non aménagée, selon son biome (forêt : gibier et \
                baies ; prairie, steppe, savane : graines sauvages et gibier ; l'eau : du poisson) ; le centre de la ville, \
                les trois. Un type compte s'il couvre 15 % de ce que la ville mange. Des repas équilibrés nourrissent \
                plus de monde : avec deux types, la limite de la ville monte de 10 % (1 point de nourriture nourrit 1 100 \
@@ -891,7 +894,7 @@ fn cities() -> Article {
                part de chaque type."),
             p("Sortes : chaque case présente une sorte par type, la plus adaptée à son climat et à son biome (blé, \
                orge, millet et sorgho, riz, tubercules, châtaignes ; légumineuses, bœufs, moutons et chèvres, porcs, \
-               rennes, lamas et chameaux, gibier, poisson ; baies et champignons, légumes du jardin, fruits \
+               rennes, lamas et chameaux, gibier, poisson ; baies et champignons, légumes, fruits \
                tropicaux, dattes). Une sorte compte si elle couvre 5 % des repas ; chaque sorte en plus de la \
                première de son type donne +2 de bien-être (diversité des repas, au plus +8). L'intendant cherche \
                chaque type, puis une seconde sorte. Les sortes de l'âge du bronze (seigle et avoine, vergers, vigne et \

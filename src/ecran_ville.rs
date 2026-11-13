@@ -688,9 +688,7 @@ impl<'a> Ville<'a> {
         }
         let mut dispo = self.dispo.to_vec();
         if let Some(c) = dispo.iter_mut().find(|c| c.hex == h) {
-            c.max = intendant::rendement_max(self.map, h, Some(a));
-            c.capacite = intendant::capacite(self.map, h, Some(a));
-            c.amenagee = true;
+            c.amenager(self.map, Some(a));
         }
         let mut sans_file = self.etat.allege();
         sans_file.file.clear();
@@ -717,7 +715,7 @@ fn possible(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> Result<(
         return Err("aucun gisement connu");
     }
     // Un champ ou un pâturage sur une forêt l'a défrichée : il n'y a plus d'arbres (Benjamin).
-    if a == Amenagement::CoupeDeBois && matches!(c.amenagement, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Jardin)) {
+    if a == Amenagement::CoupeDeBois && matches!(c.amenagement, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Maraichage)) {
         return Err("forêt défrichée : plus d'arbres à couper");
     }
     a.possible(map, c.hex)
@@ -974,6 +972,8 @@ struct CaseVue {
     travailleurs: u32,
     capacite: u32,
     max: Rendements,
+    /// Ce que la case donne selon ses travailleurs.
+    courbe: intendant::Courbe,
     rendement: Rendements,
     amenagement: Option<Amenagement>,
     /// Habitants de la case : pour l'instant, chacun vit là où il travaille (les sans-emploi au centre).
@@ -1013,7 +1013,7 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
     let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == ville).map(|(h, _)| *h).collect();
     let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
     let rc = Rendements::from(rules::center_yields(map, centre));
-    let mut cases = vec![CaseVue { hex: centre, centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, rendement: rc, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None }];
+    let mut cases = vec![CaseVue { hex: centre, centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, courbe: intendant::Courbe::default(), rendement: rc, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None }];
     for c in dispo {
         let w = city.travail.sur(c.hex);
         cases.push(CaseVue {
@@ -1022,13 +1022,14 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
             nom: {
                 // (un champ ou un pâturage sur une forêt l'a défrichée)
                 let a = amenagements.0.get(&c.hex).copied();
-                let defrichee = matches!(a, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Jardin)) && map.get(c.hex).is_some_and(|t| t.is_wooded());
+                let defrichee = matches!(a, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Maraichage)) && map.get(c.hex).is_some_and(|t| t.is_wooded());
                 if defrichee { format!("{} défrichée", nom_de_case(map, c.hex)) } else { nom_de_case(map, c.hex) }
             },
             travailleurs: w,
             capacite: c.capacite,
             max: c.max,
-            rendement: intendant::rendement(c.max, w, c.capacite),
+            courbe: c.courbe,
+            rendement: c.courbe.rendement(w),
             amenagement: amenagements.0.get(&c.hex).copied(),
             habitants: 0.0,
             en_file: city.state.file.iter().any(|k| matches!(k.objet, rules::Production::Amenagement { hex, .. } if hex == c.hex)),
@@ -3270,9 +3271,9 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, image
                 l.spawn(barre(c.remplissage(), 90.0, if c.remplissage() >= 0.9 { charte::ALERTE } else { charte::OK }));
             });
         }
-        let part = if c.capacite > 0 { (c.remplissage() as f64).powf(intendant::EXPOSANT) } else { 1.0 };
+        let part = if c.capacite > 0 && c.max.total() > 0.0 { c.rendement.total() / c.max.total() } else { 1.0 };
         // Gain de 100 travailleurs de plus (l'intendant place des blocs de 100)
-        let plus = if c.capacite > c.travailleurs { Some(intendant::rendement(c.max, (c.travailleurs + 100).min(c.capacite), c.capacite) - c.rendement) } else { None };
+        let plus = if c.capacite > c.travailleurs { Some(c.courbe.rendement((c.travailleurs + 100).min(c.capacite)) - c.rendement) } else { None };
         for (g, v, m) in [(Grandeur::Nourriture, c.rendement.nourriture, c.max.nourriture), (Grandeur::Production, c.rendement.production, c.max.production), (Grandeur::Deniers, c.rendement.deniers, c.max.deniers)] {
             if m < 0.05 || seule.is_some_and(|s| s != g) {
                 continue;
@@ -4056,7 +4057,7 @@ fn types_de_nourriture(g: &mut ChildSpawnerCommands, city: &City) {
         for (k, t) in intendant::TypeNourriture::TOUS.iter().enumerate() {
             let part = (par_type[k] / mange).min(1.0);
             let compte = par_type[k] > 1e-9 && par_type[k] >= intendant::SEUIL_TYPE * mange - 1e-9;
-            let etat = if compte { "compte".to_string() } else { format!("il en faut {} % : un {} y suffirait", (intendant::SEUIL_TYPE * 100.0) as u32, ["champ", "pâturage ou des légumineuses", "jardin"][k]) };
+            let etat = if compte { "compte".to_string() } else { format!("il en faut {} % : un {} y suffirait", (intendant::SEUIL_TYPE * 100.0) as u32, ["champ", "pâturage ou des légumineuses", "maraîchage"][k]) };
             p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(4.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
                 l.spawn((Node { width: Val::Px(12.0), height: Val::Px(12.0), border_radius: BorderRadius::all(Val::Px(3.0)), ..default() }, BackgroundColor(couleurs[k])));
                 l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(capitale(t.nom()), 13.5, charte::TEXTE)]));
@@ -5010,7 +5011,7 @@ mod tests {
         let map = crate::map::WorldMap::filled(6, 6, crate::map::Terrain::Forest);
         let h = Hex::from_offset(2, 2);
         let r = Rendements::default();
-        let mut c = CaseVue { hex: h, centre: false, nom: String::new(), travailleurs: 0, capacite: 0, max: r, rendement: r, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None };
+        let mut c = CaseVue { hex: h, centre: false, nom: String::new(), travailleurs: 0, capacite: 0, max: r, courbe: intendant::Courbe::default(), rendement: r, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None };
         assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_ok());
         c.amenagement = Some(Amenagement::Champ);
         assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_err(), "plus d'arbres");

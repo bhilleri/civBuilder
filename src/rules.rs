@@ -581,7 +581,8 @@ pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: 
         .filter(|&h| h != center && !taken.contains(&h) && map.contains(h))
         .map(|h| {
             let a = amenagements.get(&h).copied();
-            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), sortes: intendant::sortes_de_la_case(map, h, a), capacite: intendant::capacite(map, h, a), distance: map.distance(center, h), amenagee: a.is_some() }
+            let courbe = intendant::courbe(map, h, a);
+            CaseDispo { hex: h, max: courbe.max(), courbe, parts: intendant::parts_de_la_case(map, h, a), sortes: intendant::sortes_de_la_case(map, h, a), capacite: intendant::capacite(map, h, a), distance: map.distance(center, h), amenagee: a.is_some() }
         })
         .collect();
     cases.sort_by_key(|c| c.hex);
@@ -772,7 +773,7 @@ pub fn repartition_ville(map: &WorldMap, center: Hex, city: &CityState, cases: &
     let k = 1.0 + city.bonus_outils;
     let outilles: Vec<CaseDispo>;
     let cases = if city.bonus_outils > 0.0 {
-        outilles = cases.iter().map(|c| if c.amenagee { CaseDispo { max: c.max.fois(k), ..*c } } else { *c }).collect();
+        outilles = cases.iter().map(|c| if c.amenagee { CaseDispo { max: c.max.fois(k), courbe: c.courbe.fois(k), ..*c } } else { *c }).collect();
         &outilles[..]
     } else {
         cases
@@ -814,9 +815,7 @@ pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo
             if let Some(Production::Amenagement { hex, kind, .. }) = rapport.built
                 && let Some(c) = cases.iter_mut().find(|c| c.hex == hex)
             {
-                c.max = intendant::rendement_max(map, hex, Some(kind));
-                c.capacite = intendant::capacite(map, hex, Some(kind));
-                c.amenagee = true;
+                c.amenager(map, Some(kind));
             }
             Pas { habitants: st.habitants, rendements: r.rendements, variation: v, chomeurs: r.chomeurs, bien_etre: st.bien_etre }
         })
