@@ -373,6 +373,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 ViewToggleButton,
+                crate::ecran_ville::CacheSousEcran,
                 UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),

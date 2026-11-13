@@ -806,7 +806,7 @@ fn end_turn(
             .iter()
             .map(|(_, center, city)| {
                 let s = &city.state;
-                let eau = s.site.eau_courante || s.site.lac || std::iter::once(*center).chain(map.neighbors(*center)).any(|h| map.get(map.canonical(h)).is_some_and(|t| t.is_water()));
+                let eau = crate::echanges::au_bord_de_l_eau(map, *center, &s.site);
                 let mut stock = [0.0; N_RESSOURCES];
                 let mut demande = [0.0; N_RESSOURCES];
                 for r in Ressource::TOUTES {

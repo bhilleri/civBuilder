@@ -47,6 +47,12 @@ impl VilleEchange {
     }
 }
 
+/// Une ville au bord de l'eau (fleuve, rivière, lac ou mer, sur sa case ou une voisine) : sa
+/// portée d'échange est plus longue.
+pub fn au_bord_de_l_eau(map: &crate::map::WorldMap, centre: Hex, site: &crate::rules::Site) -> bool {
+    site.eau_courante || site.lac || std::iter::once(centre).chain(map.neighbors(centre)).any(|h| map.get(map.canonical(h)).is_some_and(|t| t.is_water()))
+}
+
 /// Un transfert du tour : `qte` de `ressource` de la ville `de` à la ville `vers`, et la
 /// contrepartie reçue par `de`, s'il y en a une (sinon, un don).
 #[derive(Clone, Debug, PartialEq)]
