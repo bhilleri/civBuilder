@@ -702,6 +702,8 @@ fn end_turn(
                 city.state.ajouter_ressource(r, unites);
             }
         }
+        // Besoins de base et luxe : la ville prend dans son stock ce que demandent ses habitants (5g)
+        city.state.consommer_ressources();
         // Histoire de la ville : paliers, famines, constructions marquantes
         if report.grew {
             let (p, h) = (city.state.palier(), city.state.habitants);

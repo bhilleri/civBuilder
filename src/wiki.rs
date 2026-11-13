@@ -858,7 +858,7 @@ fn cities() -> Article {
             ),
             p("Gisements (lot néolithique) : sel (côtes chaudes et sèches, lacs salés, sel gemme), silex (craie et \
                calcaires), obsidienne (arcs volcaniques), pierre dure (granite, basalte en relief), ocre (grès, argiles, \
-               latérites), aromates et simples (garrigues, forêts de pente), pierres et parures (vieux massifs, ambre des \
+               latérites), plantes médicinales (garrigues, forêts de pente), pierres et parures (vieux massifs, ambre des \
                côtes froides), fibres et peaux (lin des prairies, fourrures du nord), bois d'œuvre (vieilles forêts). Une \
                case porte au plus un gisement ; un peu plus d'une case de terre sur dix en porte un. Les affleurements et \
                les ressources vivantes se voient dès qu'une case est explorée ; la pierre dure et les pierres et parures se \
@@ -867,8 +867,12 @@ fn cities() -> Article {
                Les gisements connus se voient sur la carte des ressources (rond à la couleur de la ressource et son \
                sigle), dans l'infobulle et dans l'écran de la ville (fiche de la case ; panneau « Gisements et \
                ressources » du détail de la production). L'aménagement « exploitation » en tire une unité par tour à \
-               pleine capacité, versée au stock de la ville ; l'usage des ressources (besoins de base, luxe, outils, \
-               matériaux) viendra avec les livraisons suivantes."),
+               pleine capacité, versée au stock de la ville ; une ville prend chaque tour dans son stock ce que demandent ses \
+               habitants. Besoins de base (0,1 par tour pour 1 000 habitants) : le sel donne jusqu'à +5 de salubrité, les \
+               plantes médicinales +3 ; sans fibres et peaux, le manque de vêtements coûte jusqu'à −10 de salubrité, \
+               progressivement entre 2 000 et 10 000 habitants (une petite communauté se vêt elle-même). Luxe (0,1 par tour \
+               et par palier) : ocre +2 de bien-être (commun), obsidienne +4 (fin), pierres et parures +6 (rare), au plus \
+               +16 ; chaque effet au prorata de la part couverte. Outils et matériaux viendront ensuite."),
             p("Types de nourriture : un champ donne des céréales et féculents ; un pâturage ou des légumineuses, des \
                protéines ; un jardin, des fruits et légumes ; une case non aménagée, selon son biome (forêt : gibier et \
                baies ; prairie, steppe, savane : graines sauvages et gibier ; l'eau : du poisson) ; le centre de la ville, \

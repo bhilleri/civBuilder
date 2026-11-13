@@ -236,22 +236,37 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
   case) ; la répartition des sortes dans le monde à surveiller.
 
+### Fait le 13/11/2026 : besoins de base et luxe (5g, décisions B1 à B4)
+- Demande par tour (`CityState::demande`) : 0,1 pour 1 000 habitants pour le sel, les fibres et
+  peaux et les plantes médicinales (B2) ; 0,1 par palier pour une sorte de luxe (B3). En fin de
+  tour, la ville prend dans son stock (`consommer_ressources`) ; la part couverte
+  (`CityState::couverture`) règle les effets du tour suivant.
+- Effets : sel +5 de salubrité, plantes médicinales +3 (B4 ; « aromates et simples » renommées
+  « plantes médicinales » : « sinon personne ne comprend »), manque de vêtements jusqu'à −10, installé
+  progressivement entre 2 000 et 10 000 habitants (B1 : sans cela, toute jeune ville tombait à 40,
+  au seuil des maladies) ; luxe : ocre +2 (commun), obsidienne +4 (fin), pierres et parures +6 (rare),
+  au plus +16 de bien-être (`bien_etre_luxe`). Tout au prorata de la couverture.
+- Affichage : termes de la salubrité et du bien-être (onglet Population) ; demande, couverture et
+  effet de chaque ressource dans le panneau « Gisements et ressources ».
+- Pas encore : stock qui s'use (luxe), sel qui conserve la viande au grenier (5 %), outils,
+  matériaux, échanges entre villes ; la prévision ne simule pas la consommation.
+
 ### Fait le 13/11/2026 : gisements (5f, décisions D1 à D5)
-- `gisements.rs` : `Ressource` (sel, silex, obsidienne, pierre dure, ocre, aromates et simples,
+- `gisements.rs` : `Ressource` (sel, silex, obsidienne, pierre dure, ocre, plantes médicinales (« aromates et simples » au départ, renommées par Benjamin : « sinon personne ne comprend »),
   pierres et parures, fibres et peaux, bois d'œuvre), `LieuGisement`, `chance`, `gisement` ; une
   ressource par case au plus, tirées dans l'ordre des plus rares (parures, obsidienne, sel, pierre
-  dure, ocre, silex, simples, bois d'œuvre, fibres), chacune par un tirage propre à la case et à la
+  dure, ocre, silex, plantes médicinales, bois d'œuvre, fibres), chacune par un tirage propre à la case et à la
   graine. Règles : sel 35 % au bord d'un lac salé ou d'une mer intérieure, 22 % sur une côte
   chaude et sèche ou aride, 4 % sur calcaire, argile ou grès sous 400 mm (sel gemme) ; silex 18 %
   sur calcaire hors relief accidenté ; obsidienne 12 % sur roche d'arc en relief, 5 % sur basalte ;
   pierre dure 8 % sur granite ou basalte en relief ; ocre 5 % sur grès ou argile au-dessus de 12 °C,
-  ou sol lessivé tropical ; simples 8 % en garrigue, 4 % en forêt ou jungle de pente ; parures 3 %
+  ou sol lessivé tropical ; plantes médicinales 8 % en garrigue, 4 % en forêt ou jungle de pente ; parures 3 %
   sur granite ou roche d'arc accidentés, 8 % sur les côtes froides boisées (ambre) ; fibres 7 % en
   prairie ou plaine de 500 à 1 200 mm (lin), 5 % en taïga ou toundra (peaux) ; bois d'œuvre 4 % en
   forêt, taïga ou jungle hors relief accidenté. Pas sur l'eau, un fleuve, la banquise, un pic.
 - `WorldMap::gisement` (cache comme la géologie : monde et sauvegardes inchangés).
 - Bilan (`bilan_gisements`, 777 / 2) : 10,4 / 11,2 % des terres ; sel 1,5 / 1,7 %, silex 2,6 / 3,1,
-  obsidienne 0,5 / 0,5, pierre dure 0,9 / 0,9, ocre 0,9 / 1,0, simples 1,0 / 0,7, parures 0,4 /
+  obsidienne 0,5 / 0,5, pierre dure 0,9 / 0,9, ocre 0,9 / 1,0, plantes médicinales 1,0 / 0,7, parures 0,4 /
   0,5, fibres 1,0 / 1,0, bois d'œuvre 1,5 / 1,8. Au premier essai, le bois d'œuvre (2,4 à 2,9 %)
   passait devant le silex : chances recalées (silex le plus courant, parures les plus rares).
 - Découverte (`game::Gisements`, `decouvrir_gisements`) : affleurements et ressources vivantes
@@ -267,7 +282,7 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   ressources » du détail de la production (exploitations, stock, usages à venir) ; journal.
 - Pas encore : l'usage des ressources (sel, fibres et peaux : besoins de base ; ocre, parures,
   obsidienne : luxe ; silex, obsidienne, pierre dure : outils ; bois d'œuvre, pierre dure :
-  matériaux ; simples : santé), la couche « technologie » de la découverte, les échanges entre
+  matériaux ; plantes médicinales : santé), la couche « technologie » de la découverte, les échanges entre
   villes. Le stock grandit sans limite en attendant.
 
 ### Fait le 13/11/2026 : grenier (5e, décisions G1 à G4)

@@ -3,7 +3,7 @@
 //! Logique pure : un gisement se déduit de la roche, du sol, du biome, du relief, du climat et des
 //! rivages de la case, plus un tirage par case et par ressource fixé par la graine (même graine,
 //! mêmes gisements). Une case porte au plus un gisement. Les affleurements (sel, silex,
-//! obsidienne, ocre) et les ressources vivantes (simples, fibres et peaux, bois d'œuvre) se voient
+//! obsidienne, ocre) et les ressources vivantes (plantes médicinales, fibres et peaux, bois d'œuvre) se voient
 //! dès que la case est explorée ; la pierre dure et les pierres et parures se découvrent par la
 //! prospection. Ces couches ne changent ni le terrain, ni le relief : mondes et sauvegardes
 //! identiques.
@@ -24,8 +24,9 @@ pub enum Ressource {
     PierreDure,
     /// Ocre : terres rouges et jaunes des grès, des argiles et des latérites.
     Ocre,
-    /// Aromates et simples : plantes médicinales et parfums des garrigues et des forêts de pente.
-    Simples,
+    /// Plantes médicinales (thym, sauge, valériane, écorce de saule…) des garrigues et des forêts
+    /// de pente (nommées « simples » autrefois).
+    Plantes,
     /// Pierres et parures : pierres précieuses des vieux massifs, ambre des côtes froides.
     Parures,
     /// Fibres et peaux : lin des prairies, fourrures et peaux du nord.
@@ -39,7 +40,7 @@ pub const N_RESSOURCES: usize = 9;
 
 impl Ressource {
     pub const TOUTES: [Ressource; N_RESSOURCES] =
-        [Ressource::Sel, Ressource::Silex, Ressource::Obsidienne, Ressource::PierreDure, Ressource::Ocre, Ressource::Simples, Ressource::Parures, Ressource::Fibres, Ressource::BoisOeuvre];
+        [Ressource::Sel, Ressource::Silex, Ressource::Obsidienne, Ressource::PierreDure, Ressource::Ocre, Ressource::Plantes, Ressource::Parures, Ressource::Fibres, Ressource::BoisOeuvre];
 
     pub const fn nom(self) -> &'static str {
         match self {
@@ -48,7 +49,7 @@ impl Ressource {
             Ressource::Obsidienne => "obsidienne",
             Ressource::PierreDure => "pierre dure",
             Ressource::Ocre => "ocre",
-            Ressource::Simples => "aromates et simples",
+            Ressource::Plantes => "plantes médicinales",
             Ressource::Parures => "pierres et parures",
             Ressource::Fibres => "fibres et peaux",
             Ressource::BoisOeuvre => "bois d'œuvre",
@@ -63,7 +64,7 @@ impl Ressource {
             Ressource::Obsidienne => "Ob",
             Ressource::PierreDure => "Pd",
             Ressource::Ocre => "Oc",
-            Ressource::Simples => "As",
+            Ressource::Plantes => "Pm",
             Ressource::Parures => "Pp",
             Ressource::Fibres => "Fp",
             Ressource::BoisOeuvre => "Bo",
@@ -78,7 +79,7 @@ impl Ressource {
             Ressource::Obsidienne => (0.20, 0.18, 0.26),
             Ressource::PierreDure => (0.42, 0.50, 0.46),
             Ressource::Ocre => (0.80, 0.42, 0.18),
-            Ressource::Simples => (0.52, 0.72, 0.36),
+            Ressource::Plantes => (0.52, 0.72, 0.36),
             Ressource::Parures => (0.36, 0.58, 0.90),
             Ressource::Fibres => (0.86, 0.76, 0.52),
             Ressource::BoisOeuvre => (0.46, 0.30, 0.16),
@@ -91,7 +92,7 @@ impl Ressource {
             Ressource::Sel => "saline",
             Ressource::Silex | Ressource::Obsidienne | Ressource::Ocre => "minière",
             Ressource::PierreDure | Ressource::Parures => "carrière",
-            Ressource::Simples => "cueillette des simples",
+            Ressource::Plantes => "cueillette des plantes",
             Ressource::Fibres => "champ de lin, chasse aux peaux",
             Ressource::BoisOeuvre => "coupe de bois d'œuvre",
         }
@@ -111,7 +112,7 @@ impl Ressource {
             Ressource::Obsidienne => "outils de pierre (niveau 1) ; luxe",
             Ressource::PierreDure => "outils de pierre (niveau 1) ; meules, mégalithes",
             Ressource::Ocre => "luxe (parure, peinture)",
-            Ressource::Simples => "santé (salubrité)",
+            Ressource::Plantes => "santé (salubrité)",
             Ressource::Parures => "luxe",
             Ressource::Fibres => "besoin de base : vêtements",
             Ressource::BoisOeuvre => "matériau : grands bâtiments, navires",
@@ -120,6 +121,22 @@ impl Ressource {
 
     pub fn index(self) -> usize {
         Ressource::TOUTES.iter().position(|&r| r == self).unwrap_or(0)
+    }
+
+    /// Besoin de base que la ressource couvre (sel, vêtements, santé) : sa demande suit les
+    /// habitants (décision B2).
+    pub const fn besoin_de_base(self) -> bool {
+        matches!(self, Ressource::Sel | Ressource::Fibres | Ressource::Plantes)
+    }
+
+    /// Rang de luxe : bien-être d'une sorte couverte (commun +2, fin +4, rare +6 ; décision B3).
+    pub const fn luxe(self) -> Option<f64> {
+        match self {
+            Ressource::Ocre => Some(2.0),
+            Ressource::Obsidienne => Some(4.0),
+            Ressource::Parures => Some(6.0),
+            _ => None,
+        }
     }
 }
 
@@ -165,7 +182,7 @@ pub fn chance(r: Ressource, l: &LieuGisement) -> f32 {
         },
         Ressource::PierreDure => if matches!(l.roche, Roche::Granite | Roche::Basalte) && haut { 0.08 } else { 0.0 },
         Ressource::Ocre => if (matches!(l.roche, Roche::Gres | Roche::Argile) && l.temperature > 12.0) || l.sol == Sol::LessiveTropical { 0.05 } else { 0.0 },
-        Ressource::Simples => match l.terrain {
+        Ressource::Plantes => match l.terrain {
             Terrain::Mediterranean => 0.08,
             Terrain::Forest | Terrain::Jungle if haut => 0.04,
             _ => 0.0,
@@ -190,7 +207,7 @@ pub fn chance(r: Ressource, l: &LieuGisement) -> f32 {
 
 /// Ordre des tirages : les plus rares d'abord (une case porte au plus un gisement).
 pub const ORDRE: [Ressource; N_RESSOURCES] =
-    [Ressource::Parures, Ressource::Obsidienne, Ressource::Sel, Ressource::PierreDure, Ressource::Ocre, Ressource::Silex, Ressource::Simples, Ressource::BoisOeuvre, Ressource::Fibres];
+    [Ressource::Parures, Ressource::Obsidienne, Ressource::Sel, Ressource::PierreDure, Ressource::Ocre, Ressource::Silex, Ressource::Plantes, Ressource::BoisOeuvre, Ressource::Fibres];
 
 /// Gisement d'une case : la première ressource (dans `ORDRE`) dont le tirage `tirage(r)` (0 à 1,
 /// propre à la case et à la ressource) passe sous sa chance.
@@ -221,10 +238,10 @@ mod tests {
         assert_eq!(gisement(&LieuGisement { roche: Roche::Volcanique, relief: Relief::Hills, ..lieu() }, toujours), Some(Ressource::Obsidienne));
         assert_eq!(gisement(&LieuGisement { cote: true, terrain: Terrain::Desert, pluie: 100.0, temperature: 25.0, roche: Roche::Gres, ..lieu() }, toujours), Some(Ressource::Sel));
         assert_eq!(gisement(&LieuGisement { rive_salee: true, ..lieu() }, toujours), Some(Ressource::Sel));
-        // Prairie arrosée : lin ; forêt : bois d'œuvre ; garrigue : simples
+        // Prairie arrosée : lin ; forêt : bois d'œuvre ; garrigue : plantes médicinales
         assert_eq!(gisement(&lieu(), toujours), Some(Ressource::Fibres));
         assert_eq!(gisement(&LieuGisement { terrain: Terrain::Forest, ..lieu() }, toujours), Some(Ressource::BoisOeuvre));
-        assert_eq!(gisement(&LieuGisement { terrain: Terrain::Mediterranean, pluie: 450.0, ..lieu() }, toujours), Some(Ressource::Simples));
+        assert_eq!(gisement(&LieuGisement { terrain: Terrain::Mediterranean, pluie: 450.0, ..lieu() }, toujours), Some(Ressource::Plantes));
         // Vieux massif : les parures passent avant la pierre dure
         assert_eq!(gisement(&LieuGisement { roche: Roche::Granite, relief: Relief::Rugged, ..lieu() }, toujours), Some(Ressource::Parures));
         assert_eq!(gisement(&LieuGisement { roche: Roche::Granite, relief: Relief::Rugged, ..lieu() }, |r| if r == Ressource::Parures { 1.0 } else { 0.0 }), Some(Ressource::PierreDure));

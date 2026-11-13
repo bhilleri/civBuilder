@@ -651,6 +651,23 @@ pub const SALUBRITE_SEUIL: f64 = 40.0;
 pub const PERTE_INSALUBRITE_MAX: f64 = 0.01;
 /// Coût du puits (production).
 pub const PUITS_COUT: i32 = 15;
+/// Besoins de base (livraison 5g) : demande par tour pour 1 000 habitants (sel, vêtements,
+/// plantes médicinales ; décision B2), et par palier pour une sorte de luxe (B3).
+pub const DEMANDE_PAR_MILLIER: f64 = 0.1;
+pub const DEMANDE_LUXE_PAR_PALIER: f64 = 0.1;
+/// Sel couvert : salubrité en plus (la norme est de ne pas en avoir).
+pub const SALUBRITE_SEL: f64 = 5.0;
+/// Plantes médicinales couvertes : salubrité en plus (B4).
+pub const SALUBRITE_PLANTES: f64 = 3.0;
+/// Manque de vêtements : salubrité en moins, au plus, au prorata du manque ; il s'installe
+/// progressivement entre `VETEMENTS_DEBUT` et `VETEMENTS_PLEIN` habitants (B1 : une petite
+/// communauté se vêt elle-même).
+pub const SALUBRITE_VETEMENTS_MAX: f64 = 10.0;
+pub const VETEMENTS_DEBUT: f64 = 2_000.0;
+pub const VETEMENTS_PLEIN: f64 = 10_000.0;
+/// Bien-être du luxe au plus (toutes sortes couvertes).
+pub const BIEN_ETRE_LUXE_MAX: f64 = 16.0;
+
 /// Grenier (décisions G1 à G4) : coût (production) et capacité, en tours de besoin de la ville.
 pub const GRENIER_COUT: i32 = 30;
 pub const GRENIER_TOURS: f64 = 5.0;
@@ -1009,6 +1026,10 @@ pub struct CityState {
     /// `Ressource::TOUTES`) : leur usage viendra avec les livraisons suivantes.
     #[serde(default)]
     pub ressources: Vec<f64>,
+    /// Part de la demande de chaque ressource couverte au dernier tour (0 à 1 ; ordre de
+    /// `Ressource::TOUTES`) : les besoins de base et le luxe en dépendent (5g).
+    #[serde(default)]
+    pub couverture: Vec<f64>,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1087,7 +1108,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1149,6 +1170,53 @@ impl CityState {
     /// Stock d'une ressource.
     pub fn ressource(&self, r: crate::gisements::Ressource) -> f64 {
         self.ressources.get(r.index()).copied().unwrap_or(0.0)
+    }
+
+    /// Demande d'une ressource par tour : 0,1 pour 1 000 habitants pour un besoin de base, 0,1 par
+    /// palier pour une sorte de luxe, rien pour les autres (outils, matériaux : plus tard).
+    pub fn demande(&self, r: crate::gisements::Ressource) -> f64 {
+        if r.besoin_de_base() {
+            DEMANDE_PAR_MILLIER * self.habitants as f64 / 1_000.0
+        } else if r.luxe().is_some() {
+            DEMANDE_LUXE_PAR_PALIER * f64::from(self.palier())
+        } else {
+            0.0
+        }
+    }
+
+    /// Part de la demande couverte au dernier tour.
+    pub fn couverture(&self, r: crate::gisements::Ressource) -> f64 {
+        self.couverture.get(r.index()).copied().unwrap_or(0.0)
+    }
+
+    /// Fin du tour : la ville prend dans son stock ce que demandent ses habitants ; la part
+    /// couverte règle les besoins de base et le luxe du tour suivant.
+    pub fn consommer_ressources(&mut self) {
+        use crate::gisements::{N_RESSOURCES, Ressource};
+        self.ressources.resize(N_RESSOURCES, 0.0);
+        self.couverture.resize(N_RESSOURCES, 0.0);
+        for r in Ressource::TOUTES {
+            let d = self.demande(r);
+            let i = r.index();
+            if d <= 0.0 {
+                self.couverture[i] = 0.0;
+                continue;
+            }
+            let pris = self.ressources[i].min(d);
+            self.ressources[i] -= pris;
+            self.couverture[i] = pris / d;
+        }
+    }
+
+    /// Part du malus de manque de vêtements selon la taille (0 sous 2 000 habitants, 1 à 10 000).
+    pub fn part_besoin_vetements(&self) -> f64 {
+        ((self.habitants as f64 - VETEMENTS_DEBUT) / (VETEMENTS_PLEIN - VETEMENTS_DEBUT)).clamp(0.0, 1.0)
+    }
+
+    /// Bien-être du luxe : le rang de chaque sorte, au prorata de sa couverture, au plus
+    /// `BIEN_ETRE_LUXE_MAX`.
+    pub fn bien_etre_luxe(&self) -> f64 {
+        crate::gisements::Ressource::TOUTES.iter().filter_map(|&r| r.luxe().map(|rang| rang * self.couverture(r))).sum::<f64>().min(BIEN_ETRE_LUXE_MAX)
     }
 
     /// Nourriture gardée au grenier (toutes sortes).
@@ -1225,6 +1293,9 @@ impl CityState {
             ("marais voisin (fièvres)", -SALUBRITE_MARAIS * s.marais),
             ("bétail des pâturages", -(SALUBRITE_PAR_PATURAGE * s.paturages as f64).min(SALUBRITE_PATURAGES_MAX)),
             ("puits", if self.puits { SALUBRITE_PUITS } else { 0.0 }),
+            ("sel", SALUBRITE_SEL * self.couverture(crate::gisements::Ressource::Sel)),
+            ("plantes médicinales", SALUBRITE_PLANTES * self.couverture(crate::gisements::Ressource::Plantes)),
+            ("manque de vêtements", -SALUBRITE_VETEMENTS_MAX * (1.0 - self.couverture(crate::gisements::Ressource::Fibres)) * self.part_besoin_vetements()),
             (if s.eau_courante { "taille de la ville" } else { "taille de la ville, sans eau courante" }, -taille),
         ];
         termes.into_iter().filter(|(_, v)| v.abs() >= 0.05).collect()
@@ -1243,7 +1314,7 @@ impl CityState {
         let chomage = -(part * 100.0 * BIEN_ETRE_PAR_CHOMAGE).min(BIEN_ETRE_CHOMAGE_MAX);
         let jeux = if self.projet_actif() == Some(Projet::GrandsJeux) { (BIEN_ETRE_PAR_PRODUCTION_JEUX * yields.production.max(0.0)).min(BIEN_ETRE_JEUX_MAX) } else { 0.0 };
         let diversite = (intendant::BIEN_ETRE_PAR_SORTE * f64::from(self.sortes_en_plus)).min(intendant::BIEN_ETRE_DIVERSITE_MAX);
-        [("famine", famine), ("chômage", chomage), ("Grands jeux", jeux), ("diversité des repas", diversite)].into_iter().filter(|(_, v)| v.abs() >= 0.05).collect()
+        [("famine", famine), ("chômage", chomage), ("Grands jeux", jeux), ("diversité des repas", diversite), ("luxe", self.bien_etre_luxe())].into_iter().filter(|(_, v)| v.abs() >= 0.05).collect()
     }
 
     /// Bien-être visé ce tour (0 à 100) ; le bien-être de la ville s'en approche d'un cinquième de l'écart.
@@ -1302,6 +1373,7 @@ impl CityState {
             grenier: self.grenier,
             stock: self.stock.clone(),
             ressources: self.ressources.clone(),
+            couverture: self.couverture.clone(),
         }
     }
 
@@ -1556,12 +1628,45 @@ mod tests {
         // Taille : −1 par millier au-delà de 5 000, le double sans eau courante
         let mut grande = CityState::new("Grande".into());
         grande.habitants = 15_000;
+        // (vêtue : pas de manque de vêtements)
+        grande.couverture = vec![0.0; crate::gisements::N_RESSOURCES];
+        grande.couverture[crate::gisements::Ressource::Fibres.index()] = 1.0;
         assert_eq!(grande.salubrite(), 30.0);
         grande.site.eau_courante = true;
         assert_eq!(grande.salubrite(), 55.0);
         grande.site.lac = true;
         grande.site.paturages = 14;
         assert_eq!(grande.salubrite(), 50.0, "+5 de lac, −10 de bétail au plus");
+    }
+
+    #[test]
+    fn besoins_de_base_et_luxe() {
+        use crate::gisements::Ressource;
+        let mut c = CityState::new("Besoins".into());
+        c.habitants = 6_000;
+        // Demande : 0,1 pour 1 000 habitants (besoins de base), 0,1 par palier (luxe)
+        assert!((c.demande(Ressource::Sel) - 0.6).abs() < 1e-9);
+        assert!((c.demande(Ressource::Parures) - 0.1 * f64::from(c.palier())).abs() < 1e-9);
+        assert_eq!(c.demande(Ressource::Silex), 0.0);
+        // Rien en stock : pas de sel ni de plantes, manque de vêtements à moitié installé (6 000 habitants)
+        c.consommer_ressources();
+        assert!((c.part_besoin_vetements() - 0.5).abs() < 1e-9);
+        let base = c.salubrite();
+        assert!((CityState { habitants: 1_500, ..c.clone() }.part_besoin_vetements()).abs() < 1e-9, "une petite ville se vêt elle-même");
+        // Du sel pour la moitié de la demande, des fibres et des plantes pour toute, de l'ocre et des parures
+        c.ajouter_ressource(Ressource::Sel, 0.3);
+        c.ajouter_ressource(Ressource::Fibres, 5.0);
+        c.ajouter_ressource(Ressource::Plantes, 0.6);
+        c.ajouter_ressource(Ressource::Ocre, 5.0);
+        c.ajouter_ressource(Ressource::Parures, 5.0);
+        c.consommer_ressources();
+        assert!((c.couverture(Ressource::Sel) - 0.5).abs() < 1e-9 && c.couverture(Ressource::Fibres) == 1.0);
+        assert!(c.ressource(Ressource::Sel).abs() < 1e-9 && (c.ressource(Ressource::Fibres) - 4.4).abs() < 1e-9);
+        // Salubrité : sel +2,5, plantes +3, plus de manque de vêtements (+5)
+        assert!((c.salubrite() - (base + 2.5 + 3.0 + 5.0)).abs() < 1e-9, "{} {}", c.salubrite(), base);
+        // Luxe : ocre +2 et parures +6
+        assert!((c.bien_etre_luxe() - 8.0).abs() < 1e-9);
+        assert!(c.termes_bien_etre(Rendements::new(10.0, 1.0, 0.0), 0).iter().any(|(n, v)| *n == "luxe" && (*v - 8.0).abs() < 1e-9));
     }
 
     #[test]

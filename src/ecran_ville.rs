@@ -2986,6 +2986,22 @@ fn gisements_de_la_ville(g: &mut ChildSpawnerCommands, city: &City, cases: &[Cas
             let liste: Vec<String> = stock.iter().map(|(r, q)| format!("{} {}", r.nom(), rules::decimal(*q))).collect();
             p.spawn(texte(format!("Stock de la ville : {}.", liste.join(", ")), 13.0, charte::TEXTE));
         }
+        // Besoins de base et luxe (5g) : demande, part couverte au dernier tour, effet
+        let c = &city.state;
+        for r in crate::gisements::Ressource::TOUTES.into_iter().filter(|&r| c.demande(r) > 0.0) {
+            let couv = c.couverture(r);
+            let effet = match r {
+                crate::gisements::Ressource::Sel => format!("salubrité +{}", rules::decimal(rules::SALUBRITE_SEL * couv)),
+                crate::gisements::Ressource::Plantes => format!("salubrité +{}", rules::decimal(rules::SALUBRITE_PLANTES * couv)),
+                crate::gisements::Ressource::Fibres => {
+                    let manque = rules::SALUBRITE_VETEMENTS_MAX * (1.0 - couv) * c.part_besoin_vetements();
+                    if manque > 0.05 { format!("manque de vêtements : salubrité −{}", rules::decimal(manque)) } else { "vêtus".to_string() }
+                }
+                _ => format!("luxe : bien-être +{}", rules::decimal(r.luxe().unwrap_or(0.0) * couv)),
+            };
+            let couleur = if couv >= 0.999 { charte::OK } else if couv > 0.0 { charte::ALERTE } else { charte::MUET };
+            ligne_valeur(p, &format!("{} · demande {} par tour", capitale(r.nom()), rules::decimal(c.demande(r))), format!("couvert {:.0} % · {effet}", couv * 100.0), couleur);
+        }
         let usages: Vec<String> = connus.iter().filter_map(|c| c.gisement).fold(Vec::new(), |mut v, r| {
             if !v.contains(&r) {
                 v.push(r);
