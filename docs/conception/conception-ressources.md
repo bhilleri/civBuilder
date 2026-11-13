@@ -236,6 +236,24 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
   case) ; la répartition des sortes dans le monde à surveiller.
 
+### Fait le 13/11/2026 : grenier (5e, décisions G1 à G4)
+- `Production::Grenier` (30 de production, un par ville, `CityState::grenier`) ; stock par sorte
+  (`CityState::stock`), capacité `GRENIER_TOURS` = 5 tours de besoin.
+- Remplissage (`excedent_pour_grenier`) : l'excédent que la croissance n'utilise pas, c'est-à-dire
+  la zone d'équilibre (jusqu'à 3 % au-dessus du besoin, où la croissance est nulle) et ce qui dépasse
+  1,5 fois le besoin (la croissance est alors pleine) ; les sortes qui se gardent le mieux d'abord,
+  chacune au plus ce que la ville en a produit.
+- Pertes (`Sorte::perte`) : grains, légumineuses, châtaignes, dattes 2 % ; tubercules, fruits,
+  légumes 10 % ; viande et poisson (bétail, gibier compris) 20 % ; le sel (5 %) viendra avec lui.
+- Usage (`tire_du_grenier`) : en famine, le manque, d'abord ce qui se garde le moins ;
+  `nourriture_avec_grenier` sert à la croissance, au bien-être (pas de terme « famine ») et à la
+  prévision. Le siège n'existe pas encore : il s'appuiera sur le même stock.
+- Bilan (`bilan_grenier`, 8 villes de 19 cases sur 777 et 2, projet Peupler) : stock à 4,9 tours de
+  besoin dès le tour 25 (une jeune ville a plus de 1,5 fois son besoin), jusqu'à ce que la ville
+  touche sa limite ; il retombe alors vers 1,5 tour (3 % d'excédent contre 2 % de perte du grain).
+- Pas encore : séchage et fumage (climat froid ou aride), fête quand le grenier est plein et varié,
+  stocks dans le commerce.
+
 ### Fait le 13/11/2026 : sols du désert et du froid
 - Question de Benjamin : « les déserts ont un facteur de 1 ? ». Ils n'en avaient pas l'usage (aucun champ possible), mais la
   carte et l'infobulle montraient « sol brun : champs × 1 ». Nouvelles classes **sol aride** (désert) et **sol gelé**

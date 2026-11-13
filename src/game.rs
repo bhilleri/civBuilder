@@ -689,6 +689,7 @@ fn end_turn(
                 city.state.noter(tour, rules::GenreEvenement::Construction, texte, Some(hex));
             }
             Some(rules::Production::Puits) => city.state.noter(tour, rules::GenreEvenement::Construction, "Puits creusé : la salubrité monte", Some(*center)),
+            Some(rules::Production::Grenier) => city.state.noter(tour, rules::GenreEvenement::Construction, "Grenier bâti : la ville garde ses excédents", Some(*center)),
             _ => {}
         }
         // (seul le joueur a des villes pour l'instant ; la fraction de deniers est gardée par le trésor)
@@ -712,6 +713,9 @@ fn end_turn(
         }
         if report.starved {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(" souffre de famine !"));
+        } else if report.puise > 0.0 {
+            let reste = city.state.stock_total() / city.state.besoin_nourriture().max(1e-6);
+            log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(format!(" vit sur son grenier : {} de nourriture puisés, il en reste pour {:.0} tour(s).", rules::decimal(report.puise), reste.floor())));
         }
         if insalubre && !report.starved {
             log.notify(Importance::Warning, LogText::new().city(&name, *entity, *center).text(format!(" : salubrité {:.0} sur 100, les maladies emportent des habitants.", city.state.salubrite())));
@@ -733,6 +737,7 @@ fn end_turn(
             Some(rules::Production::Bridge { at, .. }) => new_bridges.push((*entity, at, *center, name)),
             Some(rules::Production::Amenagement { hex, kind, .. }) => new_amenagements.push((*entity, hex, kind, *center, name)),
             Some(rules::Production::Puits) => log.push(LogText::new().city(&name, *entity, *center).text(" a creusé son puits : la salubrité monte.")),
+            Some(rules::Production::Grenier) => log.push(LogText::new().city(&name, *entity, *center).text(" a bâti son grenier : elle gardera ses excédents contre les famines.")),
             None => {}
         }
     }

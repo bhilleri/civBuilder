@@ -651,6 +651,9 @@ pub const SALUBRITE_SEUIL: f64 = 40.0;
 pub const PERTE_INSALUBRITE_MAX: f64 = 0.01;
 /// Coût du puits (production).
 pub const PUITS_COUT: i32 = 15;
+/// Grenier (décisions G1 à G4) : coût (production) et capacité, en tours de besoin de la ville.
+pub const GRENIER_COUT: i32 = 30;
+pub const GRENIER_TOURS: f64 = 5.0;
 
 /// Ce que le lieu de la ville donne à sa salubrité (calculé depuis la carte, gardé dans la ville
 /// pour ses tours et sa prévision).
@@ -848,6 +851,8 @@ pub enum Production {
     Amenagement { hex: Hex, kind: Amenagement, cost: i32 },
     /// Puits de la ville (salubrité ; plus tard, de l'eau) : un par ville, sur le centre.
     Puits,
+    /// Grenier de la ville (stock de nourriture contre les famines) : un par ville.
+    Grenier,
 }
 
 impl Production {
@@ -856,6 +861,7 @@ impl Production {
             Production::Unit(kind) => kind.cost(),
             Production::Bridge { cost, .. } | Production::Amenagement { cost, .. } => cost,
             Production::Puits => PUITS_COUT,
+            Production::Grenier => GRENIER_COUT,
         }
     }
 
@@ -866,6 +872,7 @@ impl Production {
             Production::Bridge { at: crate::map::BridgeAt::Fleuve { .. }, .. } => "Pont sur le fleuve",
             Production::Amenagement { kind, .. } => kind.nom(),
             Production::Puits => "Puits",
+            Production::Grenier => "Grenier",
         }
     }
 }
@@ -992,6 +999,12 @@ pub struct CityState {
     /// repas, qui donne du bien-être (5d).
     #[serde(default)]
     pub sortes_en_plus: u8,
+    /// La ville a son grenier.
+    #[serde(default)]
+    pub grenier: bool,
+    /// Nourriture gardée au grenier, par sorte (ordre de `Sorte::TOUTES` ; vide sans grenier).
+    #[serde(default)]
+    pub stock: Vec<f64>,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1064,11 +1077,13 @@ pub struct CityTurnReport {
     /// Le colon en tête de file vient d'être payé mais la ville n'a pas assez d'habitants : la file
     /// est bloquée (dit une seule fois, au tour où il est payé).
     pub colon_attend: bool,
+    /// Nourriture puisée au grenier ce tour-ci.
+    pub puise: f64,
 }
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0 }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1108,7 +1123,7 @@ impl CityState {
     /// projet, salubrité, famine.
     pub fn croissance(&self, yields: Rendements) -> Croissance {
         let besoin = self.besoin_nourriture().max(0.001);
-        let couverture = yields.nourriture.max(0.0) / besoin;
+        let couverture = self.nourriture_avec_grenier(yields.nourriture).max(0.0) / besoin;
         let facteur_bien_etre = (1.0 + (self.bien_etre - BIEN_ETRE_NEUTRE) / 100.0).max(0.0);
         let s = self.salubrite();
         let insalubrite = if s < SALUBRITE_SEUIL { -PERTE_INSALUBRITE_MAX * (SALUBRITE_SEUIL - s) / SALUBRITE_SEUIL } else { 0.0 };
@@ -1119,6 +1134,64 @@ impl CityState {
             let famine = -(FAMINE_MIN + (FAMINE_MAX - FAMINE_MIN) * (1.0 - couverture)) * facteur_famine(self.types_nourriture);
             Croissance { naturelle: 0.0, facteur_bien_etre, peupler: 0.0, insalubrite, famine }
         }
+    }
+
+    /// Nourriture gardée au grenier (toutes sortes).
+    pub fn stock_total(&self) -> f64 {
+        self.stock.iter().sum()
+    }
+
+    /// Capacité du grenier : `GRENIER_TOURS` tours de besoin (0 sans grenier).
+    pub fn capacite_grenier(&self) -> f64 {
+        if self.grenier { GRENIER_TOURS * self.besoin_nourriture() } else { 0.0 }
+    }
+
+    /// Ce que la ville tirera du grenier avec `nourriture` ce tour-ci : le manque, tant qu'il y en a.
+    pub fn tire_du_grenier(&self, nourriture: f64) -> f64 {
+        (self.besoin_nourriture() - nourriture).max(0.0).min(self.stock_total())
+    }
+
+    /// Nourriture du tour, grenier compris (il comble le manque).
+    pub fn nourriture_avec_grenier(&self, nourriture: f64) -> f64 {
+        nourriture + self.tire_du_grenier(nourriture)
+    }
+
+    /// Ce qui peut aller au grenier avec `nourriture` (décision G2) : l'excédent que la croissance
+    /// n'utilise pas, dans la zone d'équilibre (jusqu'à 3 % au-dessus du besoin) et au-delà de
+    /// `1 + SURPLUS_POUR_CROITRE` fois le besoin.
+    pub fn excedent_pour_grenier(&self, nourriture: f64) -> f64 {
+        let besoin = self.besoin_nourriture();
+        (nourriture - besoin).clamp(0.0, ZONE_EQUILIBRE * besoin) + (nourriture - (1.0 + SURPLUS_POUR_CROITRE) * besoin).max(0.0)
+    }
+
+    /// Le grenier au tour : on y puise le manque (les sortes qui se gardent le moins d'abord),
+    /// les pertes de chaque sorte, puis l'excédent y entre (celles qui se gardent le mieux
+    /// d'abord, chacune au plus ce que la ville en a produit), jusqu'à la capacité. Rend ce qui a
+    /// été puisé.
+    fn tour_du_grenier(&mut self, nourriture: f64, par_sorte: &intendant::ParSorte) -> f64 {
+        if !self.grenier {
+            return 0.0;
+        }
+        self.stock.resize(intendant::N_SORTES, 0.0);
+        let mut ordre: Vec<usize> = (0..intendant::N_SORTES).collect();
+        ordre.sort_by(|&a, &b| intendant::Sorte::TOUTES[a].perte().total_cmp(&intendant::Sorte::TOUTES[b].perte()));
+        let puise = self.tire_du_grenier(nourriture);
+        let mut reste = puise;
+        for &s in ordre.iter().rev() {
+            let pris = reste.min(self.stock[s]);
+            self.stock[s] -= pris;
+            reste -= pris;
+        }
+        for (s, q) in self.stock.iter_mut().enumerate() {
+            *q *= 1.0 - intendant::Sorte::TOUTES[s].perte();
+        }
+        let mut entre = self.excedent_pour_grenier(nourriture).min((self.capacite_grenier() - self.stock_total()).max(0.0));
+        for &s in &ordre {
+            let q = entre.min(par_sorte[s]);
+            self.stock[s] += q;
+            entre -= q;
+        }
+        puise
     }
 
     /// Variation des habitants au prochain tour avec ces rendements (projet, bien-être et salubrité compris).
@@ -1150,7 +1223,7 @@ impl CityState {
     /// Ce qui fait le bien-être visé ce tour, en points (sans la base) : famine, chômage, Grands
     /// jeux (le luxe viendra avec les ressources).
     pub fn termes_bien_etre(&self, yields: Rendements, chomeurs: u32) -> Vec<(&'static str, f64)> {
-        let famine = if yields.nourriture < self.besoin_nourriture() { -BIEN_ETRE_FAMINE } else { 0.0 };
+        let famine = if self.nourriture_avec_grenier(yields.nourriture) < self.besoin_nourriture() - 1e-9 { -BIEN_ETRE_FAMINE } else { 0.0 };
         let part = chomeurs as f64 / intendant::actifs(self.habitants).max(1) as f64;
         let chomage = -(part * 100.0 * BIEN_ETRE_PAR_CHOMAGE).min(BIEN_ETRE_CHOMAGE_MAX);
         let jeux = if self.projet_actif() == Some(Projet::GrandsJeux) { (BIEN_ETRE_PAR_PRODUCTION_JEUX * yields.production.max(0.0)).min(BIEN_ETRE_JEUX_MAX) } else { 0.0 };
@@ -1175,7 +1248,8 @@ impl CityState {
             (Production::Amenagement { hex: a, .. }, Production::Amenagement { hex: b, .. }) => a == b,
             _ => false,
         };
-        if self.file.iter().any(deja) || objet == Production::Puits && (self.puits || self.file.iter().any(|c| c.objet == Production::Puits)) {
+        let unique = |fait: bool| fait || self.file.iter().any(|c| c.objet == objet);
+        if self.file.iter().any(deja) || objet == Production::Puits && unique(self.puits) || objet == Production::Grenier && unique(self.grenier) {
             return false;
         }
         self.file.push(Commande { objet, investi: 0.0 });
@@ -1210,6 +1284,8 @@ impl CityState {
             insalubre: self.insalubre,
             types_nourriture: self.types_nourriture,
             sortes_en_plus: self.sortes_en_plus,
+            grenier: self.grenier,
+            stock: self.stock.clone(),
         }
     }
 
@@ -1247,7 +1323,9 @@ impl CityState {
         let palier = self.palier();
         let variation = self.variation(yields);
         let vise = self.bien_etre_vise(yields, chomeurs);
-        report.starved = yields.nourriture < self.besoin_nourriture();
+        report.starved = self.nourriture_avec_grenier(yields.nourriture) < self.besoin_nourriture() - 1e-9;
+        // Grenier : avec le besoin du début du tour (avant le changement d'habitants)
+        report.puise = self.tour_du_grenier(yields.nourriture, par_sorte);
         if variation < 0 {
             self.habitants = self.habitants.saturating_sub(variation.unsigned_abs()).max(HABITANTS_PLANCHER.min(self.habitants));
         } else {
@@ -1286,6 +1364,9 @@ impl CityState {
                 if item == Production::Puits {
                     self.puits = true;
                 }
+                if item == Production::Grenier {
+                    self.grenier = true;
+                }
                 if settler {
                     self.habitants -= HABITANTS_COLON;
                     // (le solde du tour compte le départ)
@@ -1309,6 +1390,50 @@ impl CityState {
 mod tests {
     use super::*;
     use crate::map::{Relief, Terrain};
+
+    #[test]
+    fn le_grenier_garde_l_excedent_et_nourrit_les_famines() {
+        use crate::intendant::{N_SORTES, Sorte};
+        let mut c = CityState::new("Grenier".into());
+        c.habitants = 10_000;
+        c.types_nourriture = 1;
+        // Un seul grenier, en file puis bâti
+        assert!(c.mettre_en_file(Production::Grenier));
+        assert!(!c.mettre_en_file(Production::Grenier));
+        c.file.clear();
+        c.grenier = true;
+        let besoin = c.besoin_nourriture();
+        assert!((c.capacite_grenier() - GRENIER_TOURS * besoin).abs() < 1e-9);
+        // Excédent : la zone d'équilibre (3 %) et ce qui dépasse 1,5 fois le besoin ; rien entre les deux
+        assert!(c.excedent_pour_grenier(0.9 * besoin) == 0.0);
+        assert!((c.excedent_pour_grenier(1.02 * besoin) - 0.02 * besoin).abs() < 1e-9);
+        assert!((c.excedent_pour_grenier(1.3 * besoin) - 0.03 * besoin).abs() < 1e-9);
+        assert!((c.excedent_pour_grenier(1.7 * besoin) - 0.23 * besoin).abs() < 1e-9);
+        // Il garde d'abord ce qui se garde : blé plutôt que poisson
+        let mut par_sorte = [0.0; N_SORTES];
+        par_sorte[Sorte::Poisson.index()] = 0.9 * besoin;
+        par_sorte[Sorte::Ble.index()] = 0.12 * besoin;
+        let puise = c.tour_du_grenier(1.02 * besoin, &par_sorte);
+        assert_eq!(puise, 0.0);
+        assert!((c.stock[Sorte::Ble.index()] - 0.02 * besoin).abs() < 1e-9 && c.stock[Sorte::Poisson.index()] == 0.0, "{:?}", c.stock);
+        // Pertes : 2 % pour le blé, 20 % pour le poisson
+        c.stock[Sorte::Poisson.index()] = 1.0;
+        c.tour_du_grenier(besoin, &par_sorte);
+        assert!((c.stock[Sorte::Poisson.index()] - 0.8).abs() < 1e-9);
+        assert!((c.stock[Sorte::Ble.index()] - 0.02 * besoin * 0.98).abs() < 1e-9);
+        // Famine : il comble le manque, le poisson d'abord ; la ville n'est pas affamée
+        c.stock[Sorte::Ble.index()] = besoin;
+        let y = Rendements::new(0.6 * besoin, 1.0, 0.0);
+        assert!((c.nourriture_avec_grenier(y.nourriture) - besoin).abs() < 1e-9);
+        assert!(c.croissance(y).famine == 0.0);
+        let r = c.passer_le_tour(y, 0, [y.nourriture, 0.0, 0.0], &[0.0; N_SORTES]);
+        assert!(!r.starved && (r.puise - 0.4 * besoin).abs() < 1e-9);
+        assert_eq!(c.stock[Sorte::Poisson.index()], 0.0, "le poisson d'abord");
+        assert!((c.stock[Sorte::Ble.index()] - (besoin - (0.4 * besoin - 0.8)) * 0.98).abs() < 1e-6);
+        // Grenier vide : la famine revient
+        c.stock.iter_mut().for_each(|q| *q = 0.0);
+        assert!(c.croissance(y).famine < 0.0);
+    }
 
     #[test]
     fn file_vide_projets_et_rappel() {
@@ -1626,6 +1751,56 @@ mod tests {
         }
         let path = find_path_turns(&map, from, to, 2, 0, 2).unwrap();
         assert!(path.iter().any(|&h| map.relief(h) == Relief::Mountain));
+    }
+
+    /// Bilan du grenier (à lancer à la main, `SEEDS=777,2`) : des villes de 19 cases (champs et
+    /// pâturages, un sur trois), grenier dès la fondation ; habitants et stock (en tours de besoin)
+    /// au fil des tours, avec l'objectif de nourriture par défaut ou « Excédent ».
+    #[test]
+    #[ignore]
+    fn bilan_grenier() {
+        use crate::intendant::Amenagement;
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or(vec![777, 2]);
+        for seed in seeds {
+            let map = WorldMap::generate(192, 111, seed);
+            let centres: Vec<Hex> = map
+                .hexes()
+                .filter(|&h| matches!(map.get(h), Some(Terrain::Grassland | Terrain::Plains | Terrain::Savanna)) && map.relief(h) == Relief::Flat)
+                .step_by(97)
+                .take(8)
+                .collect();
+            for objectif in [intendant::ObjectifNourriture::CroissanceMaximale, intendant::ObjectifNourriture::Excedent] {
+                let mut lignes = Vec::new();
+                for &centre in &centres {
+                    let territoire: Vec<Hex> = map.range(centre, 2).map(|h| map.canonical(h)).filter(|&h| map.contains(h)).collect();
+                    let mut amen = std::collections::BTreeMap::new();
+                    for (k, &h) in territoire.iter().enumerate().filter(|(_, h)| **h != centre) {
+                        let a = if k % 3 == 0 { Amenagement::Paturage } else { Amenagement::Champ };
+                        if a.possible(&map, h).is_ok() {
+                            amen.insert(h, a);
+                        }
+                    }
+                    let cases = cases_de_la_ville(&map, centre, &territoire, &HashSet::new(), &amen);
+                    let mut st = CityState::new("Bilan".into());
+                    st.grenier = true;
+                    st.projet = Some(Projet::Peupler);
+                    st.consignes.objectif = objectif;
+                    let mut releves = Vec::new();
+                    for t in 1..=200 {
+                        let r = repartition_ville(&map, centre, &st, &cases);
+                        st.passer_le_tour(r.rendements, r.chomeurs, r.par_type, &r.par_sorte);
+                        if [25, 50, 100, 200].contains(&t) {
+                            releves.push(format!("t{t} {} hab. {:.1}", milliers(st.habitants), st.stock_total() / st.besoin_nourriture()));
+                        }
+                    }
+                    lignes.push(releves.join(" · "));
+                }
+                println!("graine {seed}, objectif {objectif:?} :");
+                for l in lignes {
+                    println!("  {l}");
+                }
+            }
+        }
     }
 
     /// Bilan (à lancer à la main) : montagnes par coût, et part des trajets de 6 à 12 cases

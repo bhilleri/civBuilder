@@ -92,7 +92,7 @@ fn case_de(objet: &rules::Production) -> Option<Hex> {
     match *objet {
         rules::Production::Amenagement { hex, .. } => Some(hex),
         rules::Production::Bridge { at: crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. }, .. } => Some(hex),
-        rules::Production::Unit(_) | rules::Production::Puits => None,
+        rules::Production::Unit(_) | rules::Production::Puits | rules::Production::Grenier => None,
     }
 }
 
@@ -232,6 +232,8 @@ enum Element {
     Projet(crate::rules::Projet),
     /// Puits de la ville (sur le centre, un par ville).
     Puits,
+    /// Grenier de la ville (un par ville).
+    Grenier,
 }
 #[derive(Component)]
 struct ChoixCatalogue(Element);
@@ -447,7 +449,7 @@ impl<'a> Ville<'a> {
         possedees.sort();
         let c = &city.state;
         let mut h = std::hash::DefaultHasher::new();
-        (v, centre, c.habitants, c.tours_en_projet, c.en_famine, c.bien_etre.to_bits(), c.puits).hash(&mut h);
+        (v, centre, c.habitants, c.tours_en_projet, c.en_famine, c.bien_etre.to_bits(), c.puits, c.grenier, c.stock_total().to_bits()).hash(&mut h);
         format!("{:?}{:?}{:?}{:?}", c.file, c.consignes, c.projet, c.site).hash(&mut h);
         for p in &possedees {
             (p, amenagements.0.get(p)).hash(&mut h);
@@ -2848,12 +2850,29 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
             let par = (rules::HABITANTS_PAR_NOURRITURE * rules::facteur_equilibre(c.types_nourriture)).round() as u64;
             let mut u = vec![(format!("{} habitants (1 pour {}, repas à {} type{})", rules::milliers(c.habitants), rules::milliers(par), c.types_nourriture.max(1), if c.types_nourriture > 1 { "s" } else { "" }), Some(besoin.min(total)), gr.couleur())];
             if total < besoin {
-                u.push(("Manque : famine".into(), Some(besoin - total), charte::GRAVE));
+                // (le grenier comble d'abord le manque)
+                let puise = c.tire_du_grenier(total);
+                if puise > 0.05 {
+                    u.push(("Puisé au grenier".into(), Some(puise), charte::ALERTE));
+                }
+                if besoin - total - puise > 1e-9 {
+                    u.push(("Manque : famine".into(), Some(besoin - total - puise), charte::GRAVE));
+                }
             } else {
-                u.push(("Réserve pour croître (jusqu'à +50 %)".into(), Some((total - besoin).min(besoin * rules::SURPLUS_POUR_CROITRE)), gr.couleur()));
-                let reste = total - besoin * (1.0 + rules::SURPLUS_POUR_CROITRE);
-                if reste > 0.05 {
-                    u.push(("Excédent : perdu (pas encore de commerce)".into(), Some(reste), charte::ALERTE));
+                // Le grenier reçoit ce que la croissance n'utilise pas (la zone d'équilibre, puis
+                // au-delà de la croissance pleine), jusqu'à sa capacité
+                let place = (c.capacite_grenier() - c.stock_total()).max(0.0);
+                let zone = (total - besoin).clamp(0.0, rules::ZONE_EQUILIBRE * besoin);
+                let au_dela = (total - besoin * (1.0 + rules::SURPLUS_POUR_CROITRE)).max(0.0);
+                let de_la_zone = zone.min(place);
+                let du_reste = au_dela.min(place - de_la_zone);
+                u.push(("Réserve pour croître (jusqu'à +50 %)".into(), Some((total - besoin).min(besoin * rules::SURPLUS_POUR_CROITRE) - de_la_zone), gr.couleur()));
+                if de_la_zone + du_reste > 0.05 {
+                    u.push(("Au grenier".into(), Some(de_la_zone + du_reste), charte::OK));
+                }
+                if au_dela - du_reste > 0.05 {
+                    let pourquoi = if c.grenier { "grenier plein, pas encore de commerce" } else { "pas de grenier, pas encore de commerce" };
+                    u.push((format!("Excédent : perdu ({pourquoi})"), Some(au_dela - du_reste), charte::ALERTE));
                 }
             }
             u
@@ -2922,7 +2941,50 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
     });
     if gr == Grandeur::Nourriture {
         types_de_nourriture(g, city);
+        grenier(g, city);
     }
+}
+
+/// Panneau « Grenier » : ce qu'il garde, ce qui y entre ou en sort au prochain tour, et ses
+/// sortes avec leur perte par tour.
+fn grenier(g: &mut ChildSpawnerCommands, city: &City) {
+    let c = &city.state;
+    let n = city.travail.rendements.nourriture;
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        if !c.grenier {
+            titre(p, "Grenier : pas encore bâti");
+            p.spawn(texte(
+                format!(
+                    "Un grenier ({} production, dans Construire) garde jusqu'à {:.0} tours de besoin : la ville y met l'excédent que la croissance n'utilise pas et y puise en cas de famine.",
+                    rules::GRENIER_COUT,
+                    rules::GRENIER_TOURS
+                ),
+                12.5,
+                charte::MUET,
+            ));
+            return;
+        }
+        let besoin = c.besoin_nourriture().max(1e-6);
+        let total = c.stock_total();
+        titre(p, &format!("Grenier : {} sur {} ({} tours de besoin)", rules::decimal(total), rules::decimal(c.capacite_grenier()), rules::decimal(total / besoin)));
+        let puise = c.tire_du_grenier(n);
+        let (libelle, valeur, couleur) = if puise > 0.0 {
+            ("Au prochain tour : la ville y puise", format!("−{}", rules::decimal(puise)), charte::ALERTE)
+        } else {
+            let entre = c.excedent_pour_grenier(n).min((c.capacite_grenier() - total).max(0.0));
+            ("Au prochain tour : il reçoit (avant les pertes)", format!("+{}", rules::decimal(entre)), if entre > 0.0 { charte::OK } else { charte::MUET })
+        };
+        ligne_valeur(p, libelle, valeur, couleur);
+        for (s, q) in c.stock.iter().enumerate().filter(|(_, q)| **q >= 0.005) {
+            let sorte = intendant::Sorte::TOUTES[s];
+            ligne_valeur(p, &capitale(sorte.nom()), format!("{} · perte {:.0} % par tour", rules::decimal(*q), sorte.perte() * 100.0), charte::DOUX);
+        }
+        p.spawn(texte(
+            "Il reçoit l'excédent que la croissance n'utilise pas (jusqu'à 3 % au-dessus du besoin, et au-delà de 1,5 fois le besoin) : d'abord ce qui se garde (grains, légumineuses, dattes : 2 % de perte par tour ; fruits, légumes et tubercules : 10 % ; viande et poisson : 20 %). En famine, la ville y puise d'abord ce qui se garde le moins.",
+            12.5,
+            charte::MUET,
+        ));
+    });
 }
 
 /// Panneau « Types de nourriture » : ce que la ville mange de chaque type (le seuil de 15 % porte
@@ -2997,7 +3059,7 @@ fn reglages_intendant(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, r
         for (o, r, variation) in reglages {
             let choisi = *o == actuel;
             let (nom, detail) = match o {
-                Reglage::Objectif(x) => (x.nom().to_string(), format!("{} × le besoin{}", format!("{}", x.cible()).replace('.', ","), if *x == intendant::ObjectifNourriture::Excedent { " · excédent perdu tant que le commerce manque" } else { "" })),
+                Reglage::Objectif(x) => (x.nom().to_string(), format!("{} × le besoin{}", format!("{}", x.cible()).replace('.', ","), if *x == intendant::ObjectifNourriture::Excedent { " · excédent au grenier, le reste perdu tant que le commerce manque" } else { "" })),
                 Reglage::Priorite(_, x) => (capitale(x.nom()), String::new()),
             };
             let effet = if choisi { "réglage actuel".to_string() } else { format!("effet : {}", ecarts(&(*r - base))) };
@@ -3076,6 +3138,15 @@ fn bord_ligne(choisie: bool, glissee: bool) -> BorderColor {
     BorderColor { left: lisere, ..BorderColor::all(if glissee { Grandeur::Production.couleur() } else { charte::TRAIT2 }) }
 }
 
+/// Ce qu'apporte le grenier, en une ligne.
+fn effet_grenier(c: &rules::CityState) -> String {
+    format!(
+        "garde jusqu'à {:.0} tours de besoin ({} de nourriture) contre les famines ; il se remplit de l'excédent que la croissance n'utilise pas",
+        rules::GRENIER_TOURS,
+        rules::decimal(rules::GRENIER_TOURS * c.besoin_nourriture())
+    )
+}
+
 /// Ce qu'apporte un élément de la file, en une ligne, et où il se construit.
 fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Production, colons_avant: usize) -> (Option<String>, String) {
     let map = vl.map;
@@ -3092,6 +3163,7 @@ fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Productio
             let s = city.state.salubrite();
             format!("salubrité {:.0} → {:.0} (eau plus propre ; plus tard, de l'eau pour grandir)", s, (s + rules::SALUBRITE_PUITS).min(100.0))
         }
+        rules::Production::Grenier => effet_grenier(&city.state),
         rules::Production::Unit(k) => {
             let st = k.stats();
             if st.ranged_attack > 0 {
@@ -3230,6 +3302,16 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
         format!("salubrité {s:.0} → {:.0} (eau plus propre ; plus tard, de l'eau pour grandir) · {} production · {tours}", (s + rules::SALUBRITE_PUITS).min(100.0), rules::PUITS_COUT)
     };
     item(l, Element::Puits, "Puits".into(), detail, !c.puits && !en_file, false);
+    let en_file = c.file.iter().any(|k| k.objet == rules::Production::Grenier);
+    let detail = if c.grenier {
+        "déjà bâti".to_string()
+    } else if en_file {
+        "déjà dans la file".to_string()
+    } else {
+        let tours = rules::tours_restants(rules::GRENIER_COUT, 0.0, prod).map_or("—".to_string(), |t| format!("{t} tour(s) seul"));
+        format!("{} · {} production · {tours}", effet_grenier(c), rules::GRENIER_COUT)
+    };
+    item(l, Element::Grenier, "Grenier".into(), detail, !c.grenier && !en_file, false);
     }
     // Projets de ville
     if groupe_vu == GroupeCatalogue::Projets {
@@ -3531,6 +3613,11 @@ fn construire_actions(
             Element::Puits => {
                 if city.state.mettre_en_file(rules::Production::Puits) {
                     journal(format!(" met en file : puits ({} dans la file).", city.state.file.len()));
+                }
+            }
+            Element::Grenier => {
+                if city.state.mettre_en_file(rules::Production::Grenier) {
+                    journal(format!(" met en file : grenier ({} dans la file).", city.state.file.len()));
                 }
             }
             Element::Amenagement(_) => {}

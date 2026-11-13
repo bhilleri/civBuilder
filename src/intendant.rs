@@ -270,6 +270,17 @@ impl Sorte {
         }
     }
 
+    /// Perte par tour de la sorte gardée au grenier (décision G4) : grains, légumineuses,
+    /// châtaignes et dattes 2 % ; tubercules, fruits et légumes 10 % ; viande et poisson 20 % (5 %
+    /// salés, quand le sel existera).
+    pub const fn perte(self) -> f64 {
+        match self {
+            Sorte::Ble | Sorte::Orge | Sorte::MilletSorgho | Sorte::Riz | Sorte::Chataignes | Sorte::Legumineuses | Sorte::Dattes => 0.02,
+            Sorte::Tubercules | Sorte::Baies | Sorte::Legumes | Sorte::FruitsTropicaux => 0.10,
+            Sorte::Boeufs | Sorte::MoutonsChevres | Sorte::Porcs | Sorte::BetesExtremes | Sorte::Gibier | Sorte::Poisson => 0.20,
+        }
+    }
+
     /// Type de la sorte (indice dans `TypeNourriture::TOUS`).
     pub const fn type_(self) -> usize {
         match self {
@@ -518,7 +529,7 @@ pub enum ObjectifNourriture {
     /// 1,5 × le besoin : croissance pleine.
     #[default]
     CroissanceMaximale,
-    /// 2 × le besoin : un excédent (à vendre quand le commerce viendra ; perdu d'ici là).
+    /// 2 × le besoin : un excédent (au grenier ; à vendre quand le commerce viendra).
     Excedent,
 }
 
