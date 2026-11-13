@@ -257,10 +257,29 @@ habitants en 60 tours).
 
 | Case | Capacité | Rendement maximal | Coût |
 |---|---|---|---|
-| Sans aménagement (cueillette, chasse) | 500 | rendements actuels de la case | — |
-| Champ | 1 500 | nourriture × 2 | 20 production |
-| Pâturage | 1 000 | nourriture × 1,5, +1 production | 15 production |
-| Coupe de bois | 1 000 | production × 2 | 15 production |
+| Sans aménagement (cueillette, chasse) | 300 (500 avant le 13/11) | rendements actuels de la case | — |
+| Champ | 3 000 (1 500) | nourriture × 7,5 (× 2) | 20 production |
+| Pâturage | 1 200 (1 000) | nourriture × 3 (× 1,5), +1 production | 15 production |
+| Coupe de bois | 1 000 | production × 2,5 (× 2) | 15 production |
+
+**Rendements révisés le 13/11/2026 (décision de Benjamin, après Bowles 2011 et les densités de
+Smil et Marlowe)** : les premiers champs rendaient moins par heure que la cueillette (Bowles : la
+cueillette 50 à 73 % plus productive), mais la culture fait vivre 10 à 100 fois plus de monde par
+km² (cueillette 0,1 à 1 hab./km², culture sur brûlis 20 à 30). Règle : **la cueillette rapporte plus
+par travailleur, la ferme porte plus de monde**. Le minimum vital est de 0,002 de nourriture par
+travailleur (1 pour 1 000 habitants, la moitié actifs). Une plaine sans aménagement : 1 pour 300
+travailleurs, soit 1,67 × le minimum vital (≈ 0,4 hab./km² sur une case de 40 km) ; un champ :
+7,5 pour 3 000, soit 1,25 × (≈ 4 hab./km², dix fois plus d'habitants par case). Pâturage, jardin
+et coupe de bois : trois quarts de la cueillette par travailleur, plus de places. Avant, la
+cueillette d'une plaine tombait juste au minimum vital, un champ plein ne nourrissait pas ses
+familles (2 pour 3 000 habitants) et un champ tout juste construit, avec les 500 travailleurs de
+la case, rendait moins que la nature (0,93 contre 1). Suite décidée : les techniques de l'âge du
+bronze (araire, traction animale, irrigation) relèveront le rendement par travailleur des champs
+(tâche 34, recherche). Bilan `bilan_croissance` (graines 777 et 2, villes de plaine de 19 cases,
+200 tours) : en cueillette, 9 000 → 5 400 places ; avec champs et pâturages, nourriture pleine × 1,8
+à 3 (par exemple 76 → 221) et 10 000 à 38 000 places ; la croissance sur 200 tours change peu (elle
+reste bornée par le taux naturel de 1,5 % par tour : ≈ 17 000 à 18 800 habitants), les villes sans
+aménagement perdent ≈ 5 % par le chômage.
 
 **Fait le 11/11/2026** (`intendant.rs`, `rules::cases_de_la_ville`, `rules::repartition_ville`).
 Constats à la première partie (graine 777) :

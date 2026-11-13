@@ -2129,6 +2129,57 @@ mod tests {
         }
     }
 
+    /// Bilan (à lancer à la main) : croissance de villes de plaine sur 200 tours, sans aménagement
+    /// (cueillette) et avec des champs partout où c'est possible (pâturages une case sur trois) :
+    /// habitants aux tours 25, 50, 100, 200, et nourriture par travailleur des cases.
+    #[test]
+    #[ignore]
+    fn bilan_croissance() {
+        use crate::intendant::Amenagement;
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or(vec![777, 2]);
+        for seed in seeds {
+            let map = WorldMap::generate(192, 111, seed);
+            let centres: Vec<Hex> = map
+                .hexes()
+                .filter(|&h| matches!(map.get(h), Some(Terrain::Grassland | Terrain::Plains | Terrain::Savanna)) && map.relief(h) == Relief::Flat)
+                .step_by(97)
+                .take(8)
+                .collect();
+            for amenage in [false, true] {
+                let mut lignes = Vec::new();
+                for &centre in &centres {
+                    let territoire: Vec<Hex> = map.range(centre, 2).map(|h| map.canonical(h)).filter(|&h| map.contains(h)).collect();
+                    let mut amen = std::collections::BTreeMap::new();
+                    if amenage {
+                        for (k, &h) in territoire.iter().enumerate().filter(|(_, h)| **h != centre) {
+                            let a = if k % 3 == 0 { Amenagement::Paturage } else { Amenagement::Champ };
+                            if a.possible(&map, h).is_ok() {
+                                amen.insert(h, a);
+                            }
+                        }
+                    }
+                    let cases = cases_de_la_ville(&map, centre, &territoire, &HashSet::new(), &amen);
+                    let places: u32 = cases.iter().map(|c| c.capacite).sum();
+                    let nourriture: f64 = cases.iter().map(|c| c.max.nourriture).sum();
+                    let mut st = CityState::new("Bilan".into());
+                    let mut releves = vec![format!("places {} · nourriture pleine {:.1}", milliers(u64::from(places)), nourriture)];
+                    for t in 1..=200 {
+                        let r = repartition_ville(&map, centre, &st, &cases);
+                        st.passer_le_tour(r.rendements, r.chomeurs, r.par_type, &r.par_sorte);
+                        if [25, 50, 100, 200].contains(&t) {
+                            releves.push(format!("t{t} {}", milliers(st.habitants)));
+                        }
+                    }
+                    lignes.push(releves.join(" · "));
+                }
+                println!("graine {seed}, {} :", if amenage { "champs et pâturages" } else { "cueillette (sans aménagement)" });
+                for l in lignes {
+                    println!("  {l}");
+                }
+            }
+        }
+    }
+
     /// Bilan (à lancer à la main) : montagnes par coût, et part des trajets de 6 à 12 cases
     /// partant d'une montagne qui la quittent par le plus court en tours plutôt qu'à travers le massif.
     #[test]
@@ -2554,15 +2605,15 @@ mod tests {
         let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &aucun);
         assert_eq!(cases.len(), 6, "hors centre");
         let r = repartition_ville(&map, center, &city, &cases);
-        assert_eq!(r.cases, vec![(best, 500)], "1 000 habitants : 500 actifs, à la prairie");
+        assert_eq!(r.cases, vec![(best, 300)], "1 000 habitants : 500 actifs, la prairie en prend 300 (le désert ne donne rien)");
         let taken = HashSet::from([best]);
         let cases = cases_de_la_ville(&map, center, &territory, &taken, &aucun);
         assert!(cases.iter().all(|c| c.hex != best));
-        // Un champ double la nourriture et la capacité passe à 1 500
+        // Un champ : 7,5 fois la nourriture de la case, pour 3 000 travailleurs
         let champ = std::collections::BTreeMap::from([(best, Amenagement::Champ)]);
         let cases = cases_de_la_ville(&map, center, &territory, &HashSet::new(), &champ);
         let c = cases.iter().find(|c| c.hex == best).unwrap();
-        assert_eq!((c.capacite, c.max.nourriture), (1_500, 4.0));
+        assert_eq!((c.capacite, c.max.nourriture), (3_000, 15.0));
     }
 
     #[test]

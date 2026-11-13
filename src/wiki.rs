@@ -841,8 +841,11 @@ fn cities() -> Article {
                des habitants travaille sur les cases du territoire, placée par l'intendant par blocs de 100 là où le gain \
                est le plus fort : la nourriture pèse lourd tant que la ville ne se nourrit pas (puis pour croître), la \
                production et les deniers prennent ensuite le relais ; les cases lointaines rapportent un peu moins."),
-            p("Chaque case a une capacité en travailleurs : 500 sans aménagement (cueillette, chasse), 1 500 pour un \
-               champ ou un champ de légumineuses, 1 000 pour un pâturage ou une coupe de bois, 300 pour un jardin. Son rendement croît avec les travailleurs, de moins en \
+            p("Chaque case a une capacité en travailleurs : 300 sans aménagement (cueillette, chasse), 3 000 pour un \
+               champ ou un champ de légumineuses, 1 200 pour un pâturage, 1 000 pour une coupe de bois, 600 pour un jardin. \
+               La cueillette rapporte plus par travailleur (1 de nourriture pour 300 sur une plaine), la ferme fait vivre \
+               dix fois plus de monde (un champ de plaine : 7,5 pour 3 000) ; un champ tout juste construit, avec peu de \
+               travailleurs, rend moins que la nature : il faut le remplir. Son rendement croît avec les travailleurs, de moins en \
                moins vite (la moitié de la capacité donne 62 % du rendement de la case) : une petite ville se répartit \
                sur plusieurs cases. Au-delà des capacités, les habitants sont sans emploi : il faut aménager des cases."),
             table(
