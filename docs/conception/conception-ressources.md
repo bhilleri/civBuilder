@@ -301,6 +301,10 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   (gisement connu non exploité à `BESOIN_GISEMENT_CASES` = 4 cases au plus, ou ville du pays qui en
   a en trop hors de portée), un message par ville ; un manque sans remède n'est pas signalé (pas de
   bruit : au palier 1, une ville demande déjà les trois sortes de luxe).
+- **Décision de Benjamin (13/11, après coup) : la distance d'un échange est un temps de transport**,
+  pas un nombre de cases fixe : combien de temps on met à porter la ressource de A à B (relief,
+  rivières, plus tard routes et bateaux). À faire : remplacer `PORTEE` / `PORTEE_EAU` par un temps
+  de trajet calculé par le chemin (seuil à fixer).
 - Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
   qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 
