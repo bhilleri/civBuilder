@@ -138,7 +138,10 @@ pub fn empreinte_monde(map: &WorldMap) -> u64 {
     ajouter(&map.width.to_le_bytes());
     ajouter(&map.height.to_le_bytes());
     for hex in map.hexes() {
-        ajouter(format!("{:?}{:?}{:?}", map.get(hex), map.relief(hex), map.level(hex)).as_bytes());
+        // (rives vertes et oasis comptent comme le désert : elles viennent après, sans changer le
+        // reste du monde ; une sauvegarde d'avant reste valide)
+        let t = map.get(hex).map(|t| if t.is_arid() { crate::map::Terrain::Desert } else { t });
+        ajouter(format!("{:?}{:?}{:?}", t, map.relief(hex), map.level(hex)).as_bytes());
     }
     h
 }

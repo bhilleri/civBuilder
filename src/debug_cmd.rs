@@ -907,9 +907,10 @@ fn expected_biome(map: &WorldMap, hex: Hex) -> Option<Terrain> {
 
 /// Le terrain d'une case de terre est celui que donne son climat (variation locale de l'aridité
 /// de la génération comprise ; à défaut, à cette variation près) ; un marais demande un sol
-/// humide qui ne gèle pas, bas et plat.
+/// humide qui ne gèle pas, bas et plat ; rives vertes et oasis, le climat du désert.
 fn biome_fits(map: &WorldMap, hex: Hex, t: Terrain) -> bool {
     let Some(c) = biome_climate(map, hex) else { return true };
+    let t = if t.is_arid() { Terrain::Desert } else { t };
     if t == Terrain::Marsh {
         return c.aridity >= MARSH_ARIDITY * ARIDITY_JITTER[0] && c.temperature > 0.0 && map.relief(hex) == Relief::Flat && map.level(hex).is_some_and(|l| l <= MARSH_MAX_LEVEL);
     }

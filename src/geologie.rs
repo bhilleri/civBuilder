@@ -64,10 +64,14 @@ pub enum Sol {
     PauvreAcide,
     /// Sols lessivés des tropiques très arrosés et des vieux socles.
     LessiveTropical,
+    /// Sols arides du désert (sable, regs) : pas de culture sans eau.
+    Aride,
+    /// Sols gelés de la toundra et des neiges (pergélisol) : pas de culture.
+    Gele,
 }
 
 impl Sol {
-    pub const TOUS: [Sol; 7] = [Sol::Alluvial, Sol::VolcaniqueJeune, Sol::Noir, Sol::Brun, Sol::Lourd, Sol::PauvreAcide, Sol::LessiveTropical];
+    pub const TOUS: [Sol; 9] = [Sol::Alluvial, Sol::VolcaniqueJeune, Sol::Noir, Sol::Brun, Sol::Lourd, Sol::PauvreAcide, Sol::LessiveTropical, Sol::Aride, Sol::Gele];
 
     pub const fn nom(self) -> &'static str {
         match self {
@@ -78,7 +82,19 @@ impl Sol {
             Sol::Lourd => "sol lourd",
             Sol::PauvreAcide => "sol pauvre et acide",
             Sol::LessiveTropical => "sol lessivé tropical",
+            Sol::Aride => "sol aride",
+            Sol::Gele => "sol gelé",
         }
+    }
+
+    /// Un champ y est-il possible (le désert et le froid l'interdisent, voir `Amenagement::possible`) ?
+    pub const fn cultivable(self) -> bool {
+        !matches!(self, Sol::Aride | Sol::Gele)
+    }
+
+    /// Effet pour l'affichage : « champs × 1,4 », ou « pas de culture ».
+    pub fn effet_texte(self) -> String {
+        if self.cultivable() { format!("champs × {}", self.fertilite_texte()) } else { "pas de culture".to_string() }
     }
 
     /// Multiplicateur de la nourriture que le champ tire du terrain (décision du 13/11/2026).
@@ -90,6 +106,8 @@ impl Sol {
             Sol::Lourd => 0.85,
             Sol::PauvreAcide => 0.7,
             Sol::LessiveTropical => 0.65,
+            // (sans champ ; les pâturages de la toundra restent comme avant)
+            Sol::Aride | Sol::Gele => 1.0,
         }
     }
 
@@ -104,6 +122,8 @@ impl Sol {
             Sol::Lourd => (0.80, 0.58, 0.30),
             Sol::PauvreAcide => (0.84, 0.42, 0.24),
             Sol::LessiveTropical => (0.72, 0.24, 0.20),
+            Sol::Aride => (0.62, 0.60, 0.56),
+            Sol::Gele => (0.80, 0.83, 0.88),
         }
     }
 
@@ -167,7 +187,7 @@ pub const KARST_PLUIE_MM: f32 = 800.0;
 pub fn roche(l: &Lieu) -> Roche {
     let haut = matches!(l.relief, Relief::Rugged | Relief::Mountain | Relief::Peak);
     // 1) Alluvions : fleuves, deltas, marais, plaines basses le long des grandes rivières
-    if l.fleuve_ou_delta || l.terrain == Terrain::Marsh || (l.grande_riviere && l.relief == Relief::Flat && l.altitude < 500.0) {
+    if l.fleuve_ou_delta || matches!(l.terrain, Terrain::Marsh | Terrain::Riverbank) || (l.grande_riviere && l.relief == Relief::Flat && l.altitude < 500.0) {
         return Roche::Alluvions;
     }
     // 2) Volcanisme : arcs des subductions, rifts et dorsales, points chauds, îles océaniques
@@ -224,6 +244,12 @@ pub fn karstique(r: Roche, pluie: f32) -> bool {
 /// Classe de sol d'une case de terre, d'après sa roche et son climat (la première règle qui
 /// s'applique ; voir la conception, « Fertilité »).
 pub fn sol(r: Roche, l: &Lieu) -> Sol {
+    // Désert sans eau, toundra et neiges : pas de culture
+    match l.terrain {
+        Terrain::Desert => return Sol::Aride,
+        Terrain::Tundra | Terrain::Snow => return Sol::Gele,
+        _ => {}
+    }
     if r == Roche::Alluvions {
         return Sol::Alluvial;
     }
@@ -278,6 +304,15 @@ mod tests {
         // Fleuve, marais, plaine d'une grande rivière : alluvions
         assert_eq!(roche(&Lieu { fleuve_ou_delta: true, ..p }), Roche::Alluvions);
         assert_eq!(roche(&Lieu { terrain: Terrain::Marsh, ..p }), Roche::Alluvions);
+        // Rives vertes du désert : alluvions et sol alluvial ; désert, toundra : pas de culture
+        let rives = Lieu { pluie: 100.0, temperature: 24.0, terrain: Terrain::Riverbank, ..p };
+        assert_eq!(roche(&rives), Roche::Alluvions);
+        assert_eq!(sol(roche(&rives), &rives), Sol::Alluvial);
+        let desert = Lieu { pluie: 100.0, temperature: 24.0, terrain: Terrain::Desert, ..p };
+        assert_eq!(sol(roche(&desert), &desert), Sol::Aride);
+        assert_eq!(Sol::Aride.effet_texte(), "pas de culture");
+        let toundra = Lieu { temperature: -8.0, terrain: Terrain::Tundra, ..p };
+        assert_eq!(sol(roche(&toundra), &toundra), Sol::Gele);
         assert_eq!(roche(&Lieu { grande_riviere: true, ..p }), Roche::Alluvions);
         // Subduction : arc volcanique du côté qui reste en surface seulement
         let sub = Some((Boundary::Subduction, 200.0, true));

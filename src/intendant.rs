@@ -190,6 +190,7 @@ pub fn parts_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>
                 Some(Terrain::Mediterranean) => [0.2, 0.3, 0.5],
                 Some(Terrain::Grassland | Terrain::Plains | Terrain::Savanna | Terrain::Steppe) => [0.4, 0.6, 0.0],
                 Some(Terrain::Marsh) => [0.3, 0.7, 0.0],
+                Some(Terrain::Oasis) => [0.0, 0.5, 0.5],
                 _ => [0.0, 1.0, 0.0],
             }
         }
@@ -291,6 +292,9 @@ pub fn sortes_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement
     let pluie = map.rain(h).unwrap_or(700.0);
     let cereale = || match t {
         Some(Terrain::Jungle | Terrain::WoodedSavanna) => Sorte::Tubercules,
+        // Désert irrigué : blé et orge (Égypte), millet et sorgho au plus chaud (Soudan)
+        Some(Terrain::Riverbank | Terrain::Oasis) if temperature <= 24.0 => Sorte::Ble,
+        Some(Terrain::Riverbank | Terrain::Oasis) => Sorte::MilletSorgho,
         _ if temperature > 20.0 && pluie > 1_000.0 => Sorte::Riz,
         Some(Terrain::Savanna | Terrain::Steppe) => Sorte::MilletSorgho,
         _ if pluie < 600.0 && temperature > 15.0 => Sorte::MilletSorgho,
@@ -301,7 +305,7 @@ pub fn sortes_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement
     let betail = || match t {
         Some(Terrain::Taiga | Terrain::Tundra) => Sorte::BetesExtremes,
         _ if map.elevation(h).unwrap_or(0.0) > 2_500.0 => Sorte::BetesExtremes,
-        Some(Terrain::Desert) => Sorte::BetesExtremes,
+        Some(Terrain::Desert | Terrain::Oasis) => Sorte::BetesExtremes,
         Some(Terrain::Forest) => Sorte::Porcs,
         Some(Terrain::Steppe | Terrain::Mediterranean) => Sorte::MoutonsChevres,
         _ if map.relief(h) >= Relief::Hills => Sorte::MoutonsChevres,
@@ -324,6 +328,8 @@ pub fn sortes_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement
                 Some(Terrain::Savanna) => [Some(Sorte::MilletSorgho), Some(Sorte::Gibier), None],
                 Some(Terrain::Grassland | Terrain::Plains | Terrain::Steppe) => [Some(Sorte::Orge), Some(Sorte::Gibier), None],
                 Some(Terrain::Marsh) => [Some(Sorte::Riz), Some(Sorte::Poisson), None],
+                Some(Terrain::Riverbank) => [None, Some(Sorte::Poisson), None],
+                Some(Terrain::Oasis) => [None, Some(Sorte::Gibier), Some(Sorte::Dattes)],
                 _ => [None, Some(Sorte::Gibier), None],
             }
         }
@@ -425,9 +431,13 @@ impl std::ops::Sub for Rendements {
     }
 }
 
-/// Capacité de la case en travailleurs.
-pub fn capacite(amenagement: Option<Amenagement>) -> u32 {
-    amenagement.map_or(CAPACITE_SANS_AMENAGEMENT, Amenagement::capacite)
+/// Une oasis est petite : capacité de ses aménagements rapportée à celle d'une autre case.
+pub const CAPACITE_OASIS: f64 = 0.5;
+
+/// Capacité de la case en travailleurs (la moitié dans une oasis).
+pub fn capacite(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> u32 {
+    let c = amenagement.map_or(CAPACITE_SANS_AMENAGEMENT, Amenagement::capacite);
+    if map.get(h) == Some(Terrain::Oasis) { (f64::from(c) * CAPACITE_OASIS).round() as u32 } else { c }
 }
 
 /// Rendement de la case à pleine capacité.
@@ -855,6 +865,27 @@ mod tests {
     }
 
     #[test]
+    fn cultures_du_desert_irrigue() {
+        let mut map = WorldMap::filled(8, 8, Terrain::Desert);
+        let (d, r, o) = (Hex::from_offset(2, 2), Hex::from_offset(4, 4), Hex::from_offset(5, 2));
+        map.set(r, Terrain::Riverbank);
+        map.set(o, Terrain::Oasis);
+        // Le désert : rien ; les rives vertes et l'oasis : champs, légumineuses, pâturages, jardins
+        assert!(Amenagement::possibles(&map, d).is_empty());
+        let tout = vec![Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin];
+        assert_eq!(Amenagement::possibles(&map, o), tout);
+        map.set_fleuve(Hex::from_offset(4, 5));
+        assert_eq!(Amenagement::possibles(&map, r), tout);
+        // Une oasis est petite : la moitié des travailleurs
+        assert_eq!(capacite(&map, o, Some(Amenagement::Champ)), capacite(&map, r, Some(Amenagement::Champ)) / 2);
+        // Sortes : blé des rives (Égypte), bœufs au bord du fleuve, chameaux à l'oasis, dattes
+        assert_eq!(sortes_de_la_case(&map, r, Some(Amenagement::Champ))[0], Some(Sorte::Ble));
+        assert_eq!(sortes_de_la_case(&map, r, Some(Amenagement::Paturage))[1], Some(Sorte::Boeufs));
+        assert_eq!(sortes_de_la_case(&map, o, Some(Amenagement::Paturage))[1], Some(Sorte::BetesExtremes));
+        assert_eq!(sortes_de_la_case(&map, o, None)[2], Some(Sorte::Dattes));
+    }
+
+    #[test]
     fn amenagements_selon_la_case() {
         let mut map = WorldMap::filled(6, 6, Terrain::Grassland);
         let h = Hex::from_offset(2, 2);
@@ -864,7 +895,7 @@ mod tests {
         // Légumineuses : 60 % d'un champ ; jardin : 0,75 × la case, petite capacité
         assert!((rendement_max(&map, h, Some(Amenagement::Legumineuses)).nourriture - 0.6 * champ.nourriture).abs() < 1e-9);
         assert_eq!(rendement_max(&map, h, Some(Amenagement::Jardin)).nourriture, 0.75 * rendement_max(&map, h, None).nourriture);
-        assert_eq!(capacite(Some(Amenagement::Jardin)), 300);
+        assert_eq!(capacite(&map, h, Some(Amenagement::Jardin)), 300);
         // Types : champ → céréales, légumineuses et pâturage → protéines, jardin → fruits et légumes
         assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Champ)), [1.0, 0.0, 0.0]);
         assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Legumineuses)), [0.0, 1.0, 0.0]);

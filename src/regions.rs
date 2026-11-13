@@ -37,7 +37,7 @@ impl Biome {
             Terrain::Forest => Biome::Forest,
             Terrain::Jungle => Biome::Jungle,
             Terrain::Taiga => Biome::Taiga,
-            Terrain::Desert => Biome::Desert,
+            Terrain::Desert | Terrain::Riverbank | Terrain::Oasis => Biome::Desert,
             Terrain::Steppe | Terrain::Plains | Terrain::Grassland => Biome::Steppe,
             Terrain::Savanna | Terrain::WoodedSavanna => Biome::Savanna,
             Terrain::Mediterranean => Biome::Scrub,

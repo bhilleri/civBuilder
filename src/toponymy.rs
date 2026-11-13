@@ -520,7 +520,7 @@ fn character(c: &CellInfo) -> Character {
     match c.terrain {
         _ if c.temperature < -2.0 || matches!(c.terrain, Terrain::Snow | Terrain::Tundra) => Character::Cold,
         _ if c.elevation > 1_800.0 => Character::High,
-        Terrain::Desert => Character::Desert,
+        Terrain::Desert | Terrain::Riverbank | Terrain::Oasis => Character::Desert,
         _ if c.aridity < 0.25 => Character::Desert,
         Terrain::Jungle => Character::Jungle,
         Terrain::Forest | Terrain::Taiga => Character::Forest,

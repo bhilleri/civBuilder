@@ -112,7 +112,7 @@ impl Family {
             Terrain::Forest => Family::Forest,
             Terrain::Grassland | Terrain::Plains => Family::Prairie,
             Terrain::Taiga => Family::Boreal,
-            Terrain::Desert => Family::Arid,
+            Terrain::Desert | Terrain::Riverbank | Terrain::Oasis => Family::Arid,
             Terrain::Tundra | Terrain::Snow => Family::Cold,
             Terrain::Jungle | Terrain::WoodedSavanna => Family::Tropical,
             Terrain::Mediterranean => Family::Mediterranean,
@@ -1181,7 +1181,7 @@ impl CampKind {
             return CampKind::Lair;
         }
         match terrain {
-            Terrain::Grassland | Terrain::Plains | Terrain::Steppe | Terrain::Savanna | Terrain::Desert | Terrain::Tundra | Terrain::Mediterranean | Terrain::Snow => CampKind::Fort,
+            Terrain::Grassland | Terrain::Plains | Terrain::Steppe | Terrain::Savanna | Terrain::Desert | Terrain::Riverbank | Terrain::Oasis | Terrain::Tundra | Terrain::Mediterranean | Terrain::Snow => CampKind::Fort,
             _ => CampKind::Encampment,
         }
     }

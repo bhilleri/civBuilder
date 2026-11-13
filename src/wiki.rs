@@ -262,6 +262,8 @@ fn climate() -> Article {
         row(Terrain::Grassland, format!("tempéré (en montagne : été sous {TREE_LINE_SUMMER:.0} °C)"), format!("sous {FOREST_ABOVE} (en montagne : toute)")),
         row(Terrain::Forest, format!("tempéré, été de {TREE_LINE_SUMMER:.0} °C et plus"), format!("{FOREST_ABOVE} et plus (humide)")),
         row(Terrain::Marsh, "terre basse et plate au bord d'un fleuve ou d'un lac, ne gèle pas".into(), "1 et plus".into()),
+        row(Terrain::Riverbank, format!("désert au bord d'un fleuve, d'un lac ou d'une rivière de {:.0} m³/s", crate::map::RIVERBANK_FLOW), "aride, mais irrigué".into()),
+        row(Terrain::Oasis, "désert avec une source (piémont d'un relief haut, cuvette, faille) ; rare".into(), "aride, eau douce".into()),
     ];
     let belts = vec![
         (rain(2_000.0), vec!["Équateur".into(), "Très arrosé".into(), "Les alizés convergent, l'air chaud monte (orages)".into()]),
@@ -816,7 +818,7 @@ fn cities() -> Article {
     let paliers = [1, 2, 3, 5, 10, 15, 20, 25, 30].iter().map(|&p| vec![p.to_string(), habitants_du_palier(p).to_string()]).collect();
     let sols = crate::geologie::Sol::TOUS
         .iter()
-        .map(|s| (swatch(s.couleur()), vec![s.nom().to_string(), format!("× {}", s.fertilite_texte()), format!("× {}", crate::rules::decimal(s.fertilite_paturage()))]))
+        .map(|s| (swatch(s.couleur()), vec![s.nom().to_string(), if s.cultivable() { format!("× {}", s.fertilite_texte()) } else { "pas de culture".to_string() }, format!("× {}", crate::rules::decimal(s.fertilite_paturage()))]))
         .collect();
     let roches = crate::geologie::Roche::TOUTES.iter().map(|r| r.nom()).collect::<Vec<_>>().join(", ");
     Article {

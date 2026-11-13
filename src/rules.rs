@@ -581,7 +581,7 @@ pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: 
         .filter(|&h| h != center && !taken.contains(&h) && map.contains(h))
         .map(|h| {
             let a = amenagements.get(&h).copied();
-            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), sortes: intendant::sortes_de_la_case(map, h, a), capacite: intendant::capacite(a), distance: map.distance(center, h) }
+            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), sortes: intendant::sortes_de_la_case(map, h, a), capacite: intendant::capacite(map, h, a), distance: map.distance(center, h) }
         })
         .collect();
     cases.sort_by_key(|c| c.hex);
@@ -669,7 +669,8 @@ pub struct Site {
 /// Site de la ville au centre `centre` : eau courante, lac, marais (selon l'été), pâturages du territoire.
 pub fn site_de_la_ville(map: &WorldMap, centre: Hex, territoire: &[Hex], amenagements: &std::collections::BTreeMap<Hex, Amenagement>) -> Site {
     let autour: Vec<Hex> = std::iter::once(centre).chain(map.neighbors(centre)).map(|h| map.canonical(h)).filter(|h| map.contains(*h)).collect();
-    let eau_courante = autour.iter().any(|&h| map.is_fleuve(h)) || (0..6).any(|d| map.river_flow(centre, d) > 0.0);
+    // (la source d'une oasis voisine compte comme une eau courante)
+    let eau_courante = autour.iter().any(|&h| map.is_fleuve(h) || map.get(h) == Some(crate::map::Terrain::Oasis)) || (0..6).any(|d| map.river_flow(centre, d) > 0.0);
     let lac = autour.iter().any(|&h| map.get(h) == Some(crate::map::Terrain::Lake) || map.small_lake(h));
     let marais = autour
         .iter()
@@ -773,7 +774,7 @@ pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo
                 && let Some(c) = cases.iter_mut().find(|c| c.hex == hex)
             {
                 c.max = intendant::rendement_max(map, hex, Some(kind));
-                c.capacite = intendant::capacite(Some(kind));
+                c.capacite = intendant::capacite(map, hex, Some(kind));
             }
             Pas { habitants: st.habitants, rendements: r.rendements, variation: v, chomeurs: r.chomeurs, bien_etre: st.bien_etre }
         })

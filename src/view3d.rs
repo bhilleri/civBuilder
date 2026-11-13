@@ -1174,6 +1174,28 @@ fn spawn_decor(commands: &mut Commands, kit: &DecorKit, map: &crate::map::WorldM
                     }
                 }
             }
+            Terrain::Oasis => {
+                // Palmeraie : un bouquet serré de palmiers (feuillage sombre) autour d'une mare
+                pieces.push((kit.puddle_mesh.clone(), kit.puddle.clone(), Vec2::ZERO, 0.2, Vec3::ONE));
+                for (k, &(at, up)) in spots.iter().enumerate() {
+                    if k % 2 == 0 {
+                        broad(at * 0.5, up, &kit.jungle_leaf, 0.8, &mut pieces);
+                    }
+                }
+                for &at in &inner {
+                    broad(at * 0.6, 0.0, &kit.jungle_leaf, 0.6, &mut pieces);
+                }
+            }
+            Terrain::Riverbank => {
+                // Rives cultivées : quelques arbres et des buissons épars
+                for (k, &(at, up)) in spots.iter().enumerate() {
+                    if k % 3 == 0 {
+                        broad(at, up, &kit.broadleaf, 0.7, &mut pieces);
+                    } else if k % 3 == 1 {
+                        pieces.push((kit.shrub_mesh.clone(), kit.shrub.clone(), at, up + 2.0, Vec3::new(1.5, 0.9, 1.5)));
+                    }
+                }
+            }
             Terrain::Marsh => {
                 // Flaques et touffes de roseaux
                 for a in [60.0_f32, 240.0] {
@@ -1205,7 +1227,7 @@ fn spawn_decor(commands: &mut Commands, kit: &DecorKit, map: &crate::map::WorldM
                     pieces.push((kit.trunk_mesh.clone(), kit.trunk.clone(), at, 4.0 * size, Vec3::new(0.7 * size, 1.2 * size, 0.7 * size)));
                     pieces.push((kit.canopy_mesh.clone(), kit.acacia.clone(), at, 9.5 * size, Vec3::splat(size)));
                 }
-                Terrain::Desert | Terrain::Mediterranean => pieces.push((kit.shrub_mesh.clone(), kit.shrub.clone(), at, 2.0 * size, Vec3::new(1.5 * size, 0.9 * size, 1.5 * size))),
+                Terrain::Desert | Terrain::Riverbank | Terrain::Oasis | Terrain::Mediterranean => pieces.push((kit.shrub_mesh.clone(), kit.shrub.clone(), at, 2.0 * size, Vec3::new(1.5 * size, 0.9 * size, 1.5 * size))),
                 Terrain::Tundra | Terrain::Snow => {}
                 _ => broad(&kit.broadleaf, size, &mut pieces),
             }

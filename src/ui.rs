@@ -683,7 +683,7 @@ fn currents_legend() -> impl Bundle {
 /// Légende de la carte des sols : chaque classe et la fertilité de ses champs.
 fn soils_legend() -> impl Bundle {
     use crate::geologie::Sol;
-    let label = |s: Sol| format!("{} : champs × {}", capitale_ui(s.nom()), s.fertilite_texte());
+    let label = |s: Sol| format!("{} : {}", capitale_ui(s.nom()), s.effet_texte());
     (
         Legend(MapLayer::Soils),
         panel(Node {
@@ -703,6 +703,8 @@ fn soils_legend() -> impl Bundle {
             Spawn(legend_row(Sol::Lourd.couleur(), label(Sol::Lourd))),
             Spawn(legend_row(Sol::PauvreAcide.couleur(), label(Sol::PauvreAcide))),
             Spawn(legend_row(Sol::LessiveTropical.couleur(), label(Sol::LessiveTropical))),
+            Spawn(legend_row(Sol::Aride.couleur(), label(Sol::Aride))),
+            Spawn(legend_row(Sol::Gele.couleur(), label(Sol::Gele))),
             Spawn(text("Les pâturages prennent un tiers de l'écart ; ni la cueillette ni le bois.", 12.0)),
         )),
     )
@@ -1391,7 +1393,7 @@ fn amenagement_note(m: &crate::map::WorldMap, h: crate::hex::Hex, city: &City, a
         "\n{} : {} travailleurs sur {} ({})",
         city.state.name,
         rules::milliers(u64::from(city.travail.sur(h))),
-        rules::milliers(u64::from(intendant::capacite(amenagement))),
+        rules::milliers(u64::from(intendant::capacite(m, h, amenagement))),
         amenagement.map_or("sans aménagement", |a| a.nom())
     );
     let autres: Vec<String> = Amenagement::possibles(m, h)
@@ -1502,7 +1504,7 @@ fn update_hover_text(
                 && let (Some(r), Some(s)) = (m.roche(h), m.sol(h))
             {
                 let karst = if m.karstique(h) { " karstique" } else { "" };
-                place.push(format!("{}{karst}, {} (champs × {})", r.nom(), s.nom(), s.fertilite_texte()));
+                place.push(format!("{}{karst}, {} ({})", r.nom(), s.nom(), s.effet_texte()));
             }
             if land {
                 if shows(Info::Climate)

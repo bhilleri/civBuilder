@@ -494,6 +494,57 @@ pub enum Place {
 /// Zone allongée (nom courbé le long de son axe) : longueur de l'axe au carré rapportée au nombre
 /// de cases.
 pub const SPINE_ELONGATION: f32 = 2.5;
+/// Rives vertes : débit minimal (m³/s) d'une rivière qui irrigue le désert le long de ses berges
+/// (un fleuve ou un lac voisin suffit toujours).
+pub const RIVERBANK_FLOW: f32 = 300.0;
+/// Oasis : chance qu'une case de désert qui a une source le devienne, altitude (m) d'un relief
+/// haut et pluie (mm/an) d'un relief arrosé dont le piémont a une nappe (à `OASIS_PIEDMONT` cases
+/// au plus), distance (km) d'une faille.
+const OASIS_CHANCE: f32 = 0.06;
+const OASIS_HIGH_M: f32 = 1_500.0;
+const OASIS_MOUNTAIN_RAIN_MM: f32 = 400.0;
+const OASIS_FAULT_KM: f32 = 120.0;
+const OASIS_PIEDMONT: i32 = 3;
+
+/// Origine de l'eau d'une oasis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OasisSource {
+    /// Cuvette où la nappe affleure (Siwa, Kharga).
+    Cuvette,
+    /// Piémont d'une haute montagne : l'eau de fonte s'infiltre et ressort au pied (Tarim, Atlas).
+    Piemont,
+    /// Faille : l'eau remonte le long d'une fracture.
+    Faille,
+}
+
+impl OasisSource {
+    /// Nom pour l'infobulle.
+    pub fn nom(self) -> &'static str {
+        match self {
+            OasisSource::Cuvette => "nappe d'une cuvette",
+            OasisSource::Piemont => "eau de fonte d'une montagne voisine",
+            OasisSource::Faille => "source d'une faille",
+        }
+    }
+}
+
+/// Lieu nommé du désert : une vallée (rives vertes d'un seul tenant) ou une oasis.
+#[derive(Clone, Debug)]
+pub struct DesertPlace {
+    pub cells: Vec<usize>,
+    pub name: String,
+    pub oasis: bool,
+}
+
+/// Tirage déterministe (0 à 1) d'une case pour une graine.
+fn desert_hash(i: u64, seed: u64) -> f32 {
+    let mut x = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ seed.wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ 0x0A51_5000;
+    x ^= x >> 29;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 32;
+    (x % 1_000_000) as f32 / 1_000_000.0
+}
+
 /// Nourriture en plus près de l'eau douce (rivière, fleuve, lac).
 pub const FRESH_WATER_FOOD: i32 = 1;
 
@@ -524,6 +575,11 @@ pub enum Terrain {
     Steppe,
     /// Marais : terre basse et plate gorgée d'eau, au bord d'un fleuve ou d'un lac.
     Marsh,
+    /// Rives vertes : désert au bord d'un fleuve ou d'une grande rivière, cultivable (la vallée du
+    /// Nil).
+    Riverbank,
+    /// Oasis : désert avec une source (nappe d'un piémont, d'une cuvette ou d'une faille).
+    Oasis,
 }
 
 /// Rendement d'une case : nourriture, production, or.
@@ -608,6 +664,8 @@ impl Terrain {
             Terrain::Taiga => "Taïga",
             Terrain::Steppe => "Steppe",
             Terrain::Marsh => "Marais",
+            Terrain::Riverbank => "Rives vertes",
+            Terrain::Oasis => "Oasis",
         }
     }
 
@@ -629,6 +687,7 @@ impl Terrain {
             Terrain::Taiga => Yields::new(1, 1, 0),
             Terrain::Steppe => Yields::new(1, 1, 0),
             Terrain::Marsh => Yields::new(1, 0, 0),
+            Terrain::Riverbank | Terrain::Oasis => Yields::new(2, 0, 0),
         }
     }
 
@@ -675,10 +734,12 @@ impl Terrain {
             Terrain::Taiga => (0.13, 0.31, 0.27),
             Terrain::Steppe => (0.72, 0.68, 0.50),
             Terrain::Marsh => (0.38, 0.53, 0.47),
+            Terrain::Riverbank => (0.50, 0.62, 0.30),
+            Terrain::Oasis => (0.27, 0.52, 0.24),
         }
     }
 
-    pub const ALL: [Terrain; 16] = [
+    pub const ALL: [Terrain; 18] = [
         Terrain::Ocean,
         Terrain::Coast,
         Terrain::Grassland,
@@ -695,11 +756,23 @@ impl Terrain {
         Terrain::Taiga,
         Terrain::Steppe,
         Terrain::Marsh,
+        Terrain::Riverbank,
+        Terrain::Oasis,
     ];
+
+    /// Biome du désert (désert, rives vertes, oasis) : climat aride.
+    pub fn is_arid(self) -> bool {
+        matches!(self, Terrain::Desert | Terrain::Riverbank | Terrain::Oasis)
+    }
 
     /// Nom au féminin ou au masculin pour l'accord de « vallonné ».
     fn is_feminine(self) -> bool {
         !matches!(self, Terrain::Desert | Terrain::Lake | Terrain::Marsh)
+    }
+
+    /// Nom au pluriel (« Broussailles », « Rives vertes »).
+    fn is_plural(self) -> bool {
+        matches!(self, Terrain::Mediterranean | Terrain::Riverbank)
     }
 }
 
@@ -815,6 +888,8 @@ pub fn sediment_yield(terrain: Terrain, elevation_m: f32) -> f32 {
     let soil = match terrain {
         Terrain::Desert => 1.0,
         Terrain::Steppe => 0.85,
+        Terrain::Oasis => 0.5,
+        Terrain::Riverbank => 0.35,
         Terrain::Savanna => 0.8,
         Terrain::Mediterranean | Terrain::Plains => 0.6,
         Terrain::WoodedSavanna => 0.55,
@@ -929,6 +1004,9 @@ pub struct WorldMap {
     /// Bancs de poissons : eaux poissonneuses d'un seul tenant, nommées.
     banks: Vec<FishingBank>,
     bank_of: Vec<Option<u16>>,
+    /// Lieux nommés du désert (vallées, oasis) et celui de chaque case.
+    desert_places: Vec<DesertPlace>,
+    desert_place_of: Vec<Option<u16>>,
     /// Règle du relief de la génération, pour recalculer le relief d'une case modifiée (vide pour
     /// une carte remplie à la main).
     relief_rule: Option<ReliefRule>,
@@ -987,6 +1065,8 @@ impl WorldMap {
             marine: vec![0; n],
             banks: Vec::new(),
             bank_of: vec![None; n],
+            desert_places: Vec::new(),
+            desert_place_of: vec![None; n],
             relief_rule: None,
             rivers_incised: false,
             seed: 0,
@@ -1245,6 +1325,92 @@ impl WorldMap {
             zone.feminine = feminine;
             zone.etymology = etymology;
         }
+        self.name_desert_places(seed);
+    }
+
+    /// Lieux nommés du désert (comme au Sahara : la vallée du Nil, l'oasis de Siwa), dans une
+    /// région de désert qu'ils ne coupent pas : vallées (rives vertes d'un seul tenant, au nom de
+    /// leur cours d'eau ou de leur lac) et oasis (nom propre dans la langue du lieu). Un tirage à
+    /// part : les autres noms ne changent pas.
+    fn name_desert_places(&mut self, seed: u32) {
+        use crate::toponymy::{self, Namer};
+        let n = self.tiles.len();
+        let mut namer = Namer::with_taken(seed ^ 0x0A51_5A51, self.names_taken());
+        let mut places: Vec<DesertPlace> = Vec::new();
+        let mut place_of: Vec<Option<u16>> = vec![None; n];
+        for start in 0..n {
+            let t = self.tiles[start];
+            if !matches!(t, Terrain::Riverbank | Terrain::Oasis) || place_of[start].is_some() {
+                continue;
+            }
+            let id = places.len() as u16;
+            let mut cells = vec![start];
+            place_of[start] = Some(id);
+            // Une vallée : toutes les rives vertes d'un seul tenant
+            let mut k = 0;
+            while t == Terrain::Riverbank && k < cells.len() {
+                for v in self.neighbors(self.hex_at(cells[k])) {
+                    if let Some(j) = self.index(self.canonical(v))
+                        && self.tiles[j] == Terrain::Riverbank
+                        && place_of[j].is_none()
+                    {
+                        place_of[j] = Some(id);
+                        cells.push(j);
+                    }
+                }
+                k += 1;
+            }
+            let name = if t == Terrain::Oasis {
+                let hint = namer.chance(0.3).then_some(toponymy::Meaning::Eau);
+                let (w, _) = namer.proper(self.languages[start], hint);
+                format!("Oasis {}", toponymy::de(&w, toponymy::feminine(&w), false))
+            } else {
+                self.valley_name(&cells).unwrap_or_else(|| {
+                    let (w, _) = namer.proper(self.languages[start], Some(toponymy::Meaning::Eau));
+                    format!("Vallée {}", toponymy::de(&w, toponymy::feminine(&w), false))
+                })
+            };
+            // (deux morceaux de la vallée d'un même cours d'eau, séparés : même nom)
+            let _ = namer.claim(&name);
+            places.push(DesertPlace { cells, name, oasis: t == Terrain::Oasis });
+        }
+        self.desert_places = places;
+        self.desert_place_of = place_of;
+    }
+
+    /// Nom d'une vallée du désert : celui du plus fort cours d'eau nommé qui la traverse (fleuve
+    /// voisin ou rivière sur une arête), sinon celui du lac qu'elle borde.
+    fn valley_name(&self, cells: &[usize]) -> Option<String> {
+        let mut best: Option<&crate::basins::NamedRiver> = None;
+        let mut lake: Option<&crate::basins::NamedLake> = None;
+        for &c in cells {
+            let h = self.hex_at(c);
+            let near = self.neighbors(h).into_iter().filter_map(|v| self.index(self.canonical(v)));
+            let rivers = near.clone().filter_map(|j| self.basins.river(j)).chain((0..6).filter_map(|d| self.basins.river_on_edge(c, d)));
+            for r in rivers {
+                if best.is_none_or(|b| b.discharge < r.discharge) {
+                    best = Some(r);
+                }
+            }
+            if lake.is_none() {
+                lake = near.filter_map(|j| self.basins.lake(j)).next();
+            }
+        }
+        if let Some(r) = best.filter(|r| !r.name.is_empty()) {
+            return Some(format!("Vallée {}", crate::toponymy::de(&r.name, r.feminine, true)));
+        }
+        lake.filter(|l| !l.name.is_empty()).map(|l| format!("Rives {}", crate::toponymy::de(&l.name, l.feminine, true)))
+    }
+
+    /// Lieux nommés du désert : vallées et oasis.
+    pub fn desert_places(&self) -> &[DesertPlace] {
+        &self.desert_places
+    }
+
+    /// Lieu nommé du désert de la case (vallée ou oasis).
+    pub fn desert_place(&self, hex: Hex) -> Option<&DesertPlace> {
+        let i = self.index(hex)?;
+        self.desert_place_of.get(i).copied().flatten().map(|p| &self.desert_places[usize::from(p)])
     }
 
     /// Profondeur du fond (m) d'une case de mer.
@@ -1736,7 +1902,7 @@ impl WorldMap {
     }
 
     /// Nom complet d'une case : « Prairie vallonnée », « Désert vallonné », « Forêt »,
-    /// « Fleuve (rives de prairie) », « Plaine, petit lac »…
+    /// « Fleuve (rives de prairie) », « Plaine, petit lac », « Oasis de Tamar (source d'une faille) »…
     pub fn describe(&self, hex: Hex) -> String {
         let Some(t) = self.get(hex) else { return String::new() };
         if self.is_ice(hex) {
@@ -1745,11 +1911,21 @@ impl WorldMap {
         if self.is_fleuve(hex) {
             return format!("Fleuve (rives : {})", t.name().to_lowercase());
         }
+        // Oasis : son nom et l'origine de son eau (« Oasis de Tamar (source d'une faille) »)
+        if let Some(p) = self.desert_place(hex).filter(|p| p.oasis) {
+            let relief = match self.relief(hex) {
+                Relief::Hills => ", vallonnée",
+                Relief::Rugged => ", accidentée",
+                _ => "",
+            };
+            let source = self.index(hex).and_then(|i| self.oasis_source(i)).map_or(String::new(), |s| format!(" ({})", s.nom()));
+            return format!("{}{relief}{source}", p.name);
+        }
         let name = t.name();
         // Accord de l'adjectif : « vallonnée », « accidentés »…
         let agree = |adj: &str| {
-            let fem = if t.is_feminine() || t == Terrain::Mediterranean { "e" } else { "" };
-            let plural = if t == Terrain::Mediterranean { "s" } else { "" };
+            let fem = if t.is_feminine() { "e" } else { "" };
+            let plural = if t.is_plural() { "s" } else { "" };
             format!("{name} {adj}{fem}{plural}")
         };
         let base = match self.relief(hex) {
@@ -1758,6 +1934,11 @@ impl WorldMap {
             Relief::Rugged => agree("accidenté"),
             Relief::Mountain => format!("Montagne ({})", name.to_lowercase()),
             Relief::Peak => format!("Pic ({})", name.to_lowercase()),
+        };
+        // Rives vertes : le nom de leur vallée (« Rives vertes (Vallée de la Vaska) »)
+        let base = match self.desert_place(hex) {
+            Some(p) => format!("{base} ({})", p.name),
+            None => base,
         };
         if self.small_lake(hex) { format!("{base}, petit lac") } else { base }
     }
@@ -2063,6 +2244,7 @@ impl WorldMap {
 
     pub fn fresh_water(&self, hex: Hex) -> bool {
         self.small_lake(hex)
+            || self.get(hex) == Some(Terrain::Oasis)
             || (0..6).any(|d| self.river_flow(hex, d) > 0.0)
             || self.neighbors(hex).iter().any(|&n| self.is_fleuve(n) || self.get(n) == Some(Terrain::Lake))
     }
@@ -2811,6 +2993,7 @@ impl WorldMap {
             // 6) Cours d'eau et lacs (voir hydro.rs)
             self.add_hydrology();
             self.add_marshes();
+            self.add_desert_waters();
             // 7) Langues des régions et noms des lieux (voir toponymy.rs)
             self.add_names(seed);
             // 8) Eaux poissonneuses (remontées d'eaux, monts sous-marins, îles volcaniques)
@@ -3007,7 +3190,7 @@ impl WorldMap {
             if t.is_sea() {
                 continue;
             }
-            if matches!(t, Terrain::Lake | Terrain::Marsh) {
+            if matches!(t, Terrain::Lake | Terrain::Marsh | Terrain::Riverbank | Terrain::Oasis) {
                 self.tiles[i] = self.climate_biome(i, base.jitter[i]);
             }
             self.levels[i] = base.levels[i];
@@ -3015,6 +3198,7 @@ impl WorldMap {
         }
         self.add_hydrology();
         self.add_marshes();
+        self.add_desert_waters();
         self.add_names(self.seed);
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
@@ -3160,7 +3344,7 @@ impl WorldMap {
             .filter(|&i| {
                 let hex = Hex::from_offset(i as i32 % self.width, i as i32 / self.width);
                 let t = self.tiles[i];
-                if t.is_water() || matches!(t, Terrain::Snow | Terrain::Tundra | Terrain::Desert) {
+                if t.is_water() || t.is_arid() || matches!(t, Terrain::Snow | Terrain::Tundra) {
                     return false;
                 }
                 if self.relief[i] != Relief::Flat || self.is_fleuve(hex) || self.levels[i] > MARSH_MAX_LEVEL {
@@ -3184,6 +3368,66 @@ impl WorldMap {
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
+    }
+
+    /// Eaux du désert (après les marais) : rives vertes le long des fleuves, des grandes rivières
+    /// et des lacs ; oasis là où une nappe affleure (cuvette, piémont d'une haute montagne,
+    /// faille), rares et jamais voisines (voir `oasis_source`).
+    fn add_desert_waters(&mut self) {
+        let n = self.tiles.len();
+        let hex_of = |i: usize, w: i32| Hex::from_offset(i as i32 % w, i as i32 / w);
+        let banks: Vec<usize> = (0..n)
+            .filter(|&i| {
+                let h = hex_of(i, self.width);
+                self.tiles[i] == Terrain::Desert
+                    && !self.is_fleuve(h)
+                    && self.relief[i] < Relief::Mountain
+                    && ((0..6).any(|d| self.river_flow(h, d) >= RIVERBANK_FLOW)
+                        || self.neighbors(h).iter().any(|&v| self.is_fleuve(v) || self.get(v) == Some(Terrain::Lake)))
+            })
+            .collect();
+        for i in banks {
+            self.tiles[i] = Terrain::Riverbank;
+        }
+        for i in 0..n {
+            let h = hex_of(i, self.width);
+            if self.tiles[i] != Terrain::Desert || self.relief[i] >= Relief::Mountain || self.fresh_water(h) {
+                continue;
+            }
+            if self.oasis_source(i).is_none() || desert_hash(i as u64, u64::from(self.seed)) >= OASIS_CHANCE {
+                continue;
+            }
+            if self.neighbors(h).iter().any(|&v| self.get(v) == Some(Terrain::Oasis)) {
+                continue;
+            }
+            self.tiles[i] = Terrain::Oasis;
+        }
+        self.step_cache = std::sync::OnceLock::new();
+        self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
+        self.river_down_cache = std::sync::OnceLock::new();
+    }
+
+    /// D'où vient l'eau d'une oasis possible à la case `i` : le piémont d'un relief haut ou arrosé
+    /// (à `OASIS_PIEDMONT` cases au plus), une cuvette (au plus une terre voisine plus basse, loin
+    /// de la mer) ou une faille (à moins de `OASIS_FAULT_KM` d'une frontière de plaques).
+    pub fn oasis_source(&self, i: usize) -> Option<OasisSource> {
+        let h = self.hex_at(i);
+        let high = self.range(h, OASIS_PIEDMONT).filter_map(|v| self.index(self.canonical(v))).any(|j| {
+            self.relief[j] >= Relief::Rugged && (self.elevation[j] >= OASIS_HIGH_M || self.climate.rain.get(j).is_some_and(|&r| r >= OASIS_MOUNTAIN_RAIN_MM))
+        });
+        if high && self.relief[i] < Relief::Rugged {
+            return Some(OasisSource::Piemont);
+        }
+        let near: Vec<usize> = self.neighbors(h).iter().filter_map(|&v| self.index(self.canonical(v))).collect();
+        let inland = near.iter().all(|&j| !self.tiles[j].is_water());
+        if inland && near.iter().filter(|&&j| self.elevation[j] < self.elevation[i]).count() <= 1 {
+            return Some(OasisSource::Cuvette);
+        }
+        if self.plates.boundary_km.get(i).is_some_and(|&km| km < OASIS_FAULT_KM) {
+            return Some(OasisSource::Faille);
+        }
+        None
     }
 
     /// Bassins versants et noms des fleuves (après l'hydrologie).
@@ -3487,6 +3731,42 @@ mod tests {
 }
 
 #[cfg(test)]
+mod eaux_du_desert {
+    use super::*;
+
+    #[test]
+    fn rives_vertes_le_long_du_fleuve_et_oasis_isolees() {
+        let mut m = WorldMap::filled(20, 20, Terrain::Desert);
+        let f = Hex::from_offset(10, 10);
+        m.set_fleuve(f);
+        m.add_desert_waters();
+        // Le fleuve reste un fleuve ; ses rives deviennent des rives vertes
+        assert_eq!(m.get(f), Some(Terrain::Desert));
+        assert!(m.neighbors(f).iter().all(|&v| m.get(v) == Some(Terrain::Riverbank)));
+        // Des oasis (la carte plate est une grande cuvette), jamais voisines, jamais au bord de l'eau
+        let oasis: Vec<Hex> = m.hexes().filter(|&h| m.get(h) == Some(Terrain::Oasis)).collect();
+        assert!(!oasis.is_empty());
+        for &o in &oasis {
+            assert!(m.neighbors(o).iter().all(|&v| m.get(v) != Some(Terrain::Oasis)));
+            assert!(m.fresh_water(o), "une oasis est de l'eau douce");
+            assert!(m.neighbors(o).iter().all(|&v| !m.is_fleuve(v)));
+        }
+        assert!(oasis.len() * 100 < 20 * 20 * 10, "rares : {}", oasis.len());
+        // Noms : une vallée pour les six rives d'un seul tenant, un nom par oasis
+        m.languages = vec![crate::toponymy::Language::Latine; 400];
+        m.name_desert_places(1);
+        let vallee = m.desert_place(f + crate::hex::DIRECTIONS[0]).expect("vallée");
+        assert!(!vallee.oasis && vallee.cells.len() == 6 && vallee.name.starts_with("Vallée "), "{vallee:?}");
+        assert_eq!(m.desert_places().len(), 1 + oasis.len());
+        assert!(oasis.iter().all(|&o| m.describe(o).starts_with("Oasis ")));
+        // Désert, rives vertes et oasis comptent pareil dans l'empreinte des sauvegardes
+        let mut d = WorldMap::filled(20, 20, Terrain::Desert);
+        d.set_fleuve(f);
+        assert_eq!(crate::sauvegarde::empreinte_monde(&m), crate::sauvegarde::empreinte_monde(&d));
+    }
+}
+
+#[cfg(test)]
 mod apercu {
     #[test]
     fn rivieres_et_fleuves_en_jeu() {
@@ -3618,6 +3898,7 @@ mod apercu {
                     Terrain::Ocean => ' ', Terrain::Coast => '.', Terrain::Grassland => 'p', Terrain::Plains => '-',
                     Terrain::Desert => 'D', Terrain::Tundra => 't', Terrain::Snow => '*', Terrain::Forest => 'F',
                     Terrain::Lake => 'o', Terrain::Jungle => 'J', Terrain::Savanna => 's', Terrain::WoodedSavanna => 'w', Terrain::Mediterranean => 'm', Terrain::Taiga => 'T', Terrain::Steppe => '_', Terrain::Marsh => '~',
+                    Terrain::Riverbank => 'v', Terrain::Oasis => 'O',
                 });
                 let w = m.wind(h).unwrap();
                 rl.push(if t.is_water() {
@@ -3926,6 +4207,8 @@ mod planete {
                             Terrain::Forest => 'F',
                             Terrain::Lake => 'o',
                             Terrain::Jungle => 'J', Terrain::Savanna => 's', Terrain::WoodedSavanna => 'w', Terrain::Mediterranean => 'm', Terrain::Taiga => 'T', Terrain::Steppe => '_', Terrain::Marsh => '~',
+                            Terrain::Riverbank => 'v',
+                            Terrain::Oasis => 'O',
                         }
                     })
                     .collect();
@@ -3939,6 +4222,38 @@ mod planete {
 #[cfg(test)]
 mod tectonique {
     use super::*;
+
+    /// Bilan des eaux du désert (à lancer à la main, `SEEDS=777,2`) : déserts, rives vertes, oasis
+    /// et origine de leur eau, oasis voisines d'une autre (doit être 0).
+    #[test]
+    #[ignore]
+    fn bilan_eaux_du_desert() {
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or(vec![777, 2, 4242]);
+        for seed in seeds {
+            let m = WorldMap::generate(192, 111, seed);
+            let cnt = |t: Terrain| m.hexes().filter(|&h| m.get(h) == Some(t)).count();
+            let (d, r, o) = (cnt(Terrain::Desert), cnt(Terrain::Riverbank), cnt(Terrain::Oasis));
+            let arides = (d + r + o).max(1) as f32;
+            let oasis: Vec<Hex> = m.hexes().filter(|&h| m.get(h) == Some(Terrain::Oasis)).collect();
+            let source = |s: OasisSource| oasis.iter().filter(|&&h| m.oasis_source(m.index(h).unwrap()) == Some(s)).count();
+            // Candidates parmi le désert restant, et causes des rives vertes
+            let deserts: Vec<Hex> = m.hexes().filter(|&h| m.get(h) == Some(Terrain::Desert)).collect();
+            let cand = |s: OasisSource| deserts.iter().filter(|&&h| m.oasis_source(m.index(h).unwrap()) == Some(s)).count();
+            let bords: Vec<Hex> = m.hexes().filter(|&h| m.get(h) == Some(Terrain::Riverbank)).collect();
+            let par_fleuve = bords.iter().filter(|&&h| m.neighbors(h).iter().any(|&v| m.is_fleuve(v))).count();
+            let par_lac = bords.iter().filter(|&&h| m.neighbors(h).iter().any(|&v| m.get(v) == Some(Terrain::Lake))).count();
+            let par_300 = bords.iter().filter(|&&h| (0..6).any(|k| m.river_flow(h, k) >= 300.0)).count();
+            let hauts = deserts.iter().filter(|&&h| m.range(h, 2).any(|v| m.relief(m.canonical(v)) >= Relief::Mountain)).count();
+            println!("  candidates : cuvette {}, piémont {}, faille {} ; désert à 2 cases d'une montagne {hauts} ; rives : fleuve {par_fleuve}, lac {par_lac}, rivière de 300 m³/s {par_300}", cand(OasisSource::Cuvette), cand(OasisSource::Piemont), cand(OasisSource::Faille));
+            let noms: Vec<String> = m.desert_places().iter().map(|p| format!("{} ({})", p.name, p.cells.len())).collect();
+            println!("  lieux : {}", noms.join(", "));
+            let voisines = oasis.iter().filter(|&&h| m.neighbors(h).iter().any(|&v| m.get(v) == Some(Terrain::Oasis))).count();
+            println!(
+                "graine {seed} : désert {d}, rives vertes {r} ({:.1} %), oasis {o} ({:.1} % ; cuvette {}, piémont {}, faille {}), oasis voisines {voisines}",
+                100.0 * r as f32 / arides, 100.0 * o as f32 / arides, source(OasisSource::Cuvette), source(OasisSource::Piemont), source(OasisSource::Faille)
+            );
+        }
+    }
 
     /// Bilan de la géologie et des sols (à lancer à la main, `SEEDS=777,2`) : part de chaque roche
     /// et de chaque sol sur les terres, karst, et limite de nourriture d'un territoire de 19 cases

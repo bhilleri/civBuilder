@@ -22,6 +22,27 @@ Implémenté dans `src/climate.rs` (valeurs par saison), `src/map.rs` (`Terrain`
 6. Été sec et aridité < 0,75 → broussailles.
 7. Aridité < 0,75, ou saison la plus chaude < 10 °C (limite des arbres, `TREE_LINE_SUMMER`) → prairie ; sinon forêt tempérée.
 - **Marais** (après l'hydrologie, à chaque passe) : terre hors montagne, neige, toundra, désert ; sans collines ; pas un fleuve ; niveau ≤ 2 ; aucune voisine de terre plus basse ; au bord d'un fleuve ou d'un lac (ou petit lac) ; aridité ≥ 1 et moyenne > 0 °C.
+- **Rives vertes et oasis** (décision de Benjamin, 13/11/2026 ; `add_desert_waters`, après les marais, à chaque passe) :
+  - Rives vertes : case de désert hors montagne, pas un fleuve, voisine d'un fleuve ou d'un lac, ou au bord d'une rivière
+    d'au moins `RIVERBANK_FLOW` = 300 m³/s (le seuil des « grandes rivières » qui donnent déjà les alluvions ; 100 m³/s au
+    premier essai : 30 à 41 % du désert). Toujours sur alluvions, sol alluvial.
+  - Oasis : case de désert hors montagne et sans eau douce, qui a une source (`oasis_source`, dans l'ordre) : piémont d'un
+    relief accidenté ou plus haut, de 1 500 m ou plus ou de 400 mm de pluie, à 3 cases au plus (eau de fonte qui ressort au
+    pied : Tarim, Atlas) ; cuvette (au plus une voisine plus basse, pas au bord de l'eau : Siwa, Kharga) ; faille (à moins de
+    120 km d'une frontière de plaques). Puis un tirage de la graine (6 %), jamais deux oasis voisines. Au premier essai (une
+    cuvette sans aucune voisine plus basse, le piémont d'une montagne à 2 cases), presque toutes venaient des failles :
+    l'hydrologie remplit les vraies cuvettes de lacs, et les déserts touchent peu les montagnes.
+  - Bilan (`bilan_eaux_du_desert`, graines 777 / 2 / 4242) : désert 151 / 261 / 145 cases, rives vertes 50 / 118 / 61
+    (25 / 30 / 29 % des terres arides : les déserts de ces planètes sont petits et traversés de grandes rivières venues des
+    montagnes), oasis 3 / 11 / 5 (1,5 / 2,8 / 2,4 %), aucune voisine d'une autre.
+  - Noms (demande de Benjamin : « une vallée fluviale et une oasis ne cassent pas un biome désert, mais elles sont nommées
+    comme dans le Sahara ») : la région naturelle compte rives vertes et oasis comme du désert (`Biome::of`) ; chaque vallée
+    (rives vertes d'un seul tenant) prend le nom du plus fort cours d'eau nommé qui la traverse (« Vallée de l'Adrarast »),
+    sinon de son lac (« Rives du Lac Kumakhan »), sinon un nom propre ; deux morceaux d'une même vallée gardent le même nom
+    (une seule étiquette, sur le plus grand). Chaque oasis a un nom propre (« Oasis de Rerarousine »). Étiquettes en zoom fin
+    (rayon d'une case de 22 px à l'écran) sur une case explorée ; infobulle « Rives vertes (Vallée de …) », « Oasis de …
+    (nappe d'une cuvette) ». Tirage à part (`Namer::with_taken`), après tous les autres : les autres noms ne changent pas.
+    L'empreinte des sauvegardes compte rives vertes et oasis comme du désert.
 - Petite variation locale de l'aridité (bruit ±25 %) partout.
 - **Limite des arbres** (décision de Benjamin, 08/11/2026) : pas de forêt tempérée quand la saison la plus chaude reste sous
   10 °C (limite des arbres et toundra de Köppen, vers 10 °C au mois le plus chaud) ; c'est une prairie d'altitude (páramo,
@@ -62,17 +83,21 @@ Implémenté dans `src/climate.rs` (valeurs par saison), `src/map.rs` (`Terrain`
 | Broussailles | 1 / 1 / 1 | 1 PM | départ possible |
 | Steppe | 1 / 1 / 0 | 1 PM | départ possible |
 | Marais | 1 / 0 / 0 | 3 PM | pas de charge |
+| Rives vertes | 2 / 0 / 0 (+1 eau douce) | 1 PM | champs, légumineuses, pâturages, jardins ; sol alluvial |
+| Oasis | 2 / 0 / 0 (+1 eau douce) | 1 PM | eau douce ; mêmes aménagements, moitié moins de travailleurs ; nommée |
 - **Couvert boisé** (`Terrain::is_wooded`) : +défense, pas de charge, tir gêné (portée −1).
 - Départ du joueur : prairie, plaine, savane, steppe ou broussailles.
 - Infobulle : climat « à été sec » ou « à N saisons sèches ».
 
 ## Rendu
 - 2D : couleur propre à chaque terrain (marais bleu-vert clair, taïga vert sombre bleuté pour bien les distinguer).
-- 3D : forêt tempérée = feuillus (tronc + houppier rond) ; jungle = grands feuillus sombres, deux couronnes ; taïga = conifères étroits, deux couronnes ; savane arborée = 3 acacias (cime plate), savane = 1 acacia ; broussailles = buissons et un olivier sur trois ; marais = flaques et touffes de roseaux. Végétation masquée sur les cartes thématiques ; pas d'arbres dans le lit d'un fleuve.
+- 3D : forêt tempérée = feuillus (tronc + houppier rond) ; jungle = grands feuillus sombres, deux couronnes ; taïga = conifères étroits, deux couronnes ; savane arborée = 3 acacias (cime plate), savane = 1 acacia ; broussailles = buissons et un olivier sur trois ; marais = flaques et touffes de roseaux ; oasis = palmeraie serrée autour d'une mare ; rives vertes = un arbre sur trois et des buissons. Végétation masquée sur les cartes thématiques ; pas d'arbres dans le lit d'un fleuve.
 
 ## À faire ensuite
 - Décider du seuil de la taïga (0,6 ou 0,75 comme les autres forêts).
 - Équilibrer les rendements en jeu ; ressources propres (chevaux en steppe, bois précieux en jungle, vigne et olivier en broussailles, fourrures en taïga).
 - Marais : maladies, assèchement par les villes.
+- Rives vertes : la crue (limon chaque année, famine quand elle manque) ; irrigation des déserts voisins par les villes.
+- Oasis : étape des caravanes (commerce), nappe qui s'épuise si la ville grandit trop.
 - Glyphes 2D pour distinguer les biomes boisés et le marais sans la couleur seule.
 - Recaler le climat (écarts saisonniers plus marqués) : les seuils pourraient alors se rapprocher de ceux de Köppen.

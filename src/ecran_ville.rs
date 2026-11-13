@@ -478,7 +478,7 @@ impl<'a> Ville<'a> {
         let mut dispo = self.dispo.to_vec();
         if let Some(c) = dispo.iter_mut().find(|c| c.hex == h) {
             c.max = intendant::rendement_max(self.map, h, Some(a));
-            c.capacite = intendant::capacite(Some(a));
+            c.capacite = intendant::capacite(self.map, h, Some(a));
         }
         let mut sans_file = self.etat.allege();
         sans_file.file.clear();
@@ -513,7 +513,7 @@ fn gain_amenagement(vl: &Ville, c: &CaseVue, a: Amenagement) -> Result<GainAmena
     let map = vl.map;
     possible(map, c, a)?;
     let max = intendant::rendement_max(map, c.hex, Some(a));
-    let cap = intendant::capacite(Some(a));
+    let cap = intendant::capacite(map, c.hex, Some(a));
     let cout = a.cout(map, c.hex);
     let (maintenant, dans) = vl.effet(c.hex, a);
     Ok(GainAmenagement { maintenant, dans, plein: max - c.max, cout, defriche: cout > a.cout_de_base(), capacite: cap })
@@ -2630,7 +2630,7 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, image
             // Roche et sol : la fertilité des champs (5b)
             if let (Some(r), Some(s)) = (map.roche(c.hex), map.sol(c.hex)) {
                 let karst = if map.karstique(c.hex) { " karstique" } else { "" };
-                ligne_valeur(p, "Sol", format!("{} sur {}{karst} : champs × {}", s.nom(), r.nom(), s.fertilite_texte()), charte::DOUX);
+                ligne_valeur(p, "Sol", format!("{} sur {}{karst} : {}", s.nom(), r.nom(), s.effet_texte()), charte::DOUX);
             }
             p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(5.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
                 l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("Travailleurs", 13.5, charte::TEXTE)]));

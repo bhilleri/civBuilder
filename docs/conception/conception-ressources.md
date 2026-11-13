@@ -236,6 +236,15 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
   case) ; la répartition des sortes dans le monde à surveiller.
 
+### Fait le 13/11/2026 : sols du désert et du froid
+- Question de Benjamin : « les déserts ont un facteur de 1 ? ». Ils n'en avaient pas l'usage (aucun champ possible), mais la
+  carte et l'infobulle montraient « sol brun : champs × 1 ». Nouvelles classes **sol aride** (désert) et **sol gelé**
+  (toundra, neige) : « pas de culture » (`Sol::cultivable`, `effet_texte`) ; leur multiplicateur reste 1 pour les pâturages
+  de la toundra (rien ne change dans les règles).
+- Le désert irrigué devient deux biomes (voir `conception-biomes.md`) : **rives vertes** (sol alluvial, champs et pâturages :
+  les Égyptiens élevaient bœufs, moutons, chèvres et porcs dans le Delta, sur les berges et les chaumes) et **oasis** (dattes,
+  chameaux, capacité `CAPACITE_OASIS` = 0,5).
+
 ### Fait le 13/11/2026 : diversité des repas (5d)
 - `intendant::Sorte` (17 sortes, chacune d'un type) ; `sortes_de_la_case` : une sorte par type et
   par case, la plus adaptée (champ : tubercules en jungle et savane arborée, riz au-dessus de 20 °C

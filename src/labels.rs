@@ -175,13 +175,14 @@ impl Plugin for LabelsPlugin {
                 spawn_sea_names,
                 spawn_bank_icons,
                 attach_fish_images,
+                spawn_oasis_names,
             ),
         )
         .init_resource::<LabelFilter>()
         .add_systems(Update, update_hovered_label)
         .add_systems(
             PostUpdate,
-            (place_labels, place_river_names, place_sea_names, place_bank_icons).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
+            (place_labels, place_river_names, place_sea_names, place_bank_icons, place_oasis_names).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
         );
     }
 }
@@ -923,6 +924,93 @@ fn place_bank_icons(
                     name.display = display;
                 }
             }
+        }
+    }
+}
+
+/// Nom d'un lieu du désert (oasis, vallée) : seulement en zoom fin (comme celui d'un banc), une
+/// fois sa case explorée ; une vallée, sur sa case la plus proche de son centre.
+#[derive(Component)]
+struct OasisName(Hex);
+/// Rayon d'une case à l'écran (pixels) à partir duquel le nom d'une oasis ou d'une vallée se montre.
+const OASIS_NAME_PX: f32 = 22.0;
+
+/// Une étiquette par oasis et par vallée du désert (refaites si la carte change de monde ou si
+/// l'eau est refaite).
+fn spawn_oasis_names(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<OasisName>>, mut renamed: MessageReader<crate::console::NamesChanged>) {
+    if !map.is_added() && renamed.read().count() == 0 {
+        return;
+    }
+    for e in &old {
+        commands.entity(e).despawn();
+    }
+    let places = map.0.desert_places();
+    for (k, place) in places.iter().enumerate() {
+        // Une étiquette par nom : sur le plus grand morceau d'une vallée coupée en plusieurs
+        if places.iter().enumerate().any(|(j, p)| p.name == place.name && (p.cells.len(), std::cmp::Reverse(j)) > (place.cells.len(), std::cmp::Reverse(k))) {
+            continue;
+        }
+        // (planète : chaque case prise du côté du raccord le plus proche de la première)
+        let first = map.0.hex_at(place.cells[0]);
+        let points: Vec<Vec2> = place.cells.iter().map(|&c| Vec2::from(map.0.wrap().nearest(first, map.0.hex_at(c)).to_world())).collect();
+        let center = points.iter().sum::<Vec2>() / points.len() as f32;
+        let spot = place.cells.iter().zip(&points).min_by(|a, b| a.1.distance(center).total_cmp(&b.1.distance(center))).map_or(first, |(&c, _)| map.0.hex_at(c));
+        commands.spawn((
+            OasisName(spot),
+            Text::new(place.name.clone()),
+            TextFont::from_font_size(11.0),
+            TextColor(Color::srgb(0.95, 0.90, 0.70)),
+            TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::srgba(0.0, 0.0, 0.0, 0.85) },
+            Node { position_type: PositionType::Absolute, ..default() },
+            UiTransform::from_translation(Val2::percent(-50.0, 60.0)),
+            GlobalZIndex(-3),
+            Visibility::Hidden,
+        ));
+    }
+}
+
+/// Noms des oasis : sous le centre de leur case, en zoom fin, sur une case explorée.
+fn place_oasis_names(
+    mode: Res<ViewMode>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
+    mut names: Query<(&OasisName, &mut Node, &mut Visibility), (Without<RiverName>, Without<SeaName>, Without<Anchor>, Without<BankIcon>)>,
+) {
+    let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
+    for (oasis, mut node, mut vis) in &mut names {
+        let mut shown = None;
+        if let Some((camera, transform, _)) = camera
+            && fog.explored.contains(&oasis.0)
+        {
+            let cam_global = GlobalTransform::from(*transform);
+            let world = if mode.is_3d {
+                to_3d(oasis.0, shown_height(&map, &fog, oasis.0) + 3.0)
+            } else {
+                let (x, y) = oasis.0.to_world();
+                Vec3::new(x, y, 0.0)
+            };
+            let world = near_camera(&map, world, transform.translation.x);
+            if let Ok(center) = camera.world_to_viewport(&cam_global, world)
+                && let Ok(edge) = camera.world_to_viewport(&cam_global, world + transform.right() * crate::hex::HEX_SIZE)
+                && edge.distance(center) >= OASIS_NAME_PX
+            {
+                shown = Some(center);
+            }
+        }
+        let Some(p) = shown else {
+            if *vis != Visibility::Hidden {
+                *vis = Visibility::Hidden;
+            }
+            continue;
+        };
+        let (left, top) = (Val::Px(p.x.round()), Val::Px(p.y.round()));
+        if node.left != left || node.top != top {
+            node.left = left;
+            node.top = top;
+        }
+        if *vis != Visibility::Inherited {
+            *vis = Visibility::Inherited;
         }
     }
 }
