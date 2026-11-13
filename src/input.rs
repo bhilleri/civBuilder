@@ -538,7 +538,7 @@ fn keyboard_commands(
     knowledge: (Res<Blocked>, Res<Occupancy>, Res<Danger>, Res<KnownVillages>, ResMut<Cues>),
     replay: Res<TurnReplay>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
-    mut cities: Query<(&mut City, &HexPos)>,
+    cities: Query<(&mut City, &HexPos)>,
     camera: Single<&mut Transform, (With<Camera2d>, Without<crate::seam::GhostCamera>)>,
     mut cam3d: ResMut<crate::view3d::Cam3d>,
 ) {
@@ -622,31 +622,6 @@ fn keyboard_commands(
                     }
                     Err(reason) => log.push(format!("Impossible de fonder ici : {reason}.")),
                 }
-            }
-        }
-        return;
-    }
-
-    // --- Commandes de ville : choix de la production
-    // (Ctrl + chiffre range un groupe d'unités : voir `groupes.rs`)
-    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    if !ctrl && let Ok((mut city, center)) = cities.get_mut(selected) {
-        let choices = [
-            (KeyCode::Digit1, KeyCode::Numpad1),
-            (KeyCode::Digit2, KeyCode::Numpad2),
-            (KeyCode::Digit3, KeyCode::Numpad3),
-            (KeyCode::Digit4, KeyCode::Numpad4),
-            (KeyCode::Digit5, KeyCode::Numpad5),
-            (KeyCode::Digit6, KeyCode::Numpad6),
-            (KeyCode::Digit7, KeyCode::Numpad7),
-            (KeyCode::Digit8, KeyCode::Numpad8),
-            (KeyCode::Digit9, KeyCode::Numpad9),
-        ];
-        for (i, (k1, k2)) in choices.iter().enumerate() {
-            if keys.just_pressed(*k1) || keys.just_pressed(*k2) {
-                let kind = UnitKind::ALL[i];
-                city.state.mettre_en_file(rules::Production::Unit(kind));
-                log.push(LogText::new().city(&city.state.name, selected, center.0).text(format!(" met en file : {} ({} dans la file).", kind.name(), city.state.file.len())));
             }
         }
     }

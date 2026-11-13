@@ -2,7 +2,7 @@
 
 use crate::pointer::UiPointer;
 use crate::feedback::TurnReplay;
-use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, LogLink, LogText, Selection, ShownFog, Unit};
+use crate::game::{City, GameLog, GameMap, GameState, HexPos, Importance, LogLink, Selection, ShownFog, Unit};
 use crate::hex::Hex;
 use crate::hostile::{Camp, Hostile, Village};
 use crate::search::{FocusTarget, HoverColors, MapTarget, PointedTarget, TargetButton};
@@ -75,12 +75,6 @@ struct Legend(MapLayer);
 /// Lignes de la légende des bassins : les grands bassins découverts.
 #[derive(Component)]
 struct BasinLegendRows;
-/// Panneau de production (visible quand une ville est sélectionnée).
-#[derive(Component)]
-struct ProductionPanel;
-/// Bouton « produire telle unité ».
-#[derive(Component)]
-struct ProduceButton(UnitKind);
 
 const PANEL_BG: Color = Color::srgba(0.05, 0.06, 0.09, 0.88);
 const BUTTON_BG: Color = Color::srgb(0.16, 0.35, 0.70);
@@ -109,8 +103,6 @@ impl Plugin for UiPlugin {
                     view_toggle_button,
                     map_layer_controls,
                     wiki_button_hover,
-                    production_buttons,
-                    update_production_panel,
                     update_top_bar,
                     update_place_bar,
                     update_selection_panel,
@@ -180,65 +172,6 @@ fn setup_ui(mut commands: Commands) {
             ..default()
         }),
     ));
-
-    // Panneau de production (à gauche, sous la barre du haut), masqué hors sélection de ville
-    commands
-        .spawn((
-            ProductionPanel,
-            crate::ecran_ville::CacheSousEcran,
-            panel(Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(52.0),
-                left: Val::Px(8.0),
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(3.0),
-                padding: UiRect::all(Val::Px(8.0)),
-                display: Display::None,
-                ..default()
-            }),
-        ))
-        .with_children(|p| {
-            // Écran de la ville (touche C)
-            p.spawn((
-                crate::ecran_ville::BoutonEcranVille,
-                UiPointer::default(),
-                Node {
-                    padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    margin: UiRect::bottom(Val::Px(4.0)),
-                    ..default()
-                },
-                BackgroundColor(BUTTON_BG),
-                HoverColors { normal: BUTTON_BG, hover: BUTTON_HOVER },
-                children![text("Écran de la ville (C)", 15.0)],
-            ));
-            p.spawn(text("Mettre en file (clic ou touches 1 à 9)", 14.0));
-            for kind in UnitKind::ALL {
-                p.spawn((
-                    ProduceButton(kind),
-                    UiPointer::default(),
-                    Node {
-                        padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
-                        border_radius: BorderRadius::all(Val::Px(4.0)),
-                        ..default()
-                    },
-                    BackgroundColor(PRODUCE_BG),
-                    children![text(kind.name(), 14.0)],
-                ));
-            }
-            // Pont : choix de l'emplacement sur la carte (voir `bridge_build`)
-            p.spawn((
-                crate::bridge_build::BridgeButton,
-                UiPointer::default(),
-                Node {
-                    padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
-                    border_radius: BorderRadius::all(Val::Px(4.0)),
-                    ..default()
-                },
-                BackgroundColor(PRODUCE_BG),
-                children![text("Pont…", 14.0)],
-            ));
-        });
 
     // Panneau de sélection (en bas à gauche)
     commands.spawn((
@@ -927,7 +860,7 @@ fn resources_legend() -> impl Bundle {
             Spawn((
                 Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
                 Children::spawn(SpawnIter(
-                    crate::gisements::Ressource::TOUTES.into_iter().map(|r| legend_row(r.couleur(), format!("{} · {} ({})", r.sigle(), capitale_ui(r.nom()), r.exploitation()))),
+                    crate::gisements::Ressource::TOUTES.into_iter().map(|r| legend_row(r.couleur(), format!("{} ({})", capitale_ui(r.nom()), r.exploitation()))),
                 )),
             )),
             Spawn(text("La pierre dure et les pierres et parures se découvrent par la prospection (territoire des villes, éclaireur)", 12.0)),
@@ -1147,75 +1080,6 @@ fn end_turn_button(
     }
 }
 
-/// Clic sur un bouton de production : change la production de la ville sélectionnée.
-fn production_buttons(
-    buttons: Query<(&UiPointer, &ProduceButton), Changed<UiPointer>>,
-    selection: Res<Selection>,
-    replay: Res<TurnReplay>,
-    mut cities: Query<(Entity, &mut City, &HexPos)>,
-    mut log: ResMut<GameLog>,
-) {
-    // (pas d'ordre tant que le passage de tour se joue)
-    let Some((entity, mut city, center)) = selection.0.filter(|_| !replay.playing).and_then(|e| cities.get_mut(e).ok()) else { return };
-    for (interaction, button) in &buttons {
-        if *interaction == UiPointer::Pressed {
-            city.state.mettre_en_file(rules::Production::Unit(button.0));
-            log.push(LogText::new().city(&city.state.name, entity, center.0).text(format!(" met en file : {} ({} dans la file).", button.0.name(), city.state.file.len())));
-        }
-    }
-}
-
-/// Affiche le panneau de production pour la ville sélectionnée : coût, tours, statistiques.
-fn update_production_panel(
-    selection: Res<Selection>,
-    cities: Query<&City>,
-    mut panel: Single<&mut Node, With<ProductionPanel>>,
-    mut buttons: Query<(&ProduceButton, &UiPointer, &mut BackgroundColor, &Children)>,
-    mut texts: Query<&mut Text>,
-) {
-    let city = selection.0.and_then(|e| cities.get(e).ok());
-    let display = if city.is_some() { Display::Flex } else { Display::None };
-    if panel.display != display {
-        panel.display = display;
-    }
-    let Some(city) = city else { return };
-    let production = city.travail.rendements.production;
-    for (i, (button, interaction, mut bg, children)) in buttons.iter_mut().enumerate() {
-        let kind = button.0;
-        let st = kind.stats();
-        let tete = city.state.file.first().filter(|c| c.objet == rules::Production::Unit(kind));
-        let stock = tete.map_or(0.0, |c| c.investi);
-        let turns = rules::tours_restants(kind.cost(), stock, production).unwrap_or(999);
-        let combat = if st.ranged_attack > 0 {
-            format!(
-                "  ·  tir {} (portée {}) / déf {}  ·  {} PM",
-                st.ranged_attack, st.range, st.melee_defense, st.moves
-            )
-        } else if kind.is_military() {
-            format!("  ·  att {} / déf {}  ·  {} PM", st.melee_attack, st.melee_defense, st.moves)
-        } else {
-            format!("  ·  {} PM", st.moves)
-        };
-        let key = if i < 9 { format!("[{}] ", i + 1) } else { "     ".into() };
-        let label = format!("{key}{}  —  {} ({} tours){combat}", kind.name(), kind.cost(), turns);
-        if let Some(mut t) = children.first().and_then(|c| texts.get_mut(*c).ok())
-            && t.0 != label
-        {
-            t.0 = label;
-        }
-        let color = if tete.is_some() {
-            PRODUCE_ACTIVE
-        } else if *interaction == UiPointer::Hovered {
-            PRODUCE_HOVER
-        } else {
-            PRODUCE_BG
-        };
-        if bg.0 != color {
-            bg.0 = color;
-        }
-    }
-}
-
 /// Bouton de vue : un clic bascule entre 2D et 3D ; le libellé indique la vue proposée.
 fn view_toggle_button(
     mut buttons: Query<(Ref<UiPointer>, &mut BackgroundColor, &Children), With<ViewToggleButton>>,
@@ -1410,8 +1274,7 @@ fn update_selection_panel(
                 city.travail.cases.len(),
                 if city.travail.chomeurs > 0 { format!(", {} sans emploi (aménagez des cases)", rules::milliers(u64::from(city.travail.chomeurs))) } else { String::new() },
                 production,
-                "Production : panneau de gauche.
-C : écran de la ville (rendements, population, carte des cases)."
+                "Clic sur la ville ou C : son écran (construction, population, ressources, histoire)."
             )
         }
         _ => "Aucune sélection\n\nClic gauche : sélectionner\nZQSD / flèches : caméra\nMolette : zoom   Clic milieu : glisser\nTab : unité suivante".into(),

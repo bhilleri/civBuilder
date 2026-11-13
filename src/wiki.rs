@@ -864,8 +864,8 @@ fn cities() -> Article {
                les ressources vivantes se voient dès qu'une case est explorée ; la pierre dure et les pierres et parures se \
                découvrent par la prospection : chaque ville prospecte deux cases de son territoire par tour (les plus \
                proches d'abord), un éclaireur prospecte chaque case où il passe (le journal annonce le gisement trouvé). \
-               Les gisements connus se voient sur la carte des ressources (rond à la couleur de la ressource et son \
-               sigle), dans l'infobulle et dans l'écran de la ville (fiche de la case ; panneau « Gisements et \
+               Les gisements connus se voient sur la carte des ressources (pastille à la couleur de la ressource et \
+               son nom, la pastille seule de loin), dans l'infobulle et dans l'écran de la ville (fiche de la case ; panneau « Gisements et \
                ressources » du détail de la production). L'aménagement « exploitation » en tire une unité par tour à \
                pleine capacité, versée au stock de la ville ; une ville prend chaque tour dans son stock ce que demandent ses \
                habitants. Besoins de base (0,1 par tour pour 1 000 habitants) : le sel donne jusqu'à +5 de salubrité, les \
@@ -936,8 +936,23 @@ fn cities() -> Article {
                ce qui se garde le moins : tant qu'il reste du grain, pas de famine (le journal le signale). Le détail de \
                la nourriture (touche 1) montre le grenier, sorte par sorte."),
             h("Écran de la ville"),
-            p("Touche C (ou le bouton « Écran de la ville » du panneau de production) avec une ville sélectionnée : \n               l'écran de la ville se pose sur la carte, en 2D comme en 3D (V bascule la vue) ; Échap le ferme (d'abord \n               la fiche ouverte). La caméra cadre la ville dans la place que laissent les panneaux ; le reste du monde \n               est assombri. À gauche, la ville : son nom (← et → pour la précédente et la suivante, × pour fermer), \n               le palier, la croissance et le palier suivant, ce qui freine la croissance et ses remèdes, six grandeurs \n               (nourriture, production, deniers, culture, bien-être, salubrité ; touches 1 à 3 pour le détail des trois \n               premières) et la couverture des besoins (sel, vêtements, plantes, outils, luxe) ; puis les onglets \n               Rendements, Population, Ressources et Histoire, et la construction au pied, toujours visible."),
-            p("À droite, la fiche de ce que vous touchez ou réglez : une case, une case à acheter, une grandeur et ses \n               réglages, un placement. En bas, le tiroir (Tab l'ouvre ou le replie) : les cases de la ville et d'où \n               viennent les rendements. Au-dessus de la carte, la barre de la carte : cases à acheter, zoom, Recentrer, \n               et la couche (Aménagements, Emplois, Habitants, la grandeur détaillée, Histoire ; l'onglet en choisit \n               une). Sur la carte : la teinte de chaque case, ses chiffres, les cases à acheter en pointillé avec leur \n               prix. Survol : l'infobulle de la case ; clic : sa fiche. La molette, le bouton du milieu et le clavier \n               déplacent la caméra comme d'habitude. Sous le nom : ce qui freine la croissance ce tour et à \n               terme, et le remède le plus rentable, chiffré en habitants par tour (« 2 autres ▾ » déplie les autres). \n               Dans le tiroir, F agrandit le graphique (Échap le réduit) ; la molette y change la période."),
+            p("Clic sur une de vos villes (ou touche C, la ville sélectionnée) : \
+               l'écran de la ville se pose sur la carte, en 2D comme en 3D (V bascule la vue) ; Échap le ferme (d'abord \
+               la fiche ouverte). La caméra cadre la ville dans la place que laissent les panneaux ; le reste du monde \
+               est assombri. À gauche, la ville : son nom (← et → pour la précédente et la suivante, × pour fermer), \
+               le palier, la croissance et le palier suivant, ce qui freine la croissance et ses remèdes, six grandeurs \
+               (nourriture, production, deniers, culture, bien-être, salubrité ; touches 1 à 3 pour le détail des trois \
+               premières) et la couverture des besoins (sel, vêtements, plantes, outils, luxe) ; puis les onglets \
+               Bâtiments, Population, Ressources et Histoire, et la construction au pied, toujours visible."),
+            p("À droite, la fiche de ce que vous touchez ou réglez : une case, une case à acheter, une grandeur et ses \
+               réglages, un placement. En bas, le tiroir (Tab l'ouvre ou le replie) : les cases de la ville et d'où \
+               viennent les rendements. Au-dessus de la carte, la barre de la carte : cases à acheter, zoom, Recentrer, \
+               et la couche (Aménagements, Emplois, Habitants, la grandeur détaillée, Histoire ; l'onglet en choisit \
+               une). Sur la carte : la teinte de chaque case, ses chiffres, les cases à acheter en pointillé avec leur \
+               prix. Survol : l'infobulle de la case ; clic : sa fiche. La molette, le bouton du milieu et le clavier \
+               déplacent la caméra comme d'habitude. Sous le nom : ce qui freine la croissance ce tour et à \
+               terme, et le remède le plus rentable, chiffré en habitants par tour (« 2 autres + » déplie les autres). \
+               Dans le tiroir, F agrandit le graphique (Échap le réduit) ; la molette y change la période."),
             p("Clic sur une grandeur (ou touches 1 à 3) : son détail. Le graphique montre les derniers tours (10, 20                ou 40) et la prévision des 20 prochains (l'intendant répartit les habitants à venir), avec des repères (besoin et                croissance pleine pour la nourriture, équilibre pour les deniers) ; dessous, d'où vient la grandeur                et où elle va (réserve pour croître, grenier, excédent perdu, construction, trésor). La carte prend la couleur                de la grandeur et donne sa valeur par case ; la fiche d'une case dit ce que 100 travailleurs de plus                y rapporteraient. Échap remonte d'un cran (case, grandeur, écran)."),
             p("L'onglet Population montre les habitants, les actifs (la moitié) et les sans-emploi, l'évolution de \
                la population en échelle logarithmique avec sa prévision et ce que la ville peut porter : la limite, \

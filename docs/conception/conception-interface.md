@@ -761,6 +761,12 @@ variante B : gauche, droite, tiroir). L'écran n'est plus un plein écran avec u
   villes non reliées en pointillé, la caméra recule pour les montrer).
 - **Histoire** : filtres par genre présent (icône, compteur), 40 derniers tours par tranches de 10,
   chronique complète en frise dans le tiroir.
+- **Après le test manuel de Benjamin (13/11)** : ancien panneau de production retiré, l'écran s'ouvre
+  au clic sur une ville du joueur ; onglet « Rendements » renommé **Bâtiments** (bâtiments bâtis, puis
+  la file) ; catalogue en quatre groupes (Aménagements, Bâtiments avec les ponts, Projets, Unités),
+  une icône par élément ; placement : gains en couleur et pertes en rouge sur chaque case et en deux
+  colonnes dans la fiche, avec le gisement de la case et l'effet en habitants par tour ; carte des
+  ressources : nom de la ressource au lieu du sigle.
 - Écarts avec la maquette v7 et limites : pas de temps de trajet entre villes (la décision « distance =
   temps de transport » reste à faire : seulement les cases) ; pas d'infobulles de décomposition sur
   chaque nombre ; pas de verrou de case ; la molette ne zoome pas dans le temps au-delà des 40 tours

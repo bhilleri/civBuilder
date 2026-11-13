@@ -56,21 +56,6 @@ impl Ressource {
         }
     }
 
-    /// Abréviation pour l'icône de la carte des ressources.
-    pub const fn sigle(self) -> &'static str {
-        match self {
-            Ressource::Sel => "Se",
-            Ressource::Silex => "Si",
-            Ressource::Obsidienne => "Ob",
-            Ressource::PierreDure => "Pd",
-            Ressource::Ocre => "Oc",
-            Ressource::Plantes => "Pm",
-            Ressource::Parures => "Pp",
-            Ressource::Fibres => "Fp",
-            Ressource::BoisOeuvre => "Bo",
-        }
-    }
-
     /// Couleur de l'icône (sRGB).
     pub const fn couleur(self) -> (f32, f32, f32) {
         match self {

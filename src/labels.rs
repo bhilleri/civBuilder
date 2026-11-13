@@ -1072,9 +1072,15 @@ fn update_city_status(
     }
 }
 
-/// Icône d'un gisement (carte des ressources) : un rond à la couleur de la ressource et son sigle.
+/// Étiquette d'un gisement (carte des ressources) : une pastille à la couleur de la ressource et
+/// son nom en entier (de loin : la pastille seule).
 #[derive(Component)]
 struct DepositIcon(Hex);
+/// Nom de la ressource dans l'étiquette d'un gisement.
+#[derive(Component)]
+struct DepositName;
+/// Rayon d'une case à l'écran (pixels) à partir duquel le nom de la ressource s'écrit.
+const DEPOSIT_NAME_PX: f32 = 14.0;
 /// Rayon d'une case à l'écran (pixels) à partir duquel les icônes des gisements se montrent.
 const DEPOSIT_ICON_PX: f32 = 6.0;
 
@@ -1089,25 +1095,27 @@ fn spawn_deposit_icons(mut commands: Commands, map: Res<GameMap>, old: Query<Ent
     }
     for (h, r) in map.0.cases_a_gisement() {
         let (cr, cg, cb) = r.couleur();
-        let fonce = cr * 0.3 + cg * 0.55 + cb * 0.15 > 0.6;
+        let couleur = Color::srgb(cr, cg, cb);
         commands.spawn((
             DepositIcon(h),
             Node {
                 position_type: PositionType::Absolute,
-                width: Val::Px(20.0),
-                height: Val::Px(20.0),
-                border: UiRect::all(Val::Px(1.0)),
+                column_gap: Val::Px(5.0),
+                padding: UiRect::axes(Val::Px(4.0), Val::Px(3.0)),
+                border: UiRect::all(Val::Px(1.5)),
                 border_radius: BorderRadius::all(Val::Px(10.0)),
-                justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(Color::srgb(cr, cg, cb)),
-            BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+            BackgroundColor(Color::srgba(0.05, 0.06, 0.09, 0.85)),
+            BorderColor::all(couleur),
             UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
             GlobalZIndex(-3),
             Visibility::Hidden,
-            children![(Text::new(r.sigle()), TextFont::from_font_size(9.5), TextColor(if fonce { Color::srgb(0.1, 0.1, 0.12) } else { Color::srgb(0.97, 0.97, 0.97) }))],
+            children![
+                (Node { width: Val::Px(12.0), height: Val::Px(12.0), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() }, BackgroundColor(couleur)),
+                (DepositName, Node { margin: UiRect::right(Val::Px(3.0)), ..default() }, Text::new(r.nom()), TextFont::from_font_size(13.0), TextColor(Color::srgb(0.97, 0.97, 0.97))),
+            ],
         ));
     }
 }
@@ -1124,13 +1132,15 @@ fn place_deposit_icons(
     debug: Res<crate::game::DebugMode>,
     tableau: Res<crate::tableau::Tableau>,
     cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
-    mut icons: Query<(&DepositIcon, &mut Node, &mut Visibility), (Without<RiverName>, Without<SeaName>, Without<Anchor>, Without<BankIcon>, Without<OasisName>)>,
+    mut icons: Query<(&DepositIcon, &mut Node, &mut Visibility, &Children), (Without<RiverName>, Without<SeaName>, Without<Anchor>, Without<BankIcon>, Without<OasisName>, Without<DepositName>)>,
+    mut noms: Query<&mut Node, (With<DepositName>, Without<DepositIcon>)>,
 ) {
     let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
     // (carte des ressources, ou carte de disponibilité de la ressource choisie au tableau de bord)
     let carte = *layer == crate::render::MapLayer::Resources || tableau.choisie.is_some();
-    for (icon, mut node, mut vis) in &mut icons {
+    for (icon, mut node, mut vis, enfants) in &mut icons {
         let mut shown = None;
+        let mut rayon = 0.0;
         if carte
             && tableau.choisie.is_none_or(|r| map.0.gisement(icon.0) == Some(r))
             && let Some((camera, transform, _)) = camera
@@ -1149,6 +1159,7 @@ fn place_deposit_icons(
                 && edge.distance(center) >= DEPOSIT_ICON_PX
             {
                 shown = Some(center);
+                rayon = edge.distance(center);
             }
         }
         let Some(p) = shown else {
@@ -1161,6 +1172,15 @@ fn place_deposit_icons(
         if node.left != left || node.top != top {
             node.left = left;
             node.top = top;
+        }
+        // (de loin, la pastille seule ; d'assez près, le nom en entier)
+        let d = if rayon >= DEPOSIT_NAME_PX { Display::Flex } else { Display::None };
+        for &e in enfants {
+            if let Ok(mut n) = noms.get_mut(e)
+                && n.display != d
+            {
+                n.display = d;
+            }
         }
         if *vis != Visibility::Inherited {
             *vis = Visibility::Inherited;
