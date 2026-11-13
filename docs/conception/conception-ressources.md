@@ -236,6 +236,40 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
   case) ; la répartition des sortes dans le monde à surveiller.
 
+### Fait le 13/11/2026 : gisements (5f, décisions D1 à D5)
+- `gisements.rs` : `Ressource` (sel, silex, obsidienne, pierre dure, ocre, aromates et simples,
+  pierres et parures, fibres et peaux, bois d'œuvre), `LieuGisement`, `chance`, `gisement` ; une
+  ressource par case au plus, tirées dans l'ordre des plus rares (parures, obsidienne, sel, pierre
+  dure, ocre, silex, simples, bois d'œuvre, fibres), chacune par un tirage propre à la case et à la
+  graine. Règles : sel 35 % au bord d'un lac salé ou d'une mer intérieure, 22 % sur une côte
+  chaude et sèche ou aride, 4 % sur calcaire, argile ou grès sous 400 mm (sel gemme) ; silex 18 %
+  sur calcaire hors relief accidenté ; obsidienne 12 % sur roche d'arc en relief, 5 % sur basalte ;
+  pierre dure 8 % sur granite ou basalte en relief ; ocre 5 % sur grès ou argile au-dessus de 12 °C,
+  ou sol lessivé tropical ; simples 8 % en garrigue, 4 % en forêt ou jungle de pente ; parures 3 %
+  sur granite ou roche d'arc accidentés, 8 % sur les côtes froides boisées (ambre) ; fibres 7 % en
+  prairie ou plaine de 500 à 1 200 mm (lin), 5 % en taïga ou toundra (peaux) ; bois d'œuvre 4 % en
+  forêt, taïga ou jungle hors relief accidenté. Pas sur l'eau, un fleuve, la banquise, un pic.
+- `WorldMap::gisement` (cache comme la géologie : monde et sauvegardes inchangés).
+- Bilan (`bilan_gisements`, 777 / 2) : 10,4 / 11,2 % des terres ; sel 1,5 / 1,7 %, silex 2,6 / 3,1,
+  obsidienne 0,5 / 0,5, pierre dure 0,9 / 0,9, ocre 0,9 / 1,0, simples 1,0 / 0,7, parures 0,4 /
+  0,5, fibres 1,0 / 1,0, bois d'œuvre 1,5 / 1,8. Au premier essai, le bois d'œuvre (2,4 à 2,9 %)
+  passait devant le silex : chances recalées (silex le plus courant, parures les plus rares).
+- Découverte (`game::Gisements`, `decouvrir_gisements`) : affleurements et ressources vivantes
+  connus dès que la case est explorée ; pierre dure et parures par la prospection : deux cases du
+  territoire par ville et par tour (`PROSPECTION_PAR_TOUR`, les plus proches du centre d'abord),
+  l'éclaireur sur chaque case où il passe ; message au journal. Sauvés avec la partie.
+- Exploitation (`Amenagement::Exploitation`) : sur un gisement connu, montagne comprise (pas sur un
+  pic) ; 500 travailleurs, 20 de production ; la case ne nourrit plus, +1 de production ; une unité
+  par tour à pleine capacité (`unites_extraites`, rendements décroissants), versée au stock de la
+  ville (`CityState::ressources`) en fin de tour. Une ville n'utilise que son territoire.
+- Affichage (D5) : icônes (rond à la couleur de la ressource, sigle) sur la carte des ressources
+  seulement, légende ; infobulle (rubrique « Gisement ») ; fiche de la case ; panneau « Gisements et
+  ressources » du détail de la production (exploitations, stock, usages à venir) ; journal.
+- Pas encore : l'usage des ressources (sel, fibres et peaux : besoins de base ; ocre, parures,
+  obsidienne : luxe ; silex, obsidienne, pierre dure : outils ; bois d'œuvre, pierre dure :
+  matériaux ; simples : santé), la couche « technologie » de la découverte, les échanges entre
+  villes. Le stock grandit sans limite en attendant.
+
 ### Fait le 13/11/2026 : grenier (5e, décisions G1 à G4)
 - `Production::Grenier` (30 de production, un par ville, `CityState::grenier`) ; stock par sorte
   (`CityState::stock`), capacité `GRENIER_TOURS` = 5 tours de besoin.

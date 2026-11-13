@@ -900,6 +900,14 @@ fn resources_legend() -> impl Bundle {
                 ],
             )),
             Spawn(text("Survol de l'icône ou du banc : sa zone ; clic : la carte y va", 12.0)),
+            Spawn(text("Gisements connus (exploitation : aménagement de la ville)", 13.0)),
+            Spawn((
+                Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
+                Children::spawn(SpawnIter(
+                    crate::gisements::Ressource::TOUTES.into_iter().map(|r| legend_row(r.couleur(), format!("{} · {} ({})", r.sigle(), capitale_ui(r.nom()), r.exploitation()))),
+                )),
+            )),
+            Spawn(text("La pierre dure et les pierres et parures se découvrent par la prospection (territoire des villes, éclaireur)", 12.0)),
         )),
     )
 }
@@ -1446,7 +1454,7 @@ fn update_hover_text(
     config: Res<crate::tooltip::TooltipConfig>,
     mut text: Single<&mut Text, With<HoverText>>,
     debug: Res<crate::game::DebugMode>,
-    (territory, amenagements, cities): (Res<crate::game::Territory>, Res<crate::game::Amenagements>, Query<(&City, &HexPos)>),
+    (territory, amenagements, cities, gisements): (Res<crate::game::Territory>, Res<crate::game::Amenagements>, Query<(&City, &HexPos)>, Res<crate::game::Gisements>),
 ) {
     use crate::tooltip::Info;
     let shows = |info: Info| config.shows(*layer, info);
@@ -1505,6 +1513,12 @@ fn update_hover_text(
             {
                 let karst = if m.karstique(h) { " karstique" } else { "" };
                 place.push(format!("{}{karst}, {} ({})", r.nom(), s.nom(), s.effet_texte()));
+            }
+            if shows(Info::Deposit)
+                && let Some(r) = gisements.connu(m, h, debug.0)
+            {
+                let exploite = if amenagements.0.get(&h) == Some(&crate::intendant::Amenagement::Exploitation) { ", exploité" } else { "" };
+                place.push(format!("gisement : {} ({}{exploite})", r.nom(), r.exploitation()));
             }
             if land {
                 if shows(Info::Climate)

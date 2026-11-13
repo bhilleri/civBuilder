@@ -853,8 +853,22 @@ fn cities() -> Article {
                     vec!["pâturage (protéines)".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 1,5, +1 production".into()],
                     vec!["jardin (fruits et légumes)".into(), "comme un champ ; d'appoint (300 travailleurs)".into(), "nourriture × 0,75".into()],
                     vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2".into()],
+                    vec!["exploitation (saline, minière, carrière…)".into(), "un gisement connu, montagne comprise (pas un pic) ; 500 travailleurs".into(), "1 unité de la ressource par tour, production +1, plus de nourriture".into()],
                 ],
             ),
+            p("Gisements (lot néolithique) : sel (côtes chaudes et sèches, lacs salés, sel gemme), silex (craie et \
+               calcaires), obsidienne (arcs volcaniques), pierre dure (granite, basalte en relief), ocre (grès, argiles, \
+               latérites), aromates et simples (garrigues, forêts de pente), pierres et parures (vieux massifs, ambre des \
+               côtes froides), fibres et peaux (lin des prairies, fourrures du nord), bois d'œuvre (vieilles forêts). Une \
+               case porte au plus un gisement ; un peu plus d'une case de terre sur dix en porte un. Les affleurements et \
+               les ressources vivantes se voient dès qu'une case est explorée ; la pierre dure et les pierres et parures se \
+               découvrent par la prospection : chaque ville prospecte deux cases de son territoire par tour (les plus \
+               proches d'abord), un éclaireur prospecte chaque case où il passe (le journal annonce le gisement trouvé). \
+               Les gisements connus se voient sur la carte des ressources (rond à la couleur de la ressource et son \
+               sigle), dans l'infobulle et dans l'écran de la ville (fiche de la case ; panneau « Gisements et \
+               ressources » du détail de la production). L'aménagement « exploitation » en tire une unité par tour à \
+               pleine capacité, versée au stock de la ville ; l'usage des ressources (besoins de base, luxe, outils, \
+               matériaux) viendra avec les livraisons suivantes."),
             p("Types de nourriture : un champ donne des céréales et féculents ; un pâturage ou des légumineuses, des \
                protéines ; un jardin, des fruits et légumes ; une case non aménagée, selon son biome (forêt : gibier et \
                baies ; prairie, steppe, savane : graines sauvages et gibier ; l'eau : du poisson) ; le centre de la ville, \

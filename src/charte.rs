@@ -117,6 +117,7 @@ pub enum IconeAmenagement {
     CoupeDeBois,
     Legumineuses,
     Jardin,
+    Exploitation,
 }
 
 impl From<crate::intendant::Amenagement> for IconeAmenagement {
@@ -127,6 +128,7 @@ impl From<crate::intendant::Amenagement> for IconeAmenagement {
             crate::intendant::Amenagement::CoupeDeBois => IconeAmenagement::CoupeDeBois,
             crate::intendant::Amenagement::Legumineuses => IconeAmenagement::Legumineuses,
             crate::intendant::Amenagement::Jardin => IconeAmenagement::Jardin,
+            crate::intendant::Amenagement::Exploitation => IconeAmenagement::Exploitation,
         }
     }
 }
@@ -163,7 +165,7 @@ impl Plugin for ChartePlugin {
             let mut assets = app.world_mut().resource_mut::<Assets<Image>>();
             let mut ajouter = |forme: &dyn Fn(f32, f32) -> bool, cote: u32| assets.add(dessiner(cote, forme));
             let grandeurs = Grandeur::TOUTES.iter().map(|&g| (g, ajouter(&|x, y| icone_grandeur(g, x, y), 48))).collect();
-            let amenagements = [IconeAmenagement::Champ, IconeAmenagement::Paturage, IconeAmenagement::CoupeDeBois, IconeAmenagement::Legumineuses, IconeAmenagement::Jardin]
+            let amenagements = [IconeAmenagement::Champ, IconeAmenagement::Paturage, IconeAmenagement::CoupeDeBois, IconeAmenagement::Legumineuses, IconeAmenagement::Jardin, IconeAmenagement::Exploitation]
                 .iter()
                 .map(|&a| (a, ajouter(&|x, y| icone_amenagement(a, x, y), 48)))
                 .collect();
@@ -324,6 +326,8 @@ fn icone_amenagement(a: IconeAmenagement, x: f32, y: f32) -> bool {
         IconeAmenagement::Legumineuses => (capsule(x, y, (-0.7, 0.0), (0.7, 0.0), 0.42) && !capsule(x, y, (-0.62, 0.0), (0.62, 0.0), 0.3)) || (-1..=1).any(|k| (x - k as f32 * 0.4).hypot(y) < 0.19),
         // Jardin : une fleur (cœur et quatre pétales)
         IconeAmenagement::Jardin => x.hypot(y) < 0.2 || [(0.0, -0.5), (0.0, 0.5), (-0.5, 0.0), (0.5, 0.0)].iter().any(|&(cx, cy)| (x - cx).hypot(y - cy) < 0.28),
+        // Exploitation : une pioche (manche en biais, fer en travers)
+        IconeAmenagement::Exploitation => capsule(x, y, (-0.65, 0.7), (0.3, -0.3), 0.1) || capsule(x, y, (-0.2, -0.72), (0.72, 0.15), 0.13),
     }
 }
 

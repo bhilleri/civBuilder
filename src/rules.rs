@@ -1005,6 +1005,10 @@ pub struct CityState {
     /// Nourriture gardée au grenier, par sorte (ordre de `Sorte::TOUTES` ; vide sans grenier).
     #[serde(default)]
     pub stock: Vec<f64>,
+    /// Ressources tirées des gisements du territoire, par ressource (ordre de
+    /// `Ressource::TOUTES`) : leur usage viendra avec les livraisons suivantes.
+    #[serde(default)]
+    pub ressources: Vec<f64>,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1083,7 +1087,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1134,6 +1138,17 @@ impl CityState {
             let famine = -(FAMINE_MIN + (FAMINE_MAX - FAMINE_MIN) * (1.0 - couverture)) * facteur_famine(self.types_nourriture);
             Croissance { naturelle: 0.0, facteur_bien_etre, peupler: 0.0, insalubrite, famine }
         }
+    }
+
+    /// Ajoute `unites` de la ressource au stock de la ville.
+    pub fn ajouter_ressource(&mut self, r: crate::gisements::Ressource, unites: f64) {
+        self.ressources.resize(crate::gisements::N_RESSOURCES, 0.0);
+        self.ressources[r.index()] += unites;
+    }
+
+    /// Stock d'une ressource.
+    pub fn ressource(&self, r: crate::gisements::Ressource) -> f64 {
+        self.ressources.get(r.index()).copied().unwrap_or(0.0)
     }
 
     /// Nourriture gardée au grenier (toutes sortes).
@@ -1286,6 +1301,7 @@ impl CityState {
             sortes_en_plus: self.sortes_en_plus,
             grenier: self.grenier,
             stock: self.stock.clone(),
+            ressources: self.ressources.clone(),
         }
     }
 

@@ -96,6 +96,12 @@ pub struct Sauvegarde {
     /// Configuration de la partie (absente des sauvegardes plus anciennes : celle par défaut).
     #[serde(default)]
     pub config: crate::config_partie::ConfigPartie,
+    /// Gisements connus et cases prospectées (absents des sauvegardes plus anciennes : les
+    /// affleurements des cases explorées se retrouvent seuls).
+    #[serde(default)]
+    pub gisements_connus: Vec<Hex>,
+    #[serde(default)]
+    pub prospectees: Vec<Hex>,
 }
 
 impl Sauvegarde {
@@ -202,6 +208,7 @@ fn photographier(
     villages: &Query<(&Ident, &SiteName, &HexPos), With<Village>>,
     config: &crate::config_partie::ConfigPartie,
     amenagements: &crate::game::Amenagements,
+    gisements: &crate::game::Gisements,
 ) -> Sauvegarde {
     let mut unites: Vec<UniteSauvee> = units
         .iter()
@@ -240,6 +247,16 @@ fn photographier(
         ponts,
         amenagements: amenagements.0.iter().map(|(h, a)| (*h, *a)).collect(),
         config: config.clone(),
+        gisements_connus: {
+            let mut v: Vec<Hex> = gisements.connus.iter().copied().collect();
+            v.sort();
+            v
+        },
+        prospectees: {
+            let mut v: Vec<Hex> = gisements.prospectees.iter().copied().collect();
+            v.sort();
+            v
+        },
     }
 }
 
@@ -254,10 +271,10 @@ fn enregistrer(
     cities: Query<(Entity, &Ident, &Peuple, &City, &HexPos)>,
     camps: Query<(&Ident, &Camp, &SiteName, &HexPos)>,
     villages: Query<(&Ident, &SiteName, &HexPos), With<Village>>,
-    (config, amenagements): (Res<crate::game::ConfigEnCours>, Res<crate::game::Amenagements>),
+    (config, amenagements, gisements): (Res<crate::game::ConfigEnCours>, Res<crate::game::Amenagements>, Res<crate::game::Gisements>),
 ) {
     let Some(fichier) = demande.0.take() else { return };
-    let s = photographier(&map.0, &state, &fog, &territory, &hasard, &prochain, &units, &cities, &camps, &villages, &config.0, &amenagements);
+    let s = photographier(&map.0, &state, &fog, &territory, &hasard, &prochain, &units, &cities, &camps, &villages, &config.0, &amenagements, &gisements);
     // La partie jouée de la bibliothèque retient le tour atteint
     let mut b = crate::config_partie::Bibliotheque::lire();
     b.partie_avancee(&config.0, s.tour);
@@ -313,7 +330,7 @@ fn remettre_en_place(
     (mut state, mut fog, mut territory, mut hasard, mut prochain): (ResMut<GameState>, ResMut<Fog>, ResMut<Territory>, ResMut<Hasard>, ResMut<ProchainIdent>),
     mut log: ResMut<GameLog>,
     mut selection: ResMut<crate::game::Selection>,
-    (mut edited, mut amenagements): (MessageWriter<crate::console::MapEdited>, ResMut<crate::game::Amenagements>),
+    (mut edited, mut amenagements, mut gisements): (MessageWriter<crate::console::MapEdited>, ResMut<crate::game::Amenagements>, ResMut<crate::game::Gisements>),
     existants: Query<Entity, Or<(With<Unit>, With<City>, With<Camp>, With<Village>)>>,
 ) {
     let Some(s) = attente.0.take() else { return };
@@ -332,6 +349,8 @@ fn remettre_en_place(
     *hasard = s.hasard.clone();
     prochain.0 = s.prochain_ident;
     amenagements.0 = s.amenagements.iter().copied().collect();
+    gisements.connus = s.gisements_connus.iter().copied().collect();
+    gisements.prospectees = s.prospectees.iter().copied().collect();
     fog.explored = s.explorees.iter().copied().collect();
     fog.visible = Default::default();
     for u in &s.unites {
@@ -405,6 +424,8 @@ mod tests {
             ponts: vec![BridgeAt::Edge { hex: Hex::from_offset(4, 4), dir: 1 }],
             amenagements: vec![(Hex::from_offset(5, 4), crate::intendant::Amenagement::Champ)],
             config: crate::config_partie::ConfigPartie::default(),
+            gisements_connus: vec![Hex::from_offset(5, 4)],
+            prospectees: vec![Hex::from_offset(5, 4), Hex::from_offset(6, 4)],
         }
     }
 

@@ -37,10 +37,13 @@ pub enum Amenagement {
     Legumineuses,
     /// Jardin d'appoint : fruits et légumes, petite capacité.
     Jardin,
+    /// Exploitation d'un gisement connu (saline, minière, carrière, coupe de bois d'œuvre…) : une
+    /// unité de sa ressource par tour à pleine capacité, un peu de production (décision D2).
+    Exploitation,
 }
 
 impl Amenagement {
-    pub const ALL: [Amenagement; 5] = [Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin, Amenagement::CoupeDeBois];
+    pub const ALL: [Amenagement; 6] = [Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin, Amenagement::CoupeDeBois, Amenagement::Exploitation];
 
     /// Nom affiché.
     pub fn nom(self) -> &'static str {
@@ -50,6 +53,7 @@ impl Amenagement {
             Amenagement::CoupeDeBois => "coupe de bois",
             Amenagement::Legumineuses => "champ de légumineuses",
             Amenagement::Jardin => "jardin",
+            Amenagement::Exploitation => "exploitation",
         }
     }
 
@@ -61,6 +65,7 @@ impl Amenagement {
             Amenagement::CoupeDeBois => "bois",
             Amenagement::Legumineuses => "legumineuses",
             Amenagement::Jardin => "jardin",
+            Amenagement::Exploitation => "exploitation",
         }
     }
 
@@ -70,6 +75,7 @@ impl Amenagement {
             Amenagement::Champ | Amenagement::Legumineuses => 1_500,
             Amenagement::Paturage | Amenagement::CoupeDeBois => 1_000,
             Amenagement::Jardin => 300,
+            Amenagement::Exploitation => 500,
         }
     }
 
@@ -79,12 +85,14 @@ impl Amenagement {
             Amenagement::Champ | Amenagement::Legumineuses => 20,
             Amenagement::Paturage | Amenagement::CoupeDeBois => 15,
             Amenagement::Jardin => 10,
+            Amenagement::Exploitation => 20,
         }
     }
 
     /// Coût en production sur cette case (défrichement compris).
     pub fn cout(self, map: &WorldMap, h: Hex) -> i32 {
-        self.cout_de_base() + if self != Amenagement::CoupeDeBois && defriche(map, h) { COUT_DEFRICHEMENT } else { 0 }
+        // (une coupe ou une exploitation ne défriche pas : la forêt reste)
+        self.cout_de_base() + if !matches!(self, Amenagement::CoupeDeBois | Amenagement::Exploitation) && defriche(map, h) { COUT_DEFRICHEMENT } else { 0 }
     }
 
     /// L'aménagement est-il possible sur la case ? Sinon, la raison.
@@ -94,6 +102,16 @@ impl Amenagement {
             return Err("pas sur l'eau ni sur la glace");
         }
         let relief = map.relief(h);
+        // (une mine ou une carrière peut être en montagne, pas sur un pic)
+        if self == Amenagement::Exploitation {
+            return if relief == Relief::Peak {
+                Err("pas sur un pic")
+            } else if map.gisement(h).is_none() {
+                Err("aucun gisement")
+            } else {
+                Ok(())
+            };
+        }
         if relief >= Relief::Mountain {
             return Err("pas en montagne");
         }
@@ -123,6 +141,7 @@ impl Amenagement {
                     Err("pas de forêt")
                 }
             }
+            Amenagement::Exploitation => Ok(()),
         }
     }
 
@@ -140,6 +159,15 @@ impl Amenagement {
 /// La case est-elle boisée (un champ ou un pâturage y demande un défrichement) ?
 fn defriche(map: &WorldMap, h: Hex) -> bool {
     map.get(h).is_some_and(|t| t.is_wooded() || t == Terrain::WoodedSavanna)
+}
+
+/// Production d'une exploitation pleine, en plus de celle de la case.
+pub const PRODUCTION_EXPLOITATION: f64 = 1.0;
+
+/// Unités de ressource que tirent `travailleurs` d'une exploitation (rendements décroissants
+/// comme les autres cases, `UNITES_PAR_TOUR` à pleine capacité).
+pub fn unites_extraites(travailleurs: u32, capacite: u32) -> f64 {
+    rendement(Rendements::new(crate::gisements::UNITES_PAR_TOUR, 0.0, 0.0), travailleurs, capacite).nourriture
 }
 
 /// Rendement d'un champ de légumineuses, rapporté à un champ de céréales.
@@ -180,6 +208,8 @@ pub fn parts_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>
         Some(Amenagement::Champ) => [1.0, 0.0, 0.0],
         Some(Amenagement::Legumineuses | Amenagement::Paturage) => [0.0, 1.0, 0.0],
         Some(Amenagement::Jardin) => [0.0, 0.0, 1.0],
+        // (pas de nourriture)
+        Some(Amenagement::Exploitation) => [0.0, 0.0, 0.0],
         Some(Amenagement::CoupeDeBois) | None => {
             if map.is_fleuve(h) {
                 return [0.0, 1.0, 0.0];
@@ -328,6 +358,7 @@ pub fn sortes_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement
         Some(Amenagement::Legumineuses) => [None, Some(Sorte::Legumineuses), None],
         Some(Amenagement::Paturage) => [None, Some(betail()), None],
         Some(Amenagement::Jardin) => [None, None, Some(jardin())],
+        Some(Amenagement::Exploitation) => [None, None, None],
         Some(Amenagement::CoupeDeBois) | None => {
             if map.is_fleuve(h) || t.is_some_and(|t| t.is_water()) {
                 return [None, Some(Sorte::Poisson), None];
@@ -473,6 +504,8 @@ pub fn rendement_max(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -
         Some(Amenagement::Jardin) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite())) * RENDEMENT_JARDIN, r.production, r.deniers),
         Some(Amenagement::Paturage) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite_paturage())) * 1.5, r.production + 1.0, r.deniers),
         Some(Amenagement::CoupeDeBois) => Rendements::new(r.nourriture, r.production * 2.0, r.deniers),
+        // (la case sert à l'extraction : plus de nourriture, un peu de production)
+        Some(Amenagement::Exploitation) => Rendements::new(0.0, r.production + PRODUCTION_EXPLOITATION, r.deniers),
     }
 }
 
@@ -913,7 +946,8 @@ mod tests {
         assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Jardin)), [0.0, 0.0, 1.0]);
         assert_eq!(parts_de_la_case(&map, h, None), [0.4, 0.6, 0.0], "prairie : graines sauvages et gibier");
         map.set(h, Terrain::Forest);
-        assert_eq!(Amenagement::possibles(&map, h), Amenagement::ALL.to_vec(), "forêt : bois, ou défrichement");
+        let sans_gisement: Vec<Amenagement> = Amenagement::ALL.into_iter().filter(|&a| a != Amenagement::Exploitation).collect();
+        assert_eq!(Amenagement::possibles(&map, h), sans_gisement, "forêt : bois, ou défrichement (pas d'exploitation sans gisement)");
         assert_eq!(Amenagement::Champ.cout(&map, h), 30);
         assert_eq!(Amenagement::CoupeDeBois.cout(&map, h), 15);
         assert_eq!(rendement_max(&map, h, Some(Amenagement::CoupeDeBois)).production, 4.0);

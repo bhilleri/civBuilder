@@ -176,6 +176,36 @@ pub struct ShownFog {
     pub visible: CaseSet,
 }
 
+/// Gisements connus du joueur et cases déjà prospectées (5f) : un affleurement se voit dès que
+/// sa case est explorée ; la pierre dure et les parures se découvrent par la prospection (dans le
+/// territoire des villes, ou par un éclaireur qui passe).
+#[derive(Resource, Default)]
+pub struct Gisements {
+    pub connus: HashSet<Hex>,
+    pub prospectees: HashSet<Hex>,
+}
+
+impl Gisements {
+    /// Prospecte une case ; rend la ressource d'un gisement caché qu'on vient d'y trouver.
+    pub fn prospecter(&mut self, map: &WorldMap, h: Hex) -> Option<crate::gisements::Ressource> {
+        let h = map.canonical(h);
+        if !self.prospectees.insert(h) {
+            return None;
+        }
+        let r = map.gisement(h)?;
+        (self.connus.insert(h) && !r.affleure()).then_some(r)
+    }
+
+    /// Gisement connu de la case (tous en mode debug).
+    pub fn connu(&self, map: &WorldMap, h: Hex, debug: bool) -> Option<crate::gisements::Ressource> {
+        let h = map.canonical(h);
+        map.gisement(h).filter(|_| debug || self.connus.contains(&h))
+    }
+}
+
+/// Cases du territoire qu'une ville prospecte par tour (décision D3).
+pub const PROSPECTION_PAR_TOUR: usize = 2;
+
 /// Mode debug : révèle toute la carte à l'affichage (menu Échap).
 #[derive(Resource, Default)]
 pub struct DebugMode(pub bool);
@@ -399,6 +429,7 @@ impl Plugin for GamePlugin {
             .init_resource::<DebugMode>()
             .init_resource::<Territory>()
             .init_resource::<Amenagements>()
+            .init_resource::<Gisements>()
             .init_resource::<Selection>()
             .init_resource::<GameLog>()
             .init_resource::<EndTurnRequested>()
@@ -422,6 +453,7 @@ impl Plugin for GamePlugin {
                     chrono_etape("cases exploitées"),
                     update_fog,
                     chrono_etape("brouillard"),
+                    decouvrir_gisements,
                     hostile::update_knowledge,
                     chrono_etape("connaissances"),
                     chrono_fin,
@@ -660,6 +692,16 @@ fn end_turn(
         let humeur = city.state.humeur();
         let (chomeurs, par_type, par_sorte) = (city.travail.chomeurs, city.travail.par_type, city.travail.par_sorte);
         let report = city.state.passer_le_tour(yields, chomeurs, par_type, &par_sorte);
+        // Gisements exploités du territoire : leurs ressources vont au stock de la ville (5f)
+        for (&h, &a) in amenagements.0.iter() {
+            if a == crate::intendant::Amenagement::Exploitation
+                && territory.0.get(&h) == Some(entity)
+                && let Some(r) = map.gisement(h)
+            {
+                let unites = crate::intendant::unites_extraites(city.travail.sur(h), crate::intendant::capacite(map, h, Some(a)));
+                city.state.ajouter_ressource(r, unites);
+            }
+        }
         // Histoire de la ville : paliers, famines, constructions marquantes
         if report.grew {
             let (p, h) = (city.state.palier(), city.state.habitants);
@@ -892,6 +934,50 @@ fn sync_shown_fog(fog: Res<Fog>, debug: Res<DebugMode>, map: Res<GameMap>, mut s
     }
 }
 
+/// Découverte des gisements : affleurements des cases explorées, prospection des éclaireurs qui
+/// passent, puis, à chaque tour, celle des villes dans leur territoire (les cases les plus proches
+/// du centre d'abord).
+#[allow(clippy::too_many_arguments)]
+fn decouvrir_gisements(
+    map: Res<GameMap>,
+    fog: Res<Fog>,
+    state: Res<GameState>,
+    territory: Res<Territory>,
+    mut gisements: ResMut<Gisements>,
+    mut log: ResMut<GameLog>,
+    scouts: Query<(&Unit, &HexPos), (Changed<HexPos>, Without<Hostile>)>,
+    cities: Query<(Entity, &City, &HexPos)>,
+    mut dernier_tour: Local<u32>,
+) {
+    let m = &map.0;
+    if fog.is_changed() {
+        let nouveaux: Vec<Hex> = m.cases_a_gisement().filter(|(h, r)| r.affleure() && fog.explored.contains(h) && !gisements.connus.contains(h)).map(|(h, _)| h).collect();
+        gisements.connus.extend(nouveaux);
+    }
+    for (unit, pos) in &scouts {
+        if unit.0.kind == UnitKind::Scout
+            && let Some(r) = gisements.prospecter(m, pos.0)
+        {
+            log.notify(Importance::Success, format!("Votre éclaireur a trouvé un gisement : {} ({}).", r.nom(), m.describe(pos.0).to_lowercase()));
+        }
+    }
+    if state.turn == *dernier_tour {
+        return;
+    }
+    *dernier_tour = state.turn;
+    let mut villes: Vec<(Entity, &City, &HexPos)> = cities.iter().collect();
+    villes.sort_by_key(|(e, ..)| *e);
+    for (e, city, pos) in villes {
+        let mut cases: Vec<Hex> = territory.0.iter().filter(|(h, v)| **v == e && !gisements.prospectees.contains(*h)).map(|(h, _)| *h).collect();
+        cases.sort_by_key(|&h| (m.distance(pos.0, h), h));
+        for h in cases.into_iter().take(PROSPECTION_PAR_TOUR) {
+            if let Some(r) = gisements.prospecter(m, h) {
+                log.notify(Importance::Success, LogText::new().city(&city.state.name, e, pos.0).text(format!(" a trouvé un gisement dans son territoire : {} ({}).", r.nom(), m.describe(h).to_lowercase())));
+            }
+        }
+    }
+}
+
 fn update_fog(
     map: Res<GameMap>,
     mut fog: ResMut<Fog>,
@@ -917,6 +1003,36 @@ fn update_fog(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gisements_affleurements_prospection_et_exploitation() {
+        use crate::intendant::{capacite, rendement_max, unites_extraites, Amenagement};
+        let map = WorldMap::generate(60, 40, 42);
+        let tous: Vec<(Hex, crate::gisements::Ressource)> = map.cases_a_gisement().collect();
+        assert!(!tous.is_empty(), "des gisements sur un petit monde");
+        // Même graine, mêmes gisements
+        assert_eq!(WorldMap::generate(60, 40, 42).cases_a_gisement().collect::<Vec<_>>(), tous);
+        let (h, r) = tous[0];
+        // Prospecter : une seule fois par case ; on ne signale qu'un gisement caché
+        let mut g = Gisements::default();
+        let trouve = g.prospecter(&map, h);
+        assert_eq!(trouve.is_some(), !r.affleure());
+        assert!(g.connus.contains(&h) && g.prospecter(&map, h).is_none());
+        assert_eq!(g.connu(&map, h, false), Some(r));
+        let vide = map.hexes().find(|&v| map.gisement(v).is_none() && map.get(v).is_some_and(|t| !t.is_water())).unwrap();
+        assert_eq!(g.prospecter(&map, vide), None);
+        assert!(g.prospectees.contains(&vide) && g.connu(&map, vide, true).is_none());
+        // Exploitation : sur un gisement seulement, 500 travailleurs, une unité par tour pleine
+        assert!(Amenagement::Exploitation.possible(&map, h).is_ok());
+        assert!(Amenagement::Exploitation.possible(&map, vide).is_err());
+        assert_eq!(capacite(&map, h, Some(Amenagement::Exploitation)), 500);
+        assert_eq!(rendement_max(&map, h, Some(Amenagement::Exploitation)).nourriture, 0.0);
+        assert!((unites_extraites(500, 500) - 1.0).abs() < 1e-9 && unites_extraites(250, 500) < 1.0 && unites_extraites(0, 500) == 0.0);
+        let mut ville = rules::CityState::new("Essai".into());
+        ville.ajouter_ressource(r, 0.5);
+        ville.ajouter_ressource(r, 0.25);
+        assert!((ville.ressource(r) - 0.75).abs() < 1e-9);
+    }
 
     #[test]
     fn acheter_une_case_coute_des_deniers_et_releve_le_seuil_de_culture() {

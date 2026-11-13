@@ -27,10 +27,12 @@ pub enum Info {
     Wave,
     /// Roche de surface et sol (fertilité des champs).
     Soil,
+    /// Gisement connu de la case (5f).
+    Deposit,
 }
 
 impl Info {
-    pub const ALL: [Info; 18] = [
+    pub const ALL: [Info; 19] = [
         Info::Terrain,
         Info::Altitude,
         Info::Climate,
@@ -49,6 +51,7 @@ impl Info {
         Info::Tide,
         Info::Wave,
         Info::Soil,
+        Info::Deposit,
     ];
 
     pub fn label(self) -> &'static str {
@@ -71,6 +74,7 @@ impl Info {
             Info::Tide => "Marée (marnage, courant)",
             Info::Wave => "Houle (hauteur, période, origine)",
             Info::Soil => "Roche et sol (fertilité)",
+            Info::Deposit => "Gisement",
         }
     }
 
@@ -92,6 +96,7 @@ impl Info {
             Info::Tide => layer == MapLayer::Tides,
             Info::Wave => layer == MapLayer::Waves,
             Info::Soil => matches!(layer, MapLayer::Normal | MapLayer::Soils | MapLayer::Altitude | MapLayer::Relief),
+            Info::Deposit => matches!(layer, MapLayer::Normal | MapLayer::Resources | MapLayer::Soils),
         }
     }
 }

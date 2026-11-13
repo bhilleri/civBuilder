@@ -176,13 +176,14 @@ impl Plugin for LabelsPlugin {
                 spawn_bank_icons,
                 attach_fish_images,
                 spawn_oasis_names,
+                spawn_deposit_icons,
             ),
         )
         .init_resource::<LabelFilter>()
         .add_systems(Update, update_hovered_label)
         .add_systems(
             PostUpdate,
-            (place_labels, place_river_names, place_sea_names, place_bank_icons, place_oasis_names).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
+            (place_labels, place_river_names, place_sea_names, place_bank_icons, place_oasis_names, place_deposit_icons).chain().after(CameraUpdateSystems).before(UiSystems::Prepare),
         );
     }
 }
@@ -994,6 +995,99 @@ fn place_oasis_names(
             if let Ok(center) = camera.world_to_viewport(&cam_global, world)
                 && let Ok(edge) = camera.world_to_viewport(&cam_global, world + transform.right() * crate::hex::HEX_SIZE)
                 && edge.distance(center) >= OASIS_NAME_PX
+            {
+                shown = Some(center);
+            }
+        }
+        let Some(p) = shown else {
+            if *vis != Visibility::Hidden {
+                *vis = Visibility::Hidden;
+            }
+            continue;
+        };
+        let (left, top) = (Val::Px(p.x.round()), Val::Px(p.y.round()));
+        if node.left != left || node.top != top {
+            node.left = left;
+            node.top = top;
+        }
+        if *vis != Visibility::Inherited {
+            *vis = Visibility::Inherited;
+        }
+    }
+}
+
+/// Icône d'un gisement (carte des ressources) : un rond à la couleur de la ressource et son sigle.
+#[derive(Component)]
+struct DepositIcon(Hex);
+/// Rayon d'une case à l'écran (pixels) à partir duquel les icônes des gisements se montrent.
+const DEPOSIT_ICON_PX: f32 = 6.0;
+
+/// Une icône par gisement de la carte (cachée tant qu'il n'est pas connu ; refaites si la carte
+/// change de monde).
+fn spawn_deposit_icons(mut commands: Commands, map: Res<GameMap>, old: Query<Entity, With<DepositIcon>>, mut edited: MessageReader<crate::console::MapEdited>) {
+    if !map.is_added() && edited.read().count() == 0 {
+        return;
+    }
+    for e in &old {
+        commands.entity(e).despawn();
+    }
+    for (h, r) in map.0.cases_a_gisement() {
+        let (cr, cg, cb) = r.couleur();
+        let fonce = cr * 0.3 + cg * 0.55 + cb * 0.15 > 0.6;
+        commands.spawn((
+            DepositIcon(h),
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(20.0),
+                height: Val::Px(20.0),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(10.0)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(cr, cg, cb)),
+            BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+            UiTransform::from_translation(Val2::percent(-50.0, -50.0)),
+            GlobalZIndex(-3),
+            Visibility::Hidden,
+            children![(Text::new(r.sigle()), TextFont::from_font_size(9.5), TextColor(if fonce { Color::srgb(0.1, 0.1, 0.12) } else { Color::srgb(0.97, 0.97, 0.97) }))],
+        ));
+    }
+}
+
+/// Icônes des gisements : seulement sur la carte des ressources, pour les gisements connus (tous
+/// en mode debug), assez près.
+#[allow(clippy::too_many_arguments)]
+fn place_deposit_icons(
+    mode: Res<ViewMode>,
+    layer: Res<crate::render::MapLayer>,
+    map: Res<GameMap>,
+    fog: Res<ShownFog>,
+    gisements: Res<crate::game::Gisements>,
+    debug: Res<crate::game::DebugMode>,
+    cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
+    mut icons: Query<(&DepositIcon, &mut Node, &mut Visibility), (Without<RiverName>, Without<SeaName>, Without<Anchor>, Without<BankIcon>, Without<OasisName>)>,
+) {
+    let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
+    let carte = *layer == crate::render::MapLayer::Resources;
+    for (icon, mut node, mut vis) in &mut icons {
+        let mut shown = None;
+        if carte
+            && let Some((camera, transform, _)) = camera
+            && (debug.0 || gisements.connus.contains(&icon.0))
+        {
+            let cam_global = GlobalTransform::from(*transform);
+            let world = if mode.is_3d {
+                to_3d(icon.0, shown_height(&map, &fog, icon.0) + 3.0)
+            } else {
+                let (x, y) = icon.0.to_world();
+                Vec3::new(x, y, 0.0)
+            };
+            let world = near_camera(&map, world, transform.translation.x);
+            if let Ok(center) = camera.world_to_viewport(&cam_global, world)
+                && let Ok(edge) = camera.world_to_viewport(&cam_global, world + transform.right() * crate::hex::HEX_SIZE)
+                && edge.distance(center) >= DEPOSIT_ICON_PX
             {
                 shown = Some(center);
             }

@@ -503,6 +503,9 @@ fn possible(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> Result<(
     if c.en_file {
         return Err("un aménagement y est déjà en file");
     }
+    if a == Amenagement::Exploitation && c.gisement.is_none() {
+        return Err("aucun gisement connu");
+    }
     // Un champ ou un pâturage sur une forêt l'a défrichée : il n'y a plus d'arbres (Benjamin).
     if a == Amenagement::CoupeDeBois && matches!(c.amenagement, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Jardin)) {
         return Err("forêt défrichée : plus d'arbres à couper");
@@ -771,6 +774,8 @@ struct CaseVue {
     en_file: bool,
     /// Effectif forcé par le joueur (l'intendant ne le change plus).
     force: Option<u32>,
+    /// Gisement connu de la case (5f).
+    gisement: Option<crate::gisements::Ressource>,
 }
 
 impl CaseVue {
@@ -788,17 +793,20 @@ impl CaseVue {
     }
 }
 
+/// Gisements connus du joueur, et le mode debug (tous connus).
+type Connus<'a> = (&'a crate::game::Gisements, bool);
+
 fn nom_de_case(map: &crate::map::WorldMap, h: Hex) -> String {
     map.describe(h)
 }
 
 /// Cases de la ville : son centre et son territoire, avec travailleurs et rendements.
-fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &City, territoire: &Territory, amenagements: &Amenagements) -> Vec<CaseVue> {
+fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &City, territoire: &Territory, amenagements: &Amenagements, connus: &Connus) -> Vec<CaseVue> {
     let wrap = map.wrap();
     let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == ville).map(|(h, _)| *h).collect();
     let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
     let rc = Rendements::from(rules::center_yields(map, centre));
-    let mut cases = vec![CaseVue { hex: centre, local: Hex::new(0, 0), centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, rendement: rc, amenagement: None, habitants: 0.0, en_file: false, force: None }];
+    let mut cases = vec![CaseVue { hex: centre, local: Hex::new(0, 0), centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, rendement: rc, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None }];
     for c in dispo {
         let w = city.travail.sur(c.hex);
         let near = wrap.nearest(centre, c.hex);
@@ -820,6 +828,7 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
             habitants: 0.0,
             en_file: city.state.file.iter().any(|k| matches!(k.objet, rules::Production::Amenagement { hex, .. } if hex == c.hex)),
             force: city.state.consignes.forcees.iter().find(|(h, _)| *h == c.hex).map(|(_, n)| *n),
+            gisement: connus.0.connu(map, c.hex, connus.1),
         });
     }
     // Habitants répartis comme les emplois (les sans-emploi vivent au centre)
@@ -1325,7 +1334,7 @@ fn carte_souris(
     window: Single<&Window, With<PrimaryWindow>>,
     cadre: Single<(&UiGlobalTransform, &ComputedNode), With<Cadre>>,
     pointeurs: Query<(&PointerId, &PointerLocation)>,
-    (map, territoire, amenagements, mut cache): (Res<GameMap>, Res<Territory>, Res<Amenagements>, ResMut<CacheVille>),
+    (map, territoire, amenagements, mut cache, gisements, debug): (Res<GameMap>, Res<Territory>, Res<Amenagements>, ResMut<CacheVille>, Res<crate::game::Gisements>, Res<crate::game::DebugMode>),
     cities: Query<(&City, &HexPos)>,
     choix: Query<(&UiPointer, &ChoixCase)>,
     mut contour: Query<(&mut Node, &mut ImageNode), (With<ContourSurvol>, Without<Bulle>)>,
@@ -1342,7 +1351,7 @@ fn carte_souris(
     };
     let (transform, computed) = *cadre;
     let taille = computed.size() * computed.inverse_scale_factor();
-    let cases = cases_vues(&map.0, centre, city.0, city.1, &territoire, &amenagements);
+    let cases = cases_vues(&map.0, centre, city.0, city.1, &territoire, &amenagements, &(&gisements, debug.0));
     let achats = cases_a_acheter(&map.0, centre, city.0, &territoire);
     let s = rayon_hex(taille, &cases, &achats, vue.zoom);
     // (les cases à acheter ne se choisissent pas pendant la construction)
@@ -1600,7 +1609,7 @@ fn reconstruire(
     ecran: Res<EcranVille>,
     vue: Res<VueCarte>,
     images: Res<Images>,
-    (map, territoire, amenagements, state, mut cache): (Res<GameMap>, Res<Territory>, Res<Amenagements>, Res<GameState>, ResMut<CacheVille>),
+    (map, territoire, amenagements, state, mut cache, gisements, debug): (Res<GameMap>, Res<Territory>, Res<Amenagements>, Res<GameState>, ResMut<CacheVille>, Res<crate::game::Gisements>, Res<crate::game::DebugMode>),
     cities: Query<(Ref<City>, &HexPos)>,
     (entete, gauche, legende, plan, titre, liste): (Single<Entity, With<EnTete>>, Single<Entity, With<Gauche>>, Single<Entity, With<Legende>>, Single<Entity, With<Plan>>, Single<Entity, With<TitreListe>>, Single<Entity, With<Liste>>),
     (cadre, largeur_gauche, barre): (Single<&ComputedNode, With<Cadre>>, Single<&ComputedNode, With<Gauche>>, Single<(Entity, &mut Node), With<BarreValidation>>),
@@ -1614,7 +1623,7 @@ fn reconstruire(
     let taille = cadre.size() * cadre.inverse_scale_factor();
     let large = largeur_gauche.size().x * largeur_gauche.inverse_scale_factor();
     let cle = (taille, vue.zoom, state.turn, large);
-    let change = ecran.is_changed() || city.is_changed() || amenagements.is_changed() || territoire.is_changed() || *derniere != cle;
+    let change = ecran.is_changed() || city.is_changed() || amenagements.is_changed() || territoire.is_changed() || gisements.is_changed() || debug.is_changed() || *derniere != cle;
     if taille.x < 10.0 {
         // (écran pas encore mis en page : refaire dès qu'il le sera)
         *en_attente |= change;
@@ -1627,7 +1636,7 @@ fn reconstruire(
     *derniere = cle;
     // (une reconstruction lente se lit dans la console)
     let _mesure = Mesure(std::time::Instant::now());
-    let cases = cases_vues(&map.0, centre.0, v, &city, &territoire, &amenagements);
+    let cases = cases_vues(&map.0, centre.0, v, &city, &territoire, &amenagements, &(&gisements, debug.0));
     let choisie = ecran.case.and_then(|h| cases.iter().find(|c| c.hex == h));
     let achats = cases_a_acheter(&map.0, centre.0, v, &territoire);
     let achat_choisi = ecran.case.and_then(|h| achats.iter().find(|a| a.hex == h)).filter(|_| !ecran.catalogue);
@@ -2634,6 +2643,11 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, image
                 let karst = if map.karstique(c.hex) { " karstique" } else { "" };
                 ligne_valeur(p, "Sol", format!("{} sur {}{karst} : {}", s.nom(), r.nom(), s.effet_texte()), charte::DOUX);
             }
+            // Gisement connu (5f)
+            if let Some(r) = c.gisement {
+                let etat = if c.amenagement == Some(Amenagement::Exploitation) { "exploité" } else { "à exploiter : aménagement « exploitation »" };
+                ligne_valeur(p, "Gisement", format!("{} ({}) · {etat}", r.nom(), r.exploitation()), charte::AMENAGEMENT);
+            }
             p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(5.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
                 l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("Travailleurs", 13.5, charte::TEXTE)]));
                 l.spawn(texte(format!("{} / {}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())), 13.5, charte::TEXTE));
@@ -2943,6 +2957,45 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
         types_de_nourriture(g, city);
         grenier(g, city);
     }
+    if gr == Grandeur::Production {
+        gisements_de_la_ville(g, city, cases);
+    }
+}
+
+/// Panneau « Gisements et ressources » : les gisements connus du territoire, ce que chaque
+/// exploitation tire par tour, et le stock de la ville (son usage viendra avec les livraisons
+/// suivantes).
+fn gisements_de_la_ville(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue]) {
+    let connus: Vec<&CaseVue> = cases.iter().filter(|c| c.gisement.is_some()).collect();
+    let stock: Vec<(crate::gisements::Ressource, f64)> = crate::gisements::Ressource::TOUTES.iter().map(|&r| (r, city.state.ressource(r))).filter(|(_, q)| *q >= 0.005).collect();
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        titre(p, &format!("Gisements et ressources : {} gisement{} connu{}", connus.len(), if connus.len() > 1 { "s" } else { "" }, if connus.len() > 1 { "s" } else { "" }));
+        if connus.is_empty() {
+            p.spawn(texte("Aucun gisement connu dans le territoire. Les affleurements (sel, silex, obsidienne, ocre) et les ressources vivantes se voient dès qu'une case est explorée ; la ville prospecte deux cases de son territoire par tour (pierre dure, pierres et parures), un éclaireur prospecte en passant.", 12.5, charte::MUET));
+        }
+        for c in &connus {
+            let r = c.gisement.expect("gisement connu");
+            let valeur = if c.amenagement == Some(Amenagement::Exploitation) {
+                format!("{} par tour ({} / {} travailleurs)", rules::decimal(intendant::unites_extraites(c.travailleurs, c.capacite)), rules::milliers(u64::from(c.travailleurs)), rules::milliers(u64::from(c.capacite)))
+            } else {
+                "pas exploité".to_string()
+            };
+            ligne_valeur(p, &format!("{} · {}", capitale(r.nom()), c.nom.to_lowercase()), valeur, if c.amenagement == Some(Amenagement::Exploitation) { charte::OK } else { charte::MUET });
+        }
+        if !stock.is_empty() {
+            let liste: Vec<String> = stock.iter().map(|(r, q)| format!("{} {}", r.nom(), rules::decimal(*q))).collect();
+            p.spawn(texte(format!("Stock de la ville : {}.", liste.join(", ")), 13.0, charte::TEXTE));
+        }
+        let usages: Vec<String> = connus.iter().filter_map(|c| c.gisement).fold(Vec::new(), |mut v, r| {
+            if !v.contains(&r) {
+                v.push(r);
+            }
+            v
+        }).iter().map(|r| format!("{} : {}", r.nom(), r.usage())).collect();
+        if !usages.is_empty() {
+            p.spawn(texte(format!("Usages à venir (besoins de base, luxe, outils, matériaux) — {}.", usages.join(" ; ")), 12.5, charte::MUET));
+        }
+    });
 }
 
 /// Panneau « Grenier » : ce qu'il garde, ce qui y entre ou en sort au prochain tour, et ses
@@ -3528,7 +3581,7 @@ struct Glisse {
 fn construire_actions(
     mut ecran: ResMut<EcranVille>,
     replay: Res<crate::feedback::TurnReplay>,
-    (map, mut territoire, amenagements, mut cache): (Res<GameMap>, ResMut<Territory>, Res<Amenagements>, ResMut<CacheVille>),
+    (map, mut territoire, amenagements, mut cache, gisements, debug): (Res<GameMap>, ResMut<Territory>, Res<Amenagements>, ResMut<CacheVille>, Res<crate::game::Gisements>, Res<crate::game::DebugMode>),
     mut cities: Query<(&mut City, &HexPos)>,
     (mut log, mut state): (ResMut<crate::game::GameLog>, ResMut<GameState>),
     catalogue: Query<(Ref<UiPointer>, &ChoixCatalogue)>,
@@ -3568,7 +3621,7 @@ fn construire_actions(
     }
     let confirmer = demande || mettre.iter().any(|i| appui(&i));
     if confirmer && let Some(a) = ecran.placement {
-        let cases = cases_vues(&map.0, centre, v, &city, &territoire, &amenagements);
+        let cases = cases_vues(&map.0, centre, v, &city, &territoire, &amenagements, &(&gisements, debug.0));
         let choix = {
             let vl = Ville::new(&mut cache, &map.0, centre, v, &city, &territoire, &amenagements);
             let cible = ecran.cible.or_else(|| conseil(&vl, &cases, a, &Bareme::de(&vl)));
@@ -3807,7 +3860,7 @@ mod tests {
         let map = crate::map::WorldMap::filled(6, 6, crate::map::Terrain::Forest);
         let h = Hex::from_offset(2, 2);
         let r = Rendements::default();
-        let mut c = CaseVue { hex: h, local: Hex::new(1, 0), centre: false, nom: String::new(), travailleurs: 0, capacite: 0, max: r, rendement: r, amenagement: None, habitants: 0.0, en_file: false, force: None };
+        let mut c = CaseVue { hex: h, local: Hex::new(1, 0), centre: false, nom: String::new(), travailleurs: 0, capacite: 0, max: r, rendement: r, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None };
         assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_ok());
         c.amenagement = Some(Amenagement::Champ);
         assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_err(), "plus d'arbres");

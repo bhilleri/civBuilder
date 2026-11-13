@@ -1023,6 +1023,8 @@ pub struct WorldMap {
     /// Roche et sol de chaque case de terre (géologie de surface, calculée à la demande depuis la
     /// carte : `geologie.rs` ; rien sur une carte sans climat), vidé avec le cache de turbidité.
     geologie_cache: std::sync::OnceLock<Vec<Option<(crate::geologie::Roche, crate::geologie::Sol)>>>,
+    /// Gisement de chaque case (lot néolithique), calculé à la demande comme la géologie.
+    gisements_cache: std::sync::OnceLock<Vec<Option<crate::gisements::Ressource>>>,
     /// Coin aval de la rivière de chaque arête (numéroté dans la case qui porte le tronçon, 255 sans
     /// tronçon), calculé à la première demande.
     river_down_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -1074,6 +1076,7 @@ impl WorldMap {
             step_cache: std::sync::OnceLock::new(),
             murk_cache: std::sync::OnceLock::new(),
             geologie_cache: std::sync::OnceLock::new(),
+            gisements_cache: std::sync::OnceLock::new(),
             river_down_cache: std::sync::OnceLock::new(),
             bridges: HashSet::new(),
         }
@@ -1723,6 +1726,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
     }
 
@@ -1760,6 +1764,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.tiles[i] = terrain;
@@ -1791,6 +1796,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.relief[i] = if self.tiles[i].is_water() || self.hydro.fleuve[i] { Relief::Flat } else { relief };
@@ -1965,6 +1971,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
@@ -2157,6 +2164,48 @@ impl WorldMap {
         self.roche(hex).is_some_and(|r| crate::geologie::karstique(r, self.rain(hex).unwrap_or(0.0)))
     }
 
+    /// Gisement d'une case (lot néolithique, `gisements.rs`), qu'il soit connu du joueur ou non.
+    pub fn gisement(&self, hex: Hex) -> Option<crate::gisements::Ressource> {
+        self.index(hex).and_then(|i| self.gisements().get(i).copied().flatten())
+    }
+
+    /// Cases qui portent un gisement.
+    pub fn cases_a_gisement(&self) -> impl Iterator<Item = (Hex, crate::gisements::Ressource)> + '_ {
+        self.gisements().iter().enumerate().filter_map(|(i, g)| g.map(|r| (self.hex_at(i), r)))
+    }
+
+    /// Gisements de toutes les cases (calculés une fois, puis gardés jusqu'à une modification) :
+    /// la géologie, le biome, le climat et les rivages, et un tirage par case et par ressource.
+    fn gisements(&self) -> &[Option<crate::gisements::Ressource>] {
+        self.gisements_cache.get_or_init(|| {
+            use crate::gisements::{gisement, LieuGisement};
+            (0..self.tiles.len())
+                .map(|i| {
+                    let h = self.hex_at(i);
+                    let t = self.tiles[i];
+                    if t.is_water() || self.is_fleuve(h) || self.is_ice(h) || self.relief[i] == Relief::Peak {
+                        return None;
+                    }
+                    let (roche, sol) = self.geologie().get(i).copied().flatten()?;
+                    let voisines: Vec<usize> = self.neighbors(h).iter().filter_map(|&v| self.index(self.canonical(v))).collect();
+                    let lieu = LieuGisement {
+                        roche,
+                        sol,
+                        terrain: t,
+                        relief: self.relief[i],
+                        temperature: self.climate.temperature.get(i).copied().unwrap_or(12.0),
+                        pluie: self.rain(h).unwrap_or(700.0),
+                        cote: voisines.iter().any(|&j| self.tiles[j].is_sea()),
+                        rive_salee: voisines.iter().any(|&j| {
+                            self.basins.lake(j).is_some_and(|l| matches!(l.kind, crate::basins::WaterBody::SaltLake | crate::basins::WaterBody::InlandSea))
+                        }),
+                    };
+                    gisement(&lieu, |r| desert_hash(i as u64 * 16 + r.index() as u64, u64::from(self.seed) ^ 0x6157_3E00))
+                })
+                .collect()
+        })
+    }
+
     /// Roche et sol de toutes les cases (calculés une fois, puis gardés jusqu'à une modification).
     fn geologie(&self) -> &[Option<(crate::geologie::Roche, crate::geologie::Sol)>] {
         self.geologie_cache.get_or_init(|| {
@@ -2256,6 +2305,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         let to = self.wrap.neighbor(hex, dir);
         let (Some(i), Some(j)) = (self.index(hex), self.index(to)) else { return };
@@ -2279,6 +2329,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.hydro.fleuve[i] = true;
@@ -2319,6 +2370,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         let other = self.wrap.neighbor(hex, dir);
         if let (Some(i), Some(j)) = (self.index(hex), self.index(other)) {
@@ -2589,6 +2641,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
@@ -2966,9 +3019,11 @@ impl WorldMap {
             self.step_cache = std::sync::OnceLock::new();
             self.murk_cache = std::sync::OnceLock::new();
             self.geologie_cache = std::sync::OnceLock::new();
+            self.gisements_cache = std::sync::OnceLock::new();
             self.river_down_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
             // Courants marins poussés par le vent (vents théoriques à la première passe, puis ceux
             // du climat de la passe précédente) : température de la mer donnée au climat
@@ -3203,6 +3258,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         self.mouths = self.classify_mouths();
         true
@@ -3367,6 +3423,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
     }
 
@@ -3405,6 +3462,7 @@ impl WorldMap {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
         self.geologie_cache = std::sync::OnceLock::new();
+        self.gisements_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
     }
 
@@ -4222,6 +4280,29 @@ mod planete {
 #[cfg(test)]
 mod tectonique {
     use super::*;
+
+    /// Bilan des gisements (à lancer à la main, `SEEDS=777,2`) : part des terres qui porte chaque
+    /// ressource (décision D4 : 1 à 3 % environ), cases à gisement, et villes possibles sans aucun
+    /// gisement à deux cases.
+    #[test]
+    #[ignore]
+    fn bilan_gisements() {
+        use crate::gisements::Ressource;
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or(vec![777, 2]);
+        for seed in seeds {
+            let m = WorldMap::generate(192, 111, seed);
+            let terres = m.hexes().filter(|&h| m.get(h).is_some_and(|t| !t.is_water())).count() as f32;
+            let tous: Vec<(Hex, Ressource)> = m.cases_a_gisement().collect();
+            let parts: Vec<String> = Ressource::TOUTES.iter().map(|&r| format!("{} {:.2} %", r.nom(), 100.0 * tous.iter().filter(|(_, x)| *x == r).count() as f32 / terres)).collect();
+            let sans = m
+                .hexes()
+                .filter(|&h| matches!(m.get(h), Some(Terrain::Grassland | Terrain::Plains | Terrain::Forest | Terrain::Steppe | Terrain::Savanna)))
+                .filter(|&h| m.range(h, 2).all(|v| m.gisement(m.canonical(v)).is_none()))
+                .count();
+            println!("graine {seed} : {} gisements ({:.1} % des terres) ; {}", tous.len(), 100.0 * tous.len() as f32 / terres, parts.join(", "));
+            println!("  cases habitables sans gisement à 2 cases : {sans}");
+        }
+    }
 
     /// Bilan des eaux du désert (à lancer à la main, `SEEDS=777,2`) : déserts, rives vertes, oasis
     /// et origine de leur eau, oasis voisines d'une autre (doit être 0).
