@@ -39,6 +39,18 @@ pub struct Contour {
     pub retrait: f32,
 }
 
+/// Flèche d'un échange entre deux villes (de centre à centre).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fleche {
+    pub de: Hex,
+    pub vers: Hex,
+    pub couleur: Color,
+    /// Épaisseur (en traits côte à côte) : la quantité échangée.
+    pub epaisseur: f32,
+    /// Ville non reliée : trait en pointillé, sans pointe.
+    pub pointille: bool,
+}
+
 /// Ce que la carte du monde montre de la ville ouverte (écrit par l'écran de la ville, seulement
 /// quand cela change).
 #[derive(Resource, Default, PartialEq)]
@@ -52,6 +64,8 @@ pub struct CoucheVille {
     pub claires: HashSet<Hex>,
     /// Contours des cases (survol exclu : il change à chaque image, voir `SurvolVille`).
     pub contours: Vec<Contour>,
+    /// Échanges du tour avec les autres villes.
+    pub fleches: Vec<Fleche>,
 }
 
 /// Case survolée sur la carte pendant que l'écran est ouvert (contour blanc), et case de la file
@@ -274,6 +288,37 @@ fn traits(c: &Contour, centre: Hex, wrap: crate::hex::Wrap) -> Vec<(Vec2, Vec2)>
     v
 }
 
+/// Segments d'une flèche (monde 2D) : traits côte à côte selon l'épaisseur, pointe à l'arrivée
+/// (arrêtée au bord de la case), tirets pour une ville non reliée.
+fn segments_fleche(f: &Fleche, centre: Hex, wrap: crate::hex::Wrap) -> Vec<(Vec2, Vec2)> {
+    let a = Vec2::from(wrap.nearest(centre, f.de).to_world());
+    let b = Vec2::from(wrap.nearest(a_hex(a), f.vers).to_world());
+    let dir = (b - a).normalize_or_zero();
+    let (a, b) = (a + dir * HEX_SIZE * 0.9, b - dir * HEX_SIZE * 0.9);
+    let cote = dir.perp();
+    let mut v = Vec::new();
+    if f.pointille {
+        let n = ((b - a).length() / 14.0).max(1.0) as usize;
+        for i in (0..n).step_by(2) {
+            v.push((a.lerp(b, i as f32 / n as f32), a.lerp(b, (i + 1) as f32 / n as f32)));
+        }
+        return v;
+    }
+    let traits = f.epaisseur.round().max(1.0) as i32;
+    for k in 0..traits {
+        let d = cote * (k as f32 - (traits - 1) as f32 / 2.0) * 1.6;
+        v.push((a + d, b + d));
+    }
+    let pointe = HEX_SIZE * 0.45;
+    v.push((b, b - dir * pointe + cote * pointe * 0.6));
+    v.push((b, b - dir * pointe - cote * pointe * 0.6));
+    v
+}
+
+fn a_hex(p: Vec2) -> Hex {
+    Hex::from_world(p.x, p.y)
+}
+
 /// Contours en 2D.
 fn contours(couche: Res<CoucheVille>, survol: Res<SurvolVille>, mode: Res<ViewMode>, map: Res<GameMap>, mut gizmos: Gizmos) {
     if !couche.ouverte || mode.is_3d {
@@ -284,6 +329,11 @@ fn contours(couche: Res<CoucheVille>, survol: Res<SurvolVille>, mode: Res<ViewMo
     for c in couche.contours.iter().chain(blanc.as_ref()) {
         for (a, b) in traits(c, couche.centre, wrap) {
             gizmos.line_2d(a, b, c.couleur);
+        }
+    }
+    for f in &couche.fleches {
+        for (a, b) in segments_fleche(f, couche.centre, wrap) {
+            gizmos.line_2d(a, b, f.couleur);
         }
     }
 }
@@ -300,6 +350,12 @@ fn contours_3d(couche: Res<CoucheVille>, survol: Res<SurvolVille>, mode: Res<Vie
         for (a, b) in traits(c, couche.centre, wrap) {
             let n = if c.pointille { 2 } else { 6 };
             gizmos.linestrip((0..=n).map(|k| a.lerp(b, k as f32 / n as f32)).map(|p| relief.on_ground(p.x, p.y, LEVEE_3D + 0.4)), c.couleur);
+        }
+    }
+    for f in &couche.fleches {
+        for (a, b) in segments_fleche(f, couche.centre, wrap) {
+            let n = ((b - a).length() / 8.0).ceil().max(1.0) as usize;
+            gizmos.linestrip((0..=n).map(|k| a.lerp(b, k as f32 / n as f32)).map(|p| relief.on_ground(p.x, p.y, LEVEE_3D + 3.0)), f.couleur);
         }
     }
 }
@@ -483,7 +539,7 @@ mod tests {
         let map = crate::map::WorldMap::filled(60, 60, crate::map::Terrain::Grassland);
         let centre = Hex::from_offset(30, 30);
         let claires: HashSet<Hex> = map.range(centre, 1).filter(|h| map.contains(*h)).collect();
-        let couche = CoucheVille { ouverte: true, centre, teintes: vec![(centre, Color::WHITE)], claires: claires.clone(), contours: Vec::new() };
+        let couche = CoucheVille { ouverte: true, centre, teintes: vec![(centre, Color::WHITE)], claires: claires.clone(), contours: Vec::new(), fleches: Vec::new() };
         let cases = cases_teintees(&map, &couche);
         // la ville : sa teinte seulement, sans ombre
         for h in &claires {

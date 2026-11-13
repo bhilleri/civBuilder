@@ -56,6 +56,10 @@ pub enum Couche {
     Quantite,
     /// Lieux de l'histoire.
     Histoire,
+    /// Gisements connus du territoire et des cases à acheter.
+    Gisements,
+    /// Échanges du tour avec les autres villes (flèches).
+    Echanges,
 }
 
 impl Couche {
@@ -66,6 +70,8 @@ impl Couche {
             Couche::Habitants => "Habitants",
             Couche::Quantite => "Quantité",
             Couche::Histoire => "Histoire",
+            Couche::Gisements => "Gisements",
+            Couche::Echanges => "Échanges",
         }
     }
 }
@@ -181,6 +187,8 @@ enum ModeCarte {
 
 /// Anneau de la case conseillée par l'intendant (or : le conseil).
 const CONSEIL: Color = Color::srgb(0.95, 0.81, 0.45);
+/// Couleur des gisements et des échanges de ressources sur la carte.
+const GISEMENT: Color = Color::srgb(0.85, 0.63, 0.40);
 
 impl EcranVille {
     /// L'écran est-il ouvert ?
@@ -216,7 +224,13 @@ impl EcranVille {
 pub enum Sujet {
     BienEtre,
     Salubrite,
+    /// Une ressource : son effet, où en est la ville, comment l'obtenir.
+    Ressource(crate::gisements::Ressource),
 }
+
+/// Jeton ou ligne qui ouvre la fiche d'une ressource (onglet Ressources).
+#[derive(Component)]
+struct ChoixRessource(crate::gisements::Ressource);
 
 /// Ligne qui ouvre la fiche d'une cause de la croissance.
 #[derive(Component)]
@@ -949,6 +963,8 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
 /// Case voisine du territoire, à acheter : son prix et ce qu'elle rapporterait (pleine de travailleurs).
 struct CaseAchat {
     hex: Hex,
+    /// Gisement connu de la case.
+    gisement: Option<crate::gisements::Ressource>,
     nom: String,
     prix: i32,
     naturel: Rendements,
@@ -957,12 +973,12 @@ struct CaseAchat {
 }
 
 /// Cases voisines du territoire de la ville, à personne : celles qu'elle peut acheter.
-fn cases_a_acheter(map: &crate::map::WorldMap, centre: Hex, ville: Entity, territoire: &Territory) -> Vec<CaseAchat> {
+fn cases_a_acheter(map: &crate::map::WorldMap, centre: Hex, ville: Entity, territoire: &Territory, connus: &Connus) -> Vec<CaseAchat> {
     rules::cases_gagnables(map, ville, &territoire.0)
         .into_iter()
         .map(|h| {
             let meilleur = Amenagement::possibles(map, h).into_iter().map(|a| (a, intendant::rendement_max(map, h, Some(a)))).max_by(|a, b| a.1.total().total_cmp(&b.1.total()));
-            CaseAchat { hex: h, nom: nom_de_case(map, h), prix: rules::prix_case(map.distance(centre, h)), naturel: intendant::rendement_max(map, h, None), meilleur }
+            CaseAchat { hex: h, gisement: connus.0.connu(map, h, connus.1), nom: nom_de_case(map, h), prix: rules::prix_case(map.distance(centre, h)), naturel: intendant::rendement_max(map, h, None), meilleur }
         })
         .collect()
 }
@@ -1341,15 +1357,23 @@ fn cases_du_cadrage(v: Entity, territoire: &Territory, positions: &Query<&HexPos
     cases
 }
 
-/// Cadre la ville dans la zone libre quand l'écran s'ouvre, change de ville ou de vue.
-fn cadrage(ecran: Res<EcranVille>, mode: Res<crate::view3d::ViewMode>, territoire: Res<Territory>, positions: Query<&HexPos>, mut cadrer: MessageWriter<crate::ville_carte::CadrerVille>, mut vu: Local<(Option<Entity>, bool)>) {
-    let cle = (ecran.ville, mode.is_3d);
+/// Cadre la ville dans la zone libre quand l'écran s'ouvre, change de ville ou de vue ; la couche
+/// Échanges recule pour montrer aussi les villes avec qui elle échange.
+fn cadrage(ecran: Res<EcranVille>, mode: Res<crate::view3d::ViewMode>, map: Res<GameMap>, territoire: Res<Territory>, positions: Query<&HexPos>, cities: Query<(&City, &HexPos)>, mut cadrer: MessageWriter<crate::ville_carte::CadrerVille>, mut vu: Local<(Option<Entity>, bool, bool)>) {
+    let echanges = ecran.ouvert() && ecran.placement.is_none() && couche_vue(&ecran) == Couche::Echanges;
+    let cle = (ecran.ville, mode.is_3d, echanges);
     if *vu == cle {
         return;
     }
     *vu = cle;
     if let Some(v) = ecran.ville {
-        cadrer.write(crate::ville_carte::CadrerVille(cases_du_cadrage(v, &territoire, &positions)));
+        let mut cases = cases_du_cadrage(v, &territoire, &positions);
+        if echanges && let Ok((city, _)) = cities.get(v) {
+            // (les villes reliées, et celles avec qui elle a échangé ce tour)
+        let ici = positions.get(v).map(|p| p.0).ok();
+        cases.extend(cities.iter().filter(|(c, p)| c.state.name != city.state.name && (city.state.echanges.iter().any(|x| x.ville == c.state.name) || ici.is_some_and(|h| map.0.distance(h, p.0) <= crate::echanges::PORTEE))).map(|(_, p)| p.0));
+        }
+        cadrer.write(crate::ville_carte::CadrerVille(cases));
     }
 }
 
@@ -1359,6 +1383,7 @@ fn commandes(
     mut ecran: ResMut<EcranVille>,
     (mode, mut cam3d, mut camera2d, mut cadrer, territoire, positions): (Res<crate::view3d::ViewMode>, ResMut<crate::view3d::Cam3d>, Single<&mut Projection, (With<Camera2d>, Without<crate::seam::GhostCamera>)>, MessageWriter<crate::ville_carte::CadrerVille>, Res<Territory>, Query<&HexPos>),
     (tiroir, achats, choix_couches, ouvrir_onglet, sujets): (Query<Ref<UiPointer>, With<BasculeTiroir>>, Query<Ref<UiPointer>, With<BasculeAchats>>, Query<(Ref<UiPointer>, &ChoixCouche)>, Query<(Ref<UiPointer>, &OuvrirOnglet)>, Query<(Ref<UiPointer>, &ChoixSujet)>),
+    ressources: Query<(Ref<UiPointer>, &ChoixRessource)>,
     mut onglets: Query<(Ref<UiPointer>, &BoutonOnglet, &mut BorderColor, &Children)>,
     mut textes: Query<&mut TextColor>,
     zoom: Query<(Ref<UiPointer>, &BoutonZoom)>,
@@ -1368,7 +1393,7 @@ fn commandes(
     (grandeurs, periodes, fils): (Query<(Ref<UiPointer>, &ChoixGrandeur)>, Query<(Ref<UiPointer>, &ChoixPeriode)>, Query<(Ref<UiPointer>, &Fil)>),
     (catalogue, construire, ici): (Query<(Ref<UiPointer>, &ChoixCatalogue)>, Query<Ref<UiPointer>, With<BoutonConstruire>>, Query<(Ref<UiPointer>, &AmenagerIci)>),
     (cartes_pop, genres, remedes, groupes): (Query<(Ref<UiPointer>, &ChoixCartePop)>, Query<(Ref<UiPointer>, &ChoixGenre)>, Query<(Ref<UiPointer>, &BoutonRemede)>, Query<(Ref<UiPointer>, &ChoixGroupe)>),
-    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<OuvrirOnglet>, With<ChoixGrandeur>, With<ChoixSujet>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>, With<BoutonRemede>)>, Changed<UiPointer>)>,
+    mut survols: Query<(&UiPointer, &mut BackgroundColor), (Or<(With<ChoixCase>, With<OuvrirOnglet>, With<ChoixGrandeur>, With<ChoixSujet>, With<ChoixRessource>, With<Fermer>, With<FermerFiche>, With<BasculeAmenagements>, With<Fil>, With<ChoixCatalogue>, With<ActionFile>, With<ArreterProjet>, With<AmenagerIci>, With<ChoixReglage>, With<BoutonRemede>)>, Changed<UiPointer>)>,
 ) {
     if !ecran.ouvert() {
         return;
@@ -1378,6 +1403,7 @@ fn commandes(
         if appui(&i) && ecran.onglet != b.0 {
             ecran.onglet = b.0;
             ecran.sujet = None;
+            ecran.grandeur = None;
             ecran.couche = None;
             ecran.catalogue = false;
             ecran.placement = None;
@@ -1418,6 +1444,17 @@ fn commandes(
     }
     if tiroir.iter().any(|i| appui(&i)) {
         ecran.basculer_tiroir();
+    }
+    for (i, r) in &ressources {
+        if appui(&i) {
+            let s = Sujet::Ressource(r.0);
+            ecran.sujet = if ecran.sujet == Some(s) && ecran.onglet == Onglet::Ressources { None } else { Some(s) };
+            ecran.onglet = Onglet::Ressources;
+            ecran.grandeur = None;
+            ecran.case = None;
+            ecran.catalogue = false;
+            ecran.placement = None;
+        }
     }
     for (i, s) in &sujets {
         if appui(&i) {
@@ -1611,7 +1648,7 @@ fn carte_souris(
         return;
     };
     let cases = cases_vues(&map.0, centre, city.0, city.1, &territoire, &amenagements, &(&gisements, debug.0));
-    let achats = if ecran.achats_caches { Vec::new() } else { cases_a_acheter(&map.0, centre, city.0, &territoire) };
+    let achats = if ecran.achats_caches { Vec::new() } else { cases_a_acheter(&map.0, centre, city.0, &territoire, &(&gisements, debug.0)) };
     // (les cases à acheter ne se choisissent pas pendant la construction)
     let construction = ecran.catalogue;
     let souris = window.cursor_position();
@@ -1723,7 +1760,8 @@ fn couche_vue(ecran: &EcranVille) -> Couche {
 fn couches_proposees(ecran: &EcranVille) -> Vec<Couche> {
     match (ecran.onglet, ecran.grandeur) {
         (_, Some(_)) if !ecran.catalogue => vec![Couche::Quantite, Couche::Amenagements, Couche::Emplois],
-        (Onglet::Rendements, _) | (Onglet::Ressources, _) => vec![Couche::Amenagements, Couche::Emplois],
+        (Onglet::Ressources, _) => vec![Couche::Gisements, Couche::Echanges, Couche::Amenagements],
+        (Onglet::Rendements, _) => vec![Couche::Amenagements, Couche::Emplois],
         (Onglet::Population, _) => vec![Couche::Emplois, Couche::Habitants, Couche::Amenagements],
         (Onglet::Histoire, _) => vec![Couche::Histoire, Couche::Amenagements],
     }
@@ -1826,6 +1864,7 @@ fn reconstruire(
     images: Res<Images>,
     (map, territoire, amenagements, state, mut cache, gisements, debug): (Res<GameMap>, Res<Territory>, Res<Amenagements>, Res<GameState>, ResMut<CacheVille>, Res<crate::game::Gisements>, Res<crate::game::DebugMode>),
     cities: Query<(Ref<City>, &HexPos)>,
+    autres_villes: Query<(Entity, &City, &HexPos, &crate::peuple::Peuple)>,
     (entete, gauche, droite, pied, legende, titre, liste): (Single<Entity, With<EnTete>>, Single<Entity, With<Gauche>>, Single<(Entity, &mut Node), With<Droite>>, Single<Entity, With<Pied>>, Single<(Entity, &mut Node), (With<Legende>, Without<Droite>)>, Single<Entity, With<TitreListe>>, Single<Entity, With<Liste>>),
     (barre, couches_barre, etiquettes, bascule): (Single<(Entity, &mut Node), (With<BarreValidation>, Without<Droite>, Without<Legende>)>, Single<Entity, With<Couches>>, Single<Entity, With<Etiquettes>>, Single<&Children, With<BasculeTiroir>>),
     (dispo, taille_case, mut couche_carte): (Res<Disposition>, Res<crate::ville_carte::TailleCase>, ResMut<crate::ville_carte::CoucheVille>),
@@ -1851,9 +1890,10 @@ fn reconstruire(
     let _mesure = Mesure(std::time::Instant::now());
     let cases = cases_vues(&map.0, centre.0, v, &city, &territoire, &amenagements, &(&gisements, debug.0));
     let choisie = ecran.case.and_then(|h| cases.iter().find(|c| c.hex == h));
-    let achats = if ecran.achats_caches { Vec::new() } else { cases_a_acheter(&map.0, centre.0, v, &territoire) };
+    let achats = if ecran.achats_caches { Vec::new() } else { cases_a_acheter(&map.0, centre.0, v, &territoire, &(&gisements, debug.0)) };
     let achat_choisi = ecran.case.and_then(|h| achats.iter().find(|a| a.hex == h)).filter(|_| !ecran.catalogue);
 
+    let partenaires = partenaires(&map.0, v, &autres_villes);
     // Une seule prévision pour l'en-tête, le bandeau et les graphiques (décision B4)
     let vl = Ville::new(&mut cache, &map.0, centre.0, v, &city, &territoire, &amenagements);
     let (dispo_ville, prevision) = (vl.dispo, vl.prevision);
@@ -1943,8 +1983,8 @@ fn reconstruire(
         match ecran.onglet {
             Onglet::Rendements => file_et_projet(g, &city, false, &vl, &cases, ecran.file_choisie),
             Onglet::Population => population(g, &city, &cases, prevision, ecran.sujet, ecran.grandeur),
-            Onglet::Ressources => gisements_de_la_ville(g, &city, &cases),
-            Onglet::Histoire => histoire(g, &city, ecran.histoire_genre, choisie),
+            Onglet::Ressources => echanges_du_tour(g, &city, &partenaires),
+            Onglet::Histoire => histoire(g, &city, &images, ecran.histoire_genre, choisie, state.turn),
         }
     });
     // Droite : la fiche de ce qu'on touche ou règle (case, case à acheter, grandeur, placement)
@@ -1968,6 +2008,8 @@ fn reconstruire(
             fiche_achat(d, a, &city, state.tresor_joueur(), par_la_culture);
         } else if let Some(c) = choisie {
             fiche_case(d, c, &vl, &images, ecran.grandeur, forcage.as_ref());
+        } else if let Some(Sujet::Ressource(r)) = ecran.sujet {
+            fiche_ressource(d, r, &city, &cases, &achats, &partenaires);
         } else if let Some(s) = ecran.sujet {
             fiche_cause(d, s, &city);
         } else if let Some(gr) = ecran.grandeur {
@@ -2011,7 +2053,7 @@ fn reconstruire(
             Some(g) => ModeCarte::Grandeur(g, cases.iter().map(|c| valeur(&c.rendement, g)).fold(0.01, f64::max)),
             None => ModeCarte::Dominante,
         },
-        Couche::Amenagements => ModeCarte::Dominante,
+        Couche::Amenagements | Couche::Gisements | Couche::Echanges => ModeCarte::Dominante,
     };
     commands.entity(*couches_barre).despawn_related::<Children>().with_children(|b| {
         b.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), ..default() }, BackgroundColor(charte::FOND), children![texte("COUCHE", 11.5, charte::MUET)]));
@@ -2041,6 +2083,23 @@ fn reconstruire(
     let mut voulu = crate::ville_carte::CoucheVille { ouverte: true, centre: centre.0, ..default() };
     voulu.claires = cases.iter().map(|c| c.hex).chain(achats.iter().map(|a| a.hex)).collect();
     voulu.teintes = cases.iter().zip(&gains).map(|(c, g)| (c.hex, teinte(c, mode, g.as_ref()))).collect();
+    if couche == Couche::Gisements && ecran.placement.is_none() {
+        // (les cases d'un gisement en couleur, les autres à peine)
+        voulu.teintes = cases.iter().map(|c| (c.hex, if c.gisement.is_some() { GISEMENT.with_alpha(0.45) } else { Color::srgba(0.0, 0.0, 0.0, 0.15) })).collect();
+        voulu.teintes.extend(achats.iter().filter(|a| a.gisement.is_some()).map(|a| (a.hex, GISEMENT.with_alpha(0.3))));
+    }
+    if couche == Couche::Echanges && ecran.placement.is_none() {
+        // Une flèche par échange du tour, épaisse selon la quantité ; les villes non reliées, en gris
+        for p in &partenaires {
+            for x in city.state.echanges.iter().filter(|x| x.ville == p.nom) {
+                let (de, vers) = if x.recu { (p.centre, centre.0) } else { (centre.0, p.centre) };
+                voulu.fleches.push(crate::ville_carte::Fleche { de, vers, couleur: GISEMENT, epaisseur: (1.0 + x.qte as f32 * 3.0).min(5.0), pointille: false });
+            }
+            if !p.reliee && p.distance <= 2 * crate::echanges::PORTEE_EAU {
+                voulu.fleches.push(crate::ville_carte::Fleche { de: centre.0, vers: p.centre, couleur: charte::MUET, epaisseur: 1.0, pointille: true });
+            }
+        }
+    }
     let contour = |hex: Hex, couleur: Color, pointille: bool, retrait: f32| crate::ville_carte::Contour { hex, couleur, pointille, retrait };
     for c in &cases {
         voulu.contours.push(contour(c.hex, Color::srgba(1.0, 0.95, 0.78, 0.55), false, 0.03));
@@ -2088,6 +2147,21 @@ fn reconstruire(
         for a in &achats {
             hexagone_achat(p, a, s, wrap.nearest(centre.0, a.hex), a.prix <= state.tresor_joueur());
         }
+        if couche == Couche::Echanges && ecran.placement.is_none() {
+            for x in &partenaires {
+                let recu: Vec<String> = city.state.echanges.iter().filter(|e| e.ville == x.nom).map(|e| format!("{} {} {}", if e.recu { "reçu" } else { "donné" }, quantite(e.qte), e.ressource.nom())).collect();
+                let etat = if !x.reliee { "non reliée".to_string() } else if recu.is_empty() { "reliée · rien ce tour".to_string() } else { recu.join(" · ") };
+                if x.reliee || x.distance <= 2 * crate::echanges::PORTEE_EAU {
+                    p.spawn((
+                        crate::ville_carte::SurCase { hex: wrap.nearest(centre.0, x.centre) },
+                        Node { position_type: PositionType::Absolute, flex_direction: FlexDirection::Column, align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)), margin: UiRect::top(Val::Px(70.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
+                        BackgroundColor(charte::FOND.with_alpha(0.88)),
+                        Pickable::IGNORE,
+                        children![texte(format!("{} · {} cases", x.nom, x.distance), 13.0, if x.reliee { charte::TEXTE } else { charte::MUET }), texte(etat, 12.0, if x.reliee { GISEMENT } else { charte::MUET })],
+                    ));
+                }
+            }
+        }
         for (c, g) in cases.iter().zip(&gains) {
             hexagone(p, c, s, wrap.nearest(centre.0, c.hex), mode, !ecran.amenagements_caches, &images, g.as_ref(), en_file(c.hex));
         }
@@ -2108,7 +2182,11 @@ fn reconstruire(
             let arret = rules::arret_de_croissance(prevision).and_then(|t| prevision.get(t - 1)).map_or(String::new(), |p| format!(" · arrêt vers {}", rules::milliers(arrondi_parlant(p.habitants))));
             format!("Habitants · {}{} par tour{arret}", if variation >= 0 { "+" } else { "−" }, rules::milliers(variation.unsigned_abs()))
         }
-        (Onglet::Histoire, _) => "Lieux de l'histoire".to_string(),
+        (Onglet::Histoire, _) => format!("Chronique de {} · {} événements depuis la fondation", city.state.name, city.state.chronique.len()),
+        (Onglet::Ressources, _) => {
+            let manque = crate::gisements::Ressource::TOUTES.iter().filter(|&&r| city.state.demande(r) > 0.0 && city.state.couverture(r) < 0.95).count();
+            format!("Ressources de la ville · {manque} besoin{} pas couvert{} · le reste : sans effet ou un bonus à gagner", if manque > 1 { "s" } else { "" }, if manque > 1 { "s" } else { "" })
+        }
         _ => format!("Cases de la ville · {} cases · {travaillees} travaillées · {} travailleurs placés · {} places libres", cases.len(), rules::milliers(actifs.into()), rules::milliers(places.saturating_sub(actifs).into())),
     };
     if let Ok(mut t) = textes.get_mut(*titre) {
@@ -2132,6 +2210,14 @@ fn reconstruire(
         }
         if let Some((h, cb, tr)) = &courbe_pop {
             poser_graphique(l, h.clone(), cb, tr);
+            return;
+        }
+        if ecran.onglet == Onglet::Ressources {
+            tableau_ressources(l, &city, &cases, &achats, ecran.sujet);
+            return;
+        }
+        if ecran.onglet == Onglet::Histoire {
+            frise(l, &city, &images, state.turn, large_tiroir);
             return;
         }
         if ecran.onglet == Onglet::Rendements {
@@ -2301,6 +2387,9 @@ fn hexagone_achat(p: &mut ChildSpawnerCommands, a: &CaseAchat, s: f32, sur: Hex,
         Pickable::IGNORE,
     ))
     .with_children(|h| {
+        if let Some(r) = a.gisement.filter(|_| s >= 22.0) {
+            h.spawn((texte_carte(format!("◆ {}", r.nom()), (s * 0.24).clamp(10.0, 13.0), GISEMENT), TextLayout::justify(Justify::Center)));
+        }
         if s >= 22.0 {
             let couleur = if abordable { Grandeur::Deniers.couleur() } else { charte::DOUX };
             let prix = if s >= 30.0 { format!("{}\ndeniers", a.prix) } else { a.prix.to_string() };
@@ -2535,19 +2624,19 @@ fn jetons_besoins(e: &mut ChildSpawnerCommands, city: &City) {
     let luxes: Vec<Ressource> = Ressource::TOUTES.iter().copied().filter(|r| r.luxe().is_some()).collect();
     let luxe_couvert = luxes.iter().filter(|&&r| c.couverture(r) >= 0.5).count();
     let besoin_outils = c.demande_outils_tour > 0.0;
-    let jetons: [(&str, f64, String); 5] = [
-        ("Sel", c.couverture(Ressource::Sel), String::new()),
-        ("Vêtements", c.couverture(Ressource::Fibres), if c.part_besoin_vetements() <= 0.0 { "pas encore".into() } else { String::new() }),
-        ("Plantes", c.couverture(Ressource::Plantes), String::new()),
-        ("Outils", c.couverture_outils, if besoin_outils { String::new() } else { "aucun besoin".into() }),
-        ("Luxe", luxe_couvert as f64 / luxes.len().max(1) as f64, format!("{luxe_couvert} / {}", luxes.len())),
+    let jetons: [(&str, f64, String, Ressource); 5] = [
+        ("Sel", c.couverture(Ressource::Sel), String::new(), Ressource::Sel),
+        ("Vêtements", c.couverture(Ressource::Fibres), if c.part_besoin_vetements() <= 0.0 { "pas encore".into() } else { String::new() }, Ressource::Fibres),
+        ("Plantes", c.couverture(Ressource::Plantes), String::new(), Ressource::Plantes),
+        ("Outils", c.couverture_outils, if besoin_outils { String::new() } else { "aucun besoin".into() }, Ressource::Silex),
+        ("Luxe", luxe_couvert as f64 / luxes.len().max(1) as f64, format!("{luxe_couvert} / {}", luxes.len()), Ressource::Ocre),
     ];
     e.spawn(Node { column_gap: Val::Px(4.0), ..default() }).with_children(|r| {
-        for (nom, part, autre) in jetons {
+        for (nom, part, autre, ressource) in jetons {
             let couleur = if !autre.is_empty() && nom != "Luxe" { charte::MUET } else if part >= 0.95 { charte::OK } else if part >= 0.5 { charte::ALERTE } else { charte::GRAVE };
             let valeur = if autre.is_empty() { format!("{:.0} %", part * 100.0) } else { autre };
             r.spawn((
-                OuvrirOnglet(Onglet::Ressources),
+                ChoixRessource(ressource),
                 UiPointer::default(),
                 Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, flex_basis: Val::Px(0.0), min_width: Val::Px(0.0), row_gap: Val::Px(2.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
                 BackgroundColor(Color::NONE),
@@ -2778,58 +2867,120 @@ fn pourcent(x: f64) -> String {
 }
 
 /// Onglet Histoire : les moments marquants de la ville, triés par tour, filtrés par genre et par lieu.
-fn histoire(g: &mut ChildSpawnerCommands, city: &City, genre: Option<rules::GenreEvenement>, lieu: Option<&CaseVue>) {
+fn histoire(g: &mut ChildSpawnerCommands, city: &City, images: &Images, genre: Option<rules::GenreEvenement>, lieu: Option<&CaseVue>, tour: u32) {
     let c = &city.state;
-    let mut liste: Vec<&rules::Evenement> = c.chronique.iter().filter(|e| genre.is_none_or(|x| e.genre == x)).filter(|e| lieu.is_none_or(|l| e.lieu == Some(l.hex))).collect();
-    liste.sort_by_key(|e| e.tour);
-    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
-        titre(p, &format!("Histoire de {}", c.name));
-        p.spawn(texte("Les moments marquants de la ville ; ceux qui ont un lieu sont cerclés d'or sur la carte.", 12.5, charte::MUET));
-        p.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|f| {
-            for (x, t) in std::iter::once((None, "Tout")).chain(rules::GenreEvenement::TOUS.into_iter().map(|x| (Some(x), x.nom()))) {
-                let actif = genre == x;
-                f.spawn((
-                    ChoixGenre(x),
-                    UiPointer::default(),
-                    Node { padding: UiRect::axes(Val::Px(9.0), Val::Px(3.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
-                    BackgroundColor(if actif { charte::TEXTE } else { Color::NONE }),
-                    BorderColor::all(charte::TRAIT2),
-                    children![texte(t, 12.5, if actif { charte::FOND } else { charte::DOUX })],
-                ));
+    // Filtres : un par genre présent, avec son compteur (les genres vides sont cachés)
+    g.spawn(Node { column_gap: Val::Px(5.0), row_gap: Val::Px(5.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|f| {
+        let filtre = |f: &mut ChildSpawnerCommands, x: Option<rules::GenreEvenement>, t: String| {
+            let actif = genre == x;
+            f.spawn((
+                ChoixGenre(x),
+                UiPointer::default(),
+                Node { column_gap: Val::Px(5.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(10.0)), ..default() },
+                BackgroundColor(if actif { charte::SURFACE2 } else { Color::NONE }),
+                BorderColor::all(if actif { charte::TEXTE } else { charte::TRAIT2 }),
+            ))
+            .with_children(|b| {
+                if let Some(x) = x {
+                    b.spawn(icone(icone_genre(images, x), 13.0, couleur_genre(x)));
+                }
+                b.spawn(texte(t, 12.5, if actif { charte::TEXTE } else { charte::DOUX }));
+            });
+        };
+        filtre(f, None, format!("Tout {}", c.chronique.len()));
+        for x in rules::GenreEvenement::TOUS {
+            let n = c.chronique.iter().filter(|e| e.genre == x).count();
+            if n > 0 {
+                filtre(f, Some(x), format!("{} {n}", x.nom()));
+            }
+        }
+    });
+    if let Some(l) = lieu {
+        g.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|r| {
+            r.spawn(texte(format!("Lieu : {}", l.nom), 13.5, charte::TEXTE));
+            r.spawn((FermerFiche, bouton(Color::NONE), children![texte("× tous les lieux", 12.5, charte::DOUX)]));
+        });
+    }
+    // Les 40 derniers tours, du plus récent au plus ancien, par tranches de 10 tours
+    let debut = tour.saturating_sub(rules::HISTORIQUE_TOURS as u32 - 1);
+    let mut liste: Vec<&rules::Evenement> = c.chronique.iter().filter(|e| genre.is_none_or(|x| e.genre == x)).filter(|e| lieu.is_none_or(|l| e.lieu == Some(l.hex))).filter(|e| e.tour >= debut).collect();
+    liste.sort_by_key(|e| std::cmp::Reverse(e.tour));
+    let anciens = c.chronique.iter().filter(|e| e.tour < debut).count();
+    if liste.is_empty() {
+        g.spawn(texte(if lieu.is_some() { "Aucun événement ici dans les 40 derniers tours." } else { "Aucun événement dans les 40 derniers tours." }, 13.0, charte::MUET));
+    }
+    let mut tranche = None;
+    for e in liste {
+        let t = (e.tour.saturating_sub(1)) / 10;
+        if tranche != Some(t) {
+            tranche = Some(t);
+            let (a, b) = (t * 10 + 1, (t * 10 + 10).min(tour));
+            g.spawn((Node { padding: UiRect::top(Val::Px(4.0)), ..default() }, children![texte(format!("TOURS {a} À {b}"), 11.0, charte::MUET)]));
+        }
+        g.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::FlexStart, padding: UiRect::vertical(Val::Px(3.0)), ..default() }).with_children(|l| {
+            l.spawn((Node { margin: UiRect::top(Val::Px(2.0)), ..default() }, children![icone(icone_genre(images, e.genre), 15.0, couleur_genre(e.genre))]));
+            l.spawn(Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, min_width: Val::Px(0.0), ..default() }).with_children(|n| {
+                n.spawn(texte(e.texte.clone(), 13.0, charte::TEXTE));
+                n.spawn(texte(format!("tour {}{}", e.tour, if e.lieu.is_some() { " · cerclé d'or sur la carte" } else { "" }), 11.5, charte::MUET));
+            });
+        });
+    }
+    if anciens > 0 {
+        g.spawn(texte(format!("{anciens} événement{} plus ancien{} : la chronique complète est dans le tiroir (Tab).", if anciens > 1 { "s" } else { "" }, if anciens > 1 { "s" } else { "" }), 12.0, charte::MUET));
+    }
+}
+
+/// Tiroir de l'onglet Histoire : la chronique complète en frise, une ligne par genre, de la
+/// fondation à aujourd'hui.
+fn frise(l: &mut ChildSpawnerCommands, city: &City, images: &Images, tour: u32, largeur: f32) {
+    let c = &city.state;
+    let premier = c.chronique.iter().map(|e| e.tour).min().unwrap_or(1).min(tour);
+    let marge = 120.0;
+    let w = (largeur - marge - 20.0).max(100.0);
+    let x = |t: u32| marge + w * if tour > premier { (t - premier) as f32 / (tour - premier) as f32 } else { 1.0 };
+    for g in rules::GenreEvenement::TOUS {
+        let evs: Vec<&rules::Evenement> = c.chronique.iter().filter(|e| e.genre == g).collect();
+        if evs.is_empty() {
+            continue;
+        }
+        l.spawn((Node { height: Val::Px(22.0), border: UiRect::bottom(Val::Px(1.0)), ..default() }, BorderColor::all(charte::TRAIT))).with_children(|r| {
+            r.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(3.0), column_gap: Val::Px(5.0), align_items: AlignItems::Center, ..default() }, children![icone(icone_genre(images, g), 12.0, couleur_genre(g)), texte(format!("{} {}", g.nom(), evs.len()), 12.0, charte::DOUX)]));
+            for e in evs {
+                r.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(x(e.tour) - 4.0), top: Val::Px(7.0), width: Val::Px(8.0), height: Val::Px(8.0), border_radius: BorderRadius::all(Val::Px(4.0)), ..default() }, BackgroundColor(couleur_genre(g))));
             }
         });
-        if let Some(l) = lieu {
-            p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|r| {
-                r.spawn(texte(format!("Lieu : {}", l.nom), 13.5, charte::TEXTE));
-                r.spawn((FermerFiche, bouton(Color::NONE), children![texte("× tous les lieux", 12.5, charte::DOUX)]));
-            });
+    }
+    l.spawn(Node { height: Val::Px(18.0), ..default() }).with_children(|r| {
+        for t in [premier, (premier + tour) / 2, tour] {
+            r.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(x(t) - 30.0), width: Val::Px(60.0), justify_content: JustifyContent::Center, ..default() }, children![texte(if t == tour { "aujourd'hui".to_string() } else { format!("tour {t}") }, 11.5, charte::MUET)]));
         }
-        if liste.is_empty() {
-            p.spawn(texte(if lieu.is_some() { "Aucun événement de ce genre en ce lieu." } else { "Aucun événement de ce genre pour l'instant." }, 13.0, charte::MUET));
-        }
-        for e in liste {
-            p.spawn((Node { column_gap: Val::Px(10.0), padding: UiRect::vertical(Val::Px(5.0)), border: UiRect::left(Val::Px(2.0)), ..default() }, BorderColor::all(couleur_genre(e.genre)))).with_children(|l| {
-                l.spawn(Node { flex_direction: FlexDirection::Column, margin: UiRect::left(Val::Px(10.0)), ..default() }).with_children(|n| {
-                    n.spawn(texte(format!("tour {} · {}", e.tour, e.genre.nom().to_lowercase()), 12.0, couleur_genre(e.genre)));
-                    n.spawn(texte(e.texte.clone(), 13.5, charte::TEXTE));
-                });
-            });
-        }
-        p.spawn(texte("Pas encore inscrits : commerce, guerres (leurs systèmes ne sont pas encore dans le jeu).", 12.5, charte::MUET));
     });
 }
 
-/// Couleur d'un genre d'événement (frise de l'histoire).
+/// Icône d'un genre d'événement (dessinée par la charte).
+fn icone_genre(images: &Images, g: rules::GenreEvenement) -> Handle<Image> {
+    use rules::GenreEvenement::*;
+    match g {
+        Fondation | Territoire => images.hexagone.clone(),
+        Population => images.grandeur(Grandeur::Habitants),
+        Construction => images.grandeur(Grandeur::Production),
+        Famine => images.grandeur(Grandeur::Nourriture),
+        Bataille => images.grandeur(Grandeur::Defense),
+        Projet => images.grandeur(Grandeur::Culture),
+    }
+}
+
+/// Couleur d'un genre d'événement (filtres, liste, frise).
 fn couleur_genre(g: rules::GenreEvenement) -> Color {
     use rules::GenreEvenement::*;
     match g {
         Fondation => Color::srgb(0.95, 0.81, 0.45),
-        Population => Grandeur::Habitants.couleur(),
-        Construction => Grandeur::Production.couleur(),
-        Famine => charte::GRAVE,
-        Bataille => charte::ALERTE,
-        Projet => Grandeur::Culture.couleur(),
-        Territoire => charte::AMENAGEMENT,
+        Population => Color::srgb(0.79, 0.70, 1.0),
+        Construction => Color::srgb(0.85, 0.63, 0.40),
+        Territoire => Color::srgb(0.93, 0.58, 0.69),
+        Famine => Color::srgb(0.94, 0.54, 0.54),
+        Bataille => Color::srgb(0.71, 0.70, 0.66),
+        Projet => Color::srgb(0.36, 0.77, 0.91),
     }
 }
 
@@ -3237,6 +3388,8 @@ fn fiche_cause(d: &mut ChildSpawnerCommands, s: Sujet, city: &City) {
             }
             d.spawn(texte(format!("Sous {:.0}, des habitants meurent de maladies (jusqu'à 1 % par tour à 0). Au-dessus, la salubrité n'a pas d'effet : c'est une marge.", rules::SALUBRITE_SEUIL), 12.5, charte::MUET));
         }
+        // (la fiche d'une ressource a la sienne)
+        Sujet::Ressource(_) => {}
     }
 }
 
@@ -3317,6 +3470,276 @@ fn gisements_de_la_ville(g: &mut ChildSpawnerCommands, city: &City, cases: &[Cas
             p.spawn(texte(format!("Usages à venir (besoins de base, luxe, outils, matériaux) — {}.", usages.join(" ; ")), 12.5, charte::MUET));
         }
     });
+}
+
+/// Une autre ville du joueur, vue pour les échanges.
+struct Partenaire {
+    nom: String,
+    centre: Hex,
+    distance: i32,
+    /// Reliée à la ville ouverte, de proche en proche (`echanges::reseaux`).
+    reliee: bool,
+}
+
+/// Les autres villes du joueur, de la plus proche à la plus lointaine, et si elles sont reliées.
+fn partenaires(map: &crate::map::WorldMap, v: Entity, villes: &Query<(Entity, &City, &HexPos, &crate::peuple::Peuple)>) -> Vec<Partenaire> {
+    let miennes: Vec<(Entity, &City, Hex)> = villes.iter().filter(|(_, _, _, p)| **p == crate::peuple::Peuple::JOUEUR).map(|(e, c, h, _)| (e, c, h.0)).collect();
+    let Some(i) = miennes.iter().position(|(e, ..)| *e == v) else { return Vec::new() };
+    let echange: Vec<crate::echanges::VilleEchange> = miennes
+        .iter()
+        .map(|(_, c, h)| crate::echanges::VilleEchange { centre: *h, eau: crate::echanges::au_bord_de_l_eau(map, *h, &c.state.site), stock: [0.0; crate::gisements::N_RESSOURCES], demande: [0.0; crate::gisements::N_RESSOURCES] })
+        .collect();
+    let reseau = crate::echanges::reseaux(&echange, |a, b| map.distance(a, b));
+    let ici = miennes[i].2;
+    let mut v: Vec<Partenaire> = miennes
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| *j != i)
+        .map(|(j, (_, c, h))| Partenaire { nom: c.state.name.clone(), centre: *h, distance: map.distance(ici, *h), reliee: reseau[j] == reseau[i] })
+        .collect();
+    v.sort_by(|a, b| a.distance.cmp(&b.distance).then(a.nom.cmp(&b.nom)));
+    v
+}
+
+/// Onglet Ressources, à gauche : les échanges du tour avec chaque autre ville.
+fn echanges_du_tour(g: &mut ChildSpawnerCommands, city: &City, partenaires: &[Partenaire]) {
+    g.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|t| {
+        t.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("ÉCHANGES DU TOUR", 11.5, charte::MUET)]));
+        t.spawn(texte(format!("reliées à {} cases, {} par l'eau", crate::echanges::PORTEE, crate::echanges::PORTEE_EAU), 11.5, charte::MUET));
+    });
+    if partenaires.is_empty() {
+        g.spawn(texte("Aucune autre ville : les échanges viendront avec la deuxième.", 13.0, charte::MUET));
+    }
+    for p in partenaires {
+        g.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(5.0)), border: UiRect::top(Val::Px(1.0)), ..default() }, BorderColor::all(charte::TRAIT))).with_children(|b| {
+            b.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|l| {
+                l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(format!("{} · {} cases", p.nom, p.distance), 13.5, charte::TEXTE)]));
+                l.spawn(texte(if p.reliee { "reliée" } else { "non reliée" }, 12.5, if p.reliee { charte::OK } else { charte::MUET }));
+            });
+            let lignes: Vec<String> = city
+                .state
+                .echanges
+                .iter()
+                .filter(|x| x.ville == p.nom)
+                .map(|x| {
+                    let contre = x.contre.map_or(" (don)".to_string(), |(r, q)| format!(" contre {} de {}", quantite(q), r.nom()));
+                    format!("{} : {} {} par tour{contre}", if x.recu { "reçu" } else { "donné" }, x.ressource.nom(), quantite(x.qte))
+                })
+                .collect();
+            if lignes.is_empty() {
+                let t = if p.reliee { "rien ce tour : aucune des deux n'a en trop ce qui manque à l'autre".to_string() } else { "trop loin : une ville entre les deux les relierait".to_string() };
+                b.spawn(texte(t, 12.0, charte::MUET));
+            }
+            for l in lignes {
+                b.spawn(texte(l, 12.0, charte::DOUX));
+            }
+        });
+    }
+    g.spawn(texte("Une ville qui manque d'une ressource la reçoit d'une ville reliée qui en a au-delà de sa réserve, par troc ou par don. Ressources du pays : touche G (carte fermée).", 12.0, charte::MUET));
+}
+
+/// Effet d'une ressource pour la ville : (actuel, maximal), en mots.
+fn effet_ressource(c: &rules::CityState, r: crate::gisements::Ressource) -> (String, String) {
+    use crate::gisements::Ressource;
+    let couv = c.couverture(r);
+    match r {
+        Ressource::Sel => (format!("salubrité +{}", quantite(rules::SALUBRITE_SEL * couv)), format!("salubrité +{}", quantite(rules::SALUBRITE_SEL))),
+        Ressource::Plantes => (format!("salubrité +{}", quantite(rules::SALUBRITE_PLANTES * couv)), format!("salubrité +{}", quantite(rules::SALUBRITE_PLANTES))),
+        Ressource::Fibres if c.part_besoin_vetements() <= 0.0 => ("sans effet sous 2 000 habitants".into(), "évite jusqu'à −10 de salubrité".into()),
+        Ressource::Fibres => (format!("salubrité −{}", quantite(rules::SALUBRITE_VETEMENTS_MAX * (1.0 - couv) * c.part_besoin_vetements())), "salubrité −0 (vêtus)".into()),
+        Ressource::Silex | Ressource::PierreDure | Ressource::Obsidienne if c.demande_outils_tour > 0.0 => (format!("outils : cases aménagées +{:.0} %", c.bonus_outils * 100.0), format!("cases aménagées +{:.0} %", rules::BONUS_OUTILS[0] * 100.0)),
+        Ressource::Silex | Ressource::PierreDure => ("outils : pas de case aménagée".into(), format!("cases aménagées +{:.0} %", rules::BONUS_OUTILS[0] * 100.0)),
+        _ if let Some(rang) = r.luxe() => (format!("bien-être +{}", quantite(rang * couv)), format!("bien-être +{}", quantite(rang))),
+        _ => ("pas encore d'usage".into(), "matériau des bâtiments à venir".into()),
+    }
+}
+
+/// « salubrité +0,0 sur +5,0 » : l'effet actuel et le maximal, l'unité dite une fois.
+fn actuel_sur_max(actuel: &str, max: &str) -> String {
+    match (actuel.split_once(' '), max.split_once(' ')) {
+        (Some((u1, _)), Some((u2, reste))) if u1 == u2 => format!("{actuel} sur {reste}"),
+        _ => format!("{actuel} · au mieux {max}"),
+    }
+}
+
+/// Une ressource est-elle « à portée » de la ville : demandée, en stock, reçue, ou d'un gisement
+/// connu du territoire ou d'une case à acheter ?
+fn a_portee(c: &rules::CityState, r: crate::gisements::Ressource, cases: &[CaseVue], achats: &[CaseAchat]) -> bool {
+    c.demande_echange(r) > 0.0 || c.ressource(r) >= 0.005 || c.echanges.iter().any(|x| x.ressource == r) || cases.iter().any(|k| k.gisement == Some(r)) || achats.iter().any(|a| a.gisement == Some(r))
+}
+
+/// Tiroir de l'onglet Ressources : une ligne par ressource à portée (demande, couverture, origine,
+/// effet actuel sur maximal, action), puis celles à chercher, en une ligne grise.
+fn tableau_ressources(l: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], achats: &[CaseAchat], sujet: Option<Sujet>) {
+    use crate::gisements::Ressource;
+    let c = &city.state;
+    let colonnes = |l: &mut ChildSpawnerCommands, t: [&str; 5], couleur: Color, taille: f32| {
+        l.spawn(Node { column_gap: Val::Px(10.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)), ..default() }).with_children(|r| {
+            for (i, (x, w)) in t.iter().zip([170.0, 80.0, 120.0, 0.0, 230.0]).enumerate() {
+                let mut n = Node { width: if w > 0.0 { Val::Px(w) } else { Val::Auto }, flex_grow: if w > 0.0 { 0.0 } else { 1.0 }, flex_shrink: if w > 0.0 { 0.0 } else { 1.0 }, min_width: Val::Px(0.0), overflow: Overflow::clip(), ..default() };
+                if i == 1 {
+                    n.justify_content = JustifyContent::FlexEnd;
+                }
+                r.spawn((n, children![(texte(*x, taille, couleur), TextLayout::new(Justify::Left, bevy::text::LineBreak::NoWrap))]));
+            }
+        });
+    };
+    colonnes(l, ["RESSOURCE", "DEMANDE", "COUVERTURE", "ORIGINE", "EFFET ACTUEL SUR MAXIMAL"], charte::MUET, 11.0);
+    let (portee, chercher): (Vec<Ressource>, Vec<Ressource>) = Ressource::TOUTES.iter().partition(|&&r| a_portee(c, r, cases, achats));
+    for r in portee {
+        let d = c.demande_echange(r);
+        let couv = if d > 0.0 { c.couverture(r) } else { 0.0 };
+        let gisement = cases.iter().find(|k| k.gisement == Some(r));
+        let recu: f64 = c.echanges.iter().filter(|x| x.ressource == r && x.recu).map(|x| x.qte).sum::<f64>() + 0.0;
+        let origine = match (gisement, recu > 0.0) {
+            (Some(k), _) if k.amenagement == Some(Amenagement::Exploitation) => format!("extrait {}", quantite(c.extrait(r))),
+            (Some(_), _) => "gisement non exploité".into(),
+            (None, true) => format!("reçu {}", quantite(recu)),
+            (None, false) if achats.iter().any(|a| a.gisement == Some(r)) => "gisement sur une case à acheter".into(),
+            _ if c.ressource(r) >= 0.005 => format!("en stock {}", quantite(c.ressource(r))),
+            _ => "rien à portée".into(),
+        };
+        let (actuel, max) = effet_ressource(c, r);
+        let choisie = sujet == Some(Sujet::Ressource(r));
+        l.spawn((
+            ChoixRessource(r),
+            UiPointer::default(),
+            Node { column_gap: Val::Px(10.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
+            BackgroundColor(Color::NONE),
+            BorderColor::all(if choisie { charte::SELECTION } else { Color::NONE }),
+        ))
+        .with_children(|ligne| {
+            let cellule = |w: f32| Node { width: if w > 0.0 { Val::Px(w) } else { Val::Auto }, flex_grow: if w > 0.0 { 0.0 } else { 1.0 }, flex_shrink: if w > 0.0 { 0.0 } else { 1.0 }, min_width: Val::Px(0.0), overflow: Overflow::clip(), column_gap: Val::Px(6.0), align_items: AlignItems::Center, ..default() };
+            ligne.spawn((cellule(170.0), children![texte("◆", 12.0, GISEMENT), texte(capitale(r.nom()), 13.0, charte::TEXTE)]));
+            ligne.spawn((Node { justify_content: JustifyContent::FlexEnd, ..cellule(80.0) }, children![texte(if d > 0.0 { quantite(d) } else { "—".into() }, 13.0, charte::DOUX)]));
+            let couleur = if d <= 0.0 { charte::MUET } else if couv >= 0.95 { charte::OK } else if couv >= 0.5 { charte::ALERTE } else { charte::GRAVE };
+            ligne.spawn(cellule(120.0)).with_children(|x| {
+                if d > 0.0 {
+                    x.spawn(barre(couv as f32, 54.0, couleur));
+                    x.spawn(texte(format!("{:.0} %", couv * 100.0), 12.5, couleur));
+                } else {
+                    x.spawn(texte("pas demandée", 12.0, charte::MUET));
+                }
+            });
+            ligne.spawn((cellule(0.0), children![(texte(origine, 12.5, charte::DOUX), TextLayout::new(Justify::Left, bevy::text::LineBreak::NoWrap))]));
+            ligne.spawn((cellule(230.0), children![(texte(actuel_sur_max(&actuel, &max), 12.5, if d > 0.0 && couv < 0.95 { charte::ALERTE } else { charte::DOUX }), TextLayout::new(Justify::Left, bevy::text::LineBreak::NoWrap))]));
+        });
+    }
+    if !chercher.is_empty() {
+        let noms: Vec<&str> = chercher.iter().map(|r| r.nom()).collect();
+        l.spawn((Node { padding: UiRect::axes(Val::Px(6.0), Val::Px(5.0)), border: UiRect::top(Val::Px(1.0)), column_gap: Val::Px(8.0), ..default() }, BorderColor::all(charte::TRAIT))).with_children(|x| {
+            x.spawn(texte(format!("À CHERCHER · {}", chercher.len()), 11.5, charte::MUET));
+            x.spawn(texte(format!("{} : rien à faire dans la ville (aucun gisement connu ici)", noms.join(", ")), 12.0, charte::MUET));
+        });
+    }
+}
+
+/// Fiche d'une ressource (droite) : son effet aujourd'hui et au mieux, où en est la ville (demande,
+/// extrait et reçu, stock sur la réglette 2 / 6 / 12 tours), le chemin pour l'avoir (du moins cher au
+/// plus cher), ce que ça changerait.
+fn fiche_ressource(d: &mut ChildSpawnerCommands, r: crate::gisements::Ressource, city: &City, cases: &[CaseVue], achats: &[CaseAchat], partenaires: &[Partenaire]) {
+    use crate::gisements::Ressource;
+    let c = &city.state;
+    let genre = match r {
+        Ressource::Sel | Ressource::Plantes | Ressource::Fibres => "besoin de base · salubrité",
+        Ressource::Silex | Ressource::PierreDure => "outils et matériaux",
+        Ressource::Obsidienne => "outils et luxe",
+        Ressource::Ocre | Ressource::Parures => "luxe · bien-être",
+        Ressource::BoisOeuvre => "matériau",
+    };
+    entete_fiche(d, GISEMENT, &capitale(r.nom()), genre.to_string());
+    let section = |d: &mut ChildSpawnerCommands, t: &str| {
+        d.spawn(texte(t, 11.5, charte::MUET));
+    };
+    let ligne = |d: &mut ChildSpawnerCommands, nom: &str, note: Option<String>, valeur: String, couleur: Color| {
+        d.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(4.0)), border: UiRect::top(Val::Px(1.0)), ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
+            l.spawn(Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, ..default() }).with_children(|n| {
+                n.spawn(texte(nom, 13.5, charte::TEXTE));
+                if let Some(note) = note {
+                    n.spawn(texte(note, 12.0, charte::MUET));
+                }
+            });
+            l.spawn(texte(valeur, 13.0, couleur));
+        });
+    };
+    let (actuel, max) = effet_ressource(c, r);
+    section(d, "EFFET : ACTUEL SUR MAXIMAL");
+    ligne(d, "Aujourd'hui", None, actuel, charte::TEXTE);
+    ligne(d, "Au mieux", None, max, charte::OK);
+    // Où en est la ville
+    let dem = c.demande_echange(r);
+    let recu: f64 = c.echanges.iter().filter(|x| x.ressource == r && x.recu).map(|x| x.qte).sum::<f64>() + 0.0;
+    let stock = c.ressource(r);
+    section(d, "OÙ J'EN SUIS");
+    let note = match r {
+        Ressource::Sel | Ressource::Plantes | Ressource::Fibres => Some("0,1 par millier d'habitants".to_string()),
+        _ if r.luxe().is_some() => Some("0,1 par palier".to_string()),
+        Ressource::Silex | Ressource::PierreDure | Ressource::Obsidienne => Some("usure des outils des cases aménagées (silex d'abord)".to_string()),
+        _ => None,
+    };
+    ligne(d, "Demande", note, if dem > 0.0 { format!("{} par tour", quantite(dem)) } else { "aucune".into() }, charte::TEXTE);
+    ligne(d, "Extrait · reçu", None, format!("{} · {}", quantite(c.extrait(r)), quantite(recu)), charte::TEXTE);
+    let tours = if dem > 0.0 { stock / dem } else { 0.0 };
+    let etat = if dem <= 0.0 { "rien n'est demandé" } else if tours < crate::echanges::TOURS_VISES { "manque : la ville demande" } else if tours < crate::echanges::TOURS_RESERVE { "suffit" } else if tours < crate::echanges::TOURS_PLAFOND { "offert aux villes reliées" } else { "au plafond : le reste est perdu" };
+    ligne(d, "Stock", Some(etat.to_string()), if dem > 0.0 { format!("{} · {} tours de demande", quantite(stock), rules::decimal(tours)) } else { quantite(stock) }, charte::TEXTE);
+    if dem > 0.0 {
+        // Réglette 0 · 2 · 6 · 12 tours : manque, suffit, offert, perdu
+        let largeur = 330.0;
+        d.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() }).with_children(|r_| {
+            r_.spawn(Node { width: Val::Px(largeur), height: Val::Px(8.0), border_radius: BorderRadius::all(Val::Px(4.0)), overflow: Overflow::clip(), ..default() }).with_children(|b| {
+                for (a, z, couleur) in [(0.0, 2.0, charte::GRAVE), (2.0, 6.0, charte::OK), (6.0, 12.0, Color::srgb(0.36, 0.65, 0.86))] {
+                    b.spawn((Node { width: Val::Px(largeur * (z - a) / 12.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(couleur.with_alpha(0.7))));
+                }
+            });
+            let x = (largeur * (tours.min(12.0) / 12.0) as f32 - 1.0).max(0.0);
+            r_.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(x), top: Val::Px(-3.0), width: Val::Px(3.0), height: Val::Px(14.0), ..default() }, BackgroundColor(charte::TEXTE)));
+            r_.spawn(texte("0 manque · 2 suffit · 6 offert · 12 perdu", 11.5, charte::MUET));
+        });
+    }
+    // Chemin, du moins cher au plus cher
+    section(d, "CHEMIN, DU MOINS CHER AU PLUS CHER");
+    let mut rien = true;
+    if let Some(k) = cases.iter().find(|k| k.gisement == Some(r)) {
+        rien = false;
+        let (t, bouton_) = if k.amenagement == Some(Amenagement::Exploitation) {
+            (format!("Gisement exploité sur {} : {} par tour à pleine capacité", k.nom.to_lowercase(), quantite(1.0)), None)
+        } else {
+            (format!("Exploiter le gisement sur {} ({} de production) : 1 par tour à pleine capacité ; la case ne donne plus de nourriture", k.nom.to_lowercase(), Amenagement::Exploitation.cout_de_base()), Some(BoutonRemede(Remede::Placer(Amenagement::Exploitation))))
+        };
+        d.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
+            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(t, 12.5, charte::TEXTE)]));
+            if let Some(b) = bouton_ {
+                l.spawn((b, bouton(charte::ACTION_FOND), children![texte("Placer", 12.5, charte::TEXTE)]));
+            }
+        });
+    }
+    for p in partenaires.iter().filter(|p| p.reliee) {
+        rien = false;
+        d.spawn(texte(format!("{} est reliée : si elle en a au-delà de sa réserve, elle en donnera ou en échangera, sans rien à faire.", p.nom), 12.5, charte::DOUX));
+    }
+    if let Some(a) = achats.iter().find(|a| a.gisement == Some(r)) {
+        rien = false;
+        d.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
+            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(format!("Acheter la case {} ({} deniers), puis l'exploiter", a.nom.to_lowercase(), a.prix), 12.5, charte::TEXTE)]));
+            l.spawn((ChoixCase(a.hex), bouton(charte::SURFACE), children![texte("Voir la case", 12.5, charte::TEXTE)]));
+        });
+    }
+    if rien {
+        d.spawn(texte("Aucun gisement connu à portée : la ville prospecte deux cases de son territoire par tour, un éclaireur en passant ; un gisement d'une autre ville du pays arrivera par les échanges si elles sont reliées.", 12.5, charte::MUET));
+    }
+    // Ce que ça change, ressource couverte en entier (calcul du jeu)
+    if dem > 0.0 && matches!(r, Ressource::Sel | Ressource::Plantes | Ressource::Fibres) {
+        let mut avec = c.clone();
+        avec.couverture.resize(crate::gisements::N_RESSOURCES, 0.0);
+        avec.couverture[r.index()] = 1.0;
+        let y = city.travail.rendements;
+        let h = c.habitants as f64;
+        let (s0, s1) = (c.salubrite(), avec.salubrite());
+        let (m0, m1) = ((h * c.croissance(y).insalubrite).round(), (h * avec.croissance(y).insalubrite).round());
+        section(d, "CE QUE ÇA CHANGE");
+        let suite = if (m1 - m0).abs() >= 0.5 { format!(", maladies {} → {} hab./tour", m0, m1) } else if s0 >= rules::SALUBRITE_SEUIL { " : au-dessus de 40, la salubrité n'a pas d'effet, c'est une marge".to_string() } else { String::new() };
+        d.spawn(texte(format!("Couvert en entier : salubrité {s0:.0} → {s1:.0}{suite}."), 12.5, charte::TEXTE));
+    }
 }
 
 /// Panneau « Grenier » : ce qu'il garde, ce qui y entre ou en sort au prochain tour, et ses
