@@ -211,7 +211,10 @@ pub fn update_hovered_feature(
     map: Res<GameMap>,
     fog: Res<ShownFog>,
     mut feature: ResMut<HoveredFeature>,
+    ecran: Res<crate::ecran_ville::EcranVille>,
 ) {
+    // (l'écran de la ville ouvert : pas de cours d'eau éclairé au survol de ses cases)
+    let mode = if ecran.ouvert() { &HighlightMode::OnLabel } else { &*mode };
     let wanted = pointed.0.or(match *mode {
         HighlightMode::OnFeature => label.0.or_else(|| hovered.0.filter(|h| fog.explored.contains(h)).and_then(|h| feature_at(&map.0, h))),
         HighlightMode::OnLabel => label.0,

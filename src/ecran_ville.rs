@@ -60,6 +60,8 @@ pub enum Couche {
     Gisements,
     /// Échanges du tour avec les autres villes (flèches).
     Echanges,
+    /// Type de nourriture de chaque case (céréales, protéines, fruits et légumes).
+    Types,
 }
 
 impl Couche {
@@ -72,6 +74,7 @@ impl Couche {
             Couche::Histoire => "Histoire",
             Couche::Gisements => "Gisements",
             Couche::Echanges => "Échanges",
+            Couche::Types => "Types",
         }
     }
 }
@@ -116,6 +119,10 @@ pub struct EcranVille {
     pub histoire_genre: Option<rules::GenreEvenement>,
     /// Élément de la file choisi (sa case est cerclée sur la carte).
     pub file_choisie: Option<usize>,
+    /// Autres remèdes de « Ce qui freine » dépliés.
+    pub remedes_ouverts: bool,
+    /// Graphique du tiroir agrandi (touche F) : le tiroir prend 60 % de la hauteur.
+    pub agrandi: bool,
     /// Groupe montré par le catalogue (aménagements, projets, unités) : tout tient à l'écran.
     pub catalogue_groupe: GroupeCatalogue,
     /// Dernière ville montrée (une autre ville s'ouvre sur l'onglet Rendements).
@@ -183,10 +190,14 @@ enum ModeCarte {
     Habitants(f64, f64),
     /// Lieux de l'histoire (couleurs de la grandeur principale, anneaux dorés).
     Histoire,
+    /// Type de nourriture de chaque case.
+    Types,
 }
 
 /// Anneau de la case conseillée par l'intendant (or : le conseil).
 const CONSEIL: Color = Color::srgb(0.95, 0.81, 0.45);
+/// Couleurs des trois types de nourriture (céréales, protéines, fruits et légumes).
+const COULEURS_TYPES: [Color; 3] = [Color::srgb(0.59, 0.77, 0.35), Color::srgb(0.85, 0.63, 0.40), Color::srgb(0.93, 0.58, 0.69)];
 /// Couleur des gisements et des échanges de ressources sur la carte.
 const GISEMENT: Color = Color::srgb(0.85, 0.63, 0.40);
 
@@ -205,6 +216,16 @@ impl EcranVille {
             (None, Onglet::Ressources) => 3,
             (None, Onglet::Histoire) => 4,
         }
+    }
+
+    /// Le tiroir montre-t-il un graphique (une grandeur, la population) ?
+    fn graphique(&self) -> bool {
+        matches!(self.sorte_tiroir(), 1 | 2)
+    }
+
+    /// Le graphique du tiroir est-il agrandi ?
+    pub fn agrandi(&self) -> bool {
+        self.agrandi && self.graphique() && self.tiroir_ouvert()
     }
 
     /// Le tiroir est-il ouvert (sinon : une bande d'une ligne) ?
@@ -309,6 +330,9 @@ struct Liste;
 /// Bouton qui ouvre ou replie le tiroir (Tab).
 #[derive(Component)]
 struct BasculeTiroir;
+/// Bouton « Agrandir (F) » du graphique du tiroir.
+#[derive(Component)]
+struct BasculeAgrandi;
 /// Montrer les cases à acheter sur la carte.
 #[derive(Component)]
 struct BasculeAchats;
@@ -344,7 +368,7 @@ struct ChoixPeriode(usize);
 #[derive(Component)]
 struct Fil(u8);
 /// Ce que propose le catalogue de construction.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Element {
     Unite(crate::rules::UnitKind),
     Amenagement(Amenagement),
@@ -393,9 +417,30 @@ struct ChoixGenre(Option<rules::GenreEvenement>);
 #[derive(Clone, Copy, PartialEq)]
 enum Remede {
     Placer(Amenagement),
+    /// Placer un aménagement sur une case donnée (l'exploitation d'un gisement).
+    PlacerSur(Amenagement, Hex),
     Detail(Grandeur),
     Construire,
 }
+
+/// Un remède de « Ce qui freine », avec son effet net sur la croissance (habitants par tour,
+/// calculé par le jeu) et ce que fait son bouton.
+struct RemedeNet {
+    libelle: String,
+    net: Option<i64>,
+    action: ActionRemede,
+}
+
+#[derive(Clone, Copy)]
+enum ActionRemede {
+    /// Mettre en file une construction (puits…).
+    Catalogue(Element),
+    Remede(Remede),
+}
+
+/// « 2 autres ▾ » : déplie les autres remèdes par-dessus le panneau.
+#[derive(Component)]
+struct BasculeRemedes;
 #[derive(Component)]
 struct BoutonRemede(Remede);
 /// Élément qui pulse quelques fois quand il apparaît (conseil, bouton de validation).
@@ -412,73 +457,117 @@ struct LigneFile(usize);
 /// autres alertes de la ville.
 struct Frein {
     etat: Etat,
+    /// En une ligne (bandeau du catalogue).
     texte: String,
-    remedes: Vec<(Remede, String)>,
+    /// Ce qui coûte des habitants ce tour, à terme (arrêt de la croissance, palier), les emplois.
+    ce_tour: (String, Color),
+    a_terme: (String, Color),
+    emplois: Option<(String, Color)>,
+    /// Remèdes, du plus rentable au moins rentable.
+    remedes: Vec<RemedeNet>,
     alertes: Vec<(Etat, String, Remede)>,
 }
 
-/// Diagnostic de la croissance de la ville.
+/// Diagnostic de la croissance de la ville : ce qui la freine ce tour et à terme, et les remèdes
+/// chiffrés en habitants par tour (la ville simulée avec chacun).
 fn frein(vl: &Ville, city: &City, cases: &[CaseVue]) -> Frein {
     let (map, prevision) = (vl.map, vl.prevision);
     let c = &city.state;
     let y = city.travail.rendements;
+    let h = c.habitants as f64;
+    let cr = c.croissance(y);
+    let base = c.variation(y);
     let besoin = c.besoin_nourriture().max(1e-6);
     let couverture = y.nourriture / besoin;
-    let limite = limite_nourriture(cases, c);
-    // Remèdes pour la nourriture : les aménagements qui en donnent le plus, à leur case conseillée
-    let mut nourrir: Vec<(f64, Remede, String)> = [Amenagement::Champ, Amenagement::Paturage]
-        .into_iter()
-        .filter_map(|a| {
-            let case = conseil(vl, cases, a, &Bareme::de(vl)).and_then(|h| cases.iter().find(|x| x.hex == h))?;
-            let g = gain_amenagement(vl, case, a).ok()?;
-            (g.plein.nourriture > 0.05).then(|| {
-                (g.plein.nourriture, Remede::Placer(a), format!("{} : limite +{} habitants (+{} nourriture case pleine)", capitale(a.nom()), rules::milliers((g.plein.nourriture * rules::HABITANTS_PAR_NOURRITURE) as u64), rules::decimal(g.plein.nourriture)))
-            })
-        })
-        .collect();
-    nourrir.sort_by(|a, b| b.0.total_cmp(&a.0));
-    let nourrir: Vec<(Remede, String)> = nourrir.into_iter().map(|(_, r, t)| (r, t)).collect();
-    let objectif = c.consignes.objectif;
-    let (etat, texte, mut remedes) = if couverture < 1.0 {
-        (Etat::Grave, format!("la nourriture manque ({} × le besoin) : famine, la population baisse", rules::decimal(couverture)), nourrir)
-    } else if objectif.cible() < 1.0 + rules::SURPLUS_POUR_CROITRE && couverture < 1.0 + rules::SURPLUS_POUR_CROITRE - 1e-6 {
-        (Etat::Alerte, format!("l'objectif de l'intendant, « {} », limite la croissance", objectif.nom().to_lowercase()), vec![(Remede::Detail(Grandeur::Nourriture), "Changer l'objectif".to_string())])
+    // Ce tour : la cause qui coûte le plus d'habitants
+    let famine = (h * cr.famine).round();
+    let maladies = (h * cr.insalubrite).round();
+    let ce_tour = if famine < 0.0 {
+        (format!("famine −{} hab./tour · nourriture × {}", rules::milliers(famine.abs() as u64), rules::decimal(couverture)), charte::GRAVE)
+    } else if maladies < 0.0 {
+        (format!("maladies −{} hab./tour · salubrité {:.0}", rules::milliers(maladies.abs() as u64), c.salubrite()), charte::GRAVE)
+    } else if c.humeur() == rules::Humeur::Mecontente {
+        (format!("bien-être {:.0} : la croissance naturelle × {}", c.bien_etre, rules::decimal(cr.facteur_bien_etre)), charte::ALERTE)
     } else {
-        // Tours avant que la croissance ne s'arrête, d'après la prévision (l'intendant répartit
-        // les habitants à venir ; la nourriture des cases pleines borne la population)
-        let suivant = rules::habitants_du_palier(c.palier() + 1);
-        let palier = if (suivant as f64) > limite { format!(" · palier {} ({}) hors de portée sans remède", c.palier() + 1, rules::milliers(suivant)) } else { String::new() };
-        match rules::arret_de_croissance(prevision) {
-            Some(t) => (
-                if t <= 20 { Etat::Alerte } else { Etat::Ok },
-                format!("la nourriture : limite {} habitants (cases pleines), croissance arrêtée dans ~{t} tours vers {}{palier}", rules::milliers(limite as u64), rules::milliers(prevision[t - 1].habitants)),
-                nourrir,
-            ),
-            None => (Etat::Ok, format!("rien pour l'instant ; à long terme, la nourriture : limite {} habitants (cases pleines, plus de {} tours){palier}", rules::milliers(limite as u64), prevision.len()), nourrir),
+        ("rien ne coûte d'habitants".to_string(), charte::OK)
+    };
+    // À terme : l'arrêt de la croissance (prévision du jeu) ou le palier suivant
+    let objectif = c.consignes.objectif;
+    let suivant = rules::habitants_du_palier(c.palier() + 1);
+    let a_terme = if objectif.cible() < 1.0 + rules::SURPLUS_POUR_CROITRE && (1.0..1.0 + rules::SURPLUS_POUR_CROITRE - 1e-6).contains(&couverture) {
+        (format!("l'objectif « {} » de l'intendant limite la croissance", objectif.nom().to_lowercase()), charte::ALERTE)
+    } else {
+        match (rules::arret_de_croissance(prevision), rules::tours_jusqu_a(prevision, suivant)) {
+            (Some(t), None) => {
+                let vers = prevision.get(t - 1).map_or(c.habitants, |p| p.habitants);
+                let cause = if maladies < 0.0 { "nourriture et maladies" } else { "nourriture" };
+                (format!("arrêt vers {} dans {t} tours · {cause}", rules::milliers(arrondi_parlant(vers))), charte::ALERTE)
+            }
+            (_, Some(t)) => (format!("palier {} dans {t} tours", c.palier() + 1), charte::OK),
+            (None, None) => (format!("pas d'arrêt d'ici {} tours", prevision.len()), charte::OK),
         }
     };
-    remedes.truncate(3);
-    // (palier suivant hors de portée : les remèdes restent, le texte y renvoie)
-    let hors_de_portee = rules::habitants_du_palier(c.palier() + 1) as f64 > limite;
-    if etat == Etat::Ok && !hors_de_portee {
-        remedes.clear();
+    let emplois = if city.travail.chomeurs > 0 {
+        Some((format!("{} sans emploi : aménager des cases donne des emplois", rules::milliers(city.travail.chomeurs.into())), charte::ALERTE))
+    } else {
+        prevision.iter().position(|p| p.chomeurs > 0).map(|t| (format!("places pleines dans {} tours", t + 1), if t < 10 { charte::ALERTE } else { charte::DOUX }))
+    };
+    // Remèdes chiffrés : la ville simulée avec chacun (effet net sur les habitants par tour)
+    let mut remedes: Vec<RemedeNet> = Vec::new();
+    if !c.puits && !c.file.iter().any(|k| k.objet == rules::Production::Puits) {
+        let mut avec = c.clone();
+        avec.puits = true;
+        remedes.push(RemedeNet { libelle: "Puits".into(), net: Some(avec.variation(y) - base), action: ActionRemede::Catalogue(Element::Puits) });
     }
-    let etat = if etat == Etat::Ok && hors_de_portee { Etat::Alerte } else { etat };
-    // Autres alertes (« rien à produire » est déjà dans l'en-tête et sur la carte de la production)
+    let bareme = Bareme::de(vl);
+    for k in cases.iter().filter(|k| k.amenagement != Some(Amenagement::Exploitation) && !k.en_file) {
+        let Some(r) = k.gisement else { continue };
+        if c.demande(r) <= 0.0 || c.couverture(r) >= 0.95 || possible(map, k, Amenagement::Exploitation).is_err() {
+            continue;
+        }
+        let Ok(g) = gain_amenagement(vl, k, Amenagement::Exploitation) else { continue };
+        let mut avec = c.clone();
+        avec.couverture.resize(crate::gisements::N_RESSOURCES, 0.0);
+        avec.couverture[r.index()] = (1.0 / c.demande(r)).min(1.0).max(c.couverture(r));
+        remedes.push(RemedeNet { libelle: format!("{} ({})", capitale(r.exploitation()), r.nom()), net: Some(avec.variation(y + g.dans) - base), action: ActionRemede::Remede(Remede::PlacerSur(Amenagement::Exploitation, k.hex)) });
+    }
+    for a in [Amenagement::Champ, Amenagement::Paturage] {
+        let Some(case) = conseil(vl, cases, a, &bareme).and_then(|h| cases.iter().find(|x| x.hex == h)) else { continue };
+        let Ok(g) = gain_amenagement(vl, case, a) else { continue };
+        remedes.push(RemedeNet { libelle: capitale(a.nom()), net: Some(c.variation(y + g.dans) - base), action: ActionRemede::Remede(Remede::Placer(a)) });
+    }
+    if objectif.cible() < 1.0 + rules::SURPLUS_POUR_CROITRE {
+        remedes.push(RemedeNet { libelle: "Changer l'objectif de l'intendant".into(), net: None, action: ActionRemede::Remede(Remede::Detail(Grandeur::Nourriture)) });
+    }
+    remedes.sort_by(|a, b| b.net.unwrap_or(i64::MIN).cmp(&a.net.unwrap_or(i64::MIN)));
+    let etat = if famine < 0.0 || maladies < 0.0 { Etat::Grave } else if a_terme.1 == charte::ALERTE { Etat::Alerte } else { Etat::Ok };
+    // Autres alertes
     let mut alertes = Vec::new();
     if c.colon_bloque() {
         alertes.push((Etat::Alerte, format!("Colon en tête de file : il faut {} habitants pour le former ; rien d'autre n'avance", rules::milliers(rules::CityState::HABITANTS_POUR_COLON)), Remede::Construire));
     }
-    if city.travail.chomeurs > 0 {
-        let a = if cases.iter().any(|x| possible(map, x, Amenagement::Champ).is_ok()) { Remede::Placer(Amenagement::Champ) } else { Remede::Construire };
-        // (Benjamin : pas une limite ; le chômage baissera l'attractivité de la ville, à venir)
-        alertes.push((Etat::Ok, format!("{} sans emploi : aménager des cases donne des emplois", rules::milliers(city.travail.chomeurs.into())), a));
-    }
     if c.projet.is_some() && c.file.is_empty() && c.tours_en_projet >= rules::RAPPEL_PROJET {
         alertes.push((Etat::Ok, format!("En projet depuis {} tours", c.tours_en_projet), Remede::Construire));
     }
-    Frein { etat, texte, remedes, alertes }
+    let texte = format!("ce tour : {} · à terme : {}", ce_tour.0, a_terme.0);
+    Frein { etat, texte, ce_tour, a_terme, emplois, remedes, alertes }
 }
+
+/// Bouton d'un remède (mettre en file ou placer), avec son effet net.
+fn bouton_remede(l: &mut ChildSpawnerCommands, r: &RemedeNet, principal: bool) {
+    let t = match r.net {
+        Some(n) => format!("{} : net {}{} hab./tour", r.libelle, if n >= 0 { "+" } else { "−" }, rules::milliers(n.unsigned_abs())),
+        None => r.libelle.clone(),
+    };
+    let couleur = if principal { charte::ACTION_FOND } else { charte::SURFACE };
+    let texte_c = if r.net.is_some_and(|n| n < 0) { charte::GRAVE } else { charte::TEXTE };
+    let mut b = l.spawn((bouton(couleur), children![texte(t, 12.5, texte_c)]));
+    match r.action {
+        ActionRemede::Catalogue(e) => b.insert(ChoixCatalogue(e)),
+        ActionRemede::Remede(x) => b.insert(BoutonRemede(x)),
+    };
+}
+
 /// Forcer l'effectif d'une case : proposer un autre effectif, confirmer, annuler, rendre à l'intendant.
 #[derive(Component, Clone, Copy)]
 enum Forcage {
@@ -867,7 +956,7 @@ impl Plugin for EcranVillePlugin {
             .add_systems(Startup, construire)
             .add_systems(
                 Update,
-                (ouvrir_fermer, commandes, cadrage, disposer, carte_souris, defiler, glisser_file, construire_actions, reconstruire, afficher, cacher_hud)
+                (ouvrir_fermer, commandes, cadrage, disposer, carte_souris, defiler, molette_graphique, glisser_file, construire_actions, reconstruire, afficher, cacher_hud, bouton_agrandir)
                     .chain()
                     .in_set(EcranVilleSet)
                     .before(crate::menu::toggle_menu),
@@ -1079,6 +1168,7 @@ fn construire(mut commands: Commands, images: Res<Images>) {
                 .with_children(|t| {
                     t.spawn(Node { column_gap: Val::Px(10.0), align_items: AlignItems::Center, flex_shrink: 0.0, ..default() }).with_children(|l| {
                         l.spawn((TitreListe, texte("", 14.5, charte::TEXTE), Node { flex_grow: 1.0, ..default() }));
+                        l.spawn((BasculeAgrandi, bouton(charte::FOND), children![texte("Agrandir (F)", 12.5, charte::TEXTE)]));
                         l.spawn((BasculeTiroir, bouton(charte::FOND), children![texte("Ouvrir (Tab)", 12.5, charte::TEXTE)]));
                     });
                     t.spawn((Liste, Node { flex_grow: 1.0, min_height: Val::Px(0.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), overflow: Overflow::scroll_y(), ..default() }, ScrollPosition::default()));
@@ -1121,7 +1211,8 @@ fn disposer(
     }
     let d = *dispo;
     let ouvert = ecran.tiroir_ouvert();
-    let tiroir_h = if ouvert { d.tiroir } else { BANDE };
+    let grand = (w.y * 0.6).round();
+    let tiroir_h = if ecran.agrandi() { grand } else if ouvert { d.tiroir } else { BANDE };
     let x0 = MARGE + d.gauche + MARGE;
     let x1 = d.droite + 2.0 * MARGE;
     let ecrire = |node: &mut Node, f: &dyn Fn(&mut Node)| {
@@ -1150,13 +1241,54 @@ fn disposer(
     ecrire(&mut noeuds.p5(), &|n| {
         n.left = Val::Px(x0);
         n.right = Val::Px(x1);
-        n.bottom = Val::Px(MARGE + tiroir_h + 48.0);
+        n.top = Val::Px(HAUT + 44.0);
+        n.bottom = Val::Auto;
     });
     // La ville est cadrée dans ce qui reste quand la fiche et le tiroir sont ouverts : la carte ne
     // saute pas quand on les ouvre ou les ferme
-    let libre = Rect::new(x0, HAUT + 44.0, (w.x - x1).max(x0 + 100.0), (w.y - MARGE - d.tiroir - 8.0).max(HAUT + 144.0));
+    let bas = if ecran.agrandi() { grand } else { d.tiroir };
+    let libre = Rect::new(x0, HAUT + 44.0, (w.x - x1).max(x0 + 100.0), (w.y - MARGE - bas - 8.0).max(HAUT + 144.0));
     if zone.0 != libre {
         zone.0 = libre;
+    }
+}
+
+/// Montre « Agrandir (F) » quand le tiroir ouvert a un graphique ; son libellé suit l'état.
+fn bouton_agrandir(ecran: Res<EcranVille>, mut boutons: Query<(&mut Node, &Children), With<BasculeAgrandi>>, mut textes: Query<&mut Text>) {
+    if !ecran.is_changed() {
+        return;
+    }
+    for (mut node, enfants) in &mut boutons {
+        let d = if ecran.graphique() && ecran.tiroir_ouvert() { Display::Flex } else { Display::None };
+        if node.display != d {
+            node.display = d;
+        }
+        for &e in enfants {
+            if let Ok(mut t) = textes.get_mut(e) {
+                let voulu = if ecran.agrandi() { "Réduire (F)" } else { "Agrandir (F)" };
+                if t.0 != voulu {
+                    t.0 = voulu.into();
+                }
+            }
+        }
+    }
+}
+
+/// Molette sur le tiroir quand il montre un graphique : la période du passé (10, 20, 40 tours).
+fn molette_graphique(mut ecran: ResMut<EcranVille>, scroll: Res<AccumulatedMouseScroll>, pointeurs: Query<(&PointerId, &PointerLocation)>, tiroir: Single<(&ComputedNode, &UiGlobalTransform), With<Tiroir>>) {
+    if !ecran.ouvert() || scroll.delta.y == 0.0 || !ecran.graphique() || !ecran.tiroir_ouvert() || ecran.grandeur.is_none() {
+        return;
+    }
+    let Some(souris) = pointeurs.iter().find(|(id, _)| **id == PointerId::Mouse).and_then(|(_, l)| l.location.as_ref()).map(|l| l.position) else { return };
+    let (noeud, transform) = *tiroir;
+    if !noeud.contains_point(*transform, souris / noeud.inverse_scale_factor()) {
+        return;
+    }
+    let periodes = [10, 20, 40];
+    let i = periodes.iter().position(|&p| p == ecran.periode).unwrap_or(2) as i32;
+    let j = (i - scroll.delta.y.signum() as i32).clamp(0, 2) as usize;
+    if periodes[j] != ecran.periode {
+        ecran.periode = periodes[j];
     }
 }
 
@@ -1287,6 +1419,10 @@ fn ouvrir_fermer(
                     ecran.case = None;
                     return;
                 }
+                if ecran.agrandi() && ville == ecran.ville {
+                    ecran.agrandi = false;
+                    return;
+                }
                 if ecran.sujet.is_some() && ville == ecran.ville {
                     ecran.sujet = None;
                     return;
@@ -1314,6 +1450,14 @@ fn ouvrir_fermer(
         }
         if keys.just_pressed(KeyCode::Tab) && !wiki.open {
             ecran.basculer_tiroir();
+        }
+        if keys.just_pressed(KeyCode::KeyF) && !wiki.open && ecran.graphique() {
+            if !ecran.tiroir_ouvert() {
+                ecran.basculer_tiroir();
+                ecran.agrandi = true;
+            } else {
+                ecran.agrandi = !ecran.agrandi;
+            }
         }
         if (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && ecran.placement.is_some() {
             ecran.confirmer = true;
@@ -1359,9 +1503,9 @@ fn cases_du_cadrage(v: Entity, territoire: &Territory, positions: &Query<&HexPos
 
 /// Cadre la ville dans la zone libre quand l'écran s'ouvre, change de ville ou de vue ; la couche
 /// Échanges recule pour montrer aussi les villes avec qui elle échange.
-fn cadrage(ecran: Res<EcranVille>, mode: Res<crate::view3d::ViewMode>, map: Res<GameMap>, territoire: Res<Territory>, positions: Query<&HexPos>, cities: Query<(&City, &HexPos)>, mut cadrer: MessageWriter<crate::ville_carte::CadrerVille>, mut vu: Local<(Option<Entity>, bool, bool)>) {
+fn cadrage(ecran: Res<EcranVille>, mode: Res<crate::view3d::ViewMode>, map: Res<GameMap>, territoire: Res<Territory>, positions: Query<&HexPos>, cities: Query<(&City, &HexPos)>, mut cadrer: MessageWriter<crate::ville_carte::CadrerVille>, mut vu: Local<(Option<Entity>, bool, bool, bool)>) {
     let echanges = ecran.ouvert() && ecran.placement.is_none() && couche_vue(&ecran) == Couche::Echanges;
-    let cle = (ecran.ville, mode.is_3d, echanges);
+    let cle = (ecran.ville, mode.is_3d, echanges, ecran.agrandi());
     if *vu == cle {
         return;
     }
@@ -1384,6 +1528,8 @@ fn commandes(
     (mode, mut cam3d, mut camera2d, mut cadrer, territoire, positions): (Res<crate::view3d::ViewMode>, ResMut<crate::view3d::Cam3d>, Single<&mut Projection, (With<Camera2d>, Without<crate::seam::GhostCamera>)>, MessageWriter<crate::ville_carte::CadrerVille>, Res<Territory>, Query<&HexPos>),
     (tiroir, achats, choix_couches, ouvrir_onglet, sujets): (Query<Ref<UiPointer>, With<BasculeTiroir>>, Query<Ref<UiPointer>, With<BasculeAchats>>, Query<(Ref<UiPointer>, &ChoixCouche)>, Query<(Ref<UiPointer>, &OuvrirOnglet)>, Query<(Ref<UiPointer>, &ChoixSujet)>),
     ressources: Query<(Ref<UiPointer>, &ChoixRessource)>,
+    bascule_remedes: Query<Ref<UiPointer>, With<BasculeRemedes>>,
+    agrandir: Query<Ref<UiPointer>, With<BasculeAgrandi>>,
     mut onglets: Query<(Ref<UiPointer>, &BoutonOnglet, &mut BorderColor, &Children)>,
     mut textes: Query<&mut TextColor>,
     zoom: Query<(Ref<UiPointer>, &BoutonZoom)>,
@@ -1444,6 +1590,9 @@ fn commandes(
     }
     if tiroir.iter().any(|i| appui(&i)) {
         ecran.basculer_tiroir();
+    }
+    if agrandir.iter().any(|i| appui(&i)) {
+        ecran.agrandi = !ecran.agrandi;
     }
     for (i, r) in &ressources {
         if appui(&i) {
@@ -1546,10 +1695,14 @@ fn commandes(
             ecran.catalogue_groupe = gr.0;
         }
     }
+    if bascule_remedes.iter().any(|i| appui(&i)) {
+        ecran.remedes_ouverts = !ecran.remedes_ouverts;
+    }
     for (i, r) in &remedes {
         if !appui(&i) {
             continue;
         }
+        ecran.remedes_ouverts = false;
         ecran.onglet = Onglet::Rendements;
         ecran.case = None;
         ecran.cible = None;
@@ -1558,6 +1711,12 @@ fn commandes(
                 ecran.catalogue = true;
                 ecran.catalogue_groupe = GroupeCatalogue::Amenagements;
                 ecran.placement = Some(a);
+            }
+            Remede::PlacerSur(a, h) => {
+                ecran.catalogue = true;
+                ecran.catalogue_groupe = GroupeCatalogue::Amenagements;
+                ecran.placement = Some(a);
+                ecran.cible = Some(h);
             }
             Remede::Detail(g) => {
                 ecran.catalogue = false;
@@ -1638,7 +1797,10 @@ fn carte_souris(
     mut appui: Local<Option<Vec2>>,
     mut montre: Local<Option<Hex>>,
     (time, mut dernier_clic, lignes): (Res<Time>, Local<(f64, Option<Hex>)>, Query<(&UiPointer, &LigneFile)>),
+    mut pilot: ResMut<crate::input::Pilot>,
 ) {
+    // (le pilote clique sur une case : le clic est pour l'écran, la carte du monde ne le voit pas)
+    let clic_pilote = if pilot.active && ecran.ouvert() { pilot.click.take() } else { None };
     let (bulle_e, mut bulle_node) = bulle.into_inner();
     let Some((city, centre)) = ecran.ville.and_then(|v| cities.get(v).ok().map(|c| (v, c))).map(|(v, (c, p))| ((v, c), p.0)) else {
         *appui = None;
@@ -1651,13 +1813,13 @@ fn carte_souris(
     let achats = if ecran.achats_caches { Vec::new() } else { cases_a_acheter(&map.0, centre, city.0, &territoire, &(&gisements, debug.0)) };
     // (les cases à acheter ne se choisissent pas pendant la construction)
     let construction = ecran.catalogue;
-    let souris = window.cursor_position();
+    let souris = window.cursor_position().or(pilot.active.then_some(Vec2::new(-1.0, -1.0)));
     let dessus = !over_ui.0 && souris.is_some();
     let sous = survole.0.filter(|_| dessus);
     let vise = sous.and_then(|h| cases.iter().find(|c| c.hex == h));
     let achat_sous = sous.and_then(|h| achats.iter().find(|a| a.hex == h)).filter(|_| !construction);
     // Clic droit en placement : revenir d'un cran (case choisie, puis aménagement)
-    if dessus && mouse.just_pressed(MouseButton::Right) && ecran.placement.is_some() {
+    if dessus && (mouse.just_pressed(MouseButton::Right) || clic_pilote == Some(MouseButton::Right)) && ecran.placement.is_some() {
         if ecran.cible.is_some() {
             ecran.cible = None;
         } else {
@@ -1668,8 +1830,8 @@ fn carte_souris(
     if dessus && mouse.just_pressed(MouseButton::Left) {
         *appui = souris;
     }
-    if mouse.just_released(MouseButton::Left) {
-        let clic = appui.take().zip(souris).is_some_and(|(a, b)| a.distance(b) < 5.0) && dessus;
+    if mouse.just_released(MouseButton::Left) || clic_pilote == Some(MouseButton::Left) {
+        let clic = clic_pilote == Some(MouseButton::Left) || appui.take().zip(souris).is_some_and(|(a, b)| a.distance(b) < 5.0) && dessus;
         if clic {
             if let Some(a) = ecran.placement {
                 // Placement : la case doit pouvoir porter l'aménagement ; double-clic : mise en file
@@ -1759,6 +1921,7 @@ fn couche_vue(ecran: &EcranVille) -> Couche {
 /// Couches proposées dans la barre de la carte, la première par défaut.
 fn couches_proposees(ecran: &EcranVille) -> Vec<Couche> {
     match (ecran.onglet, ecran.grandeur) {
+        (_, Some(Grandeur::Nourriture)) if !ecran.catalogue => vec![Couche::Quantite, Couche::Types, Couche::Amenagements],
         (_, Some(_)) if !ecran.catalogue => vec![Couche::Quantite, Couche::Amenagements, Couche::Emplois],
         (Onglet::Ressources, _) => vec![Couche::Gisements, Couche::Echanges, Couche::Amenagements],
         (Onglet::Rendements, _) => vec![Couche::Amenagements, Couche::Emplois],
@@ -1900,7 +2063,7 @@ fn reconstruire(
     let diagnostic = frein(&vl, &city, &cases);
     commands.entity(*entete).despawn_related::<Children>().with_children(|e| {
         en_tete(e, &city, prevision);
-        bandeau_frein(e, &diagnostic);
+        bandeau_frein(e, &diagnostic, ecran.remedes_ouverts);
         grandeurs(e, &city, state.tresor_joueur(), ecran.grandeur);
         jetons_besoins(e, &city);
     });
@@ -1948,7 +2111,7 @@ fn reconstruire(
     });
     // (graphiques du tiroir : sa largeur, sa hauteur ouverte moins la ligne du titre)
     let large_tiroir = (dispo.fenetre.x - dispo.gauche - dispo.droite - 4.0 * MARGE - 28.0).max(300.0);
-    let haut_tiroir = (dispo.tiroir - 74.0).max(120.0);
+    let haut_tiroir = (if ecran.agrandi() { (dispo.fenetre.y * 0.6).round() } else { dispo.tiroir } - 74.0).max(120.0);
     let mut dessiner = |c: crate::graphique::Courbe, taille: Vec2| {
         let tr = crate::graphique::Trace::new(&c, taille);
         let h = assets.add(crate::graphique::dessiner(&c, &tr, charte::TRAIT, charte::TEXTE));
@@ -1982,7 +2145,7 @@ fn reconstruire(
         }
         match ecran.onglet {
             Onglet::Rendements => file_et_projet(g, &city, false, &vl, &cases, ecran.file_choisie),
-            Onglet::Population => population(g, &city, &cases, prevision, ecran.sujet, ecran.grandeur),
+            Onglet::Population => population(g, &city, &cases, prevision, ecran.sujet, ecran.grandeur, diagnostic.remedes.iter().find(|r| r.net.is_some_and(|n| n > 0))),
             Onglet::Ressources => echanges_du_tour(g, &city, &partenaires),
             Onglet::Histoire => histoire(g, &city, &images, ecran.histoire_genre, choisie, state.turn),
         }
@@ -2054,6 +2217,7 @@ fn reconstruire(
             None => ModeCarte::Dominante,
         },
         Couche::Amenagements | Couche::Gisements | Couche::Echanges => ModeCarte::Dominante,
+        Couche::Types => ModeCarte::Types,
     };
     commands.entity(*couches_barre).despawn_related::<Children>().with_children(|b| {
         b.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), ..default() }, BackgroundColor(charte::FOND), children![texte("COUCHE", 11.5, charte::MUET)]));
@@ -2083,6 +2247,18 @@ fn reconstruire(
     let mut voulu = crate::ville_carte::CoucheVille { ouverte: true, centre: centre.0, ..default() };
     voulu.claires = cases.iter().map(|c| c.hex).chain(achats.iter().map(|a| a.hex)).collect();
     voulu.teintes = cases.iter().zip(&gains).map(|(c, g)| (c.hex, teinte(c, mode, g.as_ref()))).collect();
+    if mode == ModeCarte::Types {
+        // (le type dominant de la nourriture de chaque case travaillée ; sans nourriture : à peine)
+        voulu.teintes = cases
+            .iter()
+            .map(|c| {
+                let parts = intendant::parts_de_la_case(&map.0, c.hex, c.amenagement);
+                let (i, p) = parts.iter().enumerate().fold((0, 0.0), |m, (i, &p)| if p > m.1 { (i, p) } else { m });
+                let a = if c.rendement.nourriture > 0.05 && p > 0.0 { if c.travailleurs > 0 || c.centre { 0.5 } else { 0.22 } } else { 0.0 };
+                (c.hex, if a > 0.0 { COULEURS_TYPES[i].with_alpha(a) } else { Color::srgba(0.0, 0.0, 0.0, 0.15) })
+            })
+            .collect();
+    }
     if couche == Couche::Gisements && ecran.placement.is_none() {
         // (les cases d'un gisement en couleur, les autres à peine)
         voulu.teintes = cases.iter().map(|c| (c.hex, if c.gisement.is_some() { GISEMENT.with_alpha(0.45) } else { Color::srgba(0.0, 0.0, 0.0, 0.15) })).collect();
@@ -2251,7 +2427,7 @@ fn teinte(c: &CaseVue, mode: ModeCarte, gain: Option<&(GainAmenagement, Evaluati
             let part = c.remplissage();
             (if part >= 0.9 { Color::srgb(0.62, 0.55, 0.92) } else { charte::OK }).with_alpha(0.18 + 0.42 * part)
         }
-        ModeCarte::Dominante | ModeCarte::Histoire => match c.dominante() {
+        ModeCarte::Dominante | ModeCarte::Histoire | ModeCarte::Types => match c.dominante() {
             Some(g) => g.couleur().with_alpha(if c.travailleurs > 0 { 0.32 } else { 0.12 }),
             None => Color::NONE,
         },
@@ -2489,6 +2665,13 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         l.spawn(texte(format!("chiffres : valeur (effet réel dans {TOURS_EFFET} tours : nourriture utile, jusqu'à {} × le besoin, + production + deniers), puis ce qui la compose", rules::decimal(bareme.plafond)), 12.0, charte::MUET));
         return;
     }
+    if mode == ModeCarte::Types {
+        for (couleur, nom) in COULEURS_TYPES.iter().zip(["céréales et féculents", "protéines", "fruits et légumes"]) {
+            pastille(l, *couleur, nom);
+        }
+        l.spawn(texte("type de nourriture de chaque case (pâle : personne n'y travaille) · un type compte à partir de 15 % du besoin", 12.5, charte::MUET));
+        return;
+    }
     if let ModeCarte::Grandeur(g, _) = mode {
         pastille(l, melange(charte::SURFACE, g.couleur(), 0.15), "faible");
         pastille(l, melange(charte::SURFACE, g.couleur(), 0.68), "fort");
@@ -2692,25 +2875,48 @@ fn delai(c: &rules::CityState, par_tour: f64) -> String {
     }
 }
 
-/// Sous l'en-tête : ce qui freine la croissance, ses remèdes, les autres alertes.
-fn bandeau_frein(e: &mut ChildSpawnerCommands, f: &Frein) {
-    e.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)), border_radius: BorderRadius::all(Val::Px(8.0)), ..default() }, BackgroundColor(charte::SURFACE))).with_children(|b| {
-        b.spawn(Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
-            l.spawn((Node { width: Val::Px(9.0), height: Val::Px(9.0), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() }, BackgroundColor(f.etat.couleur())));
-            l.spawn(texte("Ce qui freine la croissance :", 13.5, charte::TEXTE));
-            l.spawn(texte(f.texte.clone(), 13.5, f.etat.couleur()));
+/// Sous l'en-tête : ce qui freine la croissance (ce tour, à terme, les emplois), le remède le plus
+/// rentable, et les autres dépliés par-dessus le panneau.
+fn bandeau_frein(e: &mut ChildSpawnerCommands, f: &Frein, ouverts: bool) {
+    e.spawn((Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)), border: UiRect::left(Val::Px(3.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() }, BackgroundColor(charte::SURFACE), BorderColor::all(f.etat.couleur()))).with_children(|b| {
+        let ligne = |b: &mut ChildSpawnerCommands, nom: &str, (t, couleur): &(String, Color)| {
+            b.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|l| {
+                l.spawn((Node { width: Val::Px(58.0), flex_shrink: 0.0, ..default() }, children![texte(nom, 12.0, charte::MUET)]));
+                l.spawn((Node { flex_grow: 1.0, min_width: Val::Px(0.0), ..default() }, children![texte(t.clone(), 12.5, *couleur)]));
+            });
+        };
+        ligne(b, "Ce tour", &f.ce_tour);
+        ligne(b, "À terme", &f.a_terme);
+        if let Some(x) = &f.emplois {
+            ligne(b, "Emplois", x);
+        }
+        for (etat, t, _) in &f.alertes {
+            ligne(b, "Aussi", &(t.clone(), etat.couleur()));
+        }
+        // Le remède le plus rentable ; les autres dépliés par-dessus (la file reste visible)
+        let principal = f.remedes.iter().position(|r| r.net.is_some_and(|n| n > 0)).or((!f.remedes.is_empty()).then_some(0));
+        b.spawn(Node { column_gap: Val::Px(6.0), align_items: AlignItems::Center, margin: UiRect::top(Val::Px(3.0)), ..default() }).with_children(|l| {
+            if let Some(i) = principal {
+                bouton_remede(l, &f.remedes[i], true);
+            }
+            let autres = f.remedes.len().saturating_sub(principal.map_or(0, |_| 1));
+            if autres > 0 {
+                l.spawn((BasculeRemedes, bouton(Color::NONE), children![texte(format!("{autres} autre{} {}", if autres > 1 { "s" } else { "" }, if ouverts { "−" } else { "+" }), 12.5, charte::DOUX)]));
+            }
         });
-        // (ligne toujours là : les onglets dessous ne bougent pas quand des remèdes apparaissent)
-        {
-            b.spawn(Node { column_gap: Val::Px(6.0), row_gap: Val::Px(6.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, min_height: Val::Px(26.0), ..default() }).with_children(|l| {
-                if !f.remedes.is_empty() {
-                    l.spawn(texte("Remèdes :", 12.5, charte::MUET));
-                }
-                for (r, t) in &f.remedes {
-                    l.spawn((BoutonRemede(*r), bouton(Color::NONE), children![texte(t.clone(), 12.5, charte::AMENAGEMENT)]));
-                }
-                for (etat, t, r) in &f.alertes {
-                    l.spawn((BoutonRemede(*r), bouton(Color::NONE), children![texte(t.clone(), 12.5, etat.couleur())]));
+        if ouverts {
+            b.spawn((
+                Node { position_type: PositionType::Absolute, top: Val::Percent(100.0), left: Val::Px(0.0), right: Val::Px(0.0), flex_direction: FlexDirection::Column, row_gap: Val::Px(5.0), padding: UiRect::all(Val::Px(8.0)), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(8.0)), ..default() },
+                BackgroundColor(charte::FOND),
+                BorderColor::all(charte::TRAIT2),
+                GlobalZIndex(97),
+            ))
+            .with_children(|o| {
+                o.spawn(texte("AUTRES REMÈDES · effet net sur la croissance, calculé par le jeu", 11.0, charte::MUET));
+                for (i, r) in f.remedes.iter().enumerate() {
+                    if Some(i) != principal {
+                        bouton_remede(o, r, false);
+                    }
                 }
             });
         }
@@ -2771,7 +2977,7 @@ fn ligne_valeur(p: &mut ChildSpawnerCommands, libelle: &str, valeur: String, cou
 }
 
 /// Onglet Population : indicateurs, évolution et limites, mouvement, cultures et ordres.
-fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], prevision: &[rules::Pas], sujet: Option<Sujet>, grandeur: Option<Grandeur>) {
+fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], prevision: &[rules::Pas], sujet: Option<Sujet>, grandeur: Option<Grandeur>, remede: Option<&RemedeNet>) {
     let c = &city.state;
     let y = city.travail.rendements;
     let cr = c.croissance(y);
@@ -2828,6 +3034,13 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], prev
             l.spawn(texte(format!("{}{}", if variation >= 0 { "+" } else { "−" }, rules::milliers(variation.unsigned_abs())), 14.0, if variation < 0 { charte::GRAVE } else { charte::TEXTE }));
         });
     });
+    // Le remède le plus rentable (le même que sous « Ce qui freine »)
+    if let Some(r) = remede.filter(|r| r.net.is_some_and(|n| n > 0)) {
+        g.spawn((Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() }, BackgroundColor(charte::SURFACE))).with_children(|l| {
+            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("Le plus rentable :", 12.5, charte::DOUX)]));
+            bouton_remede(l, r, true);
+        });
+    }
     // À terme : la prévision du jeu
     titre_section(g, "À TERME".into(), "PRÉVISION DU JEU");
     let nourriture = limite_nourriture(cases, c);
