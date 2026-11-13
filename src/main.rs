@@ -18,6 +18,7 @@ mod config_partie;
 mod console;
 mod currents;
 mod debug_cmd;
+mod echanges;
 mod ecran_ville;
 mod erosion;
 mod explore;

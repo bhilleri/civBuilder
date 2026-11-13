@@ -3022,6 +3022,16 @@ fn gisements_de_la_ville(g: &mut ChildSpawnerCommands, city: &City, cases: &[Cas
             let couleur = if couv >= 0.999 { charte::OK } else if couv > 0.0 { charte::ALERTE } else { charte::MUET };
             ligne_valeur(p, &format!("{} · demande {} par tour", capitale(r.nom()), quantite(c.demande(r))), format!("couvert {:.0} % · {effet}", couv * 100.0), couleur);
         }
+        // Échanges du dernier tour avec les autres villes (5i)
+        for x in &c.echanges {
+            let (sens, couleur) = if x.recu { (format!("Reçu de {}", x.ville), charte::OK) } else { (format!("Donné à {}", x.ville), charte::DOUX) };
+            let contre = match x.contre {
+                Some((r, q)) => format!("contre {} de {}", quantite(q), r.nom()),
+                None if x.recu => "un don".to_string(),
+                None => "un don (elle n'avait rien à offrir)".to_string(),
+            };
+            ligne_valeur(p, &format!("{sens} · {} de {}", quantite(x.qte), x.ressource.nom()), contre, couleur);
+        }
         let usages: Vec<String> = connus.iter().filter_map(|c| c.gisement).fold(Vec::new(), |mut v, r| {
             if !v.contains(&r) {
                 v.push(r);

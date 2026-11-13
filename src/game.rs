@@ -795,6 +795,40 @@ fn end_turn(
             None => {}
         }
     }
+    // Échanges entre les villes (5i) : la ville qui manque reçoit d'une ville reliée qui a en
+    // trop, par troc ou par don
+    {
+        use crate::gisements::{N_RESSOURCES, Ressource};
+        let mut villes: Vec<crate::echanges::VilleEchange> = list
+            .iter()
+            .map(|(_, center, city)| {
+                let s = &city.state;
+                let eau = s.site.eau_courante || s.site.lac || std::iter::once(*center).chain(map.neighbors(*center)).any(|h| map.get(map.canonical(h)).is_some_and(|t| t.is_water()));
+                let mut stock = [0.0; N_RESSOURCES];
+                let mut demande = [0.0; N_RESSOURCES];
+                for r in Ressource::TOUTES {
+                    stock[r.index()] = s.ressource(r);
+                    demande[r.index()] = s.demande_echange(r);
+                }
+                crate::echanges::VilleEchange { centre: *center, eau, stock, demande }
+            })
+            .collect();
+        let distance = |a: Hex, b: Hex| map.distance(a, b);
+        let reseau = crate::echanges::reseaux(&villes, distance);
+        let transferts = crate::echanges::echanger(&mut villes, &reseau, distance);
+        let noms: Vec<String> = list.iter().map(|(_, _, c)| c.state.name.clone()).collect();
+        for (k, (_, _, city)) in list.iter_mut().enumerate() {
+            city.state.ressources = villes[k].stock.to_vec();
+            city.state.echanges = transferts
+                .iter()
+                .filter(|t| t.de == k || t.vers == k)
+                .map(|t| {
+                    let recu = t.vers == k;
+                    rules::EchangeVu { ville: noms[if recu { t.de } else { t.vers }].clone(), ressource: t.ressource, qte: t.qte, recu, contre: t.contre }
+                })
+                .collect();
+        }
+    }
     drop(list);
 
     // 2) Unités : soins, PM restaurés, puis poursuite des ordres de déplacement.

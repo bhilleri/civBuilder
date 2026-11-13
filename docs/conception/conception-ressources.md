@@ -253,6 +253,47 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   fleuves et cabotage. Ce qui attend le bronze : les marchands, les prix, les poids, les routes
   longues (l'étain ; Kanesh, Uluburun). Trois couches proposées, à décider (C1 à C3).
 
+### Échanges : avis du joueur, de l'économiste et du game designer, et décisions (13/11/2026)
+- **Contre-don (unanime)** : option A, à valeur égale (une unité pour une, « 120 % » serait une
+  pompe : donner 10, recevoir 12…) ; le gain est l'**accès** à une ressource qu'on n'a pas, et la
+  relation pour un objet de prestige (plafonnée) ; le contre-don vient du surplus réel de l'autre ;
+  un échange en cours par partenaire.
+- **Partage** : délai inutile (1 tour ≈ 1 mois) ; portée simple de 6 cases, 9 si les deux villes
+  sont au bord de l'eau (fleuve, rivière, lac, mer), de proche en proche ; pas de perte (le joueur
+  et le game designer : calcul invisible ; l'économiste l'aurait gardée). Stock borné : une ville
+  garde une **réserve de 6 tours** de sa demande et n'échange que ce qui dépasse ; au-delà de **12
+  tours**, la production est perdue ; la ville qui manque le plus est servie d'abord, puis la plus
+  proche.
+- **Décision de Benjamin : partir de la demande.** La ville qui a besoin d'une ressource la demande
+  à une ville qui en a en trop ; celle-ci **tente de l'échanger** contre ce qui lui manque ; si
+  l'autre n'a rien à offrir, **elle la donne** (même peuple). Entre peuples (et avec les villages
+  indépendants), c'est **le joueur qui est prévenu du besoin et qui négocie** : au Néolithique, il y
+  a peu de villes, et ça ajoute du jeu. Le joueur a un **tableau de bord des ressources** (où en est
+  chaque ressource dans le pays et dans chaque ville) qui ne masque pas la carte, et une **carte de
+  la disponibilité** des ressources ; il est **notifié des besoins**.
+- Idée de Benjamin, pour plus tard (étape 6, société) : une **relation entre les villes** selon la
+  culture, le pays, la religion et leurs interactions, qui réglerait leurs échanges. Deux mesures
+  (Benjamin) : l'**opinion** (deux villes s'entendent bien) et la **faveur** (une ville est
+  redevable à une autre ; un don sans contrepartie la crée).
+- Ordre : échanges entre ses villes, tableau de bord et carte, notifications ; puis la négociation
+  avec les villages ; les peuples rivaux et les cités-États avec leur étape ; le marché avec prix à
+  l'âge du bronze.
+
+### Fait le 13/11/2026 : échanges entre les villes (5i, première partie)
+- `echanges.rs` : `VilleEchange` (centre, au bord de l'eau, stock, demande), `reseaux` (villes
+  reliées à `PORTEE` = 6 cases, `PORTEE_EAU` = 9 si toutes deux au bord de l'eau, de proche en
+  proche), `echanger` : par ressource, les villes qui ont moins de `TOURS_VISES` = 2 tours de leur
+  demande, celle qui en a le moins d'abord ; elles reçoivent des villes du même réseau (la plus
+  proche d'abord) ce qui dépasse leur réserve (`TOURS_RESERVE` = 6 tours) ; la donneuse prend en
+  échange, une unité pour une, la première ressource qui lui manque et que l'autre a en trop ;
+  sinon, c'est un don. `plafond` : 12 tours de la demande, 20 unités sans demande.
+- Jeu : en fin de tour, après l'extraction et la consommation de chaque ville (`game::end_turn`) ;
+  `CityState::echanges` (reçu, donné, contrepartie) affichés dans le panneau « Gisements et
+  ressources » ; `demande_echange` : les outils pèsent sur le silex (simplification : la pierre
+  dure et l'obsidienne n'y sont pas demandées).
+- Pas encore : tableau de bord des ressources, carte de la disponibilité, notifications de besoin ;
+  opinion et faveur entre villes ; négociation avec les villages.
+
 ### Fait le 13/11/2026 : outils (5h)
 - `Ressource::niveau_outil` : 1 pour le silex, la pierre dure et l'obsidienne (2 cuivre, 3 bronze,
   4 fer viendront avec leurs gisements) ; `BONUS_OUTILS` = +10 / +15 / +20 / +25 %.

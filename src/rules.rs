@@ -1067,6 +1067,25 @@ pub struct CityState {
     /// La ville a son sanctuaire (et s'il est mégalithique).
     #[serde(default)]
     pub sanctuaire: Option<bool>,
+    /// Usure des outils au dernier tour (demande d'outils).
+    #[serde(default)]
+    pub demande_outils_tour: f64,
+    /// Échanges du dernier tour avec les autres villes (reçu, donné, contrepartie).
+    #[serde(default)]
+    pub echanges: Vec<EchangeVu>,
+}
+
+/// Un échange du dernier tour, vu d'une ville.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EchangeVu {
+    /// L'autre ville.
+    pub ville: String,
+    pub ressource: crate::gisements::Ressource,
+    pub qte: f64,
+    /// Reçue (sinon donnée) par cette ville.
+    pub recu: bool,
+    /// Contrepartie (ressource, quantité), dans l'autre sens ; aucune : un don.
+    pub contre: Option<(crate::gisements::Ressource, f64)>,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1145,7 +1164,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None, demande_outils_tour: 0.0, echanges: Vec::new() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1244,6 +1263,7 @@ impl CityState {
         use crate::gisements::{N_RESSOURCES, Ressource};
         self.ressources.resize(N_RESSOURCES, 0.0);
         let d = Self::demande_outils(travailleurs_amenages);
+        self.demande_outils_tour = d;
         if d <= 0.0 {
             self.bonus_outils = 0.0;
             self.couverture_outils = 0.0;
@@ -1281,6 +1301,16 @@ impl CityState {
             self.ressources[i] -= pris;
             self.couverture[i] = pris / d;
         }
+        // Stock borné : au-delà de 12 tours de la demande, ce qui est produit en trop se perd
+        for r in Ressource::TOUTES {
+            let i = r.index();
+            self.ressources[i] = self.ressources[i].min(crate::echanges::plafond(self.demande_echange(r)));
+        }
+    }
+
+    /// Demande d'une ressource vue par les échanges : les outils pèsent sur le silex.
+    pub fn demande_echange(&self, r: crate::gisements::Ressource) -> f64 {
+        if r == crate::gisements::Ressource::Silex { self.demande_outils_tour } else { self.demande(r) }
     }
 
     /// Part du malus de manque de vêtements selon la taille (0 sous 2 000 habitants, 1 à 10 000).
@@ -1453,6 +1483,8 @@ impl CityState {
             bonus_outils: self.bonus_outils,
             couverture_outils: self.couverture_outils,
             sanctuaire: self.sanctuaire,
+            demande_outils_tour: self.demande_outils_tour,
+            echanges: Vec::new(),
         }
     }
 
@@ -1785,6 +1817,22 @@ mod tests {
         let avec = CityState { consignes: sans.consignes.clone(), ..avec };
         let (a, b) = (repartition_ville(&map, centre, &sans, &cases).rendements.nourriture, repartition_ville(&map, centre, &avec, &cases).rendements.nourriture);
         assert!(b > a, "{a} → {b}");
+    }
+
+    #[test]
+    fn le_stock_est_borne_a_douze_tours_de_la_demande() {
+        use crate::gisements::Ressource;
+        let mut c = CityState::new("Plafond".into());
+        c.habitants = 10_000;
+        // Sel : demande 1 par tour ; 50 en stock → 1 consommé, puis 12 gardés au plus
+        c.ajouter_ressource(Ressource::Sel, 50.0);
+        c.ajouter_ressource(Ressource::BoisOeuvre, 50.0);
+        c.consommer_ressources();
+        assert!((c.ressource(Ressource::Sel) - 12.0).abs() < 1e-9);
+        assert_eq!(c.ressource(Ressource::BoisOeuvre), crate::echanges::PLAFOND_SANS_DEMANDE);
+        // Les outils pèsent sur le silex
+        c.consommer_outils(4_000);
+        assert!((c.demande_echange(Ressource::Silex) - 0.2).abs() < 1e-9);
     }
 
     #[test]
