@@ -702,7 +702,9 @@ fn end_turn(
                 city.state.ajouter_ressource(r, unites);
             }
         }
-        // Besoins de base et luxe : la ville prend dans son stock ce que demandent ses habitants (5g)
+        // Outils (5h), puis besoins de base et luxe (5g) : la ville prend dans son stock
+        let amenages: u32 = amenagements.0.keys().filter(|h| territory.0.get(*h) == Some(entity)).map(|h| city.travail.sur(*h)).sum();
+        city.state.consommer_outils(amenages);
         city.state.consommer_ressources();
         // Histoire de la ville : paliers, famines, constructions marquantes
         if report.grew {

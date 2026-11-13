@@ -108,12 +108,12 @@ impl Ressource {
     pub const fn usage(self) -> &'static str {
         match self {
             Ressource::Sel => "besoin de base : salubrité, conservation de la viande et du poisson",
-            Ressource::Silex => "outils de pierre (niveau 1) ; faucilles",
-            Ressource::Obsidienne => "outils de pierre (niveau 1) ; luxe",
-            Ressource::PierreDure => "outils de pierre (niveau 1) ; meules, mégalithes",
-            Ressource::Ocre => "luxe (parure, peinture)",
+            Ressource::Silex => "outils de pierre (niveau 1)",
+            Ressource::Obsidienne => "outils de pierre (niveau 1) et luxe fin",
+            Ressource::PierreDure => "outils de pierre (niveau 1) ; meules, mégalithes plus tard",
+            Ressource::Ocre => "luxe commun (parure, peinture)",
             Ressource::Plantes => "santé (salubrité)",
-            Ressource::Parures => "luxe",
+            Ressource::Parures => "luxe rare",
             Ressource::Fibres => "besoin de base : vêtements",
             Ressource::BoisOeuvre => "matériau : grands bâtiments, navires",
         }
@@ -127,6 +127,15 @@ impl Ressource {
     /// habitants (décision B2).
     pub const fn besoin_de_base(self) -> bool {
         matches!(self, Ressource::Sel | Ressource::Fibres | Ressource::Plantes)
+    }
+
+    /// Niveau d'outil de la ressource (1 pierre, 2 cuivre, 3 bronze, 4 fer ; décision du 12/11) :
+    /// seul le niveau 1 existe au Néolithique.
+    pub const fn niveau_outil(self) -> Option<u8> {
+        match self {
+            Ressource::Silex | Ressource::PierreDure | Ressource::Obsidienne => Some(1),
+            _ => None,
+        }
     }
 
     /// Rang de luxe : bien-être d'une sorte couverte (commun +2, fin +4, rare +6 ; décision B3).

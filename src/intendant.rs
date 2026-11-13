@@ -624,6 +624,8 @@ pub struct CaseDispo {
     pub capacite: u32,
     /// Distance au centre de la ville (en cases).
     pub distance: i32,
+    /// Case aménagée (les outils y améliorent le rendement, 5h).
+    pub amenagee: bool,
 }
 
 /// Travailleurs placés par l'intendant.
@@ -800,7 +802,7 @@ mod tests {
     }
 
     fn case(col: i32, max: Rendements, capacite: u32) -> CaseDispo {
-        CaseDispo { hex: Hex::from_offset(col, 0), max, parts: [1.0, 0.0, 0.0], sortes: [None; 3], capacite, distance: 1 }
+        CaseDispo { hex: Hex::from_offset(col, 0), max, parts: [1.0, 0.0, 0.0], sortes: [None; 3], capacite, distance: 1, amenagee: false }
     }
 
     #[test]

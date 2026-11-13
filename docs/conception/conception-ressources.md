@@ -236,6 +236,19 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
   case) ; la répartition des sortes dans le monde à surveiller.
 
+### Fait le 13/11/2026 : outils (5h)
+- `Ressource::niveau_outil` : 1 pour le silex, la pierre dure et l'obsidienne (2 cuivre, 3 bronze,
+  4 fer viendront avec leurs gisements) ; `BONUS_OUTILS` = +10 / +15 / +20 / +25 %.
+- Usure (`demande_outils`) : 0,05 par tour pour 1 000 travailleurs des cases aménagées (correction
+  consensuelle du 13/11). `consommer_outils` (fin du tour, avant les besoins) prend le meilleur
+  niveau d'abord, un niveau inférieur couvrant le reste (par tranches) ; le bonus est la somme des
+  tranches (`CityState::bonus_outils`), appliqué au tour suivant aux cases aménagées dans
+  `repartition_ville` : l'intendant, les rendements du tour et la prévision le voient.
+- Choix provisoire (à valider) : dans le niveau 1, le silex, puis la pierre dure, puis
+  l'obsidienne, qui sert aussi au luxe ; les outils passent avant le luxe.
+- Pas de bonus propre du silex (faucilles supprimées : doublon avec son niveau d'outil). La pierre
+  dure gardera ses meules et ses mégalithes avec les bâtiments.
+
 ### Fait le 13/11/2026 : besoins de base et luxe (5g, décisions B1 à B4)
 - Demande par tour (`CityState::demande`) : 0,1 pour 1 000 habitants pour le sel, les fibres et
   peaux et les plantes médicinales (B2) ; 0,1 par palier pour une sorte de luxe (B3). En fin de

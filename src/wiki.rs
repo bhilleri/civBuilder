@@ -872,7 +872,11 @@ fn cities() -> Article {
                plantes médicinales +3 ; sans fibres et peaux, le manque de vêtements coûte jusqu'à −10 de salubrité, \
                progressivement entre 2 000 et 10 000 habitants (une petite communauté se vêt elle-même). Luxe (0,1 par tour \
                et par palier) : ocre +2 de bien-être (commun), obsidienne +4 (fin), pierres et parures +6 (rare), au plus \
-               +16 ; chaque effet au prorata de la part couverte. Outils et matériaux viendront ensuite."),
+               +16 ; chaque effet au prorata de la part couverte. Outils : les travailleurs des cases aménagées usent 0,05 \
+               d'outils par tour pour 1 000 ; couverts, ces cases rendent +10 % avec des outils de pierre (silex, pierre \
+               dure, puis obsidienne, qui sert aussi au luxe), plus tard +15 % (cuivre), +20 % (bronze), +25 % (fer). Le \
+               meilleur niveau couvre d'abord, un niveau inférieur le reste, chacun pour sa part. Les matériaux viendront \
+               ensuite."),
             p("Types de nourriture : un champ donne des céréales et féculents ; un pâturage ou des légumineuses, des \
                protéines ; un jardin, des fruits et légumes ; une case non aménagée, selon son biome (forêt : gibier et \
                baies ; prairie, steppe, savane : graines sauvages et gibier ; l'eau : du poisson) ; le centre de la ville, \

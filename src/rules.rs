@@ -581,7 +581,7 @@ pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: 
         .filter(|&h| h != center && !taken.contains(&h) && map.contains(h))
         .map(|h| {
             let a = amenagements.get(&h).copied();
-            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), sortes: intendant::sortes_de_la_case(map, h, a), capacite: intendant::capacite(map, h, a), distance: map.distance(center, h) }
+            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), sortes: intendant::sortes_de_la_case(map, h, a), capacite: intendant::capacite(map, h, a), distance: map.distance(center, h), amenagee: a.is_some() }
         })
         .collect();
     cases.sort_by_key(|c| c.hex);
@@ -665,6 +665,11 @@ pub const SALUBRITE_PLANTES: f64 = 3.0;
 pub const SALUBRITE_VETEMENTS_MAX: f64 = 10.0;
 pub const VETEMENTS_DEBUT: f64 = 2_000.0;
 pub const VETEMENTS_PLEIN: f64 = 10_000.0;
+/// Outils (5h ; décisions du 12 et du 13/11) : bonus des cases aménagées par niveau (pierre,
+/// cuivre, bronze, fer), usure par tour pour 1 000 travailleurs des cases aménagées.
+pub const BONUS_OUTILS: [f64; 4] = [0.10, 0.15, 0.20, 0.25];
+pub const USURE_OUTILS: f64 = 0.05;
+
 /// Bien-être du luxe au plus (toutes sortes couvertes).
 pub const BIEN_ETRE_LUXE_MAX: f64 = 16.0;
 
@@ -756,6 +761,15 @@ impl Croissance {
 
 /// Travailleurs de la ville placés par l'intendant, et son rendement total (centre compris).
 pub fn repartition_ville(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo]) -> Repartition {
+    // Outils (5h) : les cases aménagées rendent plus, selon la couverture du dernier tour
+    let k = 1.0 + city.bonus_outils;
+    let outilles: Vec<CaseDispo>;
+    let cases = if city.bonus_outils > 0.0 {
+        outilles = cases.iter().map(|c| if c.amenagee { CaseDispo { max: c.max.fois(k), ..*c } } else { *c }).collect();
+        &outilles[..]
+    } else {
+        cases
+    };
     intendant::repartir_avec(cases, intendant::actifs(city.habitants), city.besoin_nourriture(), Rendements::from(center_yields(map, center)), intendant::sortes_du_centre(map, center), &city.consignes)
 }
 
@@ -795,6 +809,7 @@ pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo
             {
                 c.max = intendant::rendement_max(map, hex, Some(kind));
                 c.capacite = intendant::capacite(map, hex, Some(kind));
+                c.amenagee = true;
             }
             Pas { habitants: st.habitants, rendements: r.rendements, variation: v, chomeurs: r.chomeurs, bien_etre: st.bien_etre }
         })
@@ -1030,6 +1045,12 @@ pub struct CityState {
     /// `Ressource::TOUTES`) : les besoins de base et le luxe en dépendent (5g).
     #[serde(default)]
     pub couverture: Vec<f64>,
+    /// Bonus des outils au dernier tour (0 à 0,25) : rendement des cases aménagées en plus (5h).
+    #[serde(default)]
+    pub bonus_outils: f64,
+    /// Part de la demande d'outils couverte au dernier tour (0 à 1).
+    #[serde(default)]
+    pub couverture_outils: f64,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1108,7 +1129,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0 }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1187,6 +1208,39 @@ impl CityState {
     /// Part de la demande couverte au dernier tour.
     pub fn couverture(&self, r: crate::gisements::Ressource) -> f64 {
         self.couverture.get(r.index()).copied().unwrap_or(0.0)
+    }
+
+    /// Demande d'outils par tour : leur usure par les travailleurs des cases aménagées.
+    pub fn demande_outils(travailleurs_amenages: u32) -> f64 {
+        USURE_OUTILS * f64::from(travailleurs_amenages) / 1_000.0
+    }
+
+    /// Fin du tour, avant les besoins : les outils s'usent sur les cases aménagées ; la ville les
+    /// remplace de son stock, le meilleur niveau d'abord, un niveau inférieur couvrant le reste
+    /// (par tranches) ; le bonus du tour suivant est la somme des tranches. L'obsidienne passe
+    /// après le silex et la pierre dure (elle sert aussi au luxe).
+    pub fn consommer_outils(&mut self, travailleurs_amenages: u32) {
+        use crate::gisements::{N_RESSOURCES, Ressource};
+        self.ressources.resize(N_RESSOURCES, 0.0);
+        let d = Self::demande_outils(travailleurs_amenages);
+        if d <= 0.0 {
+            self.bonus_outils = 0.0;
+            self.couverture_outils = 0.0;
+            return;
+        }
+        let ordre = [Ressource::Silex, Ressource::PierreDure, Ressource::Obsidienne];
+        let mut reste = d;
+        let mut bonus = 0.0;
+        for niveau in (1..=4u8).rev() {
+            for r in ordre.iter().copied().filter(|r| r.niveau_outil() == Some(niveau)) {
+                let pris = self.ressources[r.index()].min(reste);
+                self.ressources[r.index()] -= pris;
+                reste -= pris;
+                bonus += pris / d * BONUS_OUTILS[usize::from(niveau) - 1];
+            }
+        }
+        self.couverture_outils = (d - reste) / d;
+        self.bonus_outils = bonus;
     }
 
     /// Fin du tour : la ville prend dans son stock ce que demandent ses habitants ; la part
@@ -1374,6 +1428,8 @@ impl CityState {
             stock: self.stock.clone(),
             ressources: self.ressources.clone(),
             couverture: self.couverture.clone(),
+            bonus_outils: self.bonus_outils,
+            couverture_outils: self.couverture_outils,
         }
     }
 
@@ -1637,6 +1693,42 @@ mod tests {
         grande.site.lac = true;
         grande.site.paturages = 14;
         assert_eq!(grande.salubrite(), 50.0, "+5 de lac, −10 de bétail au plus");
+    }
+
+    #[test]
+    fn les_outils_s_usent_et_ameliorent_les_cases_amenagees() {
+        use crate::gisements::Ressource;
+        let mut c = CityState::new("Outils".into());
+        // 2 000 travailleurs aux aménagements : 0,1 d'usure par tour
+        assert!((CityState::demande_outils(2_000) - 0.1).abs() < 1e-9);
+        // Sans outils : rien
+        c.consommer_outils(2_000);
+        assert_eq!((c.bonus_outils, c.couverture_outils), (0.0, 0.0));
+        // Le silex pour moitié, l'obsidienne (après le silex) pour le reste : couvert, +10 %
+        c.ajouter_ressource(Ressource::Silex, 0.05);
+        c.ajouter_ressource(Ressource::Obsidienne, 1.0);
+        c.consommer_outils(2_000);
+        assert!((c.couverture_outils - 1.0).abs() < 1e-9 && (c.bonus_outils - 0.10).abs() < 1e-9);
+        assert!(c.ressource(Ressource::Silex).abs() < 1e-9 && (c.ressource(Ressource::Obsidienne) - 0.95).abs() < 1e-9);
+        c.ressources.iter_mut().for_each(|q| *q = 0.0);
+        c.ajouter_ressource(Ressource::PierreDure, 0.05);
+        c.consommer_outils(2_000);
+        assert!((c.couverture_outils - 0.5).abs() < 1e-9 && (c.bonus_outils - 0.05).abs() < 1e-9);
+        // L'intendant voit les cases aménagées rendre plus
+        let map = WorldMap::filled(8, 8, Terrain::Grassland);
+        let centre = Hex::from_offset(3, 3);
+        let h = Hex::from_offset(4, 3);
+        let mut amen = std::collections::BTreeMap::new();
+        amen.insert(h, Amenagement::Champ);
+        let cases = cases_de_la_ville(&map, centre, &[h], &HashSet::new(), &amen);
+        assert!(cases[0].amenagee);
+        let mut sans = CityState::new("Sans".into());
+        sans.habitants = 4_000;
+        let avec = CityState { bonus_outils: 0.10, ..sans.clone() };
+        sans.consignes.objectif = intendant::ObjectifNourriture::Excedent;
+        let avec = CityState { consignes: sans.consignes.clone(), ..avec };
+        let (a, b) = (repartition_ville(&map, centre, &sans, &cases).rendements.nourriture, repartition_ville(&map, centre, &avec, &cases).rendements.nourriture);
+        assert!(b > a, "{a} → {b}");
     }
 
     #[test]

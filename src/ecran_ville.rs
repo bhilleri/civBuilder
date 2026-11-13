@@ -481,6 +481,7 @@ impl<'a> Ville<'a> {
         if let Some(c) = dispo.iter_mut().find(|c| c.hex == h) {
             c.max = intendant::rendement_max(self.map, h, Some(a));
             c.capacite = intendant::capacite(self.map, h, Some(a));
+            c.amenagee = true;
         }
         let mut sans_file = self.etat.allege();
         sans_file.file.clear();
@@ -2962,6 +2963,11 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
     }
 }
 
+/// Quantité de ressource : deux décimales sous 1 (une usure de 0,04 par tour ne s'écrit pas 0,0).
+fn quantite(x: f64) -> String {
+    if x.abs() < 1.0 && x != 0.0 { format!("{x:.2}").replace('.', ",") } else { rules::decimal(x) }
+}
+
 /// Panneau « Gisements et ressources » : les gisements connus du territoire, ce que chaque
 /// exploitation tire par tour, et le stock de la ville (son usage viendra avec les livraisons
 /// suivantes).
@@ -2976,31 +2982,43 @@ fn gisements_de_la_ville(g: &mut ChildSpawnerCommands, city: &City, cases: &[Cas
         for c in &connus {
             let r = c.gisement.expect("gisement connu");
             let valeur = if c.amenagement == Some(Amenagement::Exploitation) {
-                format!("{} par tour ({} / {} travailleurs)", rules::decimal(intendant::unites_extraites(c.travailleurs, c.capacite)), rules::milliers(u64::from(c.travailleurs)), rules::milliers(u64::from(c.capacite)))
+                format!("{} par tour ({} / {} travailleurs)", quantite(intendant::unites_extraites(c.travailleurs, c.capacite)), rules::milliers(u64::from(c.travailleurs)), rules::milliers(u64::from(c.capacite)))
             } else {
                 "pas exploité".to_string()
             };
             ligne_valeur(p, &format!("{} · {}", capitale(r.nom()), c.nom.to_lowercase()), valeur, if c.amenagement == Some(Amenagement::Exploitation) { charte::OK } else { charte::MUET });
         }
         if !stock.is_empty() {
-            let liste: Vec<String> = stock.iter().map(|(r, q)| format!("{} {}", r.nom(), rules::decimal(*q))).collect();
+            let liste: Vec<String> = stock.iter().map(|(r, q)| format!("{} {}", r.nom(), quantite(*q))).collect();
             p.spawn(texte(format!("Stock de la ville : {}.", liste.join(", ")), 13.0, charte::TEXTE));
         }
-        // Besoins de base et luxe (5g) : demande, part couverte au dernier tour, effet
+        // Outils (5h) : usure par les travailleurs des cases aménagées, part couverte, bonus
         let c = &city.state;
+        let amenages: u32 = cases.iter().filter(|k| k.amenagement.is_some()).map(|k| k.travailleurs).sum();
+        let d = rules::CityState::demande_outils(amenages);
+        if d > 0.0 {
+            let couleur = if c.couverture_outils >= 0.999 { charte::OK } else if c.couverture_outils > 0.0 { charte::ALERTE } else { charte::MUET };
+            ligne_valeur(
+                p,
+                &format!("Outils · usure {} par tour ({} travailleurs aux aménagements)", quantite(d), rules::milliers(u64::from(amenages))),
+                format!("couvert {:.0} % · cases aménagées +{:.0} %", c.couverture_outils * 100.0, c.bonus_outils * 100.0),
+                couleur,
+            );
+        }
+        // Besoins de base et luxe (5g) : demande, part couverte au dernier tour, effet
         for r in crate::gisements::Ressource::TOUTES.into_iter().filter(|&r| c.demande(r) > 0.0) {
             let couv = c.couverture(r);
             let effet = match r {
-                crate::gisements::Ressource::Sel => format!("salubrité +{}", rules::decimal(rules::SALUBRITE_SEL * couv)),
-                crate::gisements::Ressource::Plantes => format!("salubrité +{}", rules::decimal(rules::SALUBRITE_PLANTES * couv)),
+                crate::gisements::Ressource::Sel => format!("salubrité +{}", quantite(rules::SALUBRITE_SEL * couv)),
+                crate::gisements::Ressource::Plantes => format!("salubrité +{}", quantite(rules::SALUBRITE_PLANTES * couv)),
                 crate::gisements::Ressource::Fibres => {
                     let manque = rules::SALUBRITE_VETEMENTS_MAX * (1.0 - couv) * c.part_besoin_vetements();
-                    if manque > 0.05 { format!("manque de vêtements : salubrité −{}", rules::decimal(manque)) } else { "vêtus".to_string() }
+                    if manque > 0.05 { format!("manque de vêtements : salubrité −{}", quantite(manque)) } else { "vêtus".to_string() }
                 }
-                _ => format!("luxe : bien-être +{}", rules::decimal(r.luxe().unwrap_or(0.0) * couv)),
+                _ => format!("luxe : bien-être +{}", quantite(r.luxe().unwrap_or(0.0) * couv)),
             };
             let couleur = if couv >= 0.999 { charte::OK } else if couv > 0.0 { charte::ALERTE } else { charte::MUET };
-            ligne_valeur(p, &format!("{} · demande {} par tour", capitale(r.nom()), rules::decimal(c.demande(r))), format!("couvert {:.0} % · {effet}", couv * 100.0), couleur);
+            ligne_valeur(p, &format!("{} · demande {} par tour", capitale(r.nom()), quantite(c.demande(r))), format!("couvert {:.0} % · {effet}", couv * 100.0), couleur);
         }
         let usages: Vec<String> = connus.iter().filter_map(|c| c.gisement).fold(Vec::new(), |mut v, r| {
             if !v.contains(&r) {
