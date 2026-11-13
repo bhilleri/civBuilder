@@ -319,7 +319,7 @@ réduit d'autant** : l'aménagement plein garde le total décidé (champ de plai
 bois 5 de production). La subsistance garde la **différence entre plaine et prairie** (Benjamin).
 Conséquences : la grandeur que l'aménagement ne produit pas vient de la subsistance (champ de
 plaine : 0,75 de production au lieu de 1 ; coupe de bois : 0,75 de nourriture au lieu de 1 ;
-exploitation : elle a maintenant la nourriture de la subsistance) ; un champ de 300 travailleurs
+exploitation : elle a maintenant la nourriture de la subsistance, gardée par Benjamin) ; un champ de 300 travailleurs
 donne ≈ 1,47 de nourriture (le travail et la subsistance), contre 1 pour la cueillette. Types et
 sortes : ceux du travail, plus ceux de la nature au prorata de la subsistance (un champ de prairie :
 surtout des céréales, et du gibier). Tests : `la_subsistance_rapporte_moins_que_la_cueillette`,
