@@ -739,6 +739,32 @@ variante B : gauche, droite, tiroir). L'écran n'est plus un plein écran avec u
 - Le HUD de la carte du monde (journal, panneau de production, sélection, légendes, boutons) est
   caché pendant que l'écran est ouvert ; restent la barre du tour et « Fin du tour ».
 - L'onglet Commerce devient **Ressources** (ressources et échanges).
+- **En-tête** (gauche) : nom avec ← → (ville précédente, suivante, onglet gardé) et × ; palier,
+  habitants, croissance ; palier suivant ou « hors d'atteinte : arrêt vers N dans T tours » (prévision
+  du jeu, `rules::prevoir`) ; **ce qui freine** en trois lignes (ce tour : ce qui coûte des habitants ;
+  à terme : arrêt ou palier ; emplois : sans-emploi ou places pleines dans N tours) et le **remède le
+  plus rentable**, chiffré en habitants par tour nets par le jeu (la ville simulée avec le remède :
+  puits, exploitation d'un gisement qui manque, champ, pâturage) ; les autres se déplient par-dessus
+  le panneau ; **six grandeurs** en lignes (nourriture, production, deniers, culture, bien-être,
+  salubrité ; eau, recherche et défense sortent de l'état permanent, comme dans la v7) ; **jetons des
+  besoins** (sel, vêtements, plantes, outils, luxe) qui ouvrent la fiche de la ressource.
+- **Population** : croissance par cause (naturelle, bien-être, projet, maladies, famine, total : les
+  mêmes chiffres que l'en-tête), chaque ligne ouvre sa fiche ; « Le plus rentable » ; « À terme ».
+  Courbe des habitants dans le tiroir.
+- **Grandeur** (clic, touches 1 à 3, sans changer d'onglet) : fiche à droite (réglages de
+  l'intendant, types, grenier) ; tiroir : la courbe et « d'où elle vient / où elle va » côte à côte ;
+  « Agrandir (F) » : tiroir à 60 % de la hauteur, la caméra recule ; molette : période (10, 20, 40).
+- **Ressources** : échanges du tour (villes reliées par `echanges::reseaux`), tableau dans le tiroir
+  (à portée d'abord, à chercher en gris), fiche d'une ressource (effet actuel sur maximal, demande,
+  extrait et reçu, stock sur la réglette 2 / 6 / 12, chemin du moins cher au plus cher, « ce que ça
+  change » calculé par le jeu) ; couches Gisements et Échanges (flèches épaisses selon la quantité,
+  villes non reliées en pointillé, la caméra recule pour les montrer).
+- **Histoire** : filtres par genre présent (icône, compteur), 40 derniers tours par tranches de 10,
+  chronique complète en frise dans le tiroir.
+- Écarts avec la maquette v7 et limites : pas de temps de trajet entre villes (la décision « distance =
+  temps de transport » reste à faire : seulement les cases) ; pas d'infobulles de décomposition sur
+  chaque nombre ; pas de verrou de case ; la molette ne zoome pas dans le temps au-delà des 40 tours
+  gardés ; un cours d'eau survolé n'est plus éclairé pendant que l'écran est ouvert.
 
 ### Écrans nationaux (un panneau par thème, même gabarit)
 | Écran | Contenu |

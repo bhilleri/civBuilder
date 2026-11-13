@@ -1866,8 +1866,8 @@ fn carte_souris(
     if survol_carte.0 != contour {
         survol_carte.0 = contour;
     }
-    // Infobulle (seulement au survol de la carte)
-    match (dessus, survol, souris) {
+    // Infobulle (seulement au survol de la carte, sous le vrai pointeur)
+    match (dessus, survol, window.cursor_position()) {
         (true, None, Some(p)) if let Some(a) = achat_sous => {
             bulle_node.display = Display::Flex;
             bulle_node.left = Val::Px((p.x + 14.0).min(window.width() - 290.0));
@@ -3759,7 +3759,7 @@ fn effet_ressource(c: &rules::CityState, r: crate::gisements::Ressource) -> (Str
         Ressource::Sel => (format!("salubrité +{}", quantite(rules::SALUBRITE_SEL * couv)), format!("salubrité +{}", quantite(rules::SALUBRITE_SEL))),
         Ressource::Plantes => (format!("salubrité +{}", quantite(rules::SALUBRITE_PLANTES * couv)), format!("salubrité +{}", quantite(rules::SALUBRITE_PLANTES))),
         Ressource::Fibres if c.part_besoin_vetements() <= 0.0 => ("sans effet sous 2 000 habitants".into(), "évite jusqu'à −10 de salubrité".into()),
-        Ressource::Fibres => (format!("salubrité −{}", quantite(rules::SALUBRITE_VETEMENTS_MAX * (1.0 - couv) * c.part_besoin_vetements())), "salubrité −0 (vêtus)".into()),
+        Ressource::Fibres => (format!("salubrité −{}", quantite(rules::SALUBRITE_VETEMENTS_MAX * (1.0 - couv) * c.part_besoin_vetements())), "salubrité 0 (vêtus)".into()),
         Ressource::Silex | Ressource::PierreDure | Ressource::Obsidienne if c.demande_outils_tour > 0.0 => (format!("outils : cases aménagées +{:.0} %", c.bonus_outils * 100.0), format!("cases aménagées +{:.0} %", rules::BONUS_OUTILS[0] * 100.0)),
         Ressource::Silex | Ressource::PierreDure => ("outils : pas de case aménagée".into(), format!("cases aménagées +{:.0} %", rules::BONUS_OUTILS[0] * 100.0)),
         _ if let Some(rang) = r.luxe() => (format!("bien-être +{}", quantite(rang * couv)), format!("bien-être +{}", quantite(rang))),
