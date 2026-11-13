@@ -25,7 +25,7 @@ l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cou
    `conception-ressources.md`) ; **montures reportées** (ânes, chevaux, dromadaires : à faire).
 6. **Période nomade (22)** et **société de base (32)** : chefferie, conseil, dirigeant, Culture,
    influence, capacité de gouverner.
-7. **Recherche et jalons (34, 30 seconde partie)** : arbre du Néolithique et du Bronze, passage d'ère.
+7. **Recherche et jalons (34, 30 seconde partie)** : arbre du Néolithique et du Bronze, passage d'ère ; les techniques de l'âge du bronze (araire, traction animale, irrigation) relèvent le rendement par travailleur des champs (décision du 13/11, `conception-villes.md`).
 8. **Armée réduite (29)** et barbares en clans (31, première partie).
 9. **Peuples rivaux (31)** et **diplomatie, première étape (38)** : contact, relation, confiance,
    guerre et paix ; `bilan_ia`.
