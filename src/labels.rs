@@ -177,6 +177,8 @@ impl Plugin for LabelsPlugin {
                 attach_fish_images,
                 spawn_oasis_names,
                 spawn_deposit_icons,
+                spawn_city_status,
+                update_city_status,
             ),
         )
         .init_resource::<LabelFilter>()
@@ -1016,6 +1018,60 @@ fn place_oasis_names(
     }
 }
 
+/// État d'une ville pour la ressource choisie au tableau de bord (carte de disponibilité) : une
+/// pastille sous sa bannière, « en trop », « suffit » ou « manque ».
+#[derive(Component)]
+struct CityStatus(Entity);
+
+fn spawn_city_status(mut commands: Commands, cities: Query<(Entity, &HexPos), Added<City>>) {
+    for (entity, pos) in &cities {
+        let mut anchor = Anchor::new(pos.0, -26.0, CITY_HEIGHT - 6.0, false);
+        anchor.hidden = true;
+        commands.spawn((
+            CityStatus(entity),
+            anchor,
+            Node { position_type: PositionType::Absolute, padding: UiRect::axes(Val::Px(7.0), Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(8.0)), ..default() },
+            UiTransform::from_translation(Val2::percent(-50.0, 0.0)),
+            BackgroundColor(Color::srgba(0.05, 0.06, 0.09, 0.9)),
+            GlobalZIndex(-1),
+            Visibility::Hidden,
+            children![(Text::new(""), TextFont::from_font_size(12.0), TextColor(Color::WHITE))],
+        ));
+    }
+}
+
+fn update_city_status(
+    mut commands: Commands,
+    tableau: Res<crate::tableau::Tableau>,
+    cities: Query<&City>,
+    mut badges: Query<(Entity, &CityStatus, &mut Anchor, &Children)>,
+    mut texts: Query<(&mut Text, &mut TextColor)>,
+) {
+    for (e, status, mut anchor, children) in &mut badges {
+        let Ok(city) = cities.get(status.0) else {
+            commands.entity(e).despawn();
+            continue;
+        };
+        let etat = tableau.choisie.map(|r| (r, crate::tableau::EtatRessource::de(city.state.ressource(r), city.state.demande_echange(r))));
+        let hidden = etat.is_none();
+        if anchor.hidden != hidden {
+            anchor.hidden = hidden;
+        }
+        if let Some((r, etat)) = etat
+            && let Some(&c) = children.first()
+            && let Ok((mut text, mut color)) = texts.get_mut(c)
+        {
+            let t = format!("{} : {}", r.nom(), etat.nom());
+            if text.0 != t {
+                text.0 = t;
+            }
+            if color.0 != etat.couleur() {
+                color.0 = etat.couleur();
+            }
+        }
+    }
+}
+
 /// Icône d'un gisement (carte des ressources) : un rond à la couleur de la ressource et son sigle.
 #[derive(Component)]
 struct DepositIcon(Hex);
@@ -1066,14 +1122,17 @@ fn place_deposit_icons(
     fog: Res<ShownFog>,
     gisements: Res<crate::game::Gisements>,
     debug: Res<crate::game::DebugMode>,
+    tableau: Res<crate::tableau::Tableau>,
     cameras: Query<(&Camera, &Transform, Has<Camera3d>), Without<crate::seam::GhostCamera>>,
     mut icons: Query<(&DepositIcon, &mut Node, &mut Visibility), (Without<RiverName>, Without<SeaName>, Without<Anchor>, Without<BankIcon>, Without<OasisName>)>,
 ) {
     let camera = cameras.iter().find(|(c, _, is_3d)| *is_3d == mode.is_3d && c.is_active);
-    let carte = *layer == crate::render::MapLayer::Resources;
+    // (carte des ressources, ou carte de disponibilité de la ressource choisie au tableau de bord)
+    let carte = *layer == crate::render::MapLayer::Resources || tableau.choisie.is_some();
     for (icon, mut node, mut vis) in &mut icons {
         let mut shown = None;
         if carte
+            && tableau.choisie.is_none_or(|r| map.0.gisement(icon.0) == Some(r))
             && let Some((camera, transform, _)) = camera
             && (debug.0 || gisements.connus.contains(&icon.0))
         {

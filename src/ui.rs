@@ -306,6 +306,17 @@ fn setup_ui(mut commands: Commands) {
                 ],
             ),
             (
+                crate::tableau::TableauBouton,
+                UiPointer::default(),
+                Node {
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
+                    ..default()
+                },
+                BackgroundColor(PRODUCE_BG),
+                children![text("Ressources (G)", 16.0)],
+            ),
+            (
                 crate::wiki::WikiButton,
                 UiPointer::default(),
                 Node {
@@ -1043,6 +1054,7 @@ fn map_layer_controls(
     mut legends: Query<(&Legend, &mut Node), Without<MapLayerMenu>>,
     mut texts: Query<&mut Text>,
     ecran: Res<crate::ecran_ville::EcranVille>,
+    tableau: Res<crate::tableau::Tableau>,
 ) {
     // (pas sous l'écran de la ville, qui couvre la carte)
     if keys.just_pressed(KeyCode::KeyT) && !ecran.ouvert() {
@@ -1086,8 +1098,9 @@ fn map_layer_controls(
     if menu.display != menu_display {
         menu.display = menu_display;
     }
+    // (le tableau de bord des ressources prend la place des légendes)
     for (legend, mut node) in &mut legends {
-        let display = if *layer == legend.0 { Display::Flex } else { Display::None };
+        let display = if *layer == legend.0 && !tableau.ouvert { Display::Flex } else { Display::None };
         if node.display != display {
             node.display = display;
         }

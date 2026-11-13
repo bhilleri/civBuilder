@@ -62,6 +62,7 @@ mod settings;
 mod settlement_mesh;
 mod settlements;
 mod sites;
+mod tableau;
 mod tides;
 mod tooltip;
 mod toponymy;
@@ -108,6 +109,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin { primary_window: Some(fenetre()), ..default() }))
         .add_plugins((fonts::FontsPlugin, game::GamePlugin, hostile::HostilePlugin, render::RenderPlugin, input::InputPlugin, ui::UiPlugin, view3d::View3dPlugin, labels::LabelsPlugin, highlight::HighlightPlugin, options::OptionsPlugin, wiki::WikiPlugin, menu::MenuPlugin, seam::SeamPlugin, search::SearchPlugin, capture::CapturePlugin))
         .add_plugins(console::ConsolePlugin)
+        .add_plugins(tableau::TableauPlugin)
         .add_plugins(bridge_build::BridgeBuildPlugin)
         .add_plugins(feedback::FeedbackPlugin)
         .add_plugins(film::FilmPlugin)

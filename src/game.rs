@@ -454,6 +454,7 @@ impl Plugin for GamePlugin {
                     update_fog,
                     chrono_etape("brouillard"),
                     decouvrir_gisements,
+                    notifier_besoins,
                     hostile::update_knowledge,
                     chrono_etape("connaissances"),
                     chrono_fin,
@@ -693,6 +694,7 @@ fn end_turn(
         let (chomeurs, par_type, par_sorte) = (city.travail.chomeurs, city.travail.par_type, city.travail.par_sorte);
         let report = city.state.passer_le_tour(yields, chomeurs, par_type, &par_sorte);
         // Gisements exploités du territoire : leurs ressources vont au stock de la ville (5f)
+        city.state.extrait_tour = vec![0.0; crate::gisements::N_RESSOURCES];
         for (&h, &a) in amenagements.0.iter() {
             if a == crate::intendant::Amenagement::Exploitation
                 && territory.0.get(&h) == Some(entity)
@@ -700,6 +702,7 @@ fn end_turn(
             {
                 let unites = crate::intendant::unites_extraites(city.travail.sur(h), crate::intendant::capacite(map, h, Some(a)));
                 city.state.ajouter_ressource(r, unites);
+                city.state.extrait_tour[r.index()] += unites;
             }
         }
         // Outils (5h), puis besoins de base et luxe (5g) : la ville prend dans son stock
@@ -1022,6 +1025,71 @@ fn decouvrir_gisements(
             }
         }
     }
+}
+
+/// Gisement connu qu'une ville peut exploiter pour un besoin : à `BESOIN_GISEMENT_CASES` cases au
+/// plus de son centre.
+const BESOIN_GISEMENT_CASES: i32 = 4;
+
+/// Besoins notifiés (5i ; décision de Benjamin : « le joueur est notifié du besoin ») : à chaque
+/// tour, une ville qui manque d'une ressource (moins de 2 tours de sa demande) est signalée quand
+/// le joueur peut agir (un gisement connu à exploiter tout près, ou une de ses villes qui en a en
+/// trop mais n'est pas reliée), une fois au début du manque, en un message par ville.
+fn notifier_besoins(
+    map: Res<GameMap>,
+    state: Res<GameState>,
+    gisements: Res<Gisements>,
+    amenagements: Res<Amenagements>,
+    mut log: ResMut<GameLog>,
+    cities: Query<(Entity, &City, &HexPos)>,
+    mut dernier_tour: Local<u32>,
+    mut avant: Local<HashSet<(Entity, usize)>>,
+) {
+    if state.turn == *dernier_tour {
+        return;
+    }
+    *dernier_tour = state.turn;
+    let m = &map.0;
+    let mut villes: Vec<(Entity, &City, Hex)> = cities.iter().map(|(e, c, p)| (e, c, p.0)).collect();
+    villes.sort_by_key(|(e, ..)| *e);
+    let eau = |c: &City, h: Hex| c.state.site.eau_courante || c.state.site.lac || std::iter::once(h).chain(m.neighbors(h)).any(|v| m.get(m.canonical(v)).is_some_and(|t| t.is_water()));
+    let mut maintenant = HashSet::new();
+    for (e, city, centre) in &villes {
+        let mut causes = Vec::new();
+        for r in crate::gisements::Ressource::TOUTES {
+            let d = city.state.demande_echange(r);
+            if d <= 0.0 || city.state.ressource(r) >= crate::echanges::TOURS_VISES * d {
+                continue;
+            }
+            // Que peut faire le joueur ?
+            let gisement = gisements
+                .connus
+                .iter()
+                .filter(|&&h| m.gisement(h) == Some(r) && amenagements.0.get(&h) != Some(&crate::intendant::Amenagement::Exploitation))
+                .map(|&h| (m.distance(*centre, h), h))
+                .filter(|(d, _)| *d <= BESOIN_GISEMENT_CASES)
+                .min();
+            let isolee = villes.iter().find(|(f, autre, h)| {
+                f != e && autre.state.ressource(r) > crate::echanges::TOURS_RESERVE * autre.state.demande_echange(r) + 1e-9 && {
+                    let portee = if eau(city, *centre) && eau(autre, *h) { crate::echanges::PORTEE_EAU } else { crate::echanges::PORTEE };
+                    m.distance(*centre, *h) > portee
+                }
+            });
+            let piste = match (gisement, isolee) {
+                (Some((d, h)), _) => format!("gisement connu à {d} case{} ({}) : l'exploiter", if d > 1 { "s" } else { "" }, m.describe(h).to_lowercase()),
+                (None, Some((_, autre, _))) => format!("{} en a en trop, mais n'est pas reliée", autre.state.name),
+                (None, None) => continue,
+            };
+            maintenant.insert((*e, r.index()));
+            if !avant.contains(&(*e, r.index())) {
+                causes.push(format!("{} ({piste})", r.nom()));
+            }
+        }
+        if !causes.is_empty() {
+            log.notify(Importance::Warning, LogText::new().city(&city.state.name, *e, *centre).text(format!(" manque de {}.", causes.join(" ; "))));
+        }
+    }
+    *avant = maintenant;
 }
 
 fn update_fog(

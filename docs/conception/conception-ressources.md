@@ -291,8 +291,18 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   `CityState::echanges` (reçu, donné, contrepartie) affichés dans le panneau « Gisements et
   ressources » ; `demande_echange` : les outils pèsent sur le silex (simplification : la pierre
   dure et l'obsidienne n'y sont pas demandées).
-- Pas encore : tableau de bord des ressources, carte de la disponibilité, notifications de besoin ;
-  opinion et faveur entre villes ; négociation avec les villages.
+- Tableau de bord (fait le 13/11) : `tableau.rs`, bouton « Ressources (G) », touche G ; panneau à
+  droite (les légendes sont masquées tant qu'il est ouvert) : par ressource, stock du pays, extrait
+  (`CityState::extrait_tour`) et demande par tour, part couverte (2 tours de demande) ; une
+  ressource choisie : détail par ville et carte de disponibilité (gisements de cette ressource sur
+  toute carte, pastille d'état sous chaque ville : `EtatRessource`, en trop au-delà de 6 tours,
+  manque sous 2).
+- Notifications (`game::notifier_besoins`) : au début d'un manque, quand le joueur peut agir
+  (gisement connu non exploité à `BESOIN_GISEMENT_CASES` = 4 cases au plus, ou ville du pays qui en
+  a en trop hors de portée), un message par ville ; un manque sans remède n'est pas signalé (pas de
+  bruit : au palier 1, une ville demande déjà les trois sortes de luxe).
+- Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
+  qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 
 ### Fait le 13/11/2026 : outils (5h)
 - `Ressource::niveau_outil` : 1 pour le silex, la pierre dure et l'obsidienne (2 cuivre, 3 bronze,
