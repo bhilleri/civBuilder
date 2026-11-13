@@ -581,7 +581,7 @@ pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: 
         .filter(|&h| h != center && !taken.contains(&h) && map.contains(h))
         .map(|h| {
             let a = amenagements.get(&h).copied();
-            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), capacite: intendant::capacite(a), distance: map.distance(center, h) }
+            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), capacite: intendant::capacite(a), distance: map.distance(center, h) }
         })
         .collect();
     cases.sort_by_key(|c| c.hex);
@@ -589,6 +589,27 @@ pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: 
 }
 
 // ---------------------------------------------------------------- Bien-être et salubrité (4c)
+
+// ---------------------------------------------------------------- Nourriture par type (5c)
+
+/// Limite de la ville selon les types de nourriture qui comptent (1 point de nourriture nourrit
+/// 1 000, 1 100 ou 1 200 habitants) : × 1,10 avec deux types, × 1,20 avec trois.
+pub fn facteur_equilibre(types: u8) -> f64 {
+    1.0 + 0.1 * f64::from(types.clamp(1, 3) - 1)
+}
+
+/// Famines adoucies par l'équilibre : pertes × 0,75 avec deux types, × 0,5 avec trois.
+pub fn facteur_famine(types: u8) -> f64 {
+    match types {
+        0 | 1 => 1.0,
+        2 => 0.75,
+        _ => 0.5,
+    }
+}
+
+/// Zone d'équilibre au-dessus du besoin (3 %) : pas de croissance, pour que la ville se pose à sa
+/// limite sans osciller entre croissance et famine.
+pub const ZONE_EQUILIBRE: f64 = 0.03;
 
 /// Bien-être neutre (et de départ) : la croissance naturelle n'y change pas.
 pub const BIEN_ETRE_NEUTRE: f64 = 60.0;
@@ -747,7 +768,7 @@ pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo
             let v = st.variation(r.rendements);
             // Le tour comme en jeu (croissance, puis la file avance : décision C1) ; un aménagement
             // achevé change sa case pour les tours suivants
-            let rapport = st.passer_le_tour(r.rendements, r.chomeurs);
+            let rapport = st.passer_le_tour(r.rendements, r.chomeurs, r.par_type);
             if let Some(Production::Amenagement { hex, kind, .. }) = rapport.built
                 && let Some(c) = cases.iter_mut().find(|c| c.hex == hex)
             {
@@ -962,6 +983,10 @@ pub struct CityState {
     /// La salubrité était-elle sous le seuil au tour précédent (début et fin dans la chronique) ?
     #[serde(default)]
     pub insalubre: bool,
+    /// Types de nourriture qui ont compté au dernier tour (0 à 3) : la limite et les famines en
+    /// dépendent (5c).
+    #[serde(default)]
+    pub types_nourriture: u8,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1038,7 +1063,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0 }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1047,9 +1072,10 @@ impl CityState {
         palier_de(self.habitants)
     }
 
-    /// Nourriture nécessaire à la population de l'aire ce tour-ci.
+    /// Nourriture nécessaire à la population de l'aire ce tour-ci : une nourriture équilibrée
+    /// nourrit plus de monde (`facteur_equilibre`).
     pub fn besoin_nourriture(&self) -> f64 {
-        self.habitants as f64 / HABITANTS_PAR_NOURRITURE
+        self.habitants as f64 / HABITANTS_PAR_NOURRITURE / facteur_equilibre(self.types_nourriture)
     }
 
     /// Inscrit un moment dans l'histoire de la ville.
@@ -1082,10 +1108,10 @@ impl CityState {
         let s = self.salubrite();
         let insalubrite = if s < SALUBRITE_SEUIL { -PERTE_INSALUBRITE_MAX * (SALUBRITE_SEUIL - s) / SALUBRITE_SEUIL } else { 0.0 };
         if couverture >= 1.0 {
-            let naturelle = CROISSANCE_NATURELLE * ((couverture - 1.0) / SURPLUS_POUR_CROITRE).min(1.0) * facteur_bien_etre;
+            let naturelle = CROISSANCE_NATURELLE * ((couverture - 1.0 - ZONE_EQUILIBRE) / (SURPLUS_POUR_CROITRE - ZONE_EQUILIBRE)).clamp(0.0, 1.0) * facteur_bien_etre;
             Croissance { naturelle, facteur_bien_etre, peupler: self.bonus_peupler(yields), insalubrite, famine: 0.0 }
         } else {
-            let famine = -(FAMINE_MIN + (FAMINE_MAX - FAMINE_MIN) * (1.0 - couverture));
+            let famine = -(FAMINE_MIN + (FAMINE_MAX - FAMINE_MIN) * (1.0 - couverture)) * facteur_famine(self.types_nourriture);
             Croissance { naturelle: 0.0, facteur_bien_etre, peupler: 0.0, insalubrite, famine }
         }
     }
@@ -1176,6 +1202,7 @@ impl CityState {
             site: self.site,
             puits: self.puits,
             insalubre: self.insalubre,
+            types_nourriture: self.types_nourriture,
         }
     }
 
@@ -1201,11 +1228,12 @@ impl CityState {
     /// Un tour de la ville sans chômeurs (tests).
     #[cfg(test)]
     pub fn process_turn(&mut self, yields: Rendements) -> CityTurnReport {
-        self.passer_le_tour(yields, 0)
+        self.passer_le_tour(yields, 0, [yields.nourriture, 0.0, 0.0])
     }
 
-    /// Un tour de la ville : croissance, bien-être, culture, production.
-    pub fn passer_le_tour(&mut self, yields: Rendements, chomeurs: u32) -> CityTurnReport {
+    /// Un tour de la ville : croissance, bien-être, culture, production ; `par_type` : sa
+    /// nourriture par type (l'équilibre du tour suivant).
+    pub fn passer_le_tour(&mut self, yields: Rendements, chomeurs: u32, par_type: intendant::Parts) -> CityTurnReport {
         let mut report = CityTurnReport { deniers: yields.deniers, ..Default::default() };
 
         // Croissance (ou famine, maladies) en habitants ; « a grandi » : nouveau palier atteint
@@ -1226,6 +1254,8 @@ impl CityState {
 
         // Bien-être : il s'approche du bien-être visé au début du tour
         self.bien_etre += (vise - self.bien_etre) * BIEN_ETRE_INERTIE;
+        // Types de nourriture qui comptent, sur ce que la ville a mangé ce tour-ci
+        self.types_nourriture = intendant::types_comptes(par_type, self.besoin_nourriture());
 
         // Culture : la ville, plus le projet (les cases gagnées sont choisies par le jeu, qui voit la carte)
         self.culture += self.culture_du_tour(yields);
@@ -1302,6 +1332,29 @@ mod tests {
     }
 
     #[test]
+    fn l_equilibre_releve_la_limite_et_adoucit_les_famines() {
+        assert_eq!((facteur_equilibre(0), facteur_equilibre(1), facteur_equilibre(2), facteur_equilibre(3)), (1.0, 1.0, 1.1, 1.2));
+        let mut c = CityState::new("Essai".into());
+        c.habitants = 12_000;
+        // Un seul type : besoin 12 ; trois types : 10 (1 point nourrit 1 200 habitants)
+        assert_eq!(c.besoin_nourriture(), 12.0);
+        c.types_nourriture = 3;
+        assert!((c.besoin_nourriture() - 10.0).abs() < 1e-9);
+        // Famine adoucie de moitié avec trois types
+        let faim = Rendements::new(5.0, 1.0, 0.0);
+        let avec = c.croissance(faim).famine;
+        c.types_nourriture = 1;
+        let sans = c.croissance(faim).famine;
+        assert!(avec < 0.0 && sans < avec, "{avec} {sans}");
+        // Zone d'équilibre : pas de croissance juste au-dessus du besoin (pas d'oscillation)
+        assert_eq!(c.croissance(Rendements::new(12.3, 0.0, 0.0)).naturelle, 0.0);
+        assert!(c.croissance(Rendements::new(13.0, 0.0, 0.0)).naturelle > 0.0);
+        // Le tour compte les types sur ce que la ville a mangé
+        c.passer_le_tour(Rendements::new(13.0, 1.0, 0.0), 0, [9.0, 2.0, 2.0]);
+        assert_eq!(c.types_nourriture, 3);
+    }
+
+    #[test]
     fn le_bien_etre_suit_sa_visee_et_module_la_croissance() {
         let rassasie = Rendements::new(3.0, 40.0, 1.0);
         let mut c = CityState::new("Essai".into());
@@ -1311,7 +1364,7 @@ mod tests {
         // Famine : visée 45, le bien-être en prend un cinquième par tour
         let faim = Rendements::new(0.5, 4.0, 1.0);
         assert_eq!(c.bien_etre_vise(faim, 0), 45.0);
-        assert!(c.passer_le_tour(faim, 0).starved);
+        assert!(c.process_turn(faim).starved);
         assert!((c.bien_etre - 57.0).abs() < 1e-9);
         // Chômage : −1 par tranche de 2 % des actifs (20 % → −10), au plus −20
         let c = CityState::new("Essai".into());
@@ -1342,7 +1395,7 @@ mod tests {
         c.site.marais = 1.0;
         assert_eq!(c.salubrite(), 35.0);
         assert_eq!(c.variation(rassasie), 14);
-        let r = c.passer_le_tour(rassasie, 0);
+        let r = c.process_turn(rassasie);
         assert!(!r.starved, "des maladies, pas une famine");
         // Le puits : +10, au-dessus du seuil
         assert!(c.mettre_en_file(Production::Puits));
@@ -2029,7 +2082,8 @@ mod tests {
         grosse.habitants = 20_000;
         let p = prevoir(&map, center, &grosse, &cases, 200);
         assert_eq!(arret_de_croissance(&p), Some(1));
-        assert!((1_900..=2_000).contains(&p.last().unwrap().habitants), "le centre nourrit 2 000 habitants");
+        // (le centre donne les trois types : repas équilibrés, 1 point nourrit 1 200 habitants)
+        assert!((2_300..=2_400).contains(&p.last().unwrap().habitants), "le centre nourrit 2 400 habitants : {}", p.last().unwrap().habitants);
     }
 
     #[test]

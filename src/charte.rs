@@ -115,6 +115,8 @@ pub enum IconeAmenagement {
     Champ,
     Paturage,
     CoupeDeBois,
+    Legumineuses,
+    Jardin,
 }
 
 impl From<crate::intendant::Amenagement> for IconeAmenagement {
@@ -123,6 +125,8 @@ impl From<crate::intendant::Amenagement> for IconeAmenagement {
             crate::intendant::Amenagement::Champ => IconeAmenagement::Champ,
             crate::intendant::Amenagement::Paturage => IconeAmenagement::Paturage,
             crate::intendant::Amenagement::CoupeDeBois => IconeAmenagement::CoupeDeBois,
+            crate::intendant::Amenagement::Legumineuses => IconeAmenagement::Legumineuses,
+            crate::intendant::Amenagement::Jardin => IconeAmenagement::Jardin,
         }
     }
 }
@@ -159,7 +163,7 @@ impl Plugin for ChartePlugin {
             let mut assets = app.world_mut().resource_mut::<Assets<Image>>();
             let mut ajouter = |forme: &dyn Fn(f32, f32) -> bool, cote: u32| assets.add(dessiner(cote, forme));
             let grandeurs = Grandeur::TOUTES.iter().map(|&g| (g, ajouter(&|x, y| icone_grandeur(g, x, y), 48))).collect();
-            let amenagements = [IconeAmenagement::Champ, IconeAmenagement::Paturage, IconeAmenagement::CoupeDeBois]
+            let amenagements = [IconeAmenagement::Champ, IconeAmenagement::Paturage, IconeAmenagement::CoupeDeBois, IconeAmenagement::Legumineuses, IconeAmenagement::Jardin]
                 .iter()
                 .map(|&a| (a, ajouter(&|x, y| icone_amenagement(a, x, y), 48)))
                 .collect();
@@ -316,6 +320,10 @@ fn icone_amenagement(a: IconeAmenagement, x: f32, y: f32) -> bool {
         }
         // Coupe de bois : sapin et tronc
         IconeAmenagement::CoupeDeBois => triangle(x, y, (0.0, -0.85), (-0.6, 0.4), (0.6, 0.4)) || rectangle(x, y, -0.12, 0.4, 0.12, 0.8),
+        // Légumineuses : une cosse et trois pois
+        IconeAmenagement::Legumineuses => (capsule(x, y, (-0.7, 0.0), (0.7, 0.0), 0.42) && !capsule(x, y, (-0.62, 0.0), (0.62, 0.0), 0.3)) || (-1..=1).any(|k| (x - k as f32 * 0.4).hypot(y) < 0.19),
+        // Jardin : une fleur (cœur et quatre pétales)
+        IconeAmenagement::Jardin => x.hypot(y) < 0.2 || [(0.0, -0.5), (0.0, 0.5), (-0.5, 0.0), (0.5, 0.0)].iter().any(|&(cx, cy)| (x - cx).hypot(y - cy) < 0.28),
     }
 }
 

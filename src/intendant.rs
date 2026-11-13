@@ -32,10 +32,15 @@ pub enum Amenagement {
     Champ,
     Paturage,
     CoupeDeBois,
+    /// Champ de légumineuses (lentilles, pois, fèves) : des protéines sans élevage, au rendement
+    /// réduit (60 % d'un champ de céréales).
+    Legumineuses,
+    /// Jardin d'appoint : fruits et légumes, petite capacité.
+    Jardin,
 }
 
 impl Amenagement {
-    pub const ALL: [Amenagement; 3] = [Amenagement::Champ, Amenagement::Paturage, Amenagement::CoupeDeBois];
+    pub const ALL: [Amenagement; 5] = [Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin, Amenagement::CoupeDeBois];
 
     /// Nom affiché.
     pub fn nom(self) -> &'static str {
@@ -43,6 +48,8 @@ impl Amenagement {
             Amenagement::Champ => "champ",
             Amenagement::Paturage => "pâturage",
             Amenagement::CoupeDeBois => "coupe de bois",
+            Amenagement::Legumineuses => "champ de légumineuses",
+            Amenagement::Jardin => "jardin",
         }
     }
 
@@ -52,22 +59,26 @@ impl Amenagement {
             Amenagement::Champ => "champ",
             Amenagement::Paturage => "paturage",
             Amenagement::CoupeDeBois => "bois",
+            Amenagement::Legumineuses => "legumineuses",
+            Amenagement::Jardin => "jardin",
         }
     }
 
     /// Travailleurs au plus sur la case aménagée.
     pub fn capacite(self) -> u32 {
         match self {
-            Amenagement::Champ => 1_500,
+            Amenagement::Champ | Amenagement::Legumineuses => 1_500,
             Amenagement::Paturage | Amenagement::CoupeDeBois => 1_000,
+            Amenagement::Jardin => 300,
         }
     }
 
     /// Coût en production sur une case sans forêt.
     pub fn cout_de_base(self) -> i32 {
         match self {
-            Amenagement::Champ => 20,
+            Amenagement::Champ | Amenagement::Legumineuses => 20,
             Amenagement::Paturage | Amenagement::CoupeDeBois => 15,
+            Amenagement::Jardin => 10,
         }
     }
 
@@ -87,7 +98,7 @@ impl Amenagement {
             return Err("pas en montagne");
         }
         match self {
-            Amenagement::Champ => {
+            Amenagement::Champ | Amenagement::Legumineuses | Amenagement::Jardin => {
                 if relief > Relief::Hills {
                     return Err("relief trop accidenté pour un champ");
                 }
@@ -129,6 +140,70 @@ impl Amenagement {
 /// La case est-elle boisée (un champ ou un pâturage y demande un défrichement) ?
 fn defriche(map: &WorldMap, h: Hex) -> bool {
     map.get(h).is_some_and(|t| t.is_wooded() || t == Terrain::WoodedSavanna)
+}
+
+/// Rendement d'un champ de légumineuses, rapporté à un champ de céréales.
+pub const RENDEMENT_LEGUMINEUSES: f64 = 0.6;
+
+/// Types de nourriture (livraison 5c) : l'équilibre entre eux relève la limite de la ville.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypeNourriture {
+    Cereales,
+    Proteines,
+    FruitsLegumes,
+}
+
+impl TypeNourriture {
+    pub const TOUS: [TypeNourriture; 3] = [TypeNourriture::Cereales, TypeNourriture::Proteines, TypeNourriture::FruitsLegumes];
+
+    pub const fn nom(self) -> &'static str {
+        match self {
+            TypeNourriture::Cereales => "céréales et féculents",
+            TypeNourriture::Proteines => "protéines",
+            TypeNourriture::FruitsLegumes => "fruits et légumes",
+        }
+    }
+}
+
+/// Part de chaque type dans la nourriture d'une case, dans l'ordre de `TypeNourriture::TOUS`.
+pub type Parts = [f64; 3];
+
+/// Le centre de la ville : ses champs, ses bêtes et ses jardins proches.
+pub const PARTS_CENTRE: Parts = [0.5, 0.25, 0.25];
+
+/// Part de chaque type dans la nourriture de la case : selon l'aménagement, sinon selon le biome
+/// (cueillette, chasse ; l'eau donne du poisson).
+pub fn parts_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> Parts {
+    match amenagement {
+        Some(Amenagement::Champ) => [1.0, 0.0, 0.0],
+        Some(Amenagement::Legumineuses | Amenagement::Paturage) => [0.0, 1.0, 0.0],
+        Some(Amenagement::Jardin) => [0.0, 0.0, 1.0],
+        Some(Amenagement::CoupeDeBois) | None => {
+            if map.is_fleuve(h) {
+                return [0.0, 1.0, 0.0];
+            }
+            match map.get(h) {
+                Some(t) if t.is_water() => [0.0, 1.0, 0.0],
+                Some(Terrain::Forest | Terrain::Taiga | Terrain::Jungle | Terrain::WoodedSavanna) => [0.0, 0.5, 0.5],
+                Some(Terrain::Mediterranean) => [0.2, 0.3, 0.5],
+                Some(Terrain::Grassland | Terrain::Plains | Terrain::Savanna | Terrain::Steppe) => [0.4, 0.6, 0.0],
+                Some(Terrain::Marsh) => [0.3, 0.7, 0.0],
+                _ => [0.0, 1.0, 0.0],
+            }
+        }
+    }
+}
+
+/// Un type compte dans l'équilibre s'il couvre cette part de ce que la ville mange (sa
+/// consommation : le besoin, ou toute la nourriture en famine ; décision de Benjamin).
+pub const SEUIL_TYPE: f64 = 0.15;
+/// Bonus de poids de l'intendant pour la nourriture d'un type qui manque (après avoir nourri).
+const POIDS_EQUILIBRE: f64 = 3.0;
+
+/// Nombre de types qui comptent (0 à 3) pour une nourriture par type et un besoin donnés.
+pub fn types_comptes(par_type: Parts, besoin: f64) -> u8 {
+    let consommation = besoin.min(par_type.iter().sum::<f64>());
+    par_type.iter().filter(|&&n| n > 1e-9 && n >= SEUIL_TYPE * consommation - 1e-9).count() as u8
 }
 
 /// Rendements d'une ville ou d'une case, en fractions (les travailleurs en donnent des parts).
@@ -195,14 +270,23 @@ pub fn capacite(amenagement: Option<Amenagement>) -> u32 {
 pub fn rendement_max(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> Rendements {
     let mut y = map.yields(h).unwrap_or_default();
     // (champ ou pâturage pris sur la forêt : le bois est perdu, la terre devient une prairie)
-    if matches!(amenagement, Some(Amenagement::Champ | Amenagement::Paturage)) && defriche(map, h) {
+    if matches!(amenagement, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Jardin)) && defriche(map, h) {
         y = Yields::new(y.food + 1, (y.production - 2).max(0), y.deniers);
     }
     let r = Rendements::from(y);
+    // Fertilité du sol (5b) : sur la nourriture que le champ tire du terrain, pas sur l'eau douce ;
+    // un tiers de l'écart pour les pâturages ; ni la cueillette ni le bois
+    let eau = if !map.is_fleuve(h) && map.get(h).is_some_and(|t| !t.is_water()) && map.fresh_water(h) { f64::from(crate::map::FRESH_WATER_FOOD) } else { 0.0 };
+    let terre = (r.nourriture - eau).max(0.0);
+    let sol = map.sol(h);
+    let fertile = |m: f64| terre * m + eau.min(r.nourriture);
+    let champ = fertile(sol.map_or(1.0, |s| s.fertilite())) * 2.0;
     match amenagement {
         None => r,
-        Some(Amenagement::Champ) => Rendements::new(r.nourriture * 2.0, r.production, r.deniers),
-        Some(Amenagement::Paturage) => Rendements::new(r.nourriture * 1.5, r.production + 1.0, r.deniers),
+        Some(Amenagement::Champ) => Rendements::new(champ, r.production, r.deniers),
+        Some(Amenagement::Legumineuses) => Rendements::new(champ * RENDEMENT_LEGUMINEUSES, r.production, r.deniers),
+        Some(Amenagement::Jardin) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite())) * 1.5, r.production, r.deniers),
+        Some(Amenagement::Paturage) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite_paturage())) * 1.5, r.production + 1.0, r.deniers),
         Some(Amenagement::CoupeDeBois) => Rendements::new(r.nourriture, r.production * 2.0, r.deniers),
     }
 }
@@ -315,6 +399,8 @@ pub struct Consignes {
 pub struct CaseDispo {
     pub hex: Hex,
     pub max: Rendements,
+    /// Part de chaque type dans sa nourriture.
+    pub parts: Parts,
     pub capacite: u32,
     /// Distance au centre de la ville (en cases).
     pub distance: i32,
@@ -330,6 +416,8 @@ pub struct Repartition {
     pub chomeurs: u32,
     /// Rendement total de la ville (centre compris).
     pub rendements: Rendements,
+    /// Nourriture de la ville par type (centre compris).
+    pub par_type: Parts,
 }
 
 impl Repartition {
@@ -373,12 +461,26 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
         }
     }
     let total = |n: &[u32]| cases.iter().zip(n).fold(centre, |acc, (c, &k)| acc + rendement(c.max, k, c.capacite));
+    let par_type = |n: &[u32]| {
+        let mut t = PARTS_CENTRE.map(|p| p * centre.nourriture);
+        for (c, &k) in cases.iter().zip(n) {
+            let f = rendement(c.max, k, c.capacite).nourriture;
+            for (x, p) in t.iter_mut().zip(c.parts) {
+                *x += f * p;
+            }
+        }
+        t
+    };
     let mut courant = total(&n);
+    let mut types = par_type(&n);
     // (blocs plus gros dans les grandes villes : le calcul reste léger)
     let bloc = BLOC.max(actifs / 200 / BLOC * BLOC);
     while libres > 0 {
         let b = bloc.min(libres);
-        let w = poids(courant.nourriture / besoin_nourriture.max(1e-6), consignes);
+        let couverture = courant.nourriture / besoin_nourriture.max(1e-6);
+        let w = poids(couverture, consignes);
+        // Équilibre (après avoir nourri) : la nourriture d'un type sous le seuil pèse en plus
+        let manque: Parts = std::array::from_fn(|t| if couverture >= 1.0 && types[t] < SEUIL_TYPE * besoin_nourriture { POIDS_EQUILIBRE } else { 0.0 });
         let mut meilleur: Option<(usize, f64)> = None;
         for (i, c) in cases.iter().enumerate() {
             if forcee[i] || n[i] >= c.capacite {
@@ -388,14 +490,20 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
             let gain = rendement(c.max, k, c.capacite) - rendement(c.max, n[i], c.capacite);
             let eloignement = (1.0 - PENALITE_DISTANCE * (c.distance - 1).max(0) as f64).max(0.5);
             // (gain par travailleur : un bloc tronqué par la capacité n'est pas avantagé)
-            let score = gain.valeurs().iter().zip(w).map(|(g, w)| g * w).sum::<f64>() * eloignement / (k - n[i]) as f64;
+            let equilibre: f64 = c.parts.iter().zip(manque).map(|(p, m)| gain.nourriture * p * m).sum();
+            let score = (gain.valeurs().iter().zip(w).map(|(g, w)| g * w).sum::<f64>() + equilibre) * eloignement / (k - n[i]) as f64;
             if score > 1e-12 && meilleur.is_none_or(|(_, s)| score > s) {
                 meilleur = Some((i, score));
             }
         }
         let Some((i, _)) = meilleur else { break };
         let k = (n[i] + b).min(cases[i].capacite);
-        courant = courant - rendement(cases[i].max, n[i], cases[i].capacite) + rendement(cases[i].max, k, cases[i].capacite);
+        let avant = rendement(cases[i].max, n[i], cases[i].capacite);
+        let apres = rendement(cases[i].max, k, cases[i].capacite);
+        courant = courant - avant + apres;
+        for (x, p) in types.iter_mut().zip(cases[i].parts) {
+            *x += (apres.nourriture - avant.nourriture) * p;
+        }
         libres -= k - n[i];
         n[i] = k;
     }
@@ -404,6 +512,7 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
         actifs,
         chomeurs: libres,
         rendements: total(&n),
+        par_type: par_type(&n),
     }
 }
 
@@ -430,7 +539,7 @@ mod tests {
     }
 
     fn case(col: i32, max: Rendements, capacite: u32) -> CaseDispo {
-        CaseDispo { hex: Hex::from_offset(col, 0), max, capacite, distance: 1 }
+        CaseDispo { hex: Hex::from_offset(col, 0), max, parts: [1.0, 0.0, 0.0], capacite, distance: 1 }
     }
 
     #[test]
@@ -484,12 +593,44 @@ mod tests {
     }
 
     #[test]
+    fn l_equilibre_compte_sur_la_consommation() {
+        // Besoin 10 : un type compte à partir de 1,5 (15 % de ce qui est mangé)
+        assert_eq!(types_comptes([8.5, 1.5, 0.0], 10.0), 2);
+        assert_eq!(types_comptes([8.5, 1.4, 0.1], 10.0), 1);
+        // Un excédent de céréales ne fait pas perdre les protéines (seuil sur le besoin, pas la production)
+        assert_eq!(types_comptes([40.0, 1.5, 1.5], 10.0), 3);
+        // En famine, le seuil porte sur ce qui est mangé
+        assert_eq!(types_comptes([3.0, 0.7, 0.7], 10.0), 3);
+        assert_eq!(types_comptes([3.0, 0.5, 0.5], 10.0), 1, "12,5 % de ce qui est mangé : sous le seuil");
+    }
+
+    #[test]
+    fn l_intendant_cherche_l_equilibre_apres_avoir_nourri() {
+        // Un champ (céréales, plus de nourriture) et un pâturage (protéines, moins)
+        let champ = CaseDispo { parts: [1.0, 0.0, 0.0], ..case(1, Rendements::new(6.0, 0.0, 0.0), 1500) };
+        let pre = CaseDispo { parts: [0.0, 1.0, 0.0], ..case(2, Rendements::new(3.0, 1.0, 0.0), 1000) };
+        let r = repartir(&[champ, pre], 1500, 2.0, Rendements::default(), &Consignes::default());
+        assert!(r.rendements.nourriture >= 2.0, "nourrir d'abord");
+        assert!(r.par_type[1] >= SEUIL_TYPE * 2.0, "puis des protéines : {:?}", r.par_type);
+        assert!(r.sur(pre.hex) > 0);
+    }
+
+    #[test]
     fn amenagements_selon_la_case() {
         let mut map = WorldMap::filled(6, 6, Terrain::Grassland);
         let h = Hex::from_offset(2, 2);
-        assert_eq!(Amenagement::possibles(&map, h), vec![Amenagement::Champ, Amenagement::Paturage]);
+        assert_eq!(Amenagement::possibles(&map, h), vec![Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin]);
         let champ = rendement_max(&map, h, Some(Amenagement::Champ));
         assert_eq!(champ.nourriture, 2.0 * rendement_max(&map, h, None).nourriture);
+        // Légumineuses : 60 % d'un champ ; jardin : 1,5 × la case, petite capacité
+        assert!((rendement_max(&map, h, Some(Amenagement::Legumineuses)).nourriture - 0.6 * champ.nourriture).abs() < 1e-9);
+        assert_eq!(rendement_max(&map, h, Some(Amenagement::Jardin)).nourriture, 1.5 * rendement_max(&map, h, None).nourriture);
+        assert_eq!(capacite(Some(Amenagement::Jardin)), 300);
+        // Types : champ → céréales, légumineuses et pâturage → protéines, jardin → fruits et légumes
+        assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Champ)), [1.0, 0.0, 0.0]);
+        assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Legumineuses)), [0.0, 1.0, 0.0]);
+        assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Jardin)), [0.0, 0.0, 1.0]);
+        assert_eq!(parts_de_la_case(&map, h, None), [0.4, 0.6, 0.0], "prairie : graines sauvages et gibier");
         map.set(h, Terrain::Forest);
         assert_eq!(Amenagement::possibles(&map, h), Amenagement::ALL.to_vec(), "forêt : bois, ou défrichement");
         assert_eq!(Amenagement::Champ.cout(&map, h), 30);

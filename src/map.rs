@@ -942,6 +942,9 @@ pub struct WorldMap {
     step_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
     /// Turbidité de l'eau sortant de chaque case (voir `water_murk`), calculée à la première demande.
     murk_cache: std::sync::OnceLock<Vec<f32>>,
+    /// Roche et sol de chaque case de terre (géologie de surface, calculée à la demande depuis la
+    /// carte : `geologie.rs` ; rien sur une carte sans climat), vidé avec le cache de turbidité.
+    geologie_cache: std::sync::OnceLock<Vec<Option<(crate::geologie::Roche, crate::geologie::Sol)>>>,
     /// Coin aval de la rivière de chaque arête (numéroté dans la case qui porte le tronçon, 255 sans
     /// tronçon), calculé à la première demande.
     river_down_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
@@ -990,6 +993,7 @@ impl WorldMap {
             climate_base: None,
             step_cache: std::sync::OnceLock::new(),
             murk_cache: std::sync::OnceLock::new(),
+            geologie_cache: std::sync::OnceLock::new(),
             river_down_cache: std::sync::OnceLock::new(),
             bridges: HashSet::new(),
         }
@@ -1552,6 +1556,7 @@ impl WorldMap {
         self.wrap = Wrap::new(self.width, wraps);
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
     }
 
@@ -1588,6 +1593,7 @@ impl WorldMap {
     pub fn set(&mut self, hex: Hex, terrain: Terrain) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.tiles[i] = terrain;
@@ -1618,6 +1624,7 @@ impl WorldMap {
     pub fn set_relief(&mut self, hex: Hex, relief: Relief) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.relief[i] = if self.tiles[i].is_water() || self.hydro.fleuve[i] { Relief::Flat } else { relief };
@@ -1776,6 +1783,7 @@ impl WorldMap {
     pub fn set_elevation(&mut self, hex: Hex, meters: f32) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
@@ -1953,6 +1961,106 @@ impl WorldMap {
     }
 
     /// Eau douce à portée : rivière sur une arête, petit lac, fleuve ou lac voisin.
+    /// Roche de surface d'une case de terre (`geologie.rs`).
+    pub fn roche(&self, hex: Hex) -> Option<crate::geologie::Roche> {
+        self.index(hex).and_then(|i| self.geologie().get(i).copied().flatten()).map(|g| g.0)
+    }
+
+    /// Classe de sol d'une case de terre (fertilité des champs).
+    pub fn sol(&self, hex: Hex) -> Option<crate::geologie::Sol> {
+        self.index(hex).and_then(|i| self.geologie().get(i).copied().flatten()).map(|g| g.1)
+    }
+
+    /// Le calcaire de la case est karstique (grottes, gouffres).
+    pub fn karstique(&self, hex: Hex) -> bool {
+        self.roche(hex).is_some_and(|r| crate::geologie::karstique(r, self.rain(hex).unwrap_or(0.0)))
+    }
+
+    /// Roche et sol de toutes les cases (calculés une fois, puis gardés jusqu'à une modification).
+    fn geologie(&self) -> &[Option<(crate::geologie::Roche, crate::geologie::Sol)>] {
+        self.geologie_cache.get_or_init(|| {
+            let n = self.tiles.len();
+            // (carte remplie à la main, sans climat : pas de géologie, champs sans fertilité)
+            if self.climate.temperature.len() != n {
+                return vec![None; n];
+            }
+            // Bruit lent (une région de quelques centaines de km) : départage calcaire et argile
+            let noise: Fbm<Perlin> = Fbm::new(self.seed.wrapping_add(707_070)).set_octaves(2).set_frequency(1.0);
+            let f = 1.0 / 12.0;
+            let radius = self.width as f64 / std::f64::consts::TAU;
+            let wraps = self.wrap.wraps();
+            let bruit = |h: Hex| {
+                let (col, row) = h.to_offset();
+                let (col, row) = (col as f64, row as f64);
+                let v = if wraps {
+                    let a = col / self.width as f64 * std::f64::consts::TAU;
+                    noise.get([a.cos() * radius * f, a.sin() * radius * f, row * f])
+                } else {
+                    noise.get([col * f, row * f])
+                };
+                (v as f32 * 1.6).clamp(-1.0, 1.0)
+            };
+            let plaques = !self.plates.edges.is_empty();
+            let cell_km = self.region.cell_km;
+            // Taille de la terre d'un seul tenant de chaque case (les îles volcaniques sont petites)
+            let mut terre_de = vec![usize::MAX; n];
+            let mut tailles = Vec::new();
+            for depart in 0..n {
+                if terre_de[depart] != usize::MAX || self.tiles[depart].is_water() {
+                    continue;
+                }
+                let id = tailles.len();
+                let mut pile = vec![depart];
+                terre_de[depart] = id;
+                let mut taille = 0usize;
+                while let Some(i) = pile.pop() {
+                    taille += 1;
+                    for v in self.neighbors(self.hex_at(i)) {
+                        if let Some(j) = self.index(self.canonical(v))
+                            && terre_de[j] == usize::MAX
+                            && !self.tiles[j].is_water()
+                        {
+                            terre_de[j] = id;
+                            pile.push(j);
+                        }
+                    }
+                }
+                tailles.push(taille);
+            }
+            (0..n)
+                .map(|i| {
+                    let t = self.tiles[i];
+                    if t.is_water() {
+                        return None;
+                    }
+                    let h = self.hex_at(i);
+                    let frontiere = plaques.then(|| {
+                        let e = &self.plates.edges[self.plates.nearest_edge[i] as usize];
+                        (e.kind, self.plates.boundary_km[i], self.plates.plate_of[i] != e.under)
+                    });
+                    let point_chaud_km = self.plates.hotspots.iter().map(|&p| self.wrap.distance(h, p) as f32 * cell_km).fold(f32::MAX, f32::min);
+                    let grande_riviere = (0..6).any(|d| self.river_flow(h, d) > 300.0) || self.neighbors(h).iter().any(|&v| self.is_fleuve(v));
+                    let lieu = crate::geologie::Lieu {
+                        ile_oceanique: plaques && !self.plates.continental(i) && tailles.get(terre_de[i]).is_some_and(|&t| t < crate::geologie::ILE_CASES),
+                        frontiere,
+                        point_chaud_km,
+                        altitude: self.elevation[i],
+                        relief: self.relief[i],
+                        temperature: self.climate.temperature.get(i).copied().unwrap_or(12.0),
+                        pluie: self.rain(h).unwrap_or(700.0),
+                        saisons_seches: self.climate.dry_seasons(i).map_or(0, |s| s.iter().filter(|&&d| d).count() as u8),
+                        terrain: t,
+                        fleuve_ou_delta: self.hydro.fleuve.get(i).copied().unwrap_or(false) || self.delta_cells.iter().any(|c| c.0 == i),
+                        grande_riviere,
+                        bruit: bruit(h),
+                    };
+                    let r = crate::geologie::roche(&lieu);
+                    Some((r, crate::geologie::sol(r, &lieu)))
+                })
+                .collect()
+        })
+    }
+
     pub fn fresh_water(&self, hex: Hex) -> bool {
         self.small_lake(hex)
             || (0..6).any(|d| self.river_flow(hex, d) > 0.0)
@@ -1965,6 +2073,7 @@ impl WorldMap {
     pub fn link_fleuve(&mut self, hex: Hex, dir: usize, flow: f32) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         let to = self.wrap.neighbor(hex, dir);
         let (Some(i), Some(j)) = (self.index(hex), self.index(to)) else { return };
@@ -1987,6 +2096,7 @@ impl WorldMap {
     pub fn set_fleuve(&mut self, hex: Hex) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex) {
             self.hydro.fleuve[i] = true;
@@ -2026,6 +2136,7 @@ impl WorldMap {
     pub fn set_river(&mut self, hex: Hex, dir: usize, flow: f32) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         let other = self.wrap.neighbor(hex, dir);
         if let (Some(i), Some(j)) = (self.index(hex), self.index(other)) {
@@ -2295,6 +2406,7 @@ impl WorldMap {
     pub fn set_level(&mut self, hex: Hex, level: u8) {
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         if let Some(i) = self.index(hex)
             && !self.tiles[i].is_water()
@@ -2671,8 +2783,10 @@ impl WorldMap {
             }
             self.step_cache = std::sync::OnceLock::new();
             self.murk_cache = std::sync::OnceLock::new();
+            self.geologie_cache = std::sync::OnceLock::new();
             self.river_down_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
             // Courants marins poussés par le vent (vents théoriques à la première passe, puis ceux
             // du climat de la passe précédente) : température de la mer donnée au climat
@@ -2904,6 +3018,7 @@ impl WorldMap {
         self.add_names(self.seed);
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
         self.mouths = self.classify_mouths();
         true
@@ -3067,6 +3182,7 @@ impl WorldMap {
         }
         self.step_cache = std::sync::OnceLock::new();
         self.murk_cache = std::sync::OnceLock::new();
+        self.geologie_cache = std::sync::OnceLock::new();
         self.river_down_cache = std::sync::OnceLock::new();
     }
 
@@ -3823,6 +3939,56 @@ mod planete {
 #[cfg(test)]
 mod tectonique {
     use super::*;
+
+    /// Bilan de la géologie et des sols (à lancer à la main, `SEEDS=777,2`) : part de chaque roche
+    /// et de chaque sol sur les terres, karst, et limite de nourriture d'un territoire de 19 cases
+    /// tout en champs, avec et sans la fertilité (les vallées alluviales ne doivent pas devenir des
+    /// métropoles dès le Néolithique).
+    #[test]
+    #[ignore]
+    fn bilan_geologie() {
+        use crate::geologie::{Roche, Sol};
+        use crate::intendant::{rendement_max, Amenagement};
+        let seeds: Vec<u32> = std::env::var("SEEDS").ok().map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or(vec![777, 2]);
+        for seed in seeds {
+            let m = WorldMap::generate(192, 111, seed);
+            let terres: Vec<Hex> = m.hexes().filter(|&h| m.roche(h).is_some()).collect();
+            let n = terres.len() as f32;
+            let part = |k: usize| format!("{:.1} %", 100.0 * k as f32 / n);
+            println!("graine {seed} : {} cases de terre", terres.len());
+            for r in Roche::TOUTES {
+                println!("  {:<26} {}", r.nom(), part(terres.iter().filter(|&&h| m.roche(h) == Some(r)).count()));
+            }
+            println!("  karst : {}", part(terres.iter().filter(|&&h| m.karstique(h)).count()));
+            // Causes du basalte et du volcanisme (croûte océanique, rifts et dorsales, points chauds)
+            let idx = |h: Hex| m.index(h).unwrap();
+            let oceanique = terres.iter().filter(|&&h| !m.plates.continental(idx(h))).count();
+            let pres = |kinds: &[crate::plates::Boundary], km: f32| terres.iter().filter(|&&h| { let i = idx(h); m.plates.boundary_km[i] < km && kinds.contains(&m.plates.edges[m.plates.nearest_edge[i] as usize].kind) }).count();
+            let chaud = terres.iter().filter(|&&h| m.plates.hotspots.iter().any(|&p| m.wrap.distance(h, p) as f32 * m.region.cell_km < crate::geologie::POINT_CHAUD_KM)).count();
+            println!("  (croûte océanique {}, près d'un rift {}, près d'un point chaud {})", part(oceanique), part(pres(&[crate::plates::Boundary::Rift], crate::geologie::RIFT_KM)), part(chaud));
+            for s in Sol::TOUS {
+                println!("  {:<26} {}", s.nom(), part(terres.iter().filter(|&&h| m.sol(h) == Some(s)).count()));
+            }
+            // Limite d'un territoire de 19 cases tout en champs (là où un champ est possible)
+            let champ = |h: Hex| Amenagement::possibles(&m, h).contains(&Amenagement::Champ);
+            let mut avec: Vec<f64> = Vec::new();
+            let mut sans: Vec<f64> = Vec::new();
+            for &c in terres.iter().filter(|&&h| champ(h)) {
+                let cases: Vec<Hex> = m.range(c, 2).map(|h| m.canonical(h)).filter(|&h| m.contains(h)).collect();
+                avec.push(cases.iter().map(|&h| if champ(h) { rendement_max(&m, h, Some(Amenagement::Champ)).nourriture } else { rendement_max(&m, h, None).nourriture }).sum());
+                // (sans la fertilité : le champ divisé par le multiplicateur de son sol)
+                sans.push(cases.iter().map(|&h| if champ(h) { rendement_max(&m, h, Some(Amenagement::Champ)).nourriture / m.sol(h).map_or(1.0, |s| s.fertilite()) } else { rendement_max(&m, h, None).nourriture }).sum());
+            }
+            let quantile = |v: &mut Vec<f64>, q: f64| {
+                v.sort_by(f64::total_cmp);
+                v.get(((v.len() as f64 - 1.0) * q) as usize).copied().unwrap_or(0.0)
+            };
+            println!(
+                "  limite (milliers d'habitants, 19 cases en champs) : médiane {:.0} → {:.0}, 95 % {:.0} → {:.0}, maximum {:.0} → {:.0}",
+                quantile(&mut sans, 0.5), quantile(&mut avec, 0.5), quantile(&mut sans, 0.95), quantile(&mut avec, 0.95), quantile(&mut sans, 1.0), quantile(&mut avec, 1.0)
+            );
+        }
+    }
 
     /// Bilan du relief tectonique (à lancer à la main) : part de terres, reliefs, altitudes.
     #[test]

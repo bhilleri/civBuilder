@@ -814,6 +814,11 @@ fn mechanics() -> Article {
 
 fn cities() -> Article {
     let paliers = [1, 2, 3, 5, 10, 15, 20, 25, 30].iter().map(|&p| vec![p.to_string(), habitants_du_palier(p).to_string()]).collect();
+    let sols = crate::geologie::Sol::TOUS
+        .iter()
+        .map(|s| (swatch(s.couleur()), vec![s.nom().to_string(), format!("× {}", s.fertilite_texte()), format!("× {}", crate::rules::decimal(s.fertilite_paturage()))]))
+        .collect();
+    let roches = crate::geologie::Roche::TOUTES.iter().map(|r| r.nom()).collect::<Vec<_>>().join(", ");
     Article {
         title: "Villes",
         icon: "icons/wiki_cities.png",
@@ -835,17 +840,28 @@ fn cities() -> Article {
                est le plus fort : la nourriture pèse lourd tant que la ville ne se nourrit pas (puis pour croître), la \
                production et les deniers prennent ensuite le relais ; les cases lointaines rapportent un peu moins."),
             p("Chaque case a une capacité en travailleurs : 500 sans aménagement (cueillette, chasse), 1 500 pour un \
-               champ, 1 000 pour un pâturage ou une coupe de bois. Son rendement croît avec les travailleurs, de moins en \
+               champ ou un champ de légumineuses, 1 000 pour un pâturage ou une coupe de bois, 300 pour un jardin. Son rendement croît avec les travailleurs, de moins en \
                moins vite (la moitié de la capacité donne 62 % du rendement de la case) : une petite ville se répartit \
                sur plusieurs cases. Au-delà des capacités, les habitants sont sans emploi : il faut aménager des cases."),
             table(
                 &["Aménagement", "Cases", "Rendement à pleine capacité"],
                 vec![
-                    vec!["champ".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 2".into()],
-                    vec!["pâturage".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 1,5, +1 production".into()],
+                    vec!["champ (céréales)".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 2 (fertilité du sol)".into()],
+                    vec!["champ de légumineuses (protéines)".into(), "comme un champ".into(), "60 % d'un champ".into()],
+                    vec!["pâturage (protéines)".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 1,5, +1 production".into()],
+                    vec!["jardin (fruits et légumes)".into(), "comme un champ ; d'appoint (300 travailleurs)".into(), "nourriture × 1,5".into()],
                     vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2".into()],
                 ],
             ),
+            p("Types de nourriture : un champ donne des céréales et féculents ; un pâturage ou des légumineuses, des \
+               protéines ; un jardin, des fruits et légumes ; une case non aménagée, selon son biome (forêt : gibier et \
+               baies ; prairie, steppe, savane : graines sauvages et gibier ; l'eau : du poisson) ; le centre de la ville, \
+               les trois. Un type compte s'il couvre 15 % de ce que la ville mange. Des repas équilibrés nourrissent \
+               plus de monde : avec deux types, la limite de la ville monte de 10 % (1 point de nourriture nourrit 1 100 \
+               habitants) et les pertes de famine baissent d'un quart ; avec trois, 20 % (1 200 habitants) et de moitié. \
+               L'intendant nourrit d'abord, puis cherche l'équilibre. Juste au-dessus du besoin (3 %), la ville ne \
+               grandit plus : elle se pose à sa limite sans osciller. Le détail de la nourriture (touche 1) montre la \
+               part de chaque type."),
             p("Un champ ou un pâturage pris sur la forêt la défriche : la case devient une prairie (le bois est perdu, \
                plus de coupe de bois possible). \
                La construction des aménagements par la ville arrive ; pour l'instant, la console les pose \
@@ -904,6 +920,19 @@ fn cities() -> Article {
                effet sur toute la ville et sur la croissance. Dans la fiche d'une case, « Forcer l'effectif » fixe ses \
                travailleurs (aperçu de l'effet, puis confirmer) ; l'intendant ne la change plus jusqu'à ce qu'on la \
                lui rende."),
+            h("Roches et sols"),
+            p(format!(
+                "Chaque case de terre a une roche de surface, déduite des plaques, du relief et de l'eau : {roches}. \
+                 Le granite fait les socles anciens et le cœur des chaînes de collision, les roches volcaniques les arcs \
+                 au-dessus des subductions, le basalte les rifts, les points chauds et les petites îles volcaniques, les \
+                 alluvions les plaines des fleuves et les deltas, le lœss les steppes fraîches ; les bassins bas donnent \
+                 calcaire, argile ou grès. Un calcaire arrosé est karstique (grottes, gouffres). Le sol vient de la roche \
+                 et du climat ; il fixe la fertilité des champs : la nourriture qu'un champ tire du terrain est multipliée \
+                 (pas le bonus d'eau douce) ; un pâturage n'en prend qu'un tiers ; la cueillette et le bois n'en dépendent \
+                 pas. Roche et sol sont dans l'infobulle d'une case explorée et dans la fiche de case de l'écran de la \
+                 ville ; la carte « sols » (touche T) montre la fertilité."
+            )),
+            table_icons(&["Sol", "Champs", "Pâturages"], sols),
             h("Territoire"),
             p("Une ville naît avec sa case et ses 6 voisines. Elle produit de la culture : 1 par tour, plus 1 pour 5 \
                de production avec le projet « Développement de l'art et de la culture ». Quand le stock atteint \

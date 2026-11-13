@@ -658,8 +658,8 @@ fn end_turn(
     for (entity, center, city) in list.iter_mut() {
         let yields = city.travail.rendements;
         let humeur = city.state.humeur();
-        let chomeurs = city.travail.chomeurs;
-        let report = city.state.passer_le_tour(yields, chomeurs);
+        let (chomeurs, par_type) = (city.travail.chomeurs, city.travail.par_type);
+        let report = city.state.passer_le_tour(yields, chomeurs, par_type);
         // Histoire de la ville : paliers, famines, constructions marquantes
         if report.grew {
             let (p, h) = (city.state.palier(), city.state.habitants);

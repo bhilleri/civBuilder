@@ -276,6 +276,7 @@ fn setup_ui(mut commands: Commands) {
             currents_legend(),
             tides_legend(),
             waves_legend(),
+            soils_legend(),
             resources_legend(),
             geography_legend(),
             (
@@ -299,6 +300,7 @@ fn setup_ui(mut commands: Commands) {
                     map_option(MapLayer::Currents, "Carte des courants marins"),
                     map_option(MapLayer::Tides, "Carte des marées"),
                     map_option(MapLayer::Waves, "Carte de la houle"),
+                    map_option(MapLayer::Soils, "Carte de la fertilité des sols"),
                     map_option(MapLayer::Resources, "Carte des ressources"),
                     map_option(MapLayer::Geography, "Carte géographique (découpage)"),
                 ],
@@ -676,6 +678,40 @@ fn currents_legend() -> impl Bundle {
             Spawn(text("Les courants froids rafraîchissent et assèchent les côtes (déserts côtiers, brouillards) ; les courants chauds les adoucissent et les arrosent. Leur rencontre enrichit la pêche.", 12.0)),
         )),
     )
+}
+
+/// Légende de la carte des sols : chaque classe et la fertilité de ses champs.
+fn soils_legend() -> impl Bundle {
+    use crate::geologie::Sol;
+    let label = |s: Sol| format!("{} : champs × {}", capitale_ui(s.nom()), s.fertilite_texte());
+    (
+        Legend(MapLayer::Soils),
+        panel(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(3.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            display: Display::None,
+            max_width: Val::Px(330.0),
+            ..default()
+        }),
+        Children::spawn((
+            Spawn(text("Fertilité des sols", 14.0)),
+            Spawn(legend_row(Sol::Alluvial.couleur(), label(Sol::Alluvial))),
+            Spawn(legend_row(Sol::VolcaniqueJeune.couleur(), label(Sol::VolcaniqueJeune))),
+            Spawn(legend_row(Sol::Noir.couleur(), label(Sol::Noir))),
+            Spawn(legend_row(Sol::Brun.couleur(), label(Sol::Brun))),
+            Spawn(legend_row(Sol::Lourd.couleur(), label(Sol::Lourd))),
+            Spawn(legend_row(Sol::PauvreAcide.couleur(), label(Sol::PauvreAcide))),
+            Spawn(legend_row(Sol::LessiveTropical.couleur(), label(Sol::LessiveTropical))),
+            Spawn(text("Les pâturages prennent un tiers de l'écart ; ni la cueillette ni le bois.", 12.0)),
+        )),
+    )
+}
+
+/// Majuscule initiale.
+fn capitale_ui(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
 /// Légende de la carte de la houle : classes de hauteur, banquise, sens des flèches.
@@ -1461,6 +1497,13 @@ fn update_hover_text(
                 (false, None) => {}
             }
             let land = m.get(h).is_some_and(|t| !t.is_water());
+            if land
+                && shows(Info::Soil)
+                && let (Some(r), Some(s)) = (m.roche(h), m.sol(h))
+            {
+                let karst = if m.karstique(h) { " karstique" } else { "" };
+                place.push(format!("{}{karst}, {} (champs × {})", r.nom(), s.nom(), s.fertilite_texte()));
+            }
             if land {
                 if shows(Info::Climate)
                     && let Some(zone) = m.climate_zone(h)

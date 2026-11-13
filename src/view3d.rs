@@ -1585,6 +1585,7 @@ fn update_relief_3d(
                 MapLayer::Currents => currents_color(&map.0, hex),
                 MapLayer::Tides => crate::render::tides_color(&map.0, hex),
                 MapLayer::Waves => crate::render::waves_color(&map.0, hex),
+                MapLayer::Soils => crate::render::soils_color(&map.0, hex),
                 _ => hydro_color(&map.0, hex, thematic),
             };
             let c = Color::srgb(r, g, b).to_linear();

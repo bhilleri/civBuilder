@@ -242,6 +242,9 @@ fn run_capture(
                 add_on("houle", h, 700.0, 0.0, MapLayer::Waves);
                 add_on("houle_loin", h, 2_200.0, 0.0, MapLayer::Waves);
             }
+            // Carte de la fertilité des sols, autour du départ (3D, puis en 2D de loin)
+            add_on("sols", start, 1_400.0, 0.0, MapLayer::Soils);
+            shots.push(Shot { name: "sols_2d".into(), target: start, distance: 0.0, yaw: 0.0, layer: MapLayer::Soils, menu: None, view_2d: Some(2.5) });
             // Pages du menu Échap, par-dessus la vue de départ
             for (name, page) in [("menu", MenuPage::Main), ("menu_parametres", MenuPage::Settings), ("menu_configuration", MenuPage::SaveConfig)] {
                 shots.push(Shot { name: name.into(), target: start, distance: 700.0, yaw: 0.0, layer: MapLayer::Normal, menu: Some(page), view_2d: None });

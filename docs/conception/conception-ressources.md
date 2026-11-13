@@ -193,6 +193,49 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   céréales ; seuils et effets déjà décidés ; **les pourcentages des types se comptent sur la
   consommation, pas sur la production** (Benjamin).
 
+### Fait le 13/11/2026 : roches et sols (5a, 5b)
+- Module `geologie.rs` (logique pure, testée) : `roche(Lieu)`, `sol(Roche, Lieu)`, `karstique` ;
+  `WorldMap::roche`, `sol`, `karstique`, calculés à la demande et gardés en cache (vidé avec le cache
+  de turbidité) : rien n'est sauvegardé, la même graine donne la même géologie.
+- Règles des roches, dans l'ordre : alluvions (fleuves, deltas, marais, plaines basses d'une grande
+  rivière) ; arc volcanique au-dessus d'une subduction ou d'un arc d'îles (< 350 km, côté qui reste
+  en surface) ; basalte (rift < 150 km, point chaud < 250 km, petite terre de moins de 60 cases sur
+  croûte océanique) ; collision (granite au cœur < 350 km en montagne ou au-dessus de 1 500 m, grès
+  au piémont < 700 km) ; lœss (steppes et prairies fraîches, 250 à 700 mm) ; granite (montagnes, et
+  socles loin des frontières au-dessus de 300 m) ; bassins : grès sous 400 mm, puis calcaire ou
+  argile selon un bruit lent et la température. Karst : calcaire et au moins 800 mm.
+- Constat : la croûte « océanique » de la génération porte 40 à 57 % des terres ; elle ne sert donc
+  pas de signe de basalte (sauf pour les petites îles), et la règle des dorsales a été retirée.
+- Fertilité : `intendant::rendement_max` multiplie la nourriture du terrain des champs (pas l'eau
+  douce), un tiers de l'écart pour les pâturages.
+- Bilan `bilan_geologie` (777 / 2) : granite 10,5 / 11,3 %, arcs 8,7 / 6,2, basalte 5,2 / 4,2,
+  calcaire 15,3 / 16,4, grès 25,7 / 30,5, argile 18,3 / 18,0, alluvions 11,2 / 11,1, lœss 5,1 /
+  2,4 ; karst 6,6 / 6,9 ; sols : alluvial 11,2 / 11,1, volcanique jeune 13,9 / 10,4, noir 7,9 / 5,0,
+  brun 42,7 / 46,8, lourd 6,9 / 3,5, pauvre et acide 16,6 / 22,7, lessivé tropical 0,7 / 0,5 (peu de
+  jungles hors des fleuves et des volcans). Limite d'un territoire de 19 cases en champs (milliers
+  d'habitants) : médiane 75 → 75 / 75 → 73, 95e centile 104 → 112 / 107 → 109, maximum 125 → 137 /
+  130 → 136.
+- Pas encore : la Charrue lourde (sols lourds × 1,15) et le seigle et l'avoine (sans malus des sols
+  pauvres), avec la recherche ; le karst ne change pas l'hydrologie (refonte graphique).
+
+### Fait le 13/11/2026 : nourriture par type (5c)
+- `intendant::TypeNourriture` (céréales et féculents, protéines, fruits et légumes) ; `Parts` d'une
+  case (`parts_de_la_case`) : champ → céréales ; légumineuses et pâturage → protéines ; jardin →
+  fruits et légumes ; sans aménagement, selon le biome (forêts 0 / 50 / 50, méditerranéen 20 / 30 /
+  50, prairies, steppes, savanes 40 / 60 / 0, marais 30 / 70 / 0, eau et le reste : protéines) ;
+  centre de la ville 50 / 25 / 25. Nouveaux aménagements : **champ de légumineuses** (60 % d'un
+  champ, 1 500 travailleurs, 20 de production) et **jardin** (fruits et légumes, nourriture × 1,5,
+  300 travailleurs, 10 de production ; le bien-être de la promenade n'est pas fait).
+- `types_comptes` : un type compte s'il couvre 15 % de ce que la ville mange (le besoin, ou toute
+  la nourriture en famine) ; `CityState::types_nourriture` garde le nombre du dernier tour (pas de
+  boucle avec l'intendant). `besoin_nourriture` est divisé par `facteur_equilibre` (1 / 1,1 / 1,2) :
+  la limite monte ; la famine est multipliée par `facteur_famine` (1 / 0,75 / 0,5) ; zone
+  d'équilibre de 3 % sans croissance naturelle. L'intendant (`repartir`) ajoute un poids de 3 à la
+  nourriture des types sous le seuil, une fois la ville nourrie.
+- Effet : le centre seul (2 de nourriture, trois types) nourrit 2 400 habitants au lieu de 2 000.
+- Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
+  case) ; la répartition des sortes dans le monde à surveiller.
+
 ### Nourriture par type et par diversité (Benjamin)
 - La nourriture est rangée **par type** ; **avoir les différents types donne un bonus de
   croissance** (nourriture équilibrée). La ville cherche d'abord à obtenir chaque type.

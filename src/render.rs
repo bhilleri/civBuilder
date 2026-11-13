@@ -146,6 +146,8 @@ struct Palette {
     tides_dim: Vec<Handle<ColorMaterial>>,
     waves: Vec<Handle<ColorMaterial>>,
     waves_dim: Vec<Handle<ColorMaterial>>,
+    soils: Vec<Handle<ColorMaterial>>,
+    soils_dim: Vec<Handle<ColorMaterial>>,
     /// Carte géographique (voir `geo_index`).
     geo: Vec<Handle<ColorMaterial>>,
     geo_dim: Vec<Handle<ColorMaterial>>,
@@ -200,10 +202,12 @@ pub enum MapLayer {
     /// Géographie : le découpage du territoire en zones nommées (terres, mers, relief, régions
     /// naturelles), une couleur par zone, à deux niveaux selon le zoom.
     Geography,
+    /// Fertilité des sols : la classe de sol de chaque case de terre (`geologie.rs`).
+    Soils,
 }
 
 impl MapLayer {
-    pub const ALL: [MapLayer; 13] = [
+    pub const ALL: [MapLayer; 14] = [
         MapLayer::Normal,
         MapLayer::Altitude,
         MapLayer::Relief,
@@ -217,6 +221,7 @@ impl MapLayer {
         MapLayer::Waves,
         MapLayer::Resources,
         MapLayer::Geography,
+        MapLayer::Soils,
     ];
 
     /// Nom court (bouton « Carte »).
@@ -235,6 +240,7 @@ impl MapLayer {
             MapLayer::Waves => "houle",
             MapLayer::Resources => "ressources",
             MapLayer::Geography => "géographie",
+            MapLayer::Soils => "sols",
         }
     }
 
@@ -832,6 +838,30 @@ fn waves_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
     }
 }
 
+/// Terre sans sol connu (carte remplie à la main, glace) sur la carte des sols.
+pub const SOIL_NONE: (f32, f32, f32) = (0.55, 0.55, 0.55);
+
+/// Teinte de la carte des sols : la classe de sol, puis mer, lac, terre sans sol.
+fn soils_index(map: &crate::map::WorldMap, hex: Hex) -> usize {
+    let n = crate::geologie::Sol::TOUS.len();
+    match (map.get(hex), map.sol(hex)) {
+        (Some(t), _) if t.is_sea() => n,
+        (Some(Terrain::Lake), _) => n + 1,
+        (_, Some(s)) => crate::geologie::Sol::TOUS.iter().position(|&x| x == s).unwrap_or(n + 2),
+        _ => n + 2,
+    }
+}
+
+/// Couleur d'une case sur la carte des sols (3D).
+pub fn soils_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
+    match (map.get(hex), map.sol(hex)) {
+        (Some(t), _) if t.is_sea() => HYDRO_OCEAN,
+        (Some(Terrain::Lake), _) => HYDRO_LAKE,
+        (_, Some(s)) => s.couleur(),
+        _ => SOIL_NONE,
+    }
+}
+
 /// Couleur d'une case sur la carte de la houle (3D).
 pub fn waves_color(map: &crate::map::WorldMap, hex: Hex) -> (f32, f32, f32) {
     match (map.get(hex), map.wave_cell(hex)) {
@@ -1324,6 +1354,7 @@ fn shown_water_color(map: &crate::map::WorldMap, layer: MapLayer, geo: &GeoColor
         MapLayer::Currents => currents_color(map, hex),
         MapLayer::Tides => tides_color(map, hex),
         MapLayer::Waves => waves_color(map, hex),
+        MapLayer::Soils => soils_color(map, hex),
         MapLayer::Geography => geo.0.shade.get(map.cell(map.canonical(hex))).map_or(GEO_LAND, |&s| geo_color(s)),
         MapLayer::Basins | MapLayer::Flow | MapLayer::Network => hydro_color(map, hex, layer),
     }
@@ -1416,6 +1447,7 @@ fn setup_map_visuals(
     let (currents, currents_dim) = pair(sea_shades.chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
     let (tides, tides_dim) = pair(TIDE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
     let (waves, waves_dim) = pair(WAVE_CLASSES.iter().map(|c| c.1).chain([CURRENTS_LAND, CURRENTS_LAKE]).collect());
+    let (soils, soils_dim) = pair(crate::geologie::Sol::TOUS.iter().map(|s| s.couleur()).chain([HYDRO_OCEAN, HYDRO_LAKE, SOIL_NONE]).collect());
     let geo_shades = (0..GEO_PALETTE.len() as u8).flat_map(|color| (0..=crate::geography::MUTED).map(move |tone| crate::geography::GeoShade::Zone { color, tone }));
     let (geo, geo_dim) = pair(geo_shades.map(geo_color).chain([GEO_LAND, GEO_WATER]).collect());
     // Hexagone à peine plus petit que la case : la grille reste discrète.
@@ -1442,6 +1474,8 @@ fn setup_map_visuals(
         tides_dim,
         waves,
         waves_dim,
+        soils,
+        soils_dim,
         geo,
         geo_dim,
         unexplored: mat(Color::srgb(0.04, 0.04, 0.06)),
@@ -1715,6 +1749,7 @@ fn update_tile_fog(
         MapLayer::Currents => Some((&palette.currents, &palette.currents_dim)),
         MapLayer::Tides => Some((&palette.tides, &palette.tides_dim)),
         MapLayer::Waves => Some((&palette.waves, &palette.waves_dim)),
+        MapLayer::Soils => Some((&palette.soils, &palette.soils_dim)),
         MapLayer::Geography if geo.0.shade.len() == (map.0.width * map.0.height) as usize => Some((&palette.geo, &palette.geo_dim)),
         _ => None,
     };
@@ -1728,6 +1763,7 @@ fn update_tile_fog(
         (MapLayer::Currents, _) => currents_index(&map.0, hex),
         (MapLayer::Tides, _) => tides_index(&map.0, hex),
         (MapLayer::Waves, _) => waves_index(&map.0, hex),
+        (MapLayer::Soils, _) => soils_index(&map.0, hex),
         (MapLayer::Geography, _) => geo_index(geo.0.shade[map.0.cell(hex)]),
         _ => hydro_index(&map.0, hex, *layer),
     };

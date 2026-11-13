@@ -301,7 +301,7 @@ fn frein(vl: &Ville, city: &City, cases: &[CaseVue]) -> Frein {
     let y = city.travail.rendements;
     let besoin = c.besoin_nourriture().max(1e-6);
     let couverture = y.nourriture / besoin;
-    let limite = limite_nourriture(cases);
+    let limite = limite_nourriture(cases, c);
     // Remèdes pour la nourriture : les aménagements qui en donnent le plus, à leur case conseillée
     let mut nourrir: Vec<(f64, Remede, String)> = [Amenagement::Champ, Amenagement::Paturage]
         .into_iter()
@@ -502,7 +502,7 @@ fn possible(map: &crate::map::WorldMap, c: &CaseVue, a: Amenagement) -> Result<(
         return Err("un aménagement y est déjà en file");
     }
     // Un champ ou un pâturage sur une forêt l'a défrichée : il n'y a plus d'arbres (Benjamin).
-    if a == Amenagement::CoupeDeBois && matches!(c.amenagement, Some(Amenagement::Champ | Amenagement::Paturage)) {
+    if a == Amenagement::CoupeDeBois && matches!(c.amenagement, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Jardin)) {
         return Err("forêt défrichée : plus d'arbres à couper");
     }
     a.possible(map, c.hex)
@@ -807,7 +807,7 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
             nom: {
                 // (un champ ou un pâturage sur une forêt l'a défrichée)
                 let a = amenagements.0.get(&c.hex).copied();
-                let defrichee = matches!(a, Some(Amenagement::Champ | Amenagement::Paturage)) && map.get(c.hex).is_some_and(|t| t.is_wooded());
+                let defrichee = matches!(a, Some(Amenagement::Champ | Amenagement::Paturage | Amenagement::Legumineuses | Amenagement::Jardin)) && map.get(c.hex).is_some_and(|t| t.is_wooded());
                 if defrichee { format!("{} défrichée", nom_de_case(map, c.hex)) } else { nom_de_case(map, c.hex) }
             },
             travailleurs: w,
@@ -2330,7 +2330,7 @@ fn cartes(g: &mut ChildSpawnerCommands, city: &City, images: &Images, choisie: O
     let y = city.travail.rendements;
     let couverture = y.nourriture / c.besoin_nourriture().max(0.001);
     let etat_n = if couverture < 1.0 { Etat::Grave } else if couverture < 1.5 { Etat::Alerte } else { Etat::Ok };
-    let suite_n = if couverture < 1.0 { " : famine" } else { "" };
+    let suite_n = if couverture < 1.0 { " : famine".to_string() } else { format!(" · {} types sur 3", intendant::types_comptes(city.travail.par_type, c.besoin_nourriture())) };
     let prod = match (c.file.first(), c.projet) {
         (Some(k), _) => format!("{} : {}", capitale(k.objet.name()), delai(c, y.production)),
         (None, Some(p)) => format!("projet : {}", p.nom().to_lowercase()),
@@ -2452,7 +2452,7 @@ fn population(g: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVue], imag
         p.spawn(texte("Pour l'instant, les habitants vivent là où ils travaillent.", 12.5, charte::MUET));
     });
     // Évolution et limites
-    let (nourriture, travail) = (limite_nourriture(cases), emplois(cases));
+    let (nourriture, travail) = (limite_nourriture(cases, c), emplois(cases));
     g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
         titre(p, "Évolution et limites de la ville");
         p.spawn(Node { column_gap: Val::Px(4.0), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
@@ -2627,6 +2627,11 @@ fn fiche_case_corps(g: &mut ChildSpawnerCommands, c: &CaseVue, vl: &Ville, image
             p.spawn(texte("Centre de la ville : il rapporte sans travailleurs.", 13.5, charte::DOUX));
         } else {
             ligne_valeur(p, "Aménagement de production", c.amenagement.map_or("aucun (état naturel : cueillette, chasse)".into(), |a| a.nom().to_lowercase()), if c.amenagement.is_some() { charte::AMENAGEMENT } else { charte::DOUX });
+            // Roche et sol : la fertilité des champs (5b)
+            if let (Some(r), Some(s)) = (map.roche(c.hex), map.sol(c.hex)) {
+                let karst = if map.karstique(c.hex) { " karstique" } else { "" };
+                ligne_valeur(p, "Sol", format!("{} sur {}{karst} : champs × {}", s.nom(), r.nom(), s.fertilite_texte()), charte::DOUX);
+            }
             p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(5.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
                 l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("Travailleurs", 13.5, charte::TEXTE)]));
                 l.spawn(texte(format!("{} / {}", rules::milliers(c.travailleurs.into()), rules::milliers(c.capacite.into())), 13.5, charte::TEXTE));
@@ -2791,8 +2796,8 @@ const HORIZON: usize = 100;
 
 /// Habitants que nourrirait la ville, toutes ses cases pleines (centre compris) : la limite de sa
 /// population (décision B4).
-fn limite_nourriture(cases: &[CaseVue]) -> f64 {
-    cases.iter().map(|c| c.max.nourriture).sum::<f64>() * rules::HABITANTS_PAR_NOURRITURE
+fn limite_nourriture(cases: &[CaseVue], c: &rules::CityState) -> f64 {
+    cases.iter().map(|c| c.max.nourriture).sum::<f64>() * rules::HABITANTS_PAR_NOURRITURE * rules::facteur_equilibre(c.types_nourriture)
 }
 
 /// Habitants qui ont tous un emploi quand toutes les cases sont pleines (la moitié travaille) : pas
@@ -2810,7 +2815,7 @@ fn courbe_population(city: &City, cases: &[CaseVue], prevision: &[rules::Pas]) -
         passe.push(city.state.habitants as f64);
     }
     let prevision: Vec<f64> = prevision.iter().take(40).map(|p| p.habitants as f64).collect();
-    let (nourriture, travail) = (limite_nourriture(cases), emplois(cases));
+    let (nourriture, travail) = (limite_nourriture(cases, &city.state), emplois(cases));
     let mut seuils = vec![
         Seuil { valeur: nourriture.max(1.0), libelle: format!("limite (nourriture) : {}", rules::milliers(nourriture as u64)), couleur: Grandeur::Nourriture.couleur(), serie: None },
         Seuil { valeur: travail.max(1.0), libelle: format!("emplois : {}", rules::milliers(travail as u64)), couleur: Grandeur::Production.couleur(), serie: None },
@@ -2840,7 +2845,8 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
     ];
     let usages: Vec<(String, Option<f64>, Color)> = match gr {
         Grandeur::Nourriture => {
-            let mut u = vec![(format!("{} habitants (1 pour 1 000)", rules::milliers(c.habitants)), Some(besoin.min(total)), gr.couleur())];
+            let par = (rules::HABITANTS_PAR_NOURRITURE * rules::facteur_equilibre(c.types_nourriture)).round() as u64;
+            let mut u = vec![(format!("{} habitants (1 pour {}, repas à {} type{})", rules::milliers(c.habitants), rules::milliers(par), c.types_nourriture.max(1), if c.types_nourriture > 1 { "s" } else { "" }), Some(besoin.min(total)), gr.couleur())];
             if total < besoin {
                 u.push(("Manque : famine".into(), Some(besoin - total), charte::GRAVE));
             } else {
@@ -2913,6 +2919,47 @@ fn synthese(g: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[Ca
             l.spawn(texte(net, 14.0, charte::TEXTE));
         });
         p.spawn(texte("Sur la carte : la grandeur de chaque case.", 12.5, charte::MUET));
+    });
+    if gr == Grandeur::Nourriture {
+        types_de_nourriture(g, city);
+    }
+}
+
+/// Panneau « Types de nourriture » : ce que la ville mange de chaque type (le seuil de 15 % porte
+/// sur ce qu'elle mange, pas sur ce qu'elle produit), et l'effet de l'équilibre.
+fn types_de_nourriture(g: &mut ChildSpawnerCommands, city: &City) {
+    let c = &city.state;
+    let par_type = city.travail.par_type;
+    let besoin = c.besoin_nourriture();
+    let mange = besoin.min(par_type.iter().sum::<f64>()).max(1e-6);
+    let comptes = intendant::types_comptes(par_type, besoin);
+    let couleurs = [Grandeur::Nourriture.couleur(), Grandeur::Production.couleur(), Grandeur::Culture.couleur()];
+    g.spawn((panneau(), BackgroundColor(charte::PANNEAU))).with_children(|p| {
+        titre(p, &format!("Types de nourriture : {comptes} sur 3"));
+        // Barre de ce qui est mangé, en trois couleurs, avec le repère de 15 %
+        p.spawn(Node { height: Val::Px(14.0), border_radius: BorderRadius::all(Val::Px(4.0)), overflow: Overflow::clip(), ..default() }).with_children(|b| {
+            let somme: f64 = par_type.iter().sum::<f64>().max(1e-6);
+            for (k, n) in par_type.iter().enumerate() {
+                b.spawn((Node { width: Val::Percent((n / somme * 100.0) as f32), height: Val::Percent(100.0), ..default() }, BackgroundColor(couleurs[k])));
+            }
+        });
+        for (k, t) in intendant::TypeNourriture::TOUS.iter().enumerate() {
+            let part = (par_type[k] / mange).min(1.0);
+            let compte = par_type[k] > 1e-9 && par_type[k] >= intendant::SEUIL_TYPE * mange - 1e-9;
+            let etat = if compte { "compte".to_string() } else { format!("il en faut {} % : un {} y suffirait", (intendant::SEUIL_TYPE * 100.0) as u32, ["champ", "pâturage ou des légumineuses", "jardin"][k]) };
+            p.spawn((Node { column_gap: Val::Px(8.0), padding: UiRect::vertical(Val::Px(4.0)), border: UiRect::top(Val::Px(1.0)), align_items: AlignItems::Center, ..default() }, BorderColor::all(charte::TRAIT))).with_children(|l| {
+                l.spawn((Node { width: Val::Px(12.0), height: Val::Px(12.0), border_radius: BorderRadius::all(Val::Px(3.0)), ..default() }, BackgroundColor(couleurs[k])));
+                l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte(capitale(t.nom()), 13.5, charte::TEXTE)]));
+                l.spawn(texte(format!("{} · couvrirait {} % des repas", rules::decimal(par_type[k]), (part * 100.0).round()), 13.5, charte::TEXTE));
+                l.spawn((Node { width: Val::Px(250.0), justify_content: JustifyContent::FlexEnd, ..default() }, children![texte(etat, 12.5, if compte { charte::OK } else { charte::MUET })]));
+            });
+        }
+        let effet = match c.types_nourriture {
+            0 | 1 => "Repas à un type : pas de bonus. Avec deux types, la limite de la ville monte de 10 % et les famines perdent un quart ; avec trois, 20 % et la moitié.".to_string(),
+            n => format!("Repas à {n} types : la limite de la ville × {} (1 point de nourriture nourrit {} habitants), pertes de famine × {}.", rules::decimal(rules::facteur_equilibre(n)), rules::milliers((rules::HABITANTS_PAR_NOURRITURE * rules::facteur_equilibre(n)).round() as u64), rules::decimal(rules::facteur_famine(n))),
+        };
+        p.spawn(texte(effet, 12.5, charte::MUET));
+        p.spawn(texte("Un type compte s'il peut couvrir 15 % des repas de la ville (ce qu'elle mange, pas ce qu'elle produit). L'intendant cherche d'abord à nourrir, puis l'équilibre.", 12.5, charte::MUET));
     });
 }
 
