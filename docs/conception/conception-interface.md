@@ -773,10 +773,16 @@ variante B : gauche, droite, tiroir). L'écran n'est plus un plein écran avec u
   travailleurs (douze segments au bord de la case, `ville_carte.rs`) ; fiche d'une case : facteurs,
   histogramme travail et subsistance selon les travailleurs, tableau aujourd'hui, +100, pleine ;
   placement : « rempli +X » sous le gain dans 10 tours ; tiroir de l'onglet Bâtiments : tableau des
-  cases. Pas encore : le sélecteur d'horizon (aujourd'hui, 10 tours, rempli) qui piloterait la teinte.
+  cases ; sélecteur d'horizon (Aujourd'hui, Dans 10 tours, Rempli) dans la barre de la carte : la
+  teinte des cases montre ce qu'elles donnent à cet horizon (dans 10 tours : l'intendant place la
+  population prévue sur les cases d'aujourd'hui, sans les aménagements en file).
+- **Infobulles de décomposition (13/11)** : au survol de la nourriture, de la production ou des
+  deniers de l'en-tête, une infobulle à droite de la ligne donne d'où vient le total (centre,
+  cueillette, travail de chaque sorte d'aménagement, subsistance sur les cases aménagées, outils) et
+  où il va ; le tiroir de la grandeur reprend la même décomposition. Pas encore : culture, bien-être
+  et salubrité (leur détail est dans l'onglet Population), ni les nombres des fiches.
 - Écarts avec la maquette v7 et limites : pas de temps de trajet entre villes (la décision « distance =
-  temps de transport » reste à faire : seulement les cases) ; pas d'infobulles de décomposition sur
-  chaque nombre ; pas de verrou de case ; la molette ne zoome pas dans le temps au-delà des 40 tours
+  temps de transport » reste à faire : seulement les cases) ; pas de verrou de case ; la molette ne zoome pas dans le temps au-delà des 40 tours
   gardés ; un cours d'eau survolé n'est plus éclairé pendant que l'écran est ouvert.
 
 ### Écrans nationaux (un panneau par thème, même gabarit)

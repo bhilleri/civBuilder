@@ -356,9 +356,10 @@ Découpage en 7 lots (`conception-interface.md`, « Développement de l'écran d
 le 11/11** (écran plein écran, charte, carte des cases, deniers). **Lot 2 fait le 11/11** (détail des grandeurs, graphiques, historique). **Lot 3 fait le 11/11** (file de construction, projets de ville, aménagements construits depuis l'écran). **Lot 4 fait le 11/11** (objectif de nourriture, priorités et forçage avec aperçu). **Lot 5 fait le 11/11** (onglet Population). **Lot 6 fait le 11/11** (histoire de la ville). **Lot 7 fait le 11/11** : les sept lots de l'écran de la ville sont faits. Suite : vérifier en jouant, puis les systèmes qui rempliront l'écran (bâtiments, eau, bien-être, culture, commerce).
 **Écran de la ville sur la carte (maquette v7) fait le 13/11** (`conception-interface.md`, « Écran de la
 ville sur la carte ») : panneaux posés sur la carte en 2D et en 3D, couches, ombre, contours posés sur le
-relief, en-tête et frein de la v7, Population, Ressources, Histoire, graphique agrandi. Reste : temps
-de trajet des échanges, infobulles de décomposition des nombres, verrou de case, retirer l'ancien
-panneau de production de la carte du monde.
+relief, en-tête et frein de la v7, Population, Ressources, Histoire, graphique agrandi. Ancien panneau
+de production retiré, rendement des cases, horizon et infobulles de décomposition faits le 13/11. Reste :
+temps de trajet des échanges (décision « distance = temps de transport » à prendre), verrou de case
+(règle à fixer), infobulles des autres nombres (culture, bien-être, fiches).
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :
 nom tiré de la langue) : renommer « Économie » en deniers dans le code, l'interface et le wiki.

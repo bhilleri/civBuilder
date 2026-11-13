@@ -958,13 +958,17 @@ fn cities() -> Article {
                et la couche (Rendement, Aménagements, Emplois, Habitants, la grandeur détaillée, Ressources, \
                Histoire ; l'onglet en choisit une). Couche Rendement : sur chaque case, une barre d'unités par grandeur \
                (pleine pour ce qu'elle donne aujourd'hui, plus pâle pour la subsistance, en contour pour ce qu'elle \
-               donnerait pleine), « maintenant / plein », et un anneau des travailleurs sur les places. Les cases à \
+               donnerait pleine), « maintenant / plein », et un anneau des travailleurs sur les places ; l'horizon \
+               (Aujourd'hui, Dans 10 tours, Rempli) règle la teinte des cases : ce qu'elles donnent aujourd'hui, avec \
+               la population prévue dans 10 tours, ou pleines. Les cases à \
                acheter sont en pointillé avec leur prix ; la fiche d'une case montre ce qu'elle donne selon ses \
                travailleurs, et un placement ce qu'on gagnera une fois la case remplie. Survol : l'infobulle de la case ; clic : sa fiche. La molette, le bouton du milieu et le clavier \
                déplacent la caméra comme d'habitude. Sous le nom : ce qui freine la croissance ce tour et à \
                terme, et le remède le plus rentable, chiffré en habitants par tour (« 2 autres + » déplie les autres). \
                Dans le tiroir, F agrandit le graphique (Échap le réduit) ; la molette y change la période."),
-            p("Clic sur une grandeur (ou touches 1 à 3) : son détail. Le graphique montre les derniers tours (10, 20                ou 40) et la prévision des 20 prochains (l'intendant répartit les habitants à venir), avec des repères (besoin et                croissance pleine pour la nourriture, équilibre pour les deniers) ; dessous, d'où vient la grandeur                et où elle va (réserve pour croître, grenier, excédent perdu, construction, trésor). La carte prend la couleur                de la grandeur et donne sa valeur par case ; la fiche d'une case dit ce que 100 travailleurs de plus                y rapporteraient. Échap remonte d'un cran (case, grandeur, écran)."),
+            p("Clic sur une grandeur (ou touches 1 à 3) : son détail. Le graphique montre les derniers tours (10, 20 ou 40) et la prévision des 20 prochains (l'intendant répartit les habitants à venir), avec des repères (besoin et croissance pleine pour la nourriture, équilibre pour les deniers) ; dessous, d'où vient la grandeur et où elle va (réserve pour croître, grenier, excédent perdu, construction, trésor). La carte prend la couleur de la grandeur et donne sa valeur par case ; la fiche d'une case dit ce que 100 travailleurs de plus y rapporteraient. Échap remonte d'un cran (case, grandeur, écran). Au survol d'une grandeur de l'en-tête (nourriture, production, deniers), \
+               une infobulle décompose son total : centre de la ville, cueillette, travail de chaque sorte d'aménagement, \
+               subsistance, outils, puis où elle va."),
             p("L'onglet Population montre les habitants, les actifs (la moitié) et les sans-emploi, l'évolution de \
                la population en échelle logarithmique avec sa prévision et ce que la ville peut porter : la limite, \
                les habitants que nourrirait la nourriture de toutes ses cases pleines (la croissance s'arrête avant), \

@@ -86,6 +86,33 @@ impl Couche {
 #[derive(Component)]
 struct ChoixCouche(Couche);
 
+/// Horizon de la couche Rendement : la teinte des cases montre ce qu'elles donnent aujourd'hui,
+/// dans 10 tours (travailleurs placés par l'intendant avec la population prévue) ou pleines.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Horizon {
+    #[default]
+    Aujourdhui,
+    DixTours,
+    Rempli,
+}
+
+impl Horizon {
+    const TOUS: [Horizon; 3] = [Horizon::Aujourdhui, Horizon::DixTours, Horizon::Rempli];
+
+    /// Nom du bouton.
+    fn nom(self) -> &'static str {
+        match self {
+            Horizon::Aujourdhui => "Aujourd'hui",
+            Horizon::DixTours => "Dans 10 tours",
+            Horizon::Rempli => "Rempli",
+        }
+    }
+}
+
+/// Bouton d'un horizon de la couche Rendement.
+#[derive(Component)]
+struct ChoixHorizon(Horizon);
+
 /// État de l'écran : ville affichée (ouvert si `Some`), onglet, case choisie, couches de la carte.
 #[derive(Resource, Default)]
 pub struct EcranVille {
@@ -130,6 +157,8 @@ pub struct EcranVille {
     pub catalogue_groupe: GroupeCatalogue,
     /// Dernière ville montrée (une autre ville s'ouvre sur l'onglet Rendements).
     derniere: Option<Entity>,
+    /// Horizon de la couche Rendement (teinte des cases).
+    pub horizon: Horizon,
 }
 
 /// Groupes du catalogue de construction.
@@ -197,8 +226,9 @@ enum ModeCarte {
     Histoire,
     /// Type de nourriture de chaque case.
     Types,
-    /// Rendement de chaque case : barres d'unités (maintenant, plein ; la subsistance plus pâle).
-    Rendement,
+    /// Rendement de chaque case : barres d'unités (maintenant, plein ; la subsistance plus pâle) ;
+    /// la teinte suit l'horizon choisi.
+    Rendement(Horizon),
 }
 
 /// Anneau de la case conseillée par l'intendant (or : le conseil).
@@ -345,6 +375,12 @@ struct BasculeAchats;
 pub struct CacheSousEcran;
 #[derive(Component)]
 struct Bulle;
+/// Ligne d'une grandeur de l'en-tête : survolée, l'infobulle décompose son total.
+#[derive(Component)]
+struct AideGrandeur(Grandeur);
+/// Infobulle des lignes de l'en-tête.
+#[derive(Component)]
+struct BulleAide;
 #[derive(Component)]
 struct Fermer;
 /// Ville précédente (−1) ou suivante (+1), l'onglet gardé.
@@ -958,7 +994,7 @@ impl Plugin for EcranVillePlugin {
             .add_systems(Startup, construire)
             .add_systems(
                 Update,
-                (ouvrir_fermer, commandes, cadrage, disposer, carte_souris, defiler, molette_graphique, glisser_file, construire_actions, reconstruire, afficher, cacher_hud, bouton_agrandir)
+                (ouvrir_fermer, commandes, cadrage, disposer, carte_souris, aide_grandeurs, defiler, molette_graphique, glisser_file, construire_actions, reconstruire, afficher, cacher_hud, bouton_agrandir)
                     .chain()
                     .in_set(EcranVilleSet)
                     .before(crate::menu::toggle_menu),
@@ -1187,7 +1223,51 @@ fn construire(mut commands: Commands, images: Res<Images>) {
                 GlobalZIndex(95),
                 Pickable::IGNORE,
             ));
+            r.spawn((
+                BulleAide,
+                Node { position_type: PositionType::Absolute, flex_direction: FlexDirection::Column, row_gap: Val::Px(1.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)), width: Val::Px(330.0), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(7.0)), display: Display::None, ..default() },
+                BackgroundColor(charte::FOND),
+                BorderColor::all(charte::TRAIT2),
+                GlobalZIndex(96),
+                Pickable::IGNORE,
+            ));
         });
+}
+
+/// Infobulle des grandeurs de l'en-tête (nourriture, production, deniers) : au survol, d'où vient
+/// le total et où il va, à droite de la ligne.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn aide_grandeurs(
+    ecran: Res<EcranVille>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    lignes: Query<(&UiPointer, &AideGrandeur, &ComputedNode, &UiGlobalTransform)>,
+    bulle: Single<(Entity, &mut Node), With<BulleAide>>,
+    (map, territoire, amenagements, gisements, debug): (Res<GameMap>, Res<Territory>, Res<Amenagements>, Res<crate::game::Gisements>, Res<crate::game::DebugMode>),
+    cities: Query<(Ref<City>, &HexPos)>,
+    mut commands: Commands,
+    mut montre: Local<Option<Grandeur>>,
+) {
+    let (e, mut node) = bulle.into_inner();
+    let survol = lignes.iter().find(|(p, ..)| **p != UiPointer::None).map(|(_, a, n, t)| {
+        let k = n.inverse_scale_factor();
+        (a.0, Vec2::new((t.translation.x + n.size().x / 2.0) * k, (t.translation.y - n.size().y / 2.0) * k))
+    });
+    let ville = ecran.ville.and_then(|v| cities.get(v).ok().map(|c| (v, c)));
+    let (Some((gr, p)), Some((v, (city, pos)))) = (survol.filter(|_| ecran.ouvert()), ville) else {
+        if node.display != Display::None {
+            node.display = Display::None;
+        }
+        *montre = None;
+        return;
+    };
+    node.display = Display::Flex;
+    node.left = Val::Px((p.x + 14.0).min(window.width() - 340.0));
+    node.top = Val::Px((p.y - 8.0).min(window.height() - 380.0).max(0.0));
+    if *montre != Some(gr) || city.is_changed() || ecran.is_changed() {
+        *montre = Some(gr);
+        let cases = cases_vues(&map.0, pos.0, v, &city, &territoire, &amenagements, &(&gisements, debug.0));
+        commands.entity(e).despawn_related::<Children>().with_children(|b| bulle_grandeur(b, gr, &city, &cases));
+    }
 }
 
 /// Place les panneaux selon la taille de la fenêtre et l'état du tiroir et de la fiche ; donne à
@@ -1534,7 +1614,7 @@ fn cadrage(ecran: Res<EcranVille>, mode: Res<crate::view3d::ViewMode>, map: Res<
 fn commandes(
     mut ecran: ResMut<EcranVille>,
     (mode, mut cam3d, mut camera2d, mut cadrer, territoire, positions): (Res<crate::view3d::ViewMode>, ResMut<crate::view3d::Cam3d>, Single<&mut Projection, (With<Camera2d>, Without<crate::seam::GhostCamera>)>, MessageWriter<crate::ville_carte::CadrerVille>, Res<Territory>, Query<&HexPos>),
-    (tiroir, achats, choix_couches, ouvrir_onglet, sujets): (Query<Ref<UiPointer>, With<BasculeTiroir>>, Query<Ref<UiPointer>, With<BasculeAchats>>, Query<(Ref<UiPointer>, &ChoixCouche)>, Query<(Ref<UiPointer>, &OuvrirOnglet)>, Query<(Ref<UiPointer>, &ChoixSujet)>),
+    (tiroir, achats, choix_couches, ouvrir_onglet, sujets, horizons): (Query<Ref<UiPointer>, With<BasculeTiroir>>, Query<Ref<UiPointer>, With<BasculeAchats>>, Query<(Ref<UiPointer>, &ChoixCouche)>, Query<(Ref<UiPointer>, &OuvrirOnglet)>, Query<(Ref<UiPointer>, &ChoixSujet)>, Query<(Ref<UiPointer>, &ChoixHorizon)>),
     ressources: Query<(Ref<UiPointer>, &ChoixRessource)>,
     bascule_remedes: Query<Ref<UiPointer>, With<BasculeRemedes>>,
     agrandir: Query<Ref<UiPointer>, With<BasculeAgrandi>>,
@@ -1637,6 +1717,11 @@ fn commandes(
     for (i, c) in &choix_couches {
         if appui(&i) && ecran.couche != Some(c.0) {
             ecran.couche = Some(c.0);
+        }
+    }
+    for (i, h) in &horizons {
+        if appui(&i) && ecran.horizon != h.0 {
+            ecran.horizon = h.0;
         }
     }
     for (i, c) in &choix {
@@ -2232,7 +2317,7 @@ fn reconstruire(
         },
         Couche::Amenagements | Couche::Gisements | Couche::Echanges => ModeCarte::Dominante,
         Couche::Types => ModeCarte::Types,
-        Couche::Rendement => ModeCarte::Rendement,
+        Couche::Rendement => ModeCarte::Rendement(ecran.horizon),
     };
     commands.entity(*couches_barre).despawn_related::<Children>().with_children(|b| {
         b.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), ..default() }, BackgroundColor(charte::FOND), children![texte("COUCHE", 11.5, charte::MUET)]));
@@ -2240,6 +2325,13 @@ fn reconstruire(
             let actif = c == couche && ecran.placement.is_none();
             let nom = if c == Couche::Quantite { ecran.grandeur.map_or("Quantité", |g| g.nom()) } else { c.nom() };
             b.spawn((ChoixCouche(c), UiPointer::default(), Node { padding: UiRect::axes(Val::Px(9.0), Val::Px(5.0)), ..default() }, BackgroundColor(if actif { charte::ACTION_FOND } else { charte::FOND }), children![texte(nom, 13.0, charte::TEXTE)]));
+        }
+        if couche == Couche::Rendement && ecran.placement.is_none() {
+            b.spawn((Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)), margin: UiRect::left(Val::Px(8.0)), ..default() }, BackgroundColor(charte::FOND), children![texte("HORIZON", 11.5, charte::MUET)]));
+            for h in Horizon::TOUS {
+                let actif = h == ecran.horizon;
+                b.spawn((ChoixHorizon(h), UiPointer::default(), Node { padding: UiRect::axes(Val::Px(9.0), Val::Px(5.0)), ..default() }, BackgroundColor(if actif { charte::ACTION_FOND } else { charte::FOND }), children![texte(h.nom(), 13.0, charte::TEXTE)]));
+            }
         }
     });
     let (legende_e, _) = legende.into_inner();
@@ -2271,6 +2363,36 @@ fn reconstruire(
                 let (i, p) = parts.iter().enumerate().fold((0, 0.0), |m, (i, &p)| if p > m.1 { (i, p) } else { m });
                 let a = if c.rendement.nourriture > 0.05 && p > 0.0 { if c.travailleurs > 0 || c.centre { 0.5 } else { 0.22 } } else { 0.0 };
                 (c.hex, if a > 0.0 { COULEURS_TYPES[i].with_alpha(a) } else { Color::srgba(0.0, 0.0, 0.0, 0.15) })
+            })
+            .collect();
+    }
+    if let ModeCarte::Rendement(horizon) = mode {
+        // (ce que donne chaque case à l'horizon choisi, de pâle à vif ; le centre à part)
+        let a_horizon: Vec<Rendements> = match horizon {
+            Horizon::Aujourdhui => cases.iter().map(|c| c.rendement).collect(),
+            Horizon::Rempli => cases.iter().map(|c| if c.centre { c.rendement } else { c.max }).collect(),
+            Horizon::DixTours => {
+                let mut st = city.state.allege();
+                st.habitants = prevision.get(TOURS_EFFET - 1).or(prevision.last()).map_or(st.habitants, |p| p.habitants);
+                let rep = rules::repartition_ville(&map.0, centre.0, &st, dispo_ville);
+                cases.iter().map(|c| if c.centre { c.rendement } else { c.courbe.rendement(rep.sur(c.hex)) }).collect()
+            }
+        };
+        let max = cases.iter().zip(&a_horizon).filter(|(c, _)| !c.centre).map(|(_, r)| r.total()).fold(0.01, f64::max);
+        voulu.teintes = cases
+            .iter()
+            .zip(&a_horizon)
+            .map(|(c, r)| {
+                let t = if c.centre {
+                    charte::CENTRE_VILLE.with_alpha(0.35)
+                } else {
+                    let poids = [(Grandeur::Nourriture, r.nourriture), (Grandeur::Production, r.production), (Grandeur::Deniers, r.deniers / 0.6)];
+                    match poids.into_iter().filter(|(_, v)| *v > 0.05).max_by(|a, b| a.1.total_cmp(&b.1)) {
+                        Some((g, _)) => g.couleur().with_alpha(0.05 + 0.6 * (r.total() / max) as f32),
+                        None => Color::srgba(0.0, 0.0, 0.0, 0.2),
+                    }
+                };
+                (c.hex, t)
             })
             .collect();
     }
@@ -2486,7 +2608,7 @@ fn teinte(c: &CaseVue, mode: ModeCarte, gain: Option<&(GainAmenagement, Evaluati
             let part = c.remplissage();
             (if part >= 0.9 { Color::srgb(0.62, 0.55, 0.92) } else { charte::OK }).with_alpha(0.18 + 0.42 * part)
         }
-        ModeCarte::Dominante | ModeCarte::Histoire | ModeCarte::Types | ModeCarte::Rendement => match c.dominante() {
+        ModeCarte::Dominante | ModeCarte::Histoire | ModeCarte::Types | ModeCarte::Rendement(_) => match c.dominante() {
             Some(g) => g.couleur().with_alpha(if c.travailleurs > 0 { 0.32 } else { 0.12 }),
             None => Color::NONE,
         },
@@ -2608,7 +2730,7 @@ fn hexagone(p: &mut ChildSpawnerCommands, c: &CaseVue, s: f32, sur: Hex, mode: M
             }
         } else if let (ModeCarte::Grandeur(g, _), true) = (mode, s >= 22.0) {
             h.spawn(centre(texte(rules::decimal(valeur(&c.rendement, g)), (s * 0.34).clamp(11.0, 18.0), charte::TEXTE)));
-        } else if let (ModeCarte::Rendement, true) = (mode, s >= 22.0) {
+        } else if let (ModeCarte::Rendement(_), true) = (mode, s >= 22.0) {
             barres_unites(h, c, s, images);
         } else if s >= 22.0 && !c.centre && mode != ModeCarte::Histoire {
             // (pas le nom du terrain : il est dans l'infobulle ; l'aménagement et le gisement)
@@ -2767,7 +2889,13 @@ fn legende_carte(l: &mut ChildSpawnerCommands, mode: ModeCarte, caches: bool, ba
         l.spawn(texte(format!("chiffres : ce qu'on gagne (en couleur, avec l'icône de la grandeur) et ce qu'on perd (en rouge) dans {TOURS_EFFET} tours · ◆ gisement de la case · couleur de la case : valeur pour la ville (nourriture utile jusqu'à {} × le besoin)", rules::decimal(bareme.plafond)), 12.0, charte::MUET));
         return;
     }
-    if mode == ModeCarte::Rendement {
+    if let ModeCarte::Rendement(horizon) = mode {
+        let quand = match horizon {
+            Horizon::Aujourdhui => "aujourd'hui",
+            Horizon::DixTours => "dans 10 tours (population prévue, placée par l'intendant)",
+            Horizon::Rempli => "une fois pleine",
+        };
+        l.spawn(texte(format!("teinte : ce que donne la case {quand}, de pâle à vif ·"), 12.5, charte::MUET));
         pastille(l, Grandeur::Nourriture.couleur(), "unité produite");
         pastille(l, Grandeur::Nourriture.couleur().with_alpha(0.45), "dont la subsistance");
         l.spawn((Node { width: Val::Px(14.0), height: Val::Px(10.0), border: UiRect::all(Val::Px(1.0)), border_radius: BorderRadius::all(Val::Px(2.0)), ..default() }, BorderColor::all(Grandeur::Nourriture.couleur())));
@@ -2895,7 +3023,7 @@ fn grandeurs(e: &mut ChildSpawnerCommands, city: &City, tresor: i32, choisie: Op
                 BorderColor::all(if actif { g.couleur() } else { Color::NONE }),
             ));
             match (detail, onglet) {
-                (Some(d), _) => ligne.insert(ChoixGrandeur(d)),
+                (Some(d), _) => ligne.insert((ChoixGrandeur(d), AideGrandeur(d))),
                 (None, Some(o)) => ligne.insert(OuvrirOnglet(o)),
                 _ => ligne.insert(OuvrirOnglet(Onglet::Rendements)),
             };
@@ -3695,20 +3823,92 @@ fn fiche_grandeur(d: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases
     }
 }
 
+/// Ce que donnent les cases travaillées, par origine : la cueillette des cases sans aménagement, le
+/// travail de chaque sorte d'aménagement, la subsistance de ceux qui vivent sur les cases aménagées,
+/// et les outils (le reste jusqu'au total des cases).
+fn origines(gr: Grandeur, total_cases: f64, cases: &[CaseVue]) -> Vec<(String, f64)> {
+    let (mut cueillette, mut n_cueillette, mut subsistance, mut n_amenagees) = (0.0, 0, 0.0, 0);
+    let mut par_amenagement: Vec<(Amenagement, f64, usize)> = Vec::new();
+    for c in cases.iter().filter(|c| !c.centre && c.travailleurs > 0) {
+        match c.amenagement {
+            None => {
+                cueillette += valeur(&c.rendement, gr);
+                n_cueillette += 1;
+            }
+            Some(a) => {
+                let s = valeur(&c.courbe.subsistance_de(c.travailleurs), gr);
+                subsistance += s;
+                n_amenagees += 1;
+                let t = valeur(&c.rendement, gr) - s;
+                match par_amenagement.iter_mut().find(|x| x.0 == a) {
+                    Some(x) => {
+                        x.1 += t;
+                        x.2 += 1;
+                    }
+                    None => par_amenagement.push((a, t, 1)),
+                }
+            }
+        }
+    }
+    let nombre = |n: usize| if n > 1 { format!("{n} cases") } else { "1 case".to_string() };
+    let mut v = Vec::new();
+    if n_cueillette > 0 {
+        v.push((format!("Cueillette ({})", nombre(n_cueillette)), cueillette));
+    }
+    par_amenagement.sort_by(|a, b| b.1.total_cmp(&a.1));
+    for (a, t, n) in par_amenagement {
+        if t.abs() >= 0.005 {
+            v.push((format!("{} ({})", capitale(a.nom()), nombre(n)), t));
+        }
+    }
+    if subsistance >= 0.005 {
+        v.push((format!("Subsistance sur les cases aménagées ({})", nombre(n_amenagees)), subsistance));
+    }
+    let outils = total_cases - v.iter().map(|x| x.1).sum::<f64>();
+    if outils.abs() >= 0.05 {
+        v.push(("Outils (cases aménagées)".into(), outils));
+    }
+    v
+}
+
+/// Infobulle d'une grandeur de l'en-tête : d'où vient son total et où il va.
+fn bulle_grandeur(b: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[CaseVue]) {
+    let total = valeur(&city.travail.rendements, gr);
+    let (sources, usages) = sources_usages(gr, city, cases);
+    let ligne = |b: &mut ChildSpawnerCommands, l: &str, v: f64, couleur: Color| {
+        b.spawn((Node { column_gap: Val::Px(10.0), padding: UiRect::vertical(Val::Px(2.0)), border: UiRect::top(Val::Px(1.0)), ..default() }, BorderColor::all(charte::TRAIT))).with_children(|r| {
+            r.spawn((Node { flex_grow: 1.0, min_width: Val::Px(0.0), ..default() }, children![texte(l, 12.5, charte::TEXTE)]));
+            r.spawn(texte(rules::decimal(v), 12.5, couleur));
+        });
+    };
+    b.spawn(texte(format!("{} : {} par tour", capitale(gr.nom()), rules::decimal(total)), 14.0, gr.couleur()));
+    let (t_src, t_use) = if gr == Grandeur::Deniers { ("Recettes", "Dépenses") } else { ("D'où elle vient", "Où elle va") };
+    b.spawn((texte(t_src, 11.5, charte::MUET), Node { margin: UiRect::top(Val::Px(4.0)), ..default() }));
+    for (l, v) in &sources {
+        if let Some(v) = v {
+            ligne(b, l, *v, charte::TEXTE);
+        }
+    }
+    b.spawn((texte(t_use, 11.5, charte::MUET), Node { margin: UiRect::top(Val::Px(4.0)), ..default() }));
+    for (l, v, couleur) in &usages {
+        if let Some(v) = v {
+            ligne(b, l, *v, *couleur);
+        }
+    }
+    b.spawn((texte("Clic : la courbe, le détail et les réglages", 11.5, charte::MUET), Node { margin: UiRect::top(Val::Px(4.0)), ..default() }));
+}
+
 /// D'où vient une grandeur et où elle va (sources et usages, avec leur valeur).
 #[allow(clippy::type_complexity)]
 fn sources_usages(gr: Grandeur, city: &City, cases: &[CaseVue]) -> (Vec<(String, Option<f64>)>, Vec<(String, Option<f64>, Color)>) {
     let c = &city.state;
     let total = valeur(&city.travail.rendements, gr);
     let centre = cases.iter().find(|c| c.centre).map_or(0.0, |c| valeur(&c.rendement, gr));
-    let travaillees = cases.iter().filter(|c| !c.centre && c.travailleurs > 0).count();
     let besoin = c.besoin_nourriture();
-    let sources: Vec<(String, Option<f64>)> = vec![
-        ("Centre de la ville".into(), Some(centre)),
-        (format!("Cases travaillées ({travaillees})"), Some(total - centre)),
-        ("Bâtiments : pas encore dans le jeu".into(), None),
-        ("Commerce : pas encore dans le jeu".into(), None),
-    ];
+    let mut sources: Vec<(String, Option<f64>)> = vec![("Centre de la ville".into(), Some(centre))];
+    sources.extend(origines(gr, total - centre, cases).into_iter().map(|(l, v)| (l, Some(v))));
+    sources.push(("Bâtiments : pas encore dans le jeu".into(), None));
+    sources.push(("Commerce : pas encore dans le jeu".into(), None));
     let usages: Vec<(String, Option<f64>, Color)> = match gr {
         Grandeur::Nourriture => {
             let par = (rules::HABITANTS_PAR_NOURRITURE * rules::facteur_equilibre(c.types_nourriture)).round() as u64;
