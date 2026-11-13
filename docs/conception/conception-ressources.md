@@ -224,8 +224,8 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   fruits et légumes ; sans aménagement, selon le biome (forêts 0 / 50 / 50, méditerranéen 20 / 30 /
   50, prairies, steppes, savanes 40 / 60 / 0, marais 30 / 70 / 0, eau et le reste : protéines) ;
   centre de la ville 50 / 25 / 25. Nouveaux aménagements : **champ de légumineuses** (60 % d'un
-  champ, 1 500 travailleurs, 20 de production) et **jardin** (fruits et légumes, nourriture × 1,5,
-  300 travailleurs, 10 de production ; le bien-être de la promenade n'est pas fait).
+  champ, 1 500 travailleurs, 20 de production) et **jardin** (fruits et légumes, nourriture × 0,75 de la case (d'appoint ;
+  × 1,5 au premier essai : plus fort qu'un champ par travailleur), 300 travailleurs, 10 de production ; le bien-être de la promenade n'est pas fait).
 - `types_comptes` : un type compte s'il couvre 15 % de ce que la ville mange (le besoin, ou toute
   la nourriture en famine) ; `CityState::types_nourriture` garde le nombre du dernier tour (pas de
   boucle avec l'intendant). `besoin_nourriture` est divisé par `facteur_equilibre` (1 / 1,1 / 1,2) :
@@ -235,6 +235,29 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - Effet : le centre seul (2 de nourriture, trois types) nourrit 2 400 habitants au lieu de 2 000.
 - Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
   case) ; la répartition des sortes dans le monde à surveiller.
+
+### Fait le 13/11/2026 : diversité des repas (5d)
+- `intendant::Sorte` (17 sortes, chacune d'un type) ; `sortes_de_la_case` : une sorte par type et
+  par case, la plus adaptée (champ : tubercules en jungle et savane arborée, riz au-dessus de 20 °C
+  et 1 000 mm, millet et sorgho en savane, steppe ou sec et chaud, blé en méditerranéen ou tempéré
+  de 8 à 20 °C et 400 à 1 000 mm, sinon orge ; pâturage : rennes, lamas et chameaux en taïga,
+  toundra, désert ou au-dessus de 2 500 m, porcs en forêt, moutons et chèvres en steppe,
+  méditerranéen ou relief, sinon bœufs ; jardin : dattes au chaud et sec, sinon légumes ; sans
+  aménagement : gibier, baies, fruits tropicaux, châtaignes, orge ou millet sauvages, riz des marais,
+  poisson) ; `sortes_du_centre`.
+- `sortes_en_plus` : une sorte compte à partir de 5 % des repas ; +2 de bien-être par sorte en plus
+  de la première de chaque type, au plus +8 (`CityState::sortes_en_plus`, terme « diversité des
+  repas » du bien-être). L'intendant ajoute un poids de 1 à une sorte qui ne compte pas, une fois
+  l'équilibre fait (`repartir_avec`).
+- Jardin ramené à 0,75 × la nourriture de la case (1,5 au premier essai : plus de nourriture par
+  travailleur qu'un champ).
+- Bilan (`bilan_geologie`, 777 / 2) : céréales des champs possibles : blé 19,0 / 16,8 %, orge 29,0 /
+  34,6, millet et sorgho 8,4 / 6,3, riz 0,9 / 0,9, tubercules 0,4 / 0,0 ; bétail des pâturages :
+  bœufs 19,8 / 16,9, moutons et chèvres 17,5 / 15,0, porcs 39,9 / 35,2, rennes, lamas et chameaux
+  11,0 / 20,3. Le riz et les tubercules sont rares : ces mondes ont peu de terres tropicales
+  cultivables.
+- Pas encore : les sortes de l'âge du bronze (seigle et avoine, fruits du verger, vigne et olivier),
+  le maïs (foyer d'origine sur un seul continent), les foyers et leur diffusion (commerce).
 
 ### Nourriture par type et par diversité (Benjamin)
 - La nourriture est rangée **par type** ; **avoir les différents types donne un bonus de

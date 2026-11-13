@@ -3969,6 +3969,20 @@ mod tectonique {
             for s in Sol::TOUS {
                 println!("  {:<26} {}", s.nom(), part(terres.iter().filter(|&&h| m.sol(h) == Some(s)).count()));
             }
+            // Répartition des sortes : céréale des champs, bétail des pâturages (surveiller qu'elles
+            // se répartissent bien dans le monde ; décision de Benjamin)
+            let mut cereales = std::collections::BTreeMap::new();
+            let mut betail = std::collections::BTreeMap::new();
+            for &h in &terres {
+                if let Some(s) = crate::intendant::sortes_de_la_case(&m, h, Some(Amenagement::Champ))[0].filter(|_| Amenagement::Champ.possible(&m, h).is_ok()) {
+                    *cereales.entry(s.nom()).or_insert(0usize) += 1;
+                }
+                if let Some(s) = crate::intendant::sortes_de_la_case(&m, h, Some(Amenagement::Paturage))[1].filter(|_| Amenagement::Paturage.possible(&m, h).is_ok()) {
+                    *betail.entry(s.nom()).or_insert(0usize) += 1;
+                }
+            }
+            println!("  céréales des champs : {}", cereales.iter().map(|(k, v)| format!("{k} {}", part(*v))).collect::<Vec<_>>().join(", "));
+            println!("  bétail des pâturages : {}", betail.iter().map(|(k, v)| format!("{k} {}", part(*v))).collect::<Vec<_>>().join(", "));
             // Limite d'un territoire de 19 cases tout en champs (là où un champ est possible)
             let champ = |h: Hex| Amenagement::possibles(&m, h).contains(&Amenagement::Champ);
             let mut avec: Vec<f64> = Vec::new();

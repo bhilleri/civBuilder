@@ -2953,7 +2953,21 @@ fn types_de_nourriture(g: &mut ChildSpawnerCommands, city: &City) {
                 l.spawn(texte(format!("{} · couvrirait {} % des repas", rules::decimal(par_type[k]), (part * 100.0).round()), 13.5, charte::TEXTE));
                 l.spawn((Node { width: Val::Px(250.0), justify_content: JustifyContent::FlexEnd, ..default() }, children![texte(etat, 12.5, if compte { charte::OK } else { charte::MUET })]));
             });
+            // Sortes du type : celles qui comptent (5 % des repas) d'abord, les autres en gris
+            let mut sortes: Vec<(intendant::Sorte, f64)> = intendant::Sorte::TOUTES.iter().filter(|s| s.type_() == k).map(|&s| (s, city.travail.par_sorte[s.index()])).filter(|(_, n)| *n > 0.005).collect();
+            sortes.sort_by(|a, b| b.1.total_cmp(&a.1));
+            if !sortes.is_empty() {
+                p.spawn(Node { column_gap: Val::Px(10.0), flex_wrap: FlexWrap::Wrap, padding: UiRect::left(Val::Px(20.0)), ..default() }).with_children(|l| {
+                    for (s, n) in sortes {
+                        let compte = n >= intendant::SEUIL_SORTE * mange - 1e-9;
+                        l.spawn(texte(format!("{} {}", s.nom(), rules::decimal(n)), 12.5, if compte { charte::DOUX } else { charte::MUET }));
+                    }
+                });
+            }
         }
+        let en_plus = intendant::sortes_en_plus(&city.travail.par_sorte, besoin);
+        let bonus = (intendant::BIEN_ETRE_PAR_SORTE * f64::from(en_plus)).min(intendant::BIEN_ETRE_DIVERSITE_MAX);
+        p.spawn(texte(format!("Diversité des repas : {en_plus} sorte{} en plus de la première de chaque type → bien-être +{bonus:.0} (au plus +{:.0}). Une sorte compte à partir de 5 % des repas.", if en_plus > 1 { "s" } else { "" }, intendant::BIEN_ETRE_DIVERSITE_MAX), 12.5, if en_plus > 0 { charte::OK } else { charte::MUET }));
         let effet = match c.types_nourriture {
             0 | 1 => "Repas à un type : pas de bonus. Avec deux types, la limite de la ville monte de 10 % et les famines perdent un quart ; avec trois, 20 % et la moitié.".to_string(),
             n => format!("Repas à {n} types : la limite de la ville × {} (1 point de nourriture nourrit {} habitants), pertes de famine × {}.", rules::decimal(rules::facteur_equilibre(n)), rules::milliers((rules::HABITANTS_PAR_NOURRITURE * rules::facteur_equilibre(n)).round() as u64), rules::decimal(rules::facteur_famine(n))),

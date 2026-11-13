@@ -144,6 +144,8 @@ fn defriche(map: &WorldMap, h: Hex) -> bool {
 
 /// Rendement d'un champ de légumineuses, rapporté à un champ de céréales.
 pub const RENDEMENT_LEGUMINEUSES: f64 = 0.6;
+/// Nourriture d'un jardin, rapportée à la case (d'appoint : peu de nourriture, peu de travailleurs).
+pub const RENDEMENT_JARDIN: f64 = 0.75;
 
 /// Types de nourriture (livraison 5c) : l'équilibre entre eux relève la limite de la ville.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -192,6 +194,168 @@ pub fn parts_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>
             }
         }
     }
+}
+
+/// Sortes de nourriture (livraison 5d) : leur diversité au sein d'un type donne du bien-être. Une
+/// case n'en présente qu'une par type, la plus adaptée (décision de Benjamin). Les sortes de l'âge
+/// du bronze (seigle et avoine, fruits du verger, vigne et olivier) et le maïs (un seul foyer
+/// d'origine) viendront avec les ères et le commerce.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Sorte {
+    Ble,
+    Orge,
+    MilletSorgho,
+    Riz,
+    Tubercules,
+    Chataignes,
+    Legumineuses,
+    Boeufs,
+    MoutonsChevres,
+    Porcs,
+    BetesExtremes,
+    Gibier,
+    Poisson,
+    Baies,
+    Legumes,
+    FruitsTropicaux,
+    Dattes,
+}
+
+/// Nombre de sortes.
+pub const N_SORTES: usize = 17;
+/// Nourriture de la ville par sorte, dans l'ordre de `Sorte::TOUTES`.
+pub type ParSorte = [f64; N_SORTES];
+
+impl Sorte {
+    pub const TOUTES: [Sorte; N_SORTES] = [
+        Sorte::Ble,
+        Sorte::Orge,
+        Sorte::MilletSorgho,
+        Sorte::Riz,
+        Sorte::Tubercules,
+        Sorte::Chataignes,
+        Sorte::Legumineuses,
+        Sorte::Boeufs,
+        Sorte::MoutonsChevres,
+        Sorte::Porcs,
+        Sorte::BetesExtremes,
+        Sorte::Gibier,
+        Sorte::Poisson,
+        Sorte::Baies,
+        Sorte::Legumes,
+        Sorte::FruitsTropicaux,
+        Sorte::Dattes,
+    ];
+
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Sorte::Ble => "blé",
+            Sorte::Orge => "orge",
+            Sorte::MilletSorgho => "millet et sorgho",
+            Sorte::Riz => "riz",
+            Sorte::Tubercules => "tubercules",
+            Sorte::Chataignes => "châtaignes et glands",
+            Sorte::Legumineuses => "légumineuses",
+            Sorte::Boeufs => "bœufs",
+            Sorte::MoutonsChevres => "moutons et chèvres",
+            Sorte::Porcs => "porcs",
+            Sorte::BetesExtremes => "rennes, lamas et chameaux",
+            Sorte::Gibier => "gibier",
+            Sorte::Poisson => "poisson",
+            Sorte::Baies => "baies et champignons",
+            Sorte::Legumes => "légumes du jardin",
+            Sorte::FruitsTropicaux => "fruits tropicaux",
+            Sorte::Dattes => "dattes",
+        }
+    }
+
+    /// Type de la sorte (indice dans `TypeNourriture::TOUS`).
+    pub const fn type_(self) -> usize {
+        match self {
+            Sorte::Ble | Sorte::Orge | Sorte::MilletSorgho | Sorte::Riz | Sorte::Tubercules | Sorte::Chataignes => 0,
+            Sorte::Legumineuses | Sorte::Boeufs | Sorte::MoutonsChevres | Sorte::Porcs | Sorte::BetesExtremes | Sorte::Gibier | Sorte::Poisson => 1,
+            Sorte::Baies | Sorte::Legumes | Sorte::FruitsTropicaux | Sorte::Dattes => 2,
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Sorte::TOUTES.iter().position(|&s| s == self).unwrap_or(0)
+    }
+}
+
+/// Sorte de chaque type que la case présente (la plus adaptée à son climat et à son biome), selon
+/// son aménagement.
+pub fn sortes_de_la_case(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -> [Option<Sorte>; 3] {
+    let t = map.get(h);
+    let temperature = map.temperature(h).unwrap_or(12.0);
+    let pluie = map.rain(h).unwrap_or(700.0);
+    let cereale = || match t {
+        Some(Terrain::Jungle | Terrain::WoodedSavanna) => Sorte::Tubercules,
+        _ if temperature > 20.0 && pluie > 1_000.0 => Sorte::Riz,
+        Some(Terrain::Savanna | Terrain::Steppe) => Sorte::MilletSorgho,
+        _ if pluie < 600.0 && temperature > 15.0 => Sorte::MilletSorgho,
+        Some(Terrain::Mediterranean) => Sorte::Ble,
+        _ if (8.0..=20.0).contains(&temperature) && (400.0..=1_000.0).contains(&pluie) => Sorte::Ble,
+        _ => Sorte::Orge,
+    };
+    let betail = || match t {
+        Some(Terrain::Taiga | Terrain::Tundra) => Sorte::BetesExtremes,
+        _ if map.elevation(h).unwrap_or(0.0) > 2_500.0 => Sorte::BetesExtremes,
+        Some(Terrain::Desert) => Sorte::BetesExtremes,
+        Some(Terrain::Forest) => Sorte::Porcs,
+        Some(Terrain::Steppe | Terrain::Mediterranean) => Sorte::MoutonsChevres,
+        _ if map.relief(h) >= Relief::Hills => Sorte::MoutonsChevres,
+        _ => Sorte::Boeufs,
+    };
+    let jardin = || if temperature > 20.0 && pluie < 400.0 { Sorte::Dattes } else { Sorte::Legumes };
+    match amenagement {
+        Some(Amenagement::Champ) => [Some(cereale()), None, None],
+        Some(Amenagement::Legumineuses) => [None, Some(Sorte::Legumineuses), None],
+        Some(Amenagement::Paturage) => [None, Some(betail()), None],
+        Some(Amenagement::Jardin) => [None, None, Some(jardin())],
+        Some(Amenagement::CoupeDeBois) | None => {
+            if map.is_fleuve(h) || t.is_some_and(|t| t.is_water()) {
+                return [None, Some(Sorte::Poisson), None];
+            }
+            match t {
+                Some(Terrain::Forest | Terrain::Taiga) => [None, Some(Sorte::Gibier), Some(Sorte::Baies)],
+                Some(Terrain::Jungle | Terrain::WoodedSavanna) => [None, Some(Sorte::Gibier), Some(Sorte::FruitsTropicaux)],
+                Some(Terrain::Mediterranean) => [Some(Sorte::Chataignes), Some(Sorte::Gibier), Some(Sorte::Baies)],
+                Some(Terrain::Savanna) => [Some(Sorte::MilletSorgho), Some(Sorte::Gibier), None],
+                Some(Terrain::Grassland | Terrain::Plains | Terrain::Steppe) => [Some(Sorte::Orge), Some(Sorte::Gibier), None],
+                Some(Terrain::Marsh) => [Some(Sorte::Riz), Some(Sorte::Poisson), None],
+                _ => [None, Some(Sorte::Gibier), None],
+            }
+        }
+    }
+}
+
+/// Sortes du centre de la ville : ses champs, ses bêtes et ses jardins (selon sa case).
+pub fn sortes_du_centre(map: &WorldMap, h: Hex) -> [Option<Sorte>; 3] {
+    let c = sortes_de_la_case(map, h, Some(Amenagement::Champ))[0];
+    let b = sortes_de_la_case(map, h, Some(Amenagement::Paturage))[1];
+    let j = sortes_de_la_case(map, h, Some(Amenagement::Jardin))[2];
+    [c, b, j]
+}
+
+/// Une sorte compte dans la diversité si elle couvre cette part de ce que la ville mange.
+pub const SEUIL_SORTE: f64 = 0.05;
+/// Bien-être par sorte au-delà de la première de chaque type, et au plus.
+pub const BIEN_ETRE_PAR_SORTE: f64 = 2.0;
+pub const BIEN_ETRE_DIVERSITE_MAX: f64 = 8.0;
+/// Bonus de poids de l'intendant pour une sorte qui ne compte pas encore (après l'équilibre).
+const POIDS_DIVERSITE: f64 = 1.0;
+
+/// Sortes en plus (au-delà de la première de chaque type) qui comptent : la diversité des repas.
+pub fn sortes_en_plus(par_sorte: &ParSorte, besoin: f64) -> u8 {
+    let consommation = besoin.min(par_sorte.iter().sum::<f64>());
+    let mut par_type = [0u8; 3];
+    for (s, &n) in Sorte::TOUTES.iter().zip(par_sorte) {
+        if n > 1e-9 && n >= SEUIL_SORTE * consommation - 1e-9 {
+            par_type[s.type_()] += 1;
+        }
+    }
+    par_type.iter().map(|&k| k.saturating_sub(1)).sum()
 }
 
 /// Un type compte dans l'équilibre s'il couvre cette part de ce que la ville mange (sa
@@ -285,7 +449,7 @@ pub fn rendement_max(map: &WorldMap, h: Hex, amenagement: Option<Amenagement>) -
         None => r,
         Some(Amenagement::Champ) => Rendements::new(champ, r.production, r.deniers),
         Some(Amenagement::Legumineuses) => Rendements::new(champ * RENDEMENT_LEGUMINEUSES, r.production, r.deniers),
-        Some(Amenagement::Jardin) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite())) * 1.5, r.production, r.deniers),
+        Some(Amenagement::Jardin) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite())) * RENDEMENT_JARDIN, r.production, r.deniers),
         Some(Amenagement::Paturage) => Rendements::new(fertile(sol.map_or(1.0, |s| s.fertilite_paturage())) * 1.5, r.production + 1.0, r.deniers),
         Some(Amenagement::CoupeDeBois) => Rendements::new(r.nourriture, r.production * 2.0, r.deniers),
     }
@@ -401,6 +565,8 @@ pub struct CaseDispo {
     pub max: Rendements,
     /// Part de chaque type dans sa nourriture.
     pub parts: Parts,
+    /// Sorte de chaque type.
+    pub sortes: [Option<Sorte>; 3],
     pub capacite: u32,
     /// Distance au centre de la ville (en cases).
     pub distance: i32,
@@ -418,6 +584,8 @@ pub struct Repartition {
     pub rendements: Rendements,
     /// Nourriture de la ville par type (centre compris).
     pub par_type: Parts,
+    /// Nourriture de la ville par sorte (centre compris).
+    pub par_sorte: ParSorte,
 }
 
 impl Repartition {
@@ -448,7 +616,13 @@ fn poids(couverture: f64, consignes: &Consignes) -> [f64; 3] {
 
 /// Répartit les `actifs` sur les cases : d'abord les cases forcées, puis par blocs là où le gain
 /// pondéré est le plus fort. `centre` : rendement du centre de la ville (sans travailleurs).
+#[cfg(test)]
 pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre: Rendements, consignes: &Consignes) -> Repartition {
+    repartir_avec(cases, actifs, besoin_nourriture, centre, [None; 3], consignes)
+}
+
+/// `repartir`, avec les sortes du centre de la ville (diversité des repas).
+pub fn repartir_avec(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre: Rendements, sortes_centre: [Option<Sorte>; 3], consignes: &Consignes) -> Repartition {
     let mut n = vec![0u32; cases.len()];
     let mut libres = actifs;
     let mut forcee = vec![false; cases.len()];
@@ -471,8 +645,24 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
         }
         t
     };
+    let par_sorte = |n: &[u32]| {
+        let mut s = [0.0; N_SORTES];
+        let mut ajoute = |sortes: [Option<Sorte>; 3], parts: Parts, f: f64| {
+            for t in 0..3 {
+                if let Some(x) = sortes[t] {
+                    s[x.index()] += f * parts[t];
+                }
+            }
+        };
+        ajoute(sortes_centre, PARTS_CENTRE, centre.nourriture);
+        for (c, &k) in cases.iter().zip(n) {
+            ajoute(c.sortes, c.parts, rendement(c.max, k, c.capacite).nourriture);
+        }
+        s
+    };
     let mut courant = total(&n);
     let mut types = par_type(&n);
+    let mut sortes = par_sorte(&n);
     // (blocs plus gros dans les grandes villes : le calcul reste léger)
     let bloc = BLOC.max(actifs / 200 / BLOC * BLOC);
     while libres > 0 {
@@ -481,6 +671,8 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
         let w = poids(couverture, consignes);
         // Équilibre (après avoir nourri) : la nourriture d'un type sous le seuil pèse en plus
         let manque: Parts = std::array::from_fn(|t| if couverture >= 1.0 && types[t] < SEUIL_TYPE * besoin_nourriture { POIDS_EQUILIBRE } else { 0.0 });
+        // Diversité (après l'équilibre) : une sorte qui ne compte pas encore pèse un peu en plus
+        let equilibre_fait = manque.iter().all(|&m| m == 0.0);
         let mut meilleur: Option<(usize, f64)> = None;
         for (i, c) in cases.iter().enumerate() {
             if forcee[i] || n[i] >= c.capacite {
@@ -490,7 +682,16 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
             let gain = rendement(c.max, k, c.capacite) - rendement(c.max, n[i], c.capacite);
             let eloignement = (1.0 - PENALITE_DISTANCE * (c.distance - 1).max(0) as f64).max(0.5);
             // (gain par travailleur : un bloc tronqué par la capacité n'est pas avantagé)
-            let equilibre: f64 = c.parts.iter().zip(manque).map(|(p, m)| gain.nourriture * p * m).sum();
+            let mut equilibre: f64 = c.parts.iter().zip(manque).map(|(p, m)| gain.nourriture * p * m).sum();
+            if couverture >= 1.0 && equilibre_fait {
+                for t in 0..3 {
+                    if let Some(x) = c.sortes[t]
+                        && sortes[x.index()] < SEUIL_SORTE * besoin_nourriture
+                    {
+                        equilibre += gain.nourriture * c.parts[t] * POIDS_DIVERSITE;
+                    }
+                }
+            }
             let score = (gain.valeurs().iter().zip(w).map(|(g, w)| g * w).sum::<f64>() + equilibre) * eloignement / (k - n[i]) as f64;
             if score > 1e-12 && meilleur.is_none_or(|(_, s)| score > s) {
                 meilleur = Some((i, score));
@@ -504,6 +705,11 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
         for (x, p) in types.iter_mut().zip(cases[i].parts) {
             *x += (apres.nourriture - avant.nourriture) * p;
         }
+        for t in 0..3 {
+            if let Some(x) = cases[i].sortes[t] {
+                sortes[x.index()] += (apres.nourriture - avant.nourriture) * cases[i].parts[t];
+            }
+        }
         libres -= k - n[i];
         n[i] = k;
     }
@@ -513,6 +719,7 @@ pub fn repartir(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, centre
         chomeurs: libres,
         rendements: total(&n),
         par_type: par_type(&n),
+        par_sorte: par_sorte(&n),
     }
 }
 
@@ -539,7 +746,7 @@ mod tests {
     }
 
     fn case(col: i32, max: Rendements, capacite: u32) -> CaseDispo {
-        CaseDispo { hex: Hex::from_offset(col, 0), max, parts: [1.0, 0.0, 0.0], capacite, distance: 1 }
+        CaseDispo { hex: Hex::from_offset(col, 0), max, parts: [1.0, 0.0, 0.0], sortes: [None; 3], capacite, distance: 1 }
     }
 
     #[test]
@@ -605,6 +812,33 @@ mod tests {
     }
 
     #[test]
+    fn la_diversite_compte_les_sortes_en_plus_de_chaque_type() {
+        let mut p = [0.0; N_SORTES];
+        // Besoin 10 : une sorte compte à partir de 0,5
+        p[Sorte::Ble.index()] = 6.0;
+        p[Sorte::Orge.index()] = 0.6;
+        p[Sorte::Boeufs.index()] = 2.0;
+        p[Sorte::Gibier.index()] = 0.4;
+        p[Sorte::Baies.index()] = 1.0;
+        assert_eq!(sortes_en_plus(&p, 10.0), 1, "orge en plus du blé ; le gibier (4 %) ne compte pas");
+        p[Sorte::Gibier.index()] = 0.5;
+        assert_eq!(sortes_en_plus(&p, 10.0), 2);
+        // Les sortes par case : céréale selon le climat, bétail selon le biome, l'eau donne du poisson
+        let mut map = WorldMap::filled(6, 6, Terrain::Steppe);
+        let h = Hex::from_offset(2, 2);
+        assert_eq!(sortes_de_la_case(&map, h, Some(Amenagement::Paturage))[1], Some(Sorte::MoutonsChevres));
+        assert_eq!(sortes_de_la_case(&map, h, Some(Amenagement::Champ))[0], Some(Sorte::MilletSorgho));
+        assert_eq!(sortes_de_la_case(&map, h, Some(Amenagement::Legumineuses))[1], Some(Sorte::Legumineuses));
+        map.set(h, Terrain::Taiga);
+        assert_eq!(sortes_de_la_case(&map, h, None), [None, Some(Sorte::Gibier), Some(Sorte::Baies)]);
+        assert_eq!(sortes_de_la_case(&map, h, Some(Amenagement::Paturage))[1], Some(Sorte::BetesExtremes));
+        map.set(h, Terrain::Lake);
+        assert_eq!(sortes_de_la_case(&map, h, None), [None, Some(Sorte::Poisson), None]);
+        // Chaque sorte a son type
+        assert!(Sorte::TOUTES.iter().all(|s| s.type_() < 3) && Sorte::TOUTES.len() == N_SORTES);
+    }
+
+    #[test]
     fn l_intendant_cherche_l_equilibre_apres_avoir_nourri() {
         // Un champ (céréales, plus de nourriture) et un pâturage (protéines, moins)
         let champ = CaseDispo { parts: [1.0, 0.0, 0.0], ..case(1, Rendements::new(6.0, 0.0, 0.0), 1500) };
@@ -613,6 +847,11 @@ mod tests {
         assert!(r.rendements.nourriture >= 2.0, "nourrir d'abord");
         assert!(r.par_type[1] >= SEUIL_TYPE * 2.0, "puis des protéines : {:?}", r.par_type);
         assert!(r.sur(pre.hex) > 0);
+        // Puis la diversité : une seconde sorte de céréales attire des travailleurs
+        let ble = CaseDispo { sortes: [Some(Sorte::Ble), None, None], ..case(3, Rendements::new(4.0, 0.0, 0.0), 1500) };
+        let orge = CaseDispo { sortes: [Some(Sorte::Orge), None, None], ..case(4, Rendements::new(2.0, 0.0, 0.0), 1500) };
+        let r = repartir_avec(&[ble, orge], 1500, 2.0, Rendements::new(2.0, 0.0, 0.0), [None, Some(Sorte::Boeufs), Some(Sorte::Legumes)], &Consignes::default());
+        assert!(r.par_sorte[Sorte::Orge.index()] >= SEUIL_SORTE * 2.0, "{:?}", r.par_sorte);
     }
 
     #[test]
@@ -622,9 +861,9 @@ mod tests {
         assert_eq!(Amenagement::possibles(&map, h), vec![Amenagement::Champ, Amenagement::Legumineuses, Amenagement::Paturage, Amenagement::Jardin]);
         let champ = rendement_max(&map, h, Some(Amenagement::Champ));
         assert_eq!(champ.nourriture, 2.0 * rendement_max(&map, h, None).nourriture);
-        // Légumineuses : 60 % d'un champ ; jardin : 1,5 × la case, petite capacité
+        // Légumineuses : 60 % d'un champ ; jardin : 0,75 × la case, petite capacité
         assert!((rendement_max(&map, h, Some(Amenagement::Legumineuses)).nourriture - 0.6 * champ.nourriture).abs() < 1e-9);
-        assert_eq!(rendement_max(&map, h, Some(Amenagement::Jardin)).nourriture, 1.5 * rendement_max(&map, h, None).nourriture);
+        assert_eq!(rendement_max(&map, h, Some(Amenagement::Jardin)).nourriture, 0.75 * rendement_max(&map, h, None).nourriture);
         assert_eq!(capacite(Some(Amenagement::Jardin)), 300);
         // Types : champ → céréales, légumineuses et pâturage → protéines, jardin → fruits et légumes
         assert_eq!(parts_de_la_case(&map, h, Some(Amenagement::Champ)), [1.0, 0.0, 0.0]);

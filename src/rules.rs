@@ -581,7 +581,7 @@ pub fn cases_de_la_ville(map: &WorldMap, center: Hex, territory: &[Hex], taken: 
         .filter(|&h| h != center && !taken.contains(&h) && map.contains(h))
         .map(|h| {
             let a = amenagements.get(&h).copied();
-            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), capacite: intendant::capacite(a), distance: map.distance(center, h) }
+            CaseDispo { hex: h, max: intendant::rendement_max(map, h, a), parts: intendant::parts_de_la_case(map, h, a), sortes: intendant::sortes_de_la_case(map, h, a), capacite: intendant::capacite(a), distance: map.distance(center, h) }
         })
         .collect();
     cases.sort_by_key(|c| c.hex);
@@ -735,7 +735,7 @@ impl Croissance {
 
 /// Travailleurs de la ville placés par l'intendant, et son rendement total (centre compris).
 pub fn repartition_ville(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo]) -> Repartition {
-    intendant::repartir(cases, intendant::actifs(city.habitants), city.besoin_nourriture(), Rendements::from(center_yields(map, center)), &city.consignes)
+    intendant::repartir_avec(cases, intendant::actifs(city.habitants), city.besoin_nourriture(), Rendements::from(center_yields(map, center)), intendant::sortes_du_centre(map, center), &city.consignes)
 }
 
 /// Un tour de la prévision d'une ville.
@@ -768,7 +768,7 @@ pub fn prevoir(map: &WorldMap, center: Hex, city: &CityState, cases: &[CaseDispo
             let v = st.variation(r.rendements);
             // Le tour comme en jeu (croissance, puis la file avance : décision C1) ; un aménagement
             // achevé change sa case pour les tours suivants
-            let rapport = st.passer_le_tour(r.rendements, r.chomeurs, r.par_type);
+            let rapport = st.passer_le_tour(r.rendements, r.chomeurs, r.par_type, &r.par_sorte);
             if let Some(Production::Amenagement { hex, kind, .. }) = rapport.built
                 && let Some(c) = cases.iter_mut().find(|c| c.hex == hex)
             {
@@ -987,6 +987,10 @@ pub struct CityState {
     /// dépendent (5c).
     #[serde(default)]
     pub types_nourriture: u8,
+    /// Sortes en plus (au-delà de la première de chaque type) au dernier tour : la diversité des
+    /// repas, qui donne du bien-être (5d).
+    #[serde(default)]
+    pub sortes_en_plus: u8,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1063,7 +1067,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0 }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0 }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1149,7 +1153,8 @@ impl CityState {
         let part = chomeurs as f64 / intendant::actifs(self.habitants).max(1) as f64;
         let chomage = -(part * 100.0 * BIEN_ETRE_PAR_CHOMAGE).min(BIEN_ETRE_CHOMAGE_MAX);
         let jeux = if self.projet_actif() == Some(Projet::GrandsJeux) { (BIEN_ETRE_PAR_PRODUCTION_JEUX * yields.production.max(0.0)).min(BIEN_ETRE_JEUX_MAX) } else { 0.0 };
-        [("famine", famine), ("chômage", chomage), ("Grands jeux", jeux)].into_iter().filter(|(_, v)| v.abs() >= 0.05).collect()
+        let diversite = (intendant::BIEN_ETRE_PAR_SORTE * f64::from(self.sortes_en_plus)).min(intendant::BIEN_ETRE_DIVERSITE_MAX);
+        [("famine", famine), ("chômage", chomage), ("Grands jeux", jeux), ("diversité des repas", diversite)].into_iter().filter(|(_, v)| v.abs() >= 0.05).collect()
     }
 
     /// Bien-être visé ce tour (0 à 100) ; le bien-être de la ville s'en approche d'un cinquième de l'écart.
@@ -1203,6 +1208,7 @@ impl CityState {
             puits: self.puits,
             insalubre: self.insalubre,
             types_nourriture: self.types_nourriture,
+            sortes_en_plus: self.sortes_en_plus,
         }
     }
 
@@ -1228,12 +1234,12 @@ impl CityState {
     /// Un tour de la ville sans chômeurs (tests).
     #[cfg(test)]
     pub fn process_turn(&mut self, yields: Rendements) -> CityTurnReport {
-        self.passer_le_tour(yields, 0, [yields.nourriture, 0.0, 0.0])
+        self.passer_le_tour(yields, 0, [yields.nourriture, 0.0, 0.0], &[0.0; intendant::N_SORTES])
     }
 
     /// Un tour de la ville : croissance, bien-être, culture, production ; `par_type` : sa
     /// nourriture par type (l'équilibre du tour suivant).
-    pub fn passer_le_tour(&mut self, yields: Rendements, chomeurs: u32, par_type: intendant::Parts) -> CityTurnReport {
+    pub fn passer_le_tour(&mut self, yields: Rendements, chomeurs: u32, par_type: intendant::Parts, par_sorte: &intendant::ParSorte) -> CityTurnReport {
         let mut report = CityTurnReport { deniers: yields.deniers, ..Default::default() };
 
         // Croissance (ou famine, maladies) en habitants ; « a grandi » : nouveau palier atteint
@@ -1256,6 +1262,7 @@ impl CityState {
         self.bien_etre += (vise - self.bien_etre) * BIEN_ETRE_INERTIE;
         // Types de nourriture qui comptent, sur ce que la ville a mangé ce tour-ci
         self.types_nourriture = intendant::types_comptes(par_type, self.besoin_nourriture());
+        self.sortes_en_plus = intendant::sortes_en_plus(par_sorte, self.besoin_nourriture());
 
         // Culture : la ville, plus le projet (les cases gagnées sont choisies par le jeu, qui voit la carte)
         self.culture += self.culture_du_tour(yields);
@@ -1350,7 +1357,7 @@ mod tests {
         assert_eq!(c.croissance(Rendements::new(12.3, 0.0, 0.0)).naturelle, 0.0);
         assert!(c.croissance(Rendements::new(13.0, 0.0, 0.0)).naturelle > 0.0);
         // Le tour compte les types sur ce que la ville a mangé
-        c.passer_le_tour(Rendements::new(13.0, 1.0, 0.0), 0, [9.0, 2.0, 2.0]);
+        c.passer_le_tour(Rendements::new(13.0, 1.0, 0.0), 0, [9.0, 2.0, 2.0], &[0.0; intendant::N_SORTES]);
         assert_eq!(c.types_nourriture, 3);
     }
 

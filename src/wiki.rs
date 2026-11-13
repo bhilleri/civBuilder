@@ -849,7 +849,7 @@ fn cities() -> Article {
                     vec!["champ (céréales)".into(), "relief plat ou collines, assez de pluie ou une rivière voisine".into(), "nourriture × 2 (fertilité du sol)".into()],
                     vec!["champ de légumineuses (protéines)".into(), "comme un champ".into(), "60 % d'un champ".into()],
                     vec!["pâturage (protéines)".into(), "herbe (ni désert, ni neige, ni marais)".into(), "nourriture × 1,5, +1 production".into()],
-                    vec!["jardin (fruits et légumes)".into(), "comme un champ ; d'appoint (300 travailleurs)".into(), "nourriture × 1,5".into()],
+                    vec!["jardin (fruits et légumes)".into(), "comme un champ ; d'appoint (300 travailleurs)".into(), "nourriture × 0,75".into()],
                     vec!["coupe de bois".into(), "forêt, jungle, taïga, savane arborée".into(), "production × 2".into()],
                 ],
             ),
@@ -862,6 +862,13 @@ fn cities() -> Article {
                L'intendant nourrit d'abord, puis cherche l'équilibre. Juste au-dessus du besoin (3 %), la ville ne \
                grandit plus : elle se pose à sa limite sans osciller. Le détail de la nourriture (touche 1) montre la \
                part de chaque type."),
+            p("Sortes : chaque case présente une sorte par type, la plus adaptée à son climat et à son biome (blé, \
+               orge, millet et sorgho, riz, tubercules, châtaignes ; légumineuses, bœufs, moutons et chèvres, porcs, \
+               rennes, lamas et chameaux, gibier, poisson ; baies et champignons, légumes du jardin, fruits \
+               tropicaux, dattes). Une sorte compte si elle couvre 5 % des repas ; chaque sorte en plus de la \
+               première de son type donne +2 de bien-être (diversité des repas, au plus +8). L'intendant cherche \
+               chaque type, puis une seconde sorte. Les sortes de l'âge du bronze (seigle et avoine, vergers, vigne et \
+               olivier) et le maïs viendront avec les ères et le commerce."),
             p("Un champ ou un pâturage pris sur la forêt la défriche : la case devient une prairie (le bois est perdu, \
                plus de coupe de bois possible). \
                La construction des aménagements par la ville arrive ; pour l'instant, la console les pose \
