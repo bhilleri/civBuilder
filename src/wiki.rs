@@ -923,6 +923,9 @@ fn cities() -> Article {
                la ville que sous 40. L'onglet Population détaille les deux et la croissance du prochain tour, cause \
                par cause (naturelle, Peupler, maladies, famine). Le puits se construit dans la file (Construire, \
                « Constructions de la ville », 15 de production), sur le centre ; plus tard, il donnera aussi de l'eau."),
+            p("Le sanctuaire (40 de production, dans Construire), premier bâtiment de la ville, donne +1 de culture par \
+               tour (la ville en produit alors 2). Bâti en pierre locale, il se dresse en mégalithe, moins cher (30), quand \
+               la ville a 2 de pierre dure en stock : ils sont pris à son achèvement."),
             p("Le grenier (30 de production, dans Construire) garde jusqu'à 5 tours de besoin de nourriture. Il reçoit \
                l'excédent que la croissance n'utilise pas : jusqu'à 3 % au-dessus du besoin (la ville est à sa limite) et \
                ce qui dépasse 1,5 fois le besoin (l'objectif « Excédent » de l'intendant y sert), en gardant d'abord ce qui \

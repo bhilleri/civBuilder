@@ -675,6 +675,13 @@ pub const BIEN_ETRE_LUXE_MAX: f64 = 16.0;
 
 /// Grenier (décisions G1 à G4) : coût (production) et capacité, en tours de besoin de la ville.
 pub const GRENIER_COUT: i32 = 30;
+/// Sanctuaire (premier bâtiment ; décision M1) : coût en pierre locale, et en mégalithe quand la
+/// ville a de la pierre dure (moins cher, `SANCTUAIRE_PIERRE_DURE` unités prises à l'achèvement) ;
+/// culture par tour en plus.
+pub const SANCTUAIRE_COUT: i32 = 40;
+pub const MEGALITHE_COUT: i32 = 30;
+pub const SANCTUAIRE_PIERRE_DURE: f64 = 2.0;
+pub const CULTURE_SANCTUAIRE: f64 = 1.0;
 pub const GRENIER_TOURS: f64 = 5.0;
 
 /// Ce que le lieu de la ville donne à sa salubrité (calculé depuis la carte, gardé dans la ville
@@ -885,6 +892,8 @@ pub enum Production {
     Puits,
     /// Grenier de la ville (stock de nourriture contre les famines) : un par ville.
     Grenier,
+    /// Sanctuaire (culture) : un par ville ; mégalithe s'il est bâti avec de la pierre dure.
+    Sanctuaire { megalithe: bool },
 }
 
 impl Production {
@@ -894,6 +903,8 @@ impl Production {
             Production::Bridge { cost, .. } | Production::Amenagement { cost, .. } => cost,
             Production::Puits => PUITS_COUT,
             Production::Grenier => GRENIER_COUT,
+            Production::Sanctuaire { megalithe: false } => SANCTUAIRE_COUT,
+            Production::Sanctuaire { megalithe: true } => MEGALITHE_COUT,
         }
     }
 
@@ -905,6 +916,8 @@ impl Production {
             Production::Amenagement { kind, .. } => kind.nom(),
             Production::Puits => "Puits",
             Production::Grenier => "Grenier",
+            Production::Sanctuaire { megalithe: false } => "Sanctuaire",
+            Production::Sanctuaire { megalithe: true } => "Sanctuaire mégalithique",
         }
     }
 }
@@ -1051,6 +1064,9 @@ pub struct CityState {
     /// Part de la demande d'outils couverte au dernier tour (0 à 1).
     #[serde(default)]
     pub couverture_outils: f64,
+    /// La ville a son sanctuaire (et s'il est mégalithique).
+    #[serde(default)]
+    pub sanctuaire: Option<bool>,
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1129,7 +1145,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0 }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1208,6 +1224,11 @@ impl CityState {
     /// Part de la demande couverte au dernier tour.
     pub fn couverture(&self, r: crate::gisements::Ressource) -> f64 {
         self.couverture.get(r.index()).copied().unwrap_or(0.0)
+    }
+
+    /// Le sanctuaire que la ville bâtirait maintenant : un mégalithe si elle a assez de pierre dure.
+    pub fn sanctuaire_possible(&self) -> Production {
+        Production::Sanctuaire { megalithe: self.ressource(crate::gisements::Ressource::PierreDure) >= SANCTUAIRE_PIERRE_DURE }
     }
 
     /// Demande d'outils par tour : leur usure par les travailleurs des cases aménagées.
@@ -1389,7 +1410,8 @@ impl CityState {
             _ => false,
         };
         let unique = |fait: bool| fait || self.file.iter().any(|c| c.objet == objet);
-        if self.file.iter().any(deja) || objet == Production::Puits && unique(self.puits) || objet == Production::Grenier && unique(self.grenier) {
+        let sanctuaire = matches!(objet, Production::Sanctuaire { .. }) && (self.sanctuaire.is_some() || self.file.iter().any(|c| matches!(c.objet, Production::Sanctuaire { .. })));
+        if self.file.iter().any(deja) || objet == Production::Puits && unique(self.puits) || objet == Production::Grenier && unique(self.grenier) || sanctuaire {
             return false;
         }
         self.file.push(Commande { objet, investi: 0.0 });
@@ -1430,12 +1452,15 @@ impl CityState {
             couverture: self.couverture.clone(),
             bonus_outils: self.bonus_outils,
             couverture_outils: self.couverture_outils,
+            sanctuaire: self.sanctuaire,
         }
     }
 
     /// Culture produite ce tour : la ville, plus le projet « Développement de l'art et de la culture ».
     pub fn culture_du_tour(&self, yields: Rendements) -> f64 {
-        CULTURE_PAR_TOUR + if self.projet_actif() == Some(Projet::Culture) { CULTURE_PAR_PRODUCTION * yields.production.max(0.0) } else { 0.0 }
+        CULTURE_PAR_TOUR
+            + if self.sanctuaire.is_some() { CULTURE_SANCTUAIRE } else { 0.0 }
+            + if self.projet_actif() == Some(Projet::Culture) { CULTURE_PAR_PRODUCTION * yields.production.max(0.0) } else { 0.0 }
     }
 
     /// Tours avant la prochaine case gagnée par la culture, au rythme `par_tour`.
@@ -1510,6 +1535,15 @@ impl CityState {
                 }
                 if item == Production::Grenier {
                     self.grenier = true;
+                }
+                if let Production::Sanctuaire { megalithe } = item {
+                    // (le mégalithe prend sa pierre dure à l'achèvement, ce qu'il en reste)
+                    if megalithe {
+                        let r = crate::gisements::Ressource::PierreDure;
+                        let pris = self.ressource(r).min(SANCTUAIRE_PIERRE_DURE);
+                        self.ajouter_ressource(r, -pris);
+                    }
+                    self.sanctuaire = Some(megalithe);
                 }
                 if settler {
                     self.habitants -= HABITANTS_COLON;
@@ -1693,6 +1727,28 @@ mod tests {
         grande.site.lac = true;
         grande.site.paturages = 14;
         assert_eq!(grande.salubrite(), 50.0, "+5 de lac, −10 de bétail au plus");
+    }
+
+    #[test]
+    fn le_sanctuaire_donne_de_la_culture_et_se_dresse_en_megalithe_avec_la_pierre_dure() {
+        use crate::gisements::Ressource;
+        let y = Rendements::new(3.0, 10.0, 0.0);
+        let mut c = CityState::new("Sanctuaire".into());
+        assert_eq!(c.sanctuaire_possible(), Production::Sanctuaire { megalithe: false });
+        assert_eq!(c.culture_du_tour(y), CULTURE_PAR_TOUR);
+        // Avec 2 de pierre dure : un mégalithe, moins cher ; un seul sanctuaire
+        c.ajouter_ressource(Ressource::PierreDure, 2.5);
+        let m = c.sanctuaire_possible();
+        assert_eq!(m, Production::Sanctuaire { megalithe: true });
+        assert!(m.cost() < Production::Sanctuaire { megalithe: false }.cost());
+        assert!(c.mettre_en_file(m));
+        assert!(!c.mettre_en_file(Production::Sanctuaire { megalithe: false }), "un seul sanctuaire en file");
+        let built: Vec<Production> = (0..5).filter_map(|_| c.process_turn(y).built).collect();
+        assert_eq!(built, vec![m]);
+        assert_eq!(c.sanctuaire, Some(true));
+        assert!((c.ressource(Ressource::PierreDure) - 0.5).abs() < 1e-9, "la pierre dure est prise à l'achèvement");
+        assert_eq!(c.culture_du_tour(y), CULTURE_PAR_TOUR + CULTURE_SANCTUAIRE);
+        assert!(!c.mettre_en_file(c.sanctuaire_possible()), "un sanctuaire par ville");
     }
 
     #[test]

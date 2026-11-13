@@ -92,7 +92,7 @@ fn case_de(objet: &rules::Production) -> Option<Hex> {
     match *objet {
         rules::Production::Amenagement { hex, .. } => Some(hex),
         rules::Production::Bridge { at: crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. }, .. } => Some(hex),
-        rules::Production::Unit(_) | rules::Production::Puits | rules::Production::Grenier => None,
+        rules::Production::Unit(_) | rules::Production::Puits | rules::Production::Grenier | rules::Production::Sanctuaire { .. } => None,
     }
 }
 
@@ -234,6 +234,8 @@ enum Element {
     Puits,
     /// Grenier de la ville (un par ville).
     Grenier,
+    /// Sanctuaire (un par ville ; mégalithe avec de la pierre dure).
+    Sanctuaire,
 }
 #[derive(Component)]
 struct ChoixCatalogue(Element);
@@ -3225,6 +3227,12 @@ fn bord_ligne(choisie: bool, glissee: bool) -> BorderColor {
     BorderColor { left: lisere, ..BorderColor::all(if glissee { Grandeur::Production.couleur() } else { charte::TRAIT2 }) }
 }
 
+/// Ce qu'apporte le sanctuaire, en une ligne.
+fn effet_sanctuaire(megalithe: bool) -> String {
+    let pierre = if megalithe { format!("mégalithe : {:.0} de pierre dure, moins cher", rules::SANCTUAIRE_PIERRE_DURE) } else { "en pierre locale (un mégalithe avec 2 de pierre dure en stock, moins cher)".to_string() };
+    format!("culture +{:.0} par tour (lieu de culte) · {pierre}", rules::CULTURE_SANCTUAIRE)
+}
+
 /// Ce qu'apporte le grenier, en une ligne.
 fn effet_grenier(c: &rules::CityState) -> String {
     format!(
@@ -3251,6 +3259,7 @@ fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Productio
             format!("salubrité {:.0} → {:.0} (eau plus propre ; plus tard, de l'eau pour grandir)", s, (s + rules::SALUBRITE_PUITS).min(100.0))
         }
         rules::Production::Grenier => effet_grenier(&city.state),
+        rules::Production::Sanctuaire { megalithe } => effet_sanctuaire(megalithe),
         rules::Production::Unit(k) => {
             let st = k.stats();
             if st.ranged_attack > 0 {
@@ -3399,6 +3408,18 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
         format!("{} · {} production · {tours}", effet_grenier(c), rules::GRENIER_COUT)
     };
     item(l, Element::Grenier, "Grenier".into(), detail, !c.grenier && !en_file, false);
+    let en_file = c.file.iter().any(|k| matches!(k.objet, rules::Production::Sanctuaire { .. }));
+    let objet = c.sanctuaire_possible();
+    let detail = if let Some(m) = c.sanctuaire {
+        if m { "déjà bâti (mégalithe)".to_string() } else { "déjà bâti".to_string() }
+    } else if en_file {
+        "déjà dans la file".to_string()
+    } else {
+        let tours = rules::tours_restants(objet.cost(), 0.0, prod).map_or("—".to_string(), |t| format!("{t} tour(s) seul"));
+        let megalithe = matches!(objet, rules::Production::Sanctuaire { megalithe: true });
+        format!("{} · {} production · {tours}", effet_sanctuaire(megalithe), objet.cost())
+    };
+    item(l, Element::Sanctuaire, objet.name().into(), detail, c.sanctuaire.is_none() && !en_file, false);
     }
     // Projets de ville
     if groupe_vu == GroupeCatalogue::Projets {
@@ -3705,6 +3726,12 @@ fn construire_actions(
             Element::Grenier => {
                 if city.state.mettre_en_file(rules::Production::Grenier) {
                     journal(format!(" met en file : grenier ({} dans la file).", city.state.file.len()));
+                }
+            }
+            Element::Sanctuaire => {
+                let objet = city.state.sanctuaire_possible();
+                if city.state.mettre_en_file(objet) {
+                    journal(format!(" met en file : {} ({} dans la file).", objet.name().to_lowercase(), city.state.file.len()));
                 }
             }
             Element::Amenagement(_) => {}

@@ -736,6 +736,10 @@ fn end_turn(
             }
             Some(rules::Production::Puits) => city.state.noter(tour, rules::GenreEvenement::Construction, "Puits creusé : la salubrité monte", Some(*center)),
             Some(rules::Production::Grenier) => city.state.noter(tour, rules::GenreEvenement::Construction, "Grenier bâti : la ville garde ses excédents", Some(*center)),
+            Some(rules::Production::Sanctuaire { megalithe }) => {
+                let texte = if megalithe { "Sanctuaire mégalithique dressé : la culture monte" } else { "Sanctuaire bâti : la culture monte" };
+                city.state.noter(tour, rules::GenreEvenement::Construction, texte, Some(*center));
+            }
             _ => {}
         }
         // (seul le joueur a des villes pour l'instant ; la fraction de deniers est gardée par le trésor)
@@ -784,6 +788,10 @@ fn end_turn(
             Some(rules::Production::Amenagement { hex, kind, .. }) => new_amenagements.push((*entity, hex, kind, *center, name)),
             Some(rules::Production::Puits) => log.push(LogText::new().city(&name, *entity, *center).text(" a creusé son puits : la salubrité monte.")),
             Some(rules::Production::Grenier) => log.push(LogText::new().city(&name, *entity, *center).text(" a bâti son grenier : elle gardera ses excédents contre les famines.")),
+            Some(rules::Production::Sanctuaire { megalithe }) => {
+                let quoi = if megalithe { " a dressé son sanctuaire mégalithique : +1 de culture par tour." } else { " a bâti son sanctuaire : +1 de culture par tour." };
+                log.push(LogText::new().city(&name, *entity, *center).text(quoi));
+            }
             None => {}
         }
     }

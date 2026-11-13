@@ -18,8 +18,11 @@ l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cou
    sélection multiple et groupes au clavier faits le 11/11 ; relève à venir) ; écarts code et conception (33).
 4. **Villes du Néolithique (28, 17)** : intendant, aménagements, Bien-être, hygiène, territoire par
    la Culture ; refonte de l'écran de la ville (35). Règles et chiffres validés le 11/11
-   (`conception-villes.md`, « Étape 4 ») ; 4a (travailleurs sur les cases) faite le 11/11 ; 4b (file et projets), 4c (bien-être et salubrité, puits) et 4d (territoire par la culture, achat de cases) faites le 12/11. Reste : le luxe (avec les ressources), le sanctuaire (premier bâtiment).
+   (`conception-villes.md`, « Étape 4 ») ; 4a (travailleurs sur les cases) faite le 11/11 ; 4b (file et projets), 4c (bien-être et salubrité, puits) et 4d (territoire par la culture, achat de cases) faites le 12/11 ; le luxe (5g) et le sanctuaire (premier bâtiment, mégalithe avec la pierre dure) faits le 13/11.
 5. **Sol et ressources (14, 12, 15, 16)** : géologie, fertilité, gisements, plantes et animaux.
+   Faits le 13/11 : roches et sols, nourriture par type et par sorte, rives vertes et oasis, grenier,
+   gisements, besoins de base et luxe, outils. Reste : les échanges entre villes (décision C1 à C3,
+   `conception-ressources.md`) ; **montures reportées** (ânes, chevaux, dromadaires : à faire).
 6. **Période nomade (22)** et **société de base (32)** : chefferie, conseil, dirigeant, Culture,
    influence, capacité de gouverner.
 7. **Recherche et jalons (34, 30 seconde partie)** : arbre du Néolithique et du Bronze, passage d'ère.

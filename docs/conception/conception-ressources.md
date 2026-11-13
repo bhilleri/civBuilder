@@ -236,6 +236,23 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - Pas encore : les sortes (diversité, 5d) ; le choix de la sorte d'un champ (la plus adaptée, par
   case) ; la répartition des sortes dans le monde à surveiller.
 
+### Décisions du 13/11/2026 pour 5i (matériaux, montures, échanges)
+- **M1 Matériaux (OK)** : ils arrivent avec le **sanctuaire**, premier bâtiment, bâti en pierre
+  locale, et en mégalithe moins cher avec la pierre dure (fait : 40 / 30 de production, 2 de pierre
+  dure, +1 de culture par tour ; chiffres proposés). Les autres matériaux restent en stock.
+- **M3 Montures** : reportées (« il faudra le faire à un moment ») : ânes à la fin du Néolithique,
+  chevaux au bronze, dromadaires au fer ; bêtes de bât −50 % sur le coût d'un trajet.
+- **M4 Obsidienne (OK)** : les outils d'abord (silex, pierre dure, puis obsidienne), le luxe ensuite.
+- **M2 Échanges** : Benjamin juge le bronze trop tardif (« le commerce fonctionnait avant même
+  l'écriture »). Avis de l'historien (13/11) : l'échange précède l'agriculture (obsidienne de Mélos
+  à Franchthi vers 11 000 av. J.-C. ; courbe de Renfrew : plus de 80 % de l'outillage jusqu'à
+  environ 300 km de la source, moins de 5 % vers 700-900 km ; haches de jadéite alpine jusqu'à
+  1 500-1 800 km ; lames du Grand-Pressigny jusqu'à 600-800 km ; Spondylus égéen jusqu'au Bassin
+  parisien ; saline de Provadia vers 4700-4200) ; échange de proche en proche, dons et
+  contre-dons, objets de prestige qui vont plus loin, lieux de rassemblement (enceintes, henges),
+  fleuves et cabotage. Ce qui attend le bronze : les marchands, les prix, les poids, les routes
+  longues (l'étain ; Kanesh, Uluburun). Trois couches proposées, à décider (C1 à C3).
+
 ### Fait le 13/11/2026 : outils (5h)
 - `Ressource::niveau_outil` : 1 pour le silex, la pierre dure et l'obsidienne (2 cuivre, 3 bronze,
   4 fer viendront avec leurs gisements) ; `BONUS_OUTILS` = +10 / +15 / +20 / +25 %.

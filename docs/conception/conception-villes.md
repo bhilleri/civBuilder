@@ -384,8 +384,9 @@ choix à l'écran viennent en 4b.
   production (proposé, validé par Benjamin le 12/11/2026) ; achat `game::acheter_case` (20 + 10 × distance ; une
   case achetée relève aussi le seuil de culture de la suivante : Benjamin, 12/11/2026). Achat depuis l'écran de la ville
   (décision de Benjamin) : les voisines à acheter en pointillé sur la carte avec leur prix, leur fiche
-  et son bouton « Acheter » (`ecran_ville::fiche_achat`). Pas encore : le sanctuaire (pas de
-  bâtiments), la prévision du territoire
+  et son bouton « Acheter » (`ecran_ville::fiche_achat`). Sanctuaire **fait le 13/11/2026** :
+  `Production::Sanctuaire` (40 de production, +1 de culture par tour ; mégalithe à 30 avec 2 de
+  pierre dure, décision M1). Pas encore : la prévision du territoire
   (décision C2 : non). Les villes des anciennes sauvegardes gardent leur territoire.
 
 ## Questions ouvertes
