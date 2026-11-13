@@ -615,6 +615,10 @@ enum Forcage {
     Confirmer(Hex, u32),
     Annuler,
     Rendre(Hex),
+    /// Verrou « figer » : l'effectif du moment, forcé.
+    Figer(Hex, u32),
+    /// Verrou « prioriser » : l'intendant remplit la case d'abord.
+    Prioriser(Hex),
 }
 
 /// Ce que la fiche d'une case montre de son effectif forcé.
@@ -1023,6 +1027,8 @@ struct CaseVue {
     en_file: bool,
     /// Effectif forcé par le joueur (l'intendant ne le change plus).
     force: Option<u32>,
+    /// Case prioritaire : l'intendant la remplit d'abord.
+    prioritaire: bool,
     /// Gisement connu de la case (5f).
     gisement: Option<crate::gisements::Ressource>,
 }
@@ -1054,7 +1060,7 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
     let possedees: Vec<Hex> = territoire.0.iter().filter(|(_, e)| **e == ville).map(|(h, _)| *h).collect();
     let dispo = rules::cases_de_la_ville(map, centre, &possedees, &Default::default(), &amenagements.0);
     let rc = Rendements::from(rules::center_yields(map, centre));
-    let mut cases = vec![CaseVue { hex: centre, centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, courbe: intendant::Courbe::default(), rendement: rc, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None }];
+    let mut cases = vec![CaseVue { hex: centre, centre: true, nom: "Centre de la ville".into(), travailleurs: 0, capacite: 0, max: rc, courbe: intendant::Courbe::default(), rendement: rc, amenagement: None, habitants: 0.0, en_file: false, force: None, prioritaire: false, gisement: None }];
     for c in dispo {
         let w = city.travail.sur(c.hex);
         cases.push(CaseVue {
@@ -1075,6 +1081,7 @@ fn cases_vues(map: &crate::map::WorldMap, centre: Hex, ville: Entity, city: &Cit
             habitants: 0.0,
             en_file: city.state.file.iter().any(|k| matches!(k.objet, rules::Production::Amenagement { hex, .. } if hex == c.hex)),
             force: city.state.consignes.forcees.iter().find(|(h, _)| *h == c.hex).map(|(_, n)| *n),
+            prioritaire: city.state.consignes.prioritaires.contains(&c.hex),
             gisement: connus.0.connu(map, c.hex, connus.1),
         });
     }
@@ -3548,10 +3555,15 @@ fn tableau_cases(l: &mut ChildSpawnerCommands, cases: &[CaseVue], choisie: Optio
     };
     colonnes(l, ["CASE".into(), "TRAVAILLEURS".into(), "NOURRITURE".into(), "PRODUCTION".into(), "100 DE PLUS".into()], [charte::MUET; 5], 11.0, None, false);
     for (c, plus) in lignes {
-        let nom = match c.amenagement {
+        let mut nom = match c.amenagement {
             Some(a) => format!("{} · {}", c.nom, a.nom()),
             None => c.nom.clone(),
         };
+        if c.force.is_some() {
+            nom.push_str(" · figée");
+        } else if c.prioritaire {
+            nom.push_str(" · prioritaire");
+        }
         let gain = if c.travailleurs >= c.capacite {
             "pleine".to_string()
         } else {
@@ -4545,6 +4557,26 @@ fn effectif(p: &mut ChildSpawnerCommands, c: &CaseVue, f: &VueForcage) {
             l.spawn((Forcage::Rendre(c.hex), bouton(Color::NONE), children![texte("rendre à l'intendant", 12.5, charte::DOUX)]));
         });
     }
+    if c.prioritaire {
+        p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, ..default() }).with_children(|l| {
+            l.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("Case prioritaire : l'intendant la remplit avant les autres.", 12.5, charte::ALERTE)]));
+            l.spawn((Forcage::Rendre(c.hex), bouton(Color::NONE), children![texte("rendre à l'intendant", 12.5, charte::DOUX)]));
+        });
+    }
+    // Verrous : figer l'effectif du moment, ou faire passer la case avant les autres
+    p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
+        l.spawn(texte("Verrou :", 13.0, charte::TEXTE));
+        let fige = f.actuel == Some(c.travailleurs);
+        let mut b = l.spawn((bouton(if fige { charte::ACTION_FOND } else { Color::NONE }), children![texte(format!("Figer à {}", rules::milliers(c.travailleurs.into())), 13.0, charte::TEXTE)]));
+        if !fige {
+            b.insert(Forcage::Figer(c.hex, c.travailleurs));
+        }
+        let mut b = l.spawn((bouton(if c.prioritaire { charte::ACTION_FOND } else { Color::NONE }), children![texte("Prioriser", 13.0, charte::TEXTE)]));
+        if !c.prioritaire {
+            b.insert(Forcage::Prioriser(c.hex));
+        }
+        l.spawn(texte("figer : l'intendant n'y touche plus · prioriser : il la remplit d'abord", 11.5, charte::MUET));
+    });
     let depart = f.propose.map_or(c.travailleurs, |(n, _)| n);
     p.spawn(Node { column_gap: Val::Px(8.0), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|l| {
         l.spawn(texte("Forcer l'effectif :", 13.0, charte::TEXTE));
@@ -5273,15 +5305,26 @@ fn construire_actions(
         match *f {
             Forcage::Proposer(h, n) => ecran.forcer = Some((h, n)),
             Forcage::Annuler => ecran.forcer = None,
-            Forcage::Confirmer(h, n) => {
-                let forcees = &mut city.state.consignes.forcees;
-                forcees.retain(|(x, _)| *x != h);
-                forcees.push((h, n));
+            Forcage::Confirmer(h, n) | Forcage::Figer(h, n) => {
+                let cons = &mut city.state.consignes;
+                cons.forcees.retain(|(x, _)| *x != h);
+                cons.prioritaires.retain(|x| *x != h);
+                cons.forcees.push((h, n));
                 ecran.forcer = None;
-                journal(format!(" : effectif forcé à {n} travailleurs sur une case."));
+                let quoi = if matches!(*f, Forcage::Figer(..)) { "figé" } else { "forcé" };
+                journal(format!(" : effectif {quoi} à {n} travailleurs sur une case."));
+            }
+            Forcage::Prioriser(h) => {
+                let cons = &mut city.state.consignes;
+                cons.forcees.retain(|(x, _)| *x != h);
+                cons.prioritaires.retain(|x| *x != h);
+                cons.prioritaires.push(h);
+                ecran.forcer = None;
+                journal(" : case prioritaire, l'intendant la remplit d'abord.".into());
             }
             Forcage::Rendre(h) => {
                 city.state.consignes.forcees.retain(|(x, _)| *x != h);
+                city.state.consignes.prioritaires.retain(|x| *x != h);
                 ecran.forcer = None;
                 journal(" : case rendue à l'intendant.".into());
             }
@@ -5412,7 +5455,7 @@ mod tests {
         let map = crate::map::WorldMap::filled(6, 6, crate::map::Terrain::Forest);
         let h = Hex::from_offset(2, 2);
         let r = Rendements::default();
-        let mut c = CaseVue { hex: h, centre: false, nom: String::new(), travailleurs: 0, capacite: 0, max: r, courbe: intendant::Courbe::default(), rendement: r, amenagement: None, habitants: 0.0, en_file: false, force: None, gisement: None };
+        let mut c = CaseVue { hex: h, centre: false, nom: String::new(), travailleurs: 0, capacite: 0, max: r, courbe: intendant::Courbe::default(), rendement: r, amenagement: None, habitants: 0.0, en_file: false, force: None, prioritaire: false, gisement: None };
         assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_ok());
         c.amenagement = Some(Amenagement::Champ);
         assert!(possible(&map, &c, Amenagement::CoupeDeBois).is_err(), "plus d'arbres");

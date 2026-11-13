@@ -253,6 +253,11 @@ habitants en 60 tours).
   **Changé le 11/11/2026** (maquette v19, lot 4) : la nourriture n'a plus de priorité mais un **objectif**
   (1 ; 1,25 ; 1,5 ; 2 fois le besoin) que l'intendant vise d'abord ; la production et les deniers gardent
   leur priorité ; grandeurs au même niveau = même poids.
+  **Verrou de case (13/11/2026, décision de Benjamin)** : plusieurs modes. **Figer** : la case est
+  forcée à son effectif du moment (l'intendant n'y touche plus). **Prioriser** : l'intendant remplit
+  la case avant toutes les autres, jusqu'à ses places (`Consignes::prioritaires`, après les cases
+  forcées ; test `une_case_prioritaire_est_remplie_d_abord`). Les deux s'excluent ; « rendre à
+  l'intendant » les retire. Plus tard : **évacuer / interdire** (guerre), avec le pillage et le risque.
 - **Chômage** : les actifs au-delà de la capacité totale sont signalés (et pèseront sur le Bien-être, 4c).
 
 | Case | Capacité | Rendement maximal | Coût |

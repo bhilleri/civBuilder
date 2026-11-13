@@ -953,7 +953,9 @@ fn cities() -> Article {
                premières) et la couverture des besoins (sel, vêtements, plantes, outils, luxe) ; puis les onglets \
                Bâtiments, Population, Ressources et Histoire, et la construction au pied, toujours visible."),
             p("À droite, la fiche de ce que vous touchez ou réglez : une case, une case à acheter, une grandeur et ses \
-               réglages, un placement. En bas, le tiroir (Tab l'ouvre ou le replie) : les cases de la ville et d'où \
+               réglages, un placement. Dans la fiche d'une case, le verrou : « Figer » garde son effectif du moment \
+               (l'intendant n'y touche plus), « Prioriser » la fait remplir avant les autres ; « rendre à l'intendant » \
+               le retire. En bas, le tiroir (Tab l'ouvre ou le replie) : les cases de la ville et d'où \
                viennent les rendements. Au-dessus de la carte, la barre de la carte : cases à acheter, zoom, Recentrer, \
                et la couche (Rendement, Aménagements, Emplois, Habitants, la grandeur détaillée, Ressources, \
                Histoire ; l'onglet en choisit une). Couche Rendement : sur chaque case, une barre d'unités par grandeur \

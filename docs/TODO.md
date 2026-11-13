@@ -358,8 +358,9 @@ le 11/11** (écran plein écran, charte, carte des cases, deniers). **Lot 2 fait
 ville sur la carte ») : panneaux posés sur la carte en 2D et en 3D, couches, ombre, contours posés sur le
 relief, en-tête et frein de la v7, Population, Ressources, Histoire, graphique agrandi. Ancien panneau
 de production retiré, rendement des cases, horizon et infobulles de décomposition faits le 13/11. Reste :
-temps de trajet des échanges (décision « distance = temps de transport » à prendre), verrou de case
-(règle à fixer), infobulles des autres nombres (culture, bien-être, fiches).
+temps de trajet des échanges (en tours de trajet, avec une perte par tour : décidé le 13/11, chiffres à
+fixer), infobulles des autres nombres (culture, bien-être, fiches). Verrou de case fait le 13/11 (Figer,
+Prioriser) ; **plus tard : évacuer / interdire une case** (guerre : pillage et risque).
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :
 nom tiré de la langue) : renommer « Économie » en deniers dans le code, l'interface et le wiki.

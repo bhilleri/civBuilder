@@ -752,8 +752,11 @@ pub struct Consignes {
     pub objectif: ObjectifNourriture,
     /// Priorité de la production et des deniers (la première case, celle de la nourriture, ne sert pas).
     pub priorites: [Priorite; 3],
-    /// Cases forcées et leur effectif (en travailleurs).
+    /// Cases forcées et leur effectif (en travailleurs) ; « figer » une case la force à son effectif du moment.
     pub forcees: Vec<(Hex, u32)>,
+    /// Cases prioritaires : l'intendant les remplit d'abord, jusqu'à leurs places (verrou « prioriser »).
+    #[serde(default)]
+    pub prioritaires: Vec<Hex>,
 }
 
 /// Case que la ville peut exploiter.
@@ -832,6 +835,17 @@ pub fn repartir_avec(cases: &[CaseDispo], actifs: u32, besoin_nourriture: f64, c
     for &(h, k) in &consignes.forcees {
         if let Some(i) = cases.iter().position(|c| c.hex == h) {
             let k = k.min(cases[i].capacite).min(libres);
+            n[i] = k;
+            libres -= k;
+            forcee[i] = true;
+        }
+    }
+    // Cases prioritaires : remplies d'abord, autant que les actifs le permettent
+    for &h in &consignes.prioritaires {
+        if let Some(i) = cases.iter().position(|c| c.hex == h)
+            && !forcee[i]
+        {
+            let k = cases[i].capacite.min(libres);
             n[i] = k;
             libres -= k;
             forcee[i] = true;
@@ -1000,6 +1014,25 @@ mod tests {
         let consignes = Consignes { forcees: vec![(bois.hex, 200)], ..Default::default() };
         let r = repartir(&[pre, bois], 600, 3.0, Rendements::default(), &consignes);
         assert_eq!((r.sur(bois.hex), r.sur(pre.hex), r.chomeurs), (200, 400, 0));
+    }
+
+    #[test]
+    fn une_case_prioritaire_est_remplie_d_abord() {
+        let pre = case(1, Rendements::new(2.0, 0.0, 0.0), 500);
+        let bois = case(2, Rendements::new(0.0, 0.5, 0.0), 500);
+        // Sans consigne, la nourriture d'abord (ville affamée) ; prioritaire, le bois se remplit
+        let r = repartir(&[pre, bois], 600, 3.0, Rendements::default(), &Consignes::default());
+        assert_eq!(r.sur(pre.hex), 500);
+        let consignes = Consignes { prioritaires: vec![bois.hex], ..Default::default() };
+        let r = repartir(&[pre, bois], 600, 3.0, Rendements::default(), &consignes);
+        assert_eq!((r.sur(bois.hex), r.sur(pre.hex)), (500, 100));
+        // Moins d'actifs que de places : tous sur la case prioritaire
+        let r = repartir(&[pre, bois], 300, 3.0, Rendements::default(), &consignes);
+        assert_eq!((r.sur(bois.hex), r.sur(pre.hex)), (300, 0));
+        // Une case forcée passe avant
+        let consignes = Consignes { forcees: vec![(pre.hex, 400)], prioritaires: vec![bois.hex], ..Default::default() };
+        let r = repartir(&[pre, bois], 600, 3.0, Rendements::default(), &consignes);
+        assert_eq!((r.sur(pre.hex), r.sur(bois.hex)), (400, 200));
     }
 
     #[test]

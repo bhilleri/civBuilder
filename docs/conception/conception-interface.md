@@ -782,7 +782,8 @@ variante B : gauche, droite, tiroir). L'écran n'est plus un plein écran avec u
   où il va ; le tiroir de la grandeur reprend la même décomposition. Pas encore : culture, bien-être
   et salubrité (leur détail est dans l'onglet Population), ni les nombres des fiches.
 - Écarts avec la maquette v7 et limites : pas de temps de trajet entre villes (la décision « distance =
-  temps de transport » reste à faire : seulement les cases) ; pas de verrou de case ; la molette ne zoome pas dans le temps au-delà des 40 tours
+  temps de transport » reste à faire : seulement les cases) ; verrou de case fait le 13/11 (Figer,
+  Prioriser, dans la fiche de la case ; « figée » ou « prioritaire » dans le tableau des cases) ; la molette ne zoome pas dans le temps au-delà des 40 tours
   gardés ; un cours d'eau survolé n'est plus éclairé pendant que l'écran est ouvert.
 
 ### Écrans nationaux (un panneau par thème, même gabarit)
