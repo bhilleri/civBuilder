@@ -1088,6 +1088,12 @@ pub struct EchangeVu {
     pub recu: bool,
     /// Contrepartie (ressource, quantité), dans l'autre sens ; aucune : un don.
     pub contre: Option<(crate::gisements::Ressource, f64)>,
+    /// Part de `qte` perdue en route.
+    #[serde(default)]
+    pub perdu: f64,
+    /// Trajet (tours).
+    #[serde(default)]
+    pub tours: f64,
 }
 
 fn bien_etre_de_depart() -> f64 {

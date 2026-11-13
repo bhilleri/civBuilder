@@ -282,7 +282,7 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 ### Fait le 13/11/2026 : échanges entre les villes (5i, première partie)
 - `echanges.rs` : `VilleEchange` (centre, au bord de l'eau, stock, demande), `reseaux` (villes
   reliées à `PORTEE` = 6 cases, `PORTEE_EAU` = 9 si toutes deux au bord de l'eau, de proche en
-  proche), `echanger` : par ressource, les villes qui ont moins de `TOURS_VISES` = 2 tours de leur
+  proche ; remplacé le jour même par un temps de trajet, plus bas), `echanger` : par ressource, les villes qui ont moins de `TOURS_VISES` = 2 tours de leur
   demande, celle qui en a le moins d'abord ; elles reçoivent des villes du même réseau (la plus
   proche d'abord) ce qui dépasse leur réserve (`TOURS_RESERVE` = 6 tours) ; la donneuse prend en
   échange, une unité pour une, la première ressource qui lui manque et que l'autre a en trop ;
@@ -303,8 +303,22 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   bruit : au palier 1, une ville demande déjà les trois sortes de luxe).
 - **Décision de Benjamin (13/11, après coup) : la distance d'un échange est un temps de transport**,
   pas un nombre de cases fixe : combien de temps on met à porter la ressource de A à B (relief,
-  rivières, plus tard routes et bateaux). À faire : remplacer `PORTEE` / `PORTEE_EAU` par un temps
-  de trajet calculé par le chemin (seuil à fixer).
+  rivières, plus tard routes et bateaux).
+- **Fait le 13/11 (choix de Benjamin)** : trajet d'un **porteur à pied** (`PM_PORTEUR` = 4 points
+  par tour, ceux d'un colon ; chemin le plus rapide `pathfinding::find_path` avec les coûts des
+  unités : plaine 1, forêt 4, marais 6, relief et cours d'eau en plus) ; deux villes sont reliées à
+  **`TOURS_TRAJET_MAX` = 2 tours** au plus (8 cases de plaine, 2 de forêt), de proche en proche
+  (`liaisons` : le trajet de réseau est la somme des étapes la plus courte). L'échange arrive dans le
+  tour mais **perd une part par tour de trajet selon la ressource** (`perte_par_tour`) : rien pour
+  la pierre (silex, obsidienne, pierre dure), l'ocre, les parures et le sel ; 5 % pour les fibres et
+  le bois d'œuvre ; 10 % pour les plantes médicinales. La donneuse envoie de quoi combler le manque
+  après la perte ; la contrepartie perd aussi. **Plus de bonus de l'eau** (`PORTEE_EAU` retirée) :
+  il reviendra avec les bateaux (pirogue sur les fleuves et les côtes). Écran de la ville (onglet
+  Ressources, couche Échanges) : trajet de chaque ville en tours, celui des villes non reliées
+  aussi (« 3,5 tours de trajet (plus de 2) ») ; ce qui est perdu en route. Tests
+  `la_demande_trouve_le_surplus_par_troc_ou_par_don`, `les_plantes_se_perdent_en_route`.
+  Constat à l'écran (graine 777, autour de Paris : forêt, taïga, fleuves) : des villes à 4, 5 et 6
+  cases sont à 5,2, 5,0 et 3,5 tours de trajet, aucune n'est reliée.
 - Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
   qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 
