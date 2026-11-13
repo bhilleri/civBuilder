@@ -133,16 +133,13 @@ impl From<crate::intendant::Amenagement> for IconeAmenagement {
     }
 }
 
-/// Images dessinées au démarrage : icônes des grandeurs et des aménagements, hexagone plein et
-/// contour d'hexagone (teintés à l'affichage).
+/// Images dessinées au démarrage : icônes des grandeurs et des aménagements, hexagone plein
+/// (teintés à l'affichage).
 #[derive(Resource)]
 pub struct Images {
     grandeurs: HashMap<Grandeur, Handle<Image>>,
     amenagements: HashMap<IconeAmenagement, Handle<Image>>,
     pub hexagone: Handle<Image>,
-    pub contour: Handle<Image>,
-    /// Contour en pointillé : case hors du territoire (à acheter).
-    pub pointille: Handle<Image>,
     /// Hache : défrichement.
     pub hache: Handle<Image>,
 }
@@ -170,12 +167,8 @@ impl Plugin for ChartePlugin {
                 .map(|&a| (a, ajouter(&|x, y| icone_amenagement(a, x, y), 48)))
                 .collect();
             let hexagone = ajouter(&|x, y| dans_hexagone(x, y, 1.0), 128);
-            let contour = ajouter(&|x, y| dans_hexagone(x, y, 1.0) && !dans_hexagone(x, y, 0.88), 128);
-            // (36 tirets sur le tour : un sur deux est plein)
-            let tiret = |x: f32, y: f32| ((y.atan2(x) / std::f32::consts::TAU + 1.0) * 36.0) as i32 % 2 == 0;
-            let pointille = ajouter(&|x, y| dans_hexagone(x, y, 1.0) && !dans_hexagone(x, y, 0.9) && tiret(x, y), 128);
             let hache = ajouter(&icone_hache, 48);
-            Images { grandeurs, amenagements, hexagone, contour, pointille, hache }
+            Images { grandeurs, amenagements, hexagone, hache }
         };
         app.insert_resource(images);
     }

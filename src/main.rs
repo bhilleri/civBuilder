@@ -69,6 +69,7 @@ mod toponymy;
 mod ui;
 mod units;
 mod view3d;
+mod ville_carte;
 mod waterways;
 mod waves;
 mod wiki;
@@ -114,6 +115,6 @@ fn main() {
         .add_plugins(feedback::FeedbackPlugin)
         .add_plugins(film::FilmPlugin)
         .add_plugins(pointer::PointerPlugin)
-        .add_plugins((sauvegarde::SauvegardePlugin, groupes::GroupesPlugin, charte::ChartePlugin, ecran_ville::EcranVillePlugin))
+        .add_plugins((sauvegarde::SauvegardePlugin, groupes::GroupesPlugin, charte::ChartePlugin, ecran_ville::EcranVillePlugin, ville_carte::VilleCartePlugin))
         .run();
 }

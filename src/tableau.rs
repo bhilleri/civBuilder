@@ -90,6 +90,7 @@ impl Plugin for TableauPlugin {
 
 fn creer_panneau(mut commands: Commands) {
     commands.spawn((
+        crate::ecran_ville::CacheSousEcran,
         TableauPanneau,
         UiPointer::default(),
         Node {

@@ -711,6 +711,35 @@ Limite connue : en mode pilote, l'infobulle de la carte disparaît à la fin d'u
 pilote ramène alors le pointeur à sa position d'avant (`Input::Move(last_cursor)`) ; elle n'apparaît
 donc pas sur les captures.
 
+#### Écran de la ville sur la carte (maquette v7, 13/11/2026)
+Après trois revues par des agents (ergonome, joueur de 4X, game designer) et sept versions de
+maquette, Benjamin a demandé d'implémenter la dernière (v7, « écran de ville sur la carte »,
+variante B : gauche, droite, tiroir). L'écran n'est plus un plein écran avec une carte schématique :
+**il se pose sur la vraie carte du monde**, en 2D comme en 3D.
+- **Règle des zones** (accord des trois revues) : **gauche = la ville** (en-tête, état, grandeurs,
+  onglets, construction au pied, toujours visible) ; **droite = ce que je touche ou règle** (fiche de
+  case, de case à acheter, d'une grandeur avec ses réglages, du placement) ; **bas = le temps et les
+  tableaux** (tiroir : une bande d'une ligne, Tab l'ouvre) ; **carte = l'espace** (une couche par
+  sujet, choisie dans la barre de la carte : Aménagements, Emplois, Habitants, la grandeur détaillée,
+  Histoire ; l'onglet en propose une par défaut).
+- **Ne pas masquer la ville ; assombrir légèrement le reste du monde** (Benjamin) : ombre à 42 %
+  hors du territoire et des cases à acheter, qui s'efface sur les dernières couronnes (26 cases).
+- **Carte** (`ville_carte.rs`) : teinte de chaque case (couleur de la couche, avec son opacité : le
+  terrain reste lisible), contours (territoire, case choisie, conseil d'or, risque de famine, cases à
+  acheter et chantiers en pointillé, survol en blanc), étiquettes de l'interface posées sur les cases
+  à chaque image (aménagement, gisement, valeur, emplois, prix). En 3D, couches et contours sont
+  **posés sur le relief** (maillage subdivisé qui prend la hauteur du sol, traits échantillonnés sur
+  le sol) : ils suivent les vraies cases (dans la maquette, le contour 3D, dessiné à plat sur une
+  image, ne les suivait pas).
+- **Cadrage** : à l'ouverture, au changement de ville ou de vue, et par « Recentrer », la caméra vole
+  pour que le territoire tienne dans la zone que laissent les panneaux (fiche et tiroir comptés
+  ouverts : la carte ne saute pas quand on les ouvre) ; en 3D, point visé et distance ajustés en
+  projetant. La caméra garde ses commandes (molette, bouton du milieu, clavier, + et −) ; V bascule
+  la vue même écran ouvert.
+- Le HUD de la carte du monde (journal, panneau de production, sélection, légendes, boutons) est
+  caché pendant que l'écran est ouvert ; restent la barre du tour et « Fin du tour ».
+- L'onglet Commerce devient **Ressources** (ressources et échanges).
+
 ### Écrans nationaux (un panneau par thème, même gabarit)
 | Écran | Contenu |
 |---|---|

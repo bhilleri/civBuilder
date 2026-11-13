@@ -150,6 +150,7 @@ fn setup_ui(mut commands: Commands) {
     // Barre de lieu, juste dessous (cachée tant que le centre de la vue n'est pas exploré)
     commands.spawn((
         PlaceBar,
+        crate::ecran_ville::CacheSousEcran,
         panel(Node {
             position_type: PositionType::Absolute,
             top: Val::Px(50.0),
@@ -167,6 +168,7 @@ fn setup_ui(mut commands: Commands) {
     // Journal (en haut à droite) : les lignes sont ajoutées par `update_log`
     commands.spawn((
         LogList,
+        crate::ecran_ville::CacheSousEcran,
         panel(Node {
             position_type: PositionType::Absolute,
             top: Val::Px(8.0),
@@ -183,6 +185,7 @@ fn setup_ui(mut commands: Commands) {
     commands
         .spawn((
             ProductionPanel,
+            crate::ecran_ville::CacheSousEcran,
             panel(Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(52.0),
@@ -239,6 +242,7 @@ fn setup_ui(mut commands: Commands) {
 
     // Panneau de sélection (en bas à gauche)
     commands.spawn((
+        crate::ecran_ville::CacheSousEcran,
         panel(Node {
             position_type: PositionType::Absolute,
             bottom: Val::Px(8.0),
@@ -263,23 +267,25 @@ fn setup_ui(mut commands: Commands) {
         },
         children![
             (
+                crate::ecran_ville::CacheSousEcran,
                 panel(Node { padding: UiRect::all(Val::Px(10.0)), ..default() }),
                 children![(HoverText, text("", 14.0))],
             ),
-            topo_legend(),
-            relief_legend(),
-            climate_legend(),
-            basin_legend(),
-            flow_legend(),
-            network_legend(),
-            plates_legend(),
-            currents_legend(),
-            tides_legend(),
-            waves_legend(),
-            soils_legend(),
-            resources_legend(),
-            geography_legend(),
+            (crate::ecran_ville::CacheSousEcran, topo_legend()),
+            (crate::ecran_ville::CacheSousEcran, relief_legend()),
+            (crate::ecran_ville::CacheSousEcran, climate_legend()),
+            (crate::ecran_ville::CacheSousEcran, basin_legend()),
+            (crate::ecran_ville::CacheSousEcran, flow_legend()),
+            (crate::ecran_ville::CacheSousEcran, network_legend()),
+            (crate::ecran_ville::CacheSousEcran, plates_legend()),
+            (crate::ecran_ville::CacheSousEcran, currents_legend()),
+            (crate::ecran_ville::CacheSousEcran, tides_legend()),
+            (crate::ecran_ville::CacheSousEcran, waves_legend()),
+            (crate::ecran_ville::CacheSousEcran, soils_legend()),
+            (crate::ecran_ville::CacheSousEcran, resources_legend()),
+            (crate::ecran_ville::CacheSousEcran, geography_legend()),
             (
+                crate::ecran_ville::CacheSousEcran,
                 MapLayerMenu,
                 panel(Node {
                     flex_direction: FlexDirection::Column,
@@ -307,6 +313,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::tableau::TableauBouton,
+                crate::ecran_ville::CacheSousEcran,
                 UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
@@ -318,6 +325,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::wiki::WikiButton,
+                crate::ecran_ville::CacheSousEcran,
                 UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
@@ -329,6 +337,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::search::SearchButton,
+                crate::ecran_ville::CacheSousEcran,
                 UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
@@ -340,6 +349,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 MapLayerButton,
+                crate::ecran_ville::CacheSousEcran,
                 UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
@@ -351,6 +361,7 @@ fn setup_ui(mut commands: Commands) {
             ),
             (
                 crate::options::OptionsButton,
+                crate::ecran_ville::CacheSousEcran,
                 UiPointer::default(),
                 Node {
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),

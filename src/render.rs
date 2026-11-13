@@ -2199,6 +2199,7 @@ fn draw_overlays(
     motions: Query<&Motion>,
     time: Res<Time>,
     groupe: Res<crate::groupes::Groupe>,
+    ecran: Res<crate::ecran_ville::EcranVille>,
 ) {
     // Frontières : arêtes entre une case possédée et une case non possédée (ou d'une autre ville)
     for (&hex, &owner) in &territory.0 {
@@ -2225,7 +2226,8 @@ fn draw_overlays(
         }
     }
 
-    if let Ok(city) = cities.get(selected) {
+    // (l'écran de la ville montre lui-même ses cases)
+    if let Some(city) = cities.get(selected).ok().filter(|_| !ecran.ouvert()) {
         for (h, _) in &city.travail.cases {
             let (wx, wy) = h.to_world();
             gizmos.circle_2d(Vec2::new(wx, wy), 6.0, Color::srgb(1.0, 0.9, 0.2));

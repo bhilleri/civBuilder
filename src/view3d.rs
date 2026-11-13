@@ -853,6 +853,16 @@ fn layer() -> RenderLayers {
     RenderLayers::layer(LAYER_3D)
 }
 
+/// Couche de rendu du monde 3D (pour les autres modules).
+pub(crate) fn couche_3d() -> RenderLayers {
+    layer()
+}
+
+/// Placement de la caméra 3D pour un point visé, une distance et une orientation donnés.
+pub(crate) fn camera_transform_de(cam: &Cam3d) -> Transform {
+    camera_transform(cam)
+}
+
 fn camera_transform(cam: &Cam3d) -> Transform {
     let pitch = PITCH_DEG.to_radians();
     let offset = Vec3::new(cam.yaw.sin() * pitch.cos(), pitch.sin(), cam.yaw.cos() * pitch.cos()) * cam.distance;
@@ -1252,7 +1262,9 @@ fn spawn_decor(commands: &mut Commands, kit: &DecorKit, map: &crate::map::WorldM
 
 fn toggle_view_key(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<ViewMode>, ecran: Res<crate::ecran_ville::EcranVille>) {
     // (pas sous l'écran de la ville, qui couvre la carte)
-    if keys.just_pressed(KeyCode::KeyV) && !ecran.ouvert() {
+    // (l'écran de la ville est posé sur la carte : on y bascule aussi la vue)
+    let _ = &ecran;
+    if keys.just_pressed(KeyCode::KeyV) {
         mode.is_3d = !mode.is_3d;
     }
 }
