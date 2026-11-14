@@ -21,6 +21,8 @@ pub struct StepCost {
     pub mountain: bool,
     /// Le pas mène sur le pont d'une case de fleuve (par un de ses bouts).
     pub onto_bridge: bool,
+    /// Le pas suit une route (les porteurs y vont deux fois plus vite : `echanges::Porteur`).
+    pub route: bool,
 }
 
 impl StepCost {
@@ -212,6 +214,12 @@ impl MoveCosts for WorldMap {
         // (une côte escarpée barre aussi le passage entre la terre et la banquise)
         if self.cliff_between(from, to) || ((self.is_ice(from) || self.is_ice(to)) && self.cliff_with_sea(from, to)) {
             return None;
+        }
+        // Route : son coût propre, la rivière passée par une passerelle (un fleuve, par son pont)
+        if self.route(from, to) > 0
+            && let Some(route) = self.route_step(from, to)
+        {
+            return Some(route);
         }
         // Pont d'un fleuve, par un de ses bouts : 1 PM, sans arrêt ; pont d'une rivière : sans surcoût
         if self.bridge_end(to, from) {
@@ -472,6 +480,28 @@ impl BridgeAt {
         }
     }
 }
+/// Tronçon de route entre deux cases voisines : arête `dir` de la case `hex`, toujours rangé sous
+/// l'écriture de la case de plus petit indice (`WorldMap::route_at`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct RouteAt {
+    pub hex: Hex,
+    pub dir: u8,
+}
+
+impl RouteAt {
+    /// Les deux cases que le tronçon relie.
+    pub fn ends(self, wrap: Wrap) -> (Hex, Hex) {
+        (self.hex, wrap.neighbor(self.hex, usize::from(self.dir)))
+    }
+}
+
+/// Coût (PM) d'une case de route selon son relief (décision de Benjamin, 14/11/2026 : 1 PM sur le
+/// plat quel que soit le biome, un peu plus avec le relief, route sinueuse) : collines 2, relief
+/// accidenté 3, montagne la moitié de son coût (4 à 8) ; la montée compte la moitié.
+pub const ROUTE_PM: u32 = 1;
+pub const ROUTE_HILLS_PM: u32 = 2;
+pub const ROUTE_RUGGED_PM: u32 = 3;
+
 /// Rendements d'une case de fleuve (pêche, transport et commerce).
 pub const FLEUVE_YIELDS: Yields = Yields::new(2, 0, 1);
 /// Un lieu nommé (barre de lieu) : indice de sa zone dans sa famille.
@@ -1030,6 +1060,8 @@ pub struct WorldMap {
     river_down_cache: std::sync::OnceLock<Vec<[u8; 6]>>,
     /// Ponts construits (ou posés à la console).
     bridges: HashSet<BridgeAt>,
+    /// Routes construites : niveau de chaque tronçon (1 : chemin).
+    routes: std::collections::HashMap<RouteAt, u8>,
 }
 
 impl WorldMap {
@@ -1079,6 +1111,7 @@ impl WorldMap {
             gisements_cache: std::sync::OnceLock::new(),
             river_down_cache: std::sync::OnceLock::new(),
             bridges: HashSet::new(),
+            routes: std::collections::HashMap::new(),
         }
     }
 
@@ -1114,6 +1147,58 @@ impl WorldMap {
             self.step_cache = std::sync::OnceLock::new();
         }
         changed
+    }
+
+    /// Tronçon de route possible entre deux cases voisines de la carte (sous son unique écriture).
+    pub fn route_at(&self, a: Hex, b: Hex) -> Option<RouteAt> {
+        let (a, b) = (self.canonical(a), self.canonical(b));
+        if !(self.contains(a) && self.contains(b)) {
+            return None;
+        }
+        let d = self.wrap.direction(a, b)?;
+        Some(if self.cell(a) <= self.cell(b) { RouteAt { hex: a, dir: d as u8 } } else { RouteAt { hex: b, dir: ((d + 3) % 6) as u8 } })
+    }
+
+    /// Pose une route de ce niveau sur un tronçon (0 : la retire) ; rend vrai si quelque chose a changé.
+    pub fn set_route(&mut self, at: RouteAt, niveau: u8) -> bool {
+        let avant = self.routes.get(&at).copied().unwrap_or(0);
+        if avant == niveau {
+            return false;
+        }
+        if niveau == 0 {
+            self.routes.remove(&at);
+        } else {
+            self.routes.insert(at, niveau);
+        }
+        self.step_cache = std::sync::OnceLock::new();
+        true
+    }
+
+    /// Niveau de la route entre deux cases voisines (0 : pas de route).
+    pub fn route(&self, a: Hex, b: Hex) -> u8 {
+        self.route_at(a, b).and_then(|at| self.routes.get(&at).copied()).unwrap_or(0)
+    }
+
+    /// Tronçons de route construits, et leur niveau.
+    pub fn routes(&self) -> impl Iterator<Item = (RouteAt, u8)> + '_ {
+        self.routes.iter().map(|(a, n)| (*a, *n))
+    }
+
+    /// Coût (PM) d'un pas par la route vers la case de terre `to` (`None` : pas de route possible
+    /// là, eau ou glace ; un fleuve se passe par son pont).
+    pub fn route_step(&self, from: Hex, to: Hex) -> Option<StepCost> {
+        if self.is_fleuve(to) || self.is_ice(to) || self.is_ice(from) || self.get(to)?.is_water() {
+            return None;
+        }
+        let (terrain, mountain) = match self.relief(to) {
+            Relief::Peak => return None,
+            Relief::Mountain => (mountain_move_cost(self.elevation(to)?) / 2, true),
+            Relief::Hills => (ROUTE_HILLS_PM, false),
+            Relief::Rugged => (ROUTE_RUGGED_PM, false),
+            Relief::Flat => (ROUTE_PM, false),
+        };
+        let climb = climb_cost(self.elevation(from)?, self.elevation(to)?) / 2;
+        Some(StepCost { terrain: terrain + climb, mountain, route: true, ..StepCost::default() })
     }
 
     /// Ponts construits.

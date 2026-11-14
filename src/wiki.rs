@@ -1054,6 +1054,18 @@ fn cities() -> Article {
                 crate::rules::BRIDGE_COST.1,
                 crate::rules::BRIDGE_STONE_COST
             )),
+            h("Routes"),
+            p(format!(
+                "Une ville trace des chemins, vers une autre ville ou n'importe quelle case connue, hors de son territoire                  aussi. « Chemin… » dans la construction (groupe Bâtiments) ferme l'écran et propose sur la carte le                  tracé le plus rapide une fois construit jusqu'à la case survolée (à temps égal, le moins cher) ; un clic                  fixe l'arrivée, chaque clic suivant ajoute un point de passage par où le tracé doit aller ; clic droit :                  retirer le dernier point ; Entrée : lancer. Le panneau en haut donne le coût, les tours de production et                  le temps d'un porteur sur ce tracé, avant et après. Le chemin se construit au fil de la production,                  tronçon par tronçon depuis la ville, et chaque tronçon sert dès qu'il est fait ; ceux qui ont déjà une                  route ne coûtent rien. Coût d'une case : {} de production × le biome (prairie, plaine, steppe, savane,                  désert 1 ; broussailles, savane arborée, toundra 1,5 ; forêt, taïga 2 ; jungle, marais, neige 3) × le                  relief (plat 1, collines 1,5, relief accidenté 2,5, montagne 4, 5 au-dessus de {} m) ; un tronçon                  coûte la moitié de chacune de ses deux cases. Une rivière se passe par une passerelle comprise ; un                  fleuve, par un pont que le chemin construit à son prix habituel. Améliorer une route coûtera la                  moitié de sa construction (routes de terre, puis pavées, avec la recherche).",
+                crate::routes::COUT_CASE,
+                crate::routes::HAUTE_MONTAGNE_M
+            )),
+            p(format!(
+                "Sur un chemin, une unité paie {} PM par case sur le plat, quel que soit le biome (forêt, marais,                  jungle compris), {} en collines, {} en relief accidenté et la moitié du coût d'une montagne ; une                  montée compte la moitié. En plaine, les unités ne vont pas plus vite (1 PM déjà), mais les porteurs                  des échanges vont deux fois plus vite (0,5 point par case) : le commerce y gagne partout. Un chemin                  sert à tout le monde, ennemis compris. La console en pose d'un coup (« route »).",
+                crate::map::ROUTE_PM,
+                crate::map::ROUTE_HILLS_PM,
+                crate::map::ROUTE_RUGGED_PM
+            )),
         ],
     }
 }

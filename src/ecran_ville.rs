@@ -179,7 +179,7 @@ fn case_de(objet: &rules::Production) -> Option<Hex> {
     match *objet {
         rules::Production::Amenagement { hex, .. } => Some(hex),
         rules::Production::Bridge { at: crate::map::BridgeAt::Edge { hex, .. } | crate::map::BridgeAt::Fleuve { hex, .. }, .. } => Some(hex),
-        rules::Production::Unit(_) | rules::Production::Puits | rules::Production::Grenier | rules::Production::Sanctuaire { .. } => None,
+        rules::Production::Unit(_) | rules::Production::Puits | rules::Production::Grenier | rules::Production::Sanctuaire { .. } | rules::Production::Route { .. } => None,
     }
 }
 
@@ -4781,6 +4781,14 @@ fn effet_grenier(c: &rules::CityState) -> String {
     )
 }
 
+/// Libellé du bouton « Chemin… » : les chantiers de la ville en cours.
+fn texte_chemins(c: &rules::CityState) -> String {
+    match c.chantiers.len() {
+        0 => "     Chemin…  —  tracer une route vers une ville ou une case (1 PM par case sur le plat, porteurs deux fois plus rapides)".into(),
+        n => format!("     Chemin…  —  tracer une autre route ({n} chantier(s) en file)"),
+    }
+}
+
 /// Ce qu'apporte un élément de la file, en une ligne, et où il se construit.
 fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Production, colons_avant: usize) -> (Option<String>, String) {
     let map = vl.map;
@@ -4793,6 +4801,16 @@ fn benefice(vl: &Ville, city: &City, cases: &[CaseVue], objet: &rules::Productio
             None => "case hors du territoire".into(),
         },
         rules::Production::Bridge { .. } => "franchir le cours d'eau sans détour ni surcoût".into(),
+        rules::Production::Route { id, .. } => match city.state.chantier(id) {
+            Some(ch) => format!(
+                "jusqu'à {} : {} tronçons sur {} faits, chacun sert dès qu'il est fait (coût annoncé {})",
+                map.describe(*ch.trace.last().unwrap_or(&vl.centre)).to_lowercase(),
+                ch.faits,
+                ch.troncons(),
+                ch.total
+            ),
+            None => "chantier perdu".into(),
+        },
         rules::Production::Puits => {
             let s = city.state.salubrite();
             format!("salubrité {:.0} → {:.0} (eau plus propre ; plus tard, de l'eau pour grandir)", s, (s + rules::SALUBRITE_PUITS).min(100.0))
@@ -4972,6 +4990,8 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
     item(l, Element::Sanctuaire, objet.name().into(), detail, c.sanctuaire.is_none() && !en_file, false);
     groupe(l, "Ponts : leur emplacement se choisit sur la carte du monde (l'écran se ferme)");
     l.spawn((crate::bridge_build::BridgeButton, bouton(charte::SURFACE), children![texte("Pont…", 13.5, charte::TEXTE)]));
+    groupe(l, "Chemins : le tracé se choisit sur la carte du monde, hors du territoire aussi (l'écran se ferme)");
+    l.spawn((crate::route_build::RouteButton, bouton(charte::SURFACE), children![texte(texte_chemins(c), 13.5, charte::TEXTE)]));
     }
     // Projets de ville
     if groupe_vu == GroupeCatalogue::Projets {

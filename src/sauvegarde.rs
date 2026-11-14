@@ -91,6 +91,9 @@ pub struct Sauvegarde {
     /// Cases du territoire et identifiant de leur ville.
     pub territoire: Vec<(Hex, u32)>,
     pub ponts: Vec<BridgeAt>,
+    /// Routes construites : tronçons et niveau (absentes des sauvegardes plus anciennes).
+    #[serde(default)]
+    pub routes: Vec<(crate::map::RouteAt, u8)>,
     /// Aménagements ruraux des cases.
     pub amenagements: Vec<(Hex, crate::intendant::Amenagement)>,
     /// Configuration de la partie (absente des sauvegardes plus anciennes : celle par défaut).
@@ -227,6 +230,8 @@ fn photographier(
     territoire.sort();
     let mut ponts: Vec<BridgeAt> = map.bridges().collect();
     ponts.sort_by_key(|b| format!("{b:?}"));
+    let mut routes: Vec<(crate::map::RouteAt, u8)> = map.routes().collect();
+    routes.sort();
     Sauvegarde {
         version: VERSION_FORMAT,
         graine: map.seed(),
@@ -245,6 +250,7 @@ fn photographier(
         explorees: fog.explored.iter().collect(),
         territoire,
         ponts,
+        routes,
         amenagements: amenagements.0.iter().map(|(h, a)| (*h, *a)).collect(),
         config: config.clone(),
         gisements_connus: {
@@ -377,6 +383,9 @@ fn remettre_en_place(
         commands.spawn((Village, SiteName(v.nom.clone()), HexPos(v.case), Ident(v.ident)));
     }
     let mut refaire = Vec::new();
+    for &(at, niveau) in &s.routes {
+        map.0.set_route(at, niveau);
+    }
     for b in &s.ponts {
         if map.0.set_bridge(*b, true) {
             let (a, c) = b.ends(map.0.wrap());
@@ -422,6 +431,7 @@ mod tests {
             explorees: vec![Hex::from_offset(2, 3), Hex::from_offset(5, 5)],
             territoire: vec![(Hex::from_offset(5, 5), 0)],
             ponts: vec![BridgeAt::Edge { hex: Hex::from_offset(4, 4), dir: 1 }],
+            routes: vec![(crate::map::RouteAt { hex: Hex::from_offset(5, 5), dir: 0 }, 1)],
             amenagements: vec![(Hex::from_offset(5, 4), crate::intendant::Amenagement::Champ)],
             config: crate::config_partie::ConfigPartie::default(),
             gisements_connus: vec![Hex::from_offset(5, 4)],

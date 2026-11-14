@@ -146,6 +146,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "unite soigner", args: &AT, help: "Rend à l'unité de la case tous ses PV et ses PM, et efface sa dette.", group: Group::Game },
     Spec { name: "ville", args: &AT, help: "Fonde une ville du joueur sur la case (règles de fondation : terre, distance aux autres villes).", group: Group::Game },
     Spec { name: "pont", args: &[AT[0], AT[1], ("e|ne|no|o|so|se", Arg::Direction, false), ("oui|non", Arg::Switch, true)], help: "Pose (ou retire, « non ») un pont : sur la rivière de l'arête de la case dans cette direction, ou, si la case est un fleuve, en travers d'elle, de la rive de cette direction à la rive opposée (terre ferme des deux côtés). Rivière : traversée sans surcoût ; fleuve : on monte sur le pont par un bout pour 1 PM, sans s'arrêter. Voir le wiki, « Cours d'eau et lacs », Ponts.", group: Group::Game },
+    Spec { name: "route", args: &[AT[0], AT[1], ("col", Arg::Col, false), ("lig", Arg::Row, false)], help: "Pose d'un coup un chemin d'une case à une autre, par le tracé le plus rapide une fois construit (celui que propose une ville), ponts des fleuves compris : 1 PM par case sur le plat, plus avec le relief, porteurs deux fois plus rapides. Voir le wiki, « Routes ».", group: Group::Game },
     Spec { name: "ville fortifier", args: &[AT[0], AT[1], ("oui|non", Arg::Switch, false)], help: "Pose ou retire la fortification de la ville de la case : sa muraille, ses portes.", group: Group::Game },
     Spec { name: "ville projet", args: &[AT[0], AT[1], ("peupler|jeux|recherche|culture|aucun", Arg::Text, false)], help: "Projet de ville suivi quand la file de construction est vide.", group: Group::Game },
     Spec { name: "ville acheter", args: &[AT[0], AT[1], ("colonne", Arg::Col, false), ("ligne", Arg::Row, false)], help: "Achète une case voisine du territoire de la ville de la case, en deniers (20 + 10 × distance au centre).", group: Group::Game },
@@ -308,6 +309,8 @@ pub enum Command {
     Fleuve(Vec<Hex>, f32),
     /// Pont sur l'arête (ou en travers du fleuve) de la case dans la direction, posé ou retiré.
     Bridge(Hex, usize, bool),
+    /// Chemin posé d'un coup entre deux cases.
+    Route(Hex, Hex),
     /// `true` : climat (et eau) ; `false` : eau seule.
     Regen(bool),
     Path(Hex, Hex, UnitKind),
@@ -527,6 +530,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             };
             Command::Bridge(at()?, dir, args.get(3).map(|w| yes_no(w)).transpose()?.unwrap_or(true))
         }
+        "route" => Command::Route(at()?, cell(map, args[2], args[3])?),
         "ville fortifier" => Command::CitySet(at()?, CityChange::Fortified(yes_no(args[2])?)),
         "ville priorite" => {
             let r = crate::intendant::RESSOURCES.iter().position(|r| *r == token(args[2])).filter(|&r| r > 0).ok_or(format!("ressource : production ou deniers, pas « {} » (la nourriture se règle par « ville objectif »)", args[2]))?;
@@ -1459,6 +1463,20 @@ impl Session {
                     self.history.remove(0);
                 }
                 Reply { ok: true, lines: vec![format!("OK pont {} {what}", if built { "posé" } else { "retiré" })], changed, effect: None }
+            }
+            Command::Route(a, b) => {
+                let Some(trace) = crate::routes::tracer(map, &[a, b], crate::routes::NIVEAU_CHEMIN, &|_| true) else {
+                    return Reply::error(format!("pas de chemin possible de {} à {} (eau, pic, falaise)", coords(map, a), coords(map, b)));
+                };
+                let snapshot = map.clone();
+                let cout = crate::routes::cout_trace(map, &trace, crate::routes::NIVEAU_CHEMIN);
+                crate::routes::poser(map, &trace, crate::routes::NIVEAU_CHEMIN);
+                self.history.push((snapshot, trace.clone()));
+                if self.history.len() > UNDO_DEPTH {
+                    self.history.remove(0);
+                }
+                let lines = vec![format!("OK chemin de {} à {} : {} tronçons (coût {:.0} pour une ville)", coords(map, a), coords(map, b), trace.len() - 1, cout)];
+                Reply { ok: true, lines, changed: trace, effect: None }
             }
             Command::City(at) => Reply::effect(format!("OK ville demandée en {}", coords(map, at)), Effect::City(at)),
             Command::CitySet(at, change) => Reply::effect(format!("OK ville de {} à modifier", coords(map, at)), Effect::CitySet(at, change)),

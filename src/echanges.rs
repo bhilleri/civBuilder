@@ -145,7 +145,8 @@ const TRANSBORDEMENT: u32 = 2;
 /// Coûts d'un porteur à pied (décision de Benjamin, 14/11/2026 : des sentiers, pas les coûts de
 /// l'armée) : le terrain et le relief comptent la moitié de ceux des unités, 1 point au moins
 /// (plaine 1, forêt 2, marais 3, colline 1,5, montagne 4 à 8) ; une rivière se passe pour 1 point
-/// de plus, un fleuve pour 2 (gué, bac). En demi-points, pour rester entier.
+/// de plus, un fleuve pour 2 (gué, bac). Sur une route, la moitié du coût des unités, 0,5 point au
+/// moins (deux fois plus vite en plaine). En demi-points, pour rester entier.
 pub struct Porteur<M>(pub M);
 
 impl<M: MoveCosts> MoveCosts for Porteur<M> {
@@ -160,8 +161,14 @@ impl<M: MoveCosts> MoveCosts for Porteur<M> {
             1..=4 => DEMI_POINTS,
             _ => 2 * DEMI_POINTS,
         };
-        // (un fleuve n'a que de l'eau : pas de terrain en plus)
-        let terrain = if s.terrain == 0 && eau > 0 { 0 } else { s.terrain.max(DEMI_POINTS) };
+        // (un fleuve n'a que de l'eau : pas de terrain en plus ; sur une route, 0,5 point au moins)
+        let terrain = if s.terrain == 0 && eau > 0 {
+            0
+        } else if s.route {
+            s.terrain.max(1)
+        } else {
+            s.terrain.max(DEMI_POINTS)
+        };
         Some(StepCost { terrain, water: eau, ..s })
     }
 

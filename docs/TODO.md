@@ -362,7 +362,8 @@ infobulles des nombres des fiches (culture, bien-être et salubrité faits le 14
 Prioriser) ; **plus tard : évacuer / interdire une case** (guerre : pillage et risque). Temps de trajet
 des échanges fait le 13/11 (porteur à pied par les sentiers, 3 tours au plus, perte selon la ressource).
 **Transport fait le 14/11** (pirogues, capacité par étape, coût en nature, rentabilité, transit) ; suite de la tâche
-18 : ports et capacité des nœuds, gain d'une ville de passage (relais, péage), aperçu avant de construire, saisons et sens du courant, routes.
+18 : ports et capacité des nœuds, gain d'une ville de passage (relais, péage), aperçu avant de construire, saisons et sens du courant. **Routes faites le 14/11** (chemins tracés et construits au fil de la production,
+`conception/conception-routes.md`) ; plus tard : routes de terre et pavées (Roue et chariot), entretien, pillage, capacité des charrettes.
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :
 nom tiré de la langue) : renommer « Économie » en deniers dans le code, l'interface et le wiki.

@@ -893,13 +893,16 @@ pub enum Production {
     Grenier,
     /// Sanctuaire (culture) : un par ville ; mégalithe s'il est bâti avec de la pierre dure.
     Sanctuaire { megalithe: bool },
+    /// Route : le chantier `id` de la ville (`CityState::chantiers`), construit tronçon par
+    /// tronçon (`game::end_turn`) ; `cost` : ce qu'il reste à payer plus ce qui est investi.
+    Route { id: u32, cost: i32 },
 }
 
 impl Production {
     pub fn cost(self) -> i32 {
         match self {
             Production::Unit(kind) => kind.cost(),
-            Production::Bridge { cost, .. } | Production::Amenagement { cost, .. } => cost,
+            Production::Bridge { cost, .. } | Production::Amenagement { cost, .. } | Production::Route { cost, .. } => cost,
             Production::Puits => PUITS_COUT,
             Production::Grenier => GRENIER_COUT,
             Production::Sanctuaire { megalithe: false } => SANCTUAIRE_COUT,
@@ -917,6 +920,7 @@ impl Production {
             Production::Grenier => "Grenier",
             Production::Sanctuaire { megalithe: false } => "Sanctuaire",
             Production::Sanctuaire { megalithe: true } => "Sanctuaire mégalithique",
+            Production::Route { .. } => "Chemin",
         }
     }
 }
@@ -1079,6 +1083,9 @@ pub struct CityState {
     /// n'a rien envoyé.
     #[serde(default)]
     pub refus: Vec<(String, crate::gisements::Ressource, crate::echanges::Raison)>,
+    /// Chantiers de route de la ville (un par commande `Production::Route` de la file).
+    #[serde(default)]
+    pub chantiers: Vec<crate::routes::Chantier>,
     /// Ressources extraites au dernier tour, par ressource.
     #[serde(default)]
     pub extrait_tour: Vec<f64>,
@@ -1191,7 +1198,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None, demande_outils_tour: 0.0, echanges: Vec::new(), transit: Vec::new(), refus: Vec::new(), extrait_tour: Vec::new() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None, demande_outils_tour: 0.0, echanges: Vec::new(), transit: Vec::new(), refus: Vec::new(), chantiers: Vec::new(), extrait_tour: Vec::new() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1464,11 +1471,25 @@ impl CityState {
         Humeur::de(self.bien_etre)
     }
 
+    /// Lance un chantier de route sur ce tracé : il prend la fin de la file ; rend son numéro.
+    pub fn lancer_route(&mut self, trace: Vec<Hex>, niveau: u8, total: i32) -> u32 {
+        let id = self.chantiers.iter().map(|c| c.id).max().map_or(1, |i| i + 1);
+        self.chantiers.push(crate::routes::Chantier { id, trace, niveau, faits: 0, total });
+        self.file.push(Commande { objet: Production::Route { id, cost: total }, investi: 0.0 });
+        id
+    }
+
+    /// Le chantier de route d'une commande.
+    pub fn chantier(&self, id: u32) -> Option<&crate::routes::Chantier> {
+        self.chantiers.iter().find(|c| c.id == id)
+    }
+
     /// Ajoute un élément à la fin de la file (refusé s'il y est déjà : même pont, même case).
     pub fn mettre_en_file(&mut self, objet: Production) -> bool {
         let deja = |c: &Commande| match (c.objet, objet) {
             (Production::Bridge { at: a, .. }, Production::Bridge { at: b, .. }) => a == b,
             (Production::Amenagement { hex: a, .. }, Production::Amenagement { hex: b, .. }) => a == b,
+            (Production::Route { id: a, .. }, Production::Route { id: b, .. }) => a == b,
             _ => false,
         };
         let unique = |fait: bool| fait || self.file.iter().any(|c| c.objet == objet);
@@ -1519,6 +1540,7 @@ impl CityState {
             echanges: Vec::new(),
             transit: Vec::new(),
             refus: Vec::new(),
+            chantiers: Vec::new(),
             extrait_tour: Vec::new(),
         }
     }
@@ -1589,7 +1611,8 @@ impl CityState {
             let item = tete.objet;
             let settler = item == Production::Unit(UnitKind::Settler);
             let pop_ok = !settler || self.habitants >= Self::HABITANTS_POUR_COLON;
-            let paye = tete.investi >= item.cost() as f64;
+            // (un chantier de route se paie tronçon par tronçon, dans `game::end_turn`)
+            let paye = tete.investi >= item.cost() as f64 && !matches!(item, Production::Route { .. });
             report.colon_attend = settler && paye && !pop_ok && tete.investi - yields.production < item.cost() as f64;
             if paye && pop_ok {
                 let surplus = tete.investi - item.cost() as f64;

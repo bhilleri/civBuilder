@@ -8,6 +8,8 @@ mod fonts;
 mod basins;
 mod battle;
 mod bridge_build;
+mod route_build;
+mod routes;
 mod capture;
 mod cases;
 mod charte;
@@ -112,6 +114,7 @@ fn main() {
         .add_plugins(console::ConsolePlugin)
         .add_plugins(tableau::TableauPlugin)
         .add_plugins(bridge_build::BridgeBuildPlugin)
+        .add_plugins(route_build::RouteBuildPlugin)
         .add_plugins(feedback::FeedbackPlugin)
         .add_plugins(film::FilmPlugin)
         .add_plugins(pointer::PointerPlugin)

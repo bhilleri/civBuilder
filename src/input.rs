@@ -125,8 +125,9 @@ impl Plugin for InputPlugin {
                     (crate::groupes::selection_de_groupe, crate::groupes::ordre_de_groupe, mouse_commands, crate::groupes::corriger_principale)
                         .chain()
                         .run_if(no_overlay)
-                        .run_if(crate::bridge_build::not_placing),
-                    keyboard_commands.run_if(no_overlay),
+                        .run_if(crate::bridge_build::not_placing)
+                        .run_if(crate::route_build::not_tracing),
+                    keyboard_commands.run_if(no_overlay).run_if(crate::route_build::not_tracing),
                     crate::groupes::groupes_au_clavier.run_if(no_overlay),
                 )
                     .chain()

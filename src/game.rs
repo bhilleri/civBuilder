@@ -701,6 +701,7 @@ fn end_turn(
     assign_worked_tiles(map, &territory, &amenagements, &mut list);
     let mut new_units = Vec::new();
     let mut new_bridges = Vec::new();
+    let mut new_routes: Vec<(crate::routes::Troncon, u8)> = Vec::new();
     let mut new_amenagements = Vec::new();
     let tour = state.turn;
     for (entity, center, city) in list.iter_mut() {
@@ -708,6 +709,32 @@ fn end_turn(
         let humeur = city.state.humeur();
         let (chomeurs, par_type, par_sorte) = (city.travail.chomeurs, city.travail.par_type, city.travail.par_sorte);
         let report = city.state.passer_le_tour(yields, chomeurs, par_type, &par_sorte);
+        // Chantier de route en tête de file : la production paie ses tronçons dans l'ordre, chacun
+        // sert dès qu'il est fait (une commande retirée de la file abandonne son chantier)
+        {
+            let s = &mut city.state;
+            s.chantiers.retain(|c| s.file.iter().any(|k| k.objet == rules::Production::Route { id: c.id, cost: k.objet.cost() }));
+            if let Some(&rules::Commande { objet: rules::Production::Route { id, .. }, mut investi }) = s.file.first()
+                && let Some(k) = s.chantiers.iter().position(|c| c.id == id)
+            {
+                let faits = s.chantiers[k].avancer(map, &mut investi);
+                let niveau = s.chantiers[k].niveau;
+                new_routes.extend(faits.iter().map(|t| (*t, niveau)));
+                if s.chantiers[k].fini() {
+                    let ch = s.chantiers.remove(k);
+                    s.file.remove(0);
+                    if let Some(suivant) = s.file.first_mut() {
+                        suivant.investi += investi;
+                    }
+                    let fin = *ch.trace.last().unwrap_or(center);
+                    s.noter(tour, rules::GenreEvenement::Construction, format!("Chemin achevé : {} tronçons, jusqu'à {}", ch.troncons(), map.describe(fin).to_lowercase()), Some(fin));
+                    log.notify(Importance::Info, LogText::new().city(&s.name, *entity, *center).text(format!(" a achevé son chemin ({} tronçons).", ch.troncons())));
+                } else {
+                    let reste = s.chantiers[k].restant(map);
+                    s.file[0] = rules::Commande { objet: rules::Production::Route { id, cost: (investi + reste).round() as i32 }, investi };
+                }
+            }
+        }
         // Gisements exploités du territoire : leurs ressources vont au stock de la ville (5f)
         city.state.extrait_tour = vec![0.0; crate::gisements::N_RESSOURCES];
         for (&h, &a) in amenagements.0.iter() {
@@ -803,6 +830,7 @@ fn end_turn(
         match report.built {
             Some(rules::Production::Unit(kind)) => new_units.push((*entity, kind, *center, name)),
             Some(rules::Production::Bridge { at, .. }) => new_bridges.push((*entity, at, *center, name)),
+            Some(rules::Production::Route { .. }) => {}
             Some(rules::Production::Amenagement { hex, kind, .. }) => new_amenagements.push((*entity, hex, kind, *center, name)),
             Some(rules::Production::Puits) => log.push(LogText::new().city(&name, *entity, *center).text(" a creusé son puits : la salubrité monte.")),
             Some(rules::Production::Grenier) => log.push(LogText::new().city(&name, *entity, *center).text(" a bâti son grenier : elle gardera ses excédents contre les famines.")),
@@ -933,6 +961,11 @@ fn end_turn(
                 log.notify(Importance::Warning, LogText::new().city(&name, city_entity, center).text(format!(" : pas de place pour {}, la production attend.", kind.name())));
             }
         }
+    }
+
+    // 4) Tronçons de route faits ce tour (et leurs ponts) : posés sur la carte
+    for (t, niveau) in new_routes {
+        t.poser(&mut game_map.0, niveau);
     }
 
     // 4) Ponts construits : posés sur la carte (un pont déjà là, posé entre-temps, ne change rien)
