@@ -779,8 +779,10 @@ variante B : gauche, droite, tiroir). L'écran n'est plus un plein écran avec u
 - **Infobulles de décomposition (13/11)** : au survol de la nourriture, de la production ou des
   deniers de l'en-tête, une infobulle à droite de la ligne donne d'où vient le total (centre,
   cueillette, travail de chaque sorte d'aménagement, subsistance sur les cases aménagées, outils) et
-  où il va ; le tiroir de la grandeur reprend la même décomposition. Pas encore : culture, bien-être
-  et salubrité (leur détail est dans l'onglet Population), ni les nombres des fiches.
+  où il va ; le tiroir de la grandeur reprend la même décomposition. Culture, bien-être et salubrité
+  (14/11) : ce qui les fait, terme à terme (la ville, le sanctuaire, le projet Culture ; base,
+  chômage, diversité des repas… ; base, sel, plantes…), avec la culture accumulée et la case
+  suivante. Pas encore : les nombres des fiches.
 - Écarts avec la maquette v7 et limites : pas de temps de trajet entre villes (la décision « distance =
   temps de transport » reste à faire : seulement les cases) ; verrou de case fait le 13/11 (Figer,
   Prioriser, dans la fiche de la case ; « figée » ou « prioritaire » dans le tableau des cases) ; la molette ne zoome pas dans le temps au-delà des 40 tours

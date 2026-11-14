@@ -358,7 +358,7 @@ le 11/11** (écran plein écran, charte, carte des cases, deniers). **Lot 2 fait
 ville sur la carte ») : panneaux posés sur la carte en 2D et en 3D, couches, ombre, contours posés sur le
 relief, en-tête et frein de la v7, Population, Ressources, Histoire, graphique agrandi. Ancien panneau
 de production retiré, rendement des cases, horizon et infobulles de décomposition faits le 13/11. Reste :
-infobulles des autres nombres (culture, bien-être, fiches). Verrou de case fait le 13/11 (Figer,
+infobulles des nombres des fiches (culture, bien-être et salubrité faits le 14/11). Verrou de case fait le 13/11 (Figer,
 Prioriser) ; **plus tard : évacuer / interdire une case** (guerre : pillage et risque). Temps de trajet
 des échanges fait le 13/11 (porteur à pied par les sentiers, 3 tours au plus, perte selon la ressource) ; le bonus de
 l'eau reviendra avec les bateaux.

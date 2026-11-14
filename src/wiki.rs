@@ -970,7 +970,7 @@ fn cities() -> Article {
                Dans le tiroir, F agrandit le graphique (Échap le réduit) ; la molette y change la période."),
             p("Clic sur une grandeur (ou touches 1 à 3) : son détail. Le graphique montre les derniers tours (10, 20 ou 40) et la prévision des 20 prochains (l'intendant répartit les habitants à venir), avec des repères (besoin et croissance pleine pour la nourriture, équilibre pour les deniers) ; dessous, d'où vient la grandeur et où elle va (réserve pour croître, grenier, excédent perdu, construction, trésor). La carte prend la couleur de la grandeur et donne sa valeur par case ; la fiche d'une case dit ce que 100 travailleurs de plus y rapporteraient. Échap remonte d'un cran (case, grandeur, écran). Au survol d'une grandeur de l'en-tête (nourriture, production, deniers), \
                une infobulle décompose son total : centre de la ville, cueillette, travail de chaque sorte d'aménagement, \
-               subsistance, outils, puis où elle va."),
+               subsistance, outils, puis où elle va ; pour la culture, le bien-être et la salubrité, ce qui les fait, terme à terme."),
             p("L'onglet Population montre les habitants, les actifs (la moitié) et les sans-emploi, l'évolution de \
                la population en échelle logarithmique avec sa prévision et ce que la ville peut porter : la limite, \
                les habitants que nourrirait la nourriture de toutes ses cases pleines (la croissance s'arrête avant), \

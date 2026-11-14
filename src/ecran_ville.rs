@@ -3029,8 +3029,9 @@ fn grandeurs(e: &mut ChildSpawnerCommands, city: &City, tresor: i32, choisie: Op
                 BackgroundColor(Color::NONE),
                 BorderColor::all(if actif { g.couleur() } else { Color::NONE }),
             ));
+            ligne.insert(AideGrandeur(g));
             match (detail, onglet) {
-                (Some(d), _) => ligne.insert((ChoixGrandeur(d), AideGrandeur(d))),
+                (Some(d), _) => ligne.insert(ChoixGrandeur(d)),
                 (None, Some(o)) => ligne.insert(OuvrirOnglet(o)),
                 _ => ligne.insert(OuvrirOnglet(Onglet::Rendements)),
             };
@@ -3864,7 +3865,7 @@ fn origines(gr: Grandeur, total_cases: f64, cases: &[CaseVue]) -> Vec<(String, f
     }
     let nombre = |n: usize| if n > 1 { format!("{n} cases") } else { "1 case".to_string() };
     let mut v = Vec::new();
-    if n_cueillette > 0 {
+    if n_cueillette > 0 && cueillette.abs() >= 0.005 {
         v.push((format!("Cueillette ({})", nombre(n_cueillette)), cueillette));
     }
     par_amenagement.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -3883,8 +3884,13 @@ fn origines(gr: Grandeur, total_cases: f64, cases: &[CaseVue]) -> Vec<(String, f
     v
 }
 
-/// Infobulle d'une grandeur de l'en-tête : d'où vient son total et où il va.
+/// Infobulle d'une grandeur de l'en-tête : d'où vient son total et où il va (culture, bien-être
+/// et salubrité : ce qui les fait).
 fn bulle_grandeur(b: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases: &[CaseVue]) {
+    if matches!(gr, Grandeur::Culture | Grandeur::BienEtre | Grandeur::Eau) {
+        bulle_cause(b, gr, city);
+        return;
+    }
     let total = valeur(&city.travail.rendements, gr);
     let (sources, usages) = sources_usages(gr, city, cases);
     let ligne = |b: &mut ChildSpawnerCommands, l: &str, v: f64, couleur: Color| {
@@ -3908,6 +3914,58 @@ fn bulle_grandeur(b: &mut ChildSpawnerCommands, gr: Grandeur, city: &City, cases
         }
     }
     b.spawn((texte("Clic : la courbe, le détail et les réglages", 11.5, charte::MUET), Node { margin: UiRect::top(Val::Px(4.0)), ..default() }));
+}
+
+/// Infobulle de la culture, du bien-être ou de la salubrité : ce qui les fait, terme à terme.
+fn bulle_cause(b: &mut ChildSpawnerCommands, gr: Grandeur, city: &City) {
+    let c = &city.state;
+    let y = city.travail.rendements;
+    let ligne = |b: &mut ChildSpawnerCommands, l: &str, v: f64| {
+        b.spawn((Node { column_gap: Val::Px(10.0), padding: UiRect::vertical(Val::Px(2.0)), border: UiRect::top(Val::Px(1.0)), ..default() }, BorderColor::all(charte::TRAIT))).with_children(|r| {
+            r.spawn((Node { flex_grow: 1.0, min_width: Val::Px(0.0), ..default() }, children![texte(capitale(l), 12.5, charte::TEXTE)]));
+            r.spawn(texte(format!("{}{}", if v >= 0.0 { "+" } else { "−" }, rules::decimal(v.abs())), 12.5, if v < 0.0 { charte::GRAVE } else { charte::TEXTE }));
+        });
+    };
+    let note = |b: &mut ChildSpawnerCommands, t: String| {
+        b.spawn((texte(t, 11.5, charte::MUET), Node { margin: UiRect::top(Val::Px(4.0)), ..default() }));
+    };
+    match gr {
+        Grandeur::Culture => {
+            let total = c.culture_du_tour(y);
+            b.spawn(texte(format!("Culture : +{} par tour", rules::decimal(total)), 14.0, gr.couleur()));
+            note(b, "D'où elle vient".into());
+            ligne(b, "la ville", rules::CULTURE_PAR_TOUR);
+            if c.sanctuaire.is_some() {
+                ligne(b, "sanctuaire", rules::CULTURE_SANCTUAIRE);
+            }
+            let projet = total - rules::CULTURE_PAR_TOUR - if c.sanctuaire.is_some() { rules::CULTURE_SANCTUAIRE } else { 0.0 };
+            if projet > 0.005 {
+                ligne(b, "projet Culture (production)", projet);
+            }
+            let seuil = rules::seuil_culture(c.cases_gagnees);
+            let quand = c.tours_avant_case(total).map_or(String::new(), |t| format!(", dans {t} tours"));
+            note(b, format!("Accumulée : {} sur {} pour la prochaine case gagnée{quand}.", rules::decimal(c.culture), rules::decimal(seuil)));
+        }
+        Grandeur::BienEtre => {
+            let vise = c.bien_etre_vise(y, city.travail.chomeurs);
+            b.spawn(texte(format!("Bien-être : {:.0} · va vers {vise:.0}", c.bien_etre), 14.0, gr.couleur()));
+            note(b, "Ce qui le fait (visé)".into());
+            ligne(b, "base", rules::BIEN_ETRE_NEUTRE);
+            for (n, v) in c.termes_bien_etre(y, city.travail.chomeurs) {
+                ligne(b, n, v);
+            }
+            note(b, "Il s'approche de sa visée d'un cinquième de l'écart par tour. Clic : l'onglet Population.".into());
+        }
+        _ => {
+            b.spawn(texte(format!("Salubrité : {:.0} sur 100", c.salubrite()), 14.0, gr.couleur()));
+            note(b, "Ce qui la fait".into());
+            ligne(b, "base", rules::SALUBRITE_BASE);
+            for (n, v) in c.termes_salubrite() {
+                ligne(b, n, v);
+            }
+            note(b, format!("Sous {:.0}, des habitants meurent de maladies. Clic : l'onglet Population.", rules::SALUBRITE_SEUIL));
+        }
+    }
 }
 
 /// D'où vient une grandeur et où elle va (sources et usages, avec leur valeur).
