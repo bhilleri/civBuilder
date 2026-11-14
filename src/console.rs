@@ -409,7 +409,7 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
             let existing: Vec<Hex> = ctx.cities.iter().map(|p| p.0).collect();
             let settler = ctx.commands.spawn_empty().id();
             let (state, territory, _) = &mut ctx.game;
-            match found_city(&mut ctx.commands, settler, *at, &ctx.map.0, &existing, state, territory) {
+            match found_city(&mut ctx.commands, settler, crate::rules::HABITANTS_COLON, *at, &ctx.map.0, &existing, state, territory) {
                 Ok((_, name)) => lines = vec![format!("OK ville {name} fondée en {}", debug_cmd::coords(&ctx.map.0, *at))],
                 Err(e) => {
                     ctx.commands.entity(settler).despawn();
@@ -528,6 +528,11 @@ fn execute(console: &mut Console, ctx: &mut ConsoleContext, line: &str) -> Reply
         }
         Some(Effect::Turns(n)) => {
             console.turns = Some((*n, None));
+        }
+        Some(Effect::Agriculture(p)) => {
+            let savoir = ctx.game.0.nomadisme.savoir_mut(crate::peuple::Peuple::JOUEUR);
+            savoir.agriculture = *p;
+            savoir.connue = *p >= crate::nomade::AGRICULTURE;
         }
         Some(Effect::Goto(h)) => {
             ctx.cam.target = to_3d(*h, tile_height(&ctx.map.0, *h));

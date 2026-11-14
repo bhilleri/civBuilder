@@ -3606,12 +3606,20 @@ impl WorldMap {
             .sum()
     }
 
-    /// Meilleur emplacement de départ, en privilégiant le centre de la carte.
+    /// Meilleur emplacement de départ, en privilégiant le centre de la carte, parmi les départs
+    /// équitables (céréales et bêtes sauvages à portée : `nomade::depart_equitable`) s'il y en a.
     pub fn find_start(&self) -> Option<Hex> {
         let center = Hex::from_offset(self.width / 2, self.height / 2);
-        self.hexes()
-            .filter(|&h| self.start_score(h) > i32::MIN)
-            .max_by_key(|&h| self.start_score(h) * 4 - self.distance(h, center) * 3)
+        let mut candidats: Vec<(i32, Hex)> = self
+            .hexes()
+            .filter_map(|h| {
+                let s = self.start_score(h);
+                (s > i32::MIN).then(|| (s * 4 - self.distance(h, center) * 3, h))
+            })
+            .collect();
+        // (du meilleur au moins bon ; à égalité, comme avant : le dernier rencontré)
+        candidats.sort_by_key(|&(s, h)| (std::cmp::Reverse(s), std::cmp::Reverse(self.index(h))));
+        candidats.iter().find(|&&(_, h)| crate::nomade::depart_equitable(self, h)).or(candidats.first()).map(|&(_, h)| h)
     }
 }
 

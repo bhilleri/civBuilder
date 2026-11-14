@@ -611,12 +611,19 @@ fn keyboard_commands(
             }
         }
         if keys.just_pressed(KeyCode::KeyB) {
-            if unit.0.kind != UnitKind::Settler {
-                log.push("Seul un colon peut fonder une ville.");
+            if !matches!(unit.0.kind, UnitKind::Settler | UnitKind::Bande) {
+                log.push("Seul un colon (ou la bande nomade) peut fonder une ville.");
+            } else if unit.0.kind == UnitKind::Bande && !state.nomadisme.agriculture_connue(crate::peuple::Peuple::JOUEUR) {
+                let s = state.nomadisme.savoir(crate::peuple::Peuple::JOUEUR);
+                log.push(format!(
+                    "Pas encore de ville : la bande doit d'abord découvrir l'Agriculture ({:.0} / {:.0}), en observant céréales et bêtes sauvages.",
+                    s.agriculture,
+                    crate::nomade::AGRICULTURE
+                ));
             } else {
                 let at = pos.0;
                 let existing: Vec<Hex> = cities.iter().map(|(_, p)| p.0).collect();
-                match found_city(&mut commands, entity, at, &map.0, &existing, &mut state, &mut territory) {
+                match found_city(&mut commands, entity, unit.0.habitants_emportes(), at, &map.0, &existing, &mut state, &mut territory) {
                     Ok((city, name)) => {
                         log.notify(crate::game::Importance::Success, LogText::new().text("Nouvelle ville fondée : ").city(name, city, at).text(format!(" (tour {}).", state.turn)));
                         selection.0 = Some(city);

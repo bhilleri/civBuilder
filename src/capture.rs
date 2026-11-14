@@ -149,7 +149,8 @@ fn run_capture(
         }
         // Mise en scène (une fois les unités de départ créées)
         3 => {
-            let Some((settler, _, start)) = units.iter().find(|(_, u, _)| u.0.kind == UnitKind::Settler) else { return };
+            let Some((settler, bande, start)) = units.iter().find(|(_, u, _)| matches!(u.0.kind, UnitKind::Settler | UnitKind::Bande)) else { return };
+            let habitants = bande.0.habitants_emportes();
             let start = start.0;
             let passable = |h: Hex| m.contains(h) && m.get(h).is_some_and(|t| t.move_cost().is_some()) && m.relief(h) != Relief::Peak;
             // Cases de la carte, de la plus proche du départ à la plus lointaine
@@ -157,7 +158,7 @@ fn run_capture(
             by_distance.sort_by_key(|&h| m.distance(h, start));
             let land_around = |h: Hex, radius: i32| m.range(h, radius).filter(|&n| passable(n)).count();
             let mut cities_at = Vec::new();
-            if found_city(&mut commands, settler, start, m, &[], &mut state, &mut territory).is_ok() {
+            if found_city(&mut commands, settler, habitants, start, m, &[], &mut state, &mut territory).is_ok() {
                 cities_at.push(start);
             }
             // Une ville sur un relief accidenté (sinon une colline), entourée de terre
@@ -166,7 +167,7 @@ fn run_capture(
             });
             if let Some(h) = hill {
                 let s = spawn_unit(&mut commands, UnitKind::Settler, h);
-                if found_city(&mut commands, s, h, m, &cities_at, &mut state, &mut territory).is_ok() {
+                if found_city(&mut commands, s, crate::rules::HABITANTS_COLON, h, m, &cities_at, &mut state, &mut territory).is_ok() {
                     cities_at.push(h);
                 }
             }

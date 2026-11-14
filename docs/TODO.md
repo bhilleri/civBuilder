@@ -23,7 +23,8 @@ l'interface (35, 36) avancent en parallèle, quand elles servent l'étape en cou
    Faits le 13/11 : roches et sols, nourriture par type et par sorte, rives vertes et oasis, grenier,
    gisements, besoins de base et luxe, outils. Reste : les échanges entre villes (décision C1 à C3,
    `conception-ressources.md`) ; **montures reportées** (ânes, chevaux, dromadaires : à faire).
-6. **Période nomade (22)** et **société de base (32)** : chefferie, conseil, dirigeant, Culture,
+6. **Période nomade (22)** (faite le 14/11 : bande, cueillette et épuisement, Agriculture, départs équitables,
+   `conception/conception-nomade.md`) et **société de base (32)** : chefferie, conseil, dirigeant, Culture,
    influence, capacité de gouverner.
 7. **Recherche et jalons (34, 30 seconde partie)** : arbre du Néolithique et du Bronze, passage d'ère ; les techniques de l'âge du bronze (araire, traction animale, irrigation) relèvent le rendement par travailleur des champs (décision du 13/11, `conception-villes.md`).
 8. **Armée réduite (29)** et barbares en clans (31, première partie).
@@ -218,7 +219,8 @@ Séismes et tsunamis aux subductions, feux de forêt en saison sèche (météo),
 chacun avec sa carte de risque calculée à la génération et l'infobulle. **Tout intégrer
 directement** dans les systèmes concernés, plutôt que de l'ajouter après coup comme pour les poissons.
 
-### [ ] 22. Faune sauvage et période nomade
+### [~] 22. Faune sauvage et période nomade
+**Période nomade faite le 14/11** (`conception/conception-nomade.md`) ; reste : troupeaux qui migrent, animaux dangereux, bande scindée.
 Décidé le 10/11 : tous les peuples partent nomades ; **l'agriculture est requise pour fonder la
 première ville** (`conception/conception-echelle-et-but.md`). À préciser : représentation du peuple
 nomade (une ou plusieurs unités), chasse et cueillette. Idée de Benjamin : une période de début de partie sans vraie sédentarisation. Gibier selon le

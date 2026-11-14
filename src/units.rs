@@ -43,11 +43,15 @@ pub enum UnitKind {
     LightCavalry,
     HeavyCavalry,
     HorseArcher,
+    /// Bande nomade du début de partie : erre, cueille, découvre l'Agriculture, puis fonde la
+    /// première ville (`nomade.rs`). Ne se produit pas.
+    Bande,
 }
 
 impl UnitKind {
-    /// Ordre d'affichage dans le menu de production.
-    pub const ALL: [UnitKind; 12] = [
+    /// Toutes les unités, dans l'ordre d'affichage du menu de production (la bande, qui ne se
+    /// produit pas, en dernier).
+    pub const ALL: [UnitKind; 13] = [
         UnitKind::Settler,
         UnitKind::Scout,
         UnitKind::Militia,
@@ -60,6 +64,7 @@ impl UnitKind {
         UnitKind::LightCavalry,
         UnitKind::HeavyCavalry,
         UnitKind::HorseArcher,
+        UnitKind::Bande,
     ];
 
     pub fn name(self) -> &'static str {
@@ -76,6 +81,7 @@ impl UnitKind {
             UnitKind::LightCavalry => "Cavalerie légère",
             UnitKind::HeavyCavalry => "Cavalerie lourde",
             UnitKind::HorseArcher => "Archer monté",
+            UnitKind::Bande => "Bande nomade",
         }
     }
 
@@ -94,6 +100,7 @@ impl UnitKind {
             UnitKind::LightCavalry => "icons/light_cavalry.png",
             UnitKind::HeavyCavalry => "icons/heavy_cavalry.png",
             UnitKind::HorseArcher => "icons/horse_archer.png",
+            UnitKind::Bande => "icons/bande.png",
         }
     }
 
@@ -114,6 +121,7 @@ impl UnitKind {
             UnitKind::LightCavalry => (45, 16, 9, 0, 0, 8, 8, 3, Cavalry),
             UnitKind::HeavyCavalry => (60, 24, 16, 0, 0, 14, 6, 2, Cavalry),
             UnitKind::HorseArcher => (50, 8, 8, 10, 1, 9, 8, 3, Cavalry),
+            UnitKind::Bande => (0, 0, 4, 0, 0, 4, 4, 2, Civilian),
         };
         UnitStats {
             cost,
@@ -142,6 +150,11 @@ impl UnitKind {
 
     pub fn sight(self) -> i32 {
         self.stats().sight
+    }
+
+    /// Une ville peut la produire (pas la bande nomade).
+    pub fn productible(self) -> bool {
+        self != UnitKind::Bande
     }
 
     pub fn is_military(self) -> bool {

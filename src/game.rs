@@ -134,6 +134,8 @@ pub struct GameState {
     /// Trésor de chaque peuple.
     pub tresors: Tresors,
     pub founded_cities: usize,
+    /// Période nomade : Agriculture de chaque peuple, épuisement des cases cueillies.
+    pub nomadisme: crate::nomade::Nomadisme,
 }
 
 impl GameState {
@@ -479,20 +481,24 @@ fn spawn_starting_units(
     mut selection: ResMut<Selection>,
     mut log: ResMut<GameLog>,
 ) {
+    // Période nomade : la bande et son éclaireur (`nomade.rs`) ; la ville viendra avec l'Agriculture
     let start = map.0.find_start().expect("aucun emplacement de départ");
-    let settler = spawn_unit(&mut commands, UnitKind::Settler, start);
-    // Milice et éclaireur sur des cases voisines praticables
+    let bande = spawn_unit(&mut commands, UnitKind::Bande, start);
     let mut free = map.0.neighbors(start).into_iter().filter(|&h| map.0.get(h).and_then(|t| t.move_cost()).is_some());
-    spawn_unit(&mut commands, UnitKind::Militia, free.next().unwrap_or(start));
     spawn_unit(&mut commands, UnitKind::Scout, free.next().unwrap_or(start));
-    selection.0 = Some(settler);
-    log.notify(Importance::Info, "Bienvenue ! Fondez votre capitale avec le colon (touche B).");
+    selection.0 = Some(bande);
+    log.notify(
+        Importance::Info,
+        "Bienvenue ! Votre peuple est une bande de chasseurs-cueilleurs. Menez-la là où poussent céréales et bêtes sauvages : elle y découvrira l'Agriculture, puis fondera votre première ville (touche B).",
+    );
 }
 
-/// Fonde une ville avec le colon `settler`. Retourne un message d'erreur si impossible.
+/// Fonde une ville de `habitants` avec le colon (ou la bande) `settler`. Retourne un message
+/// d'erreur si impossible. Une ville fondée : son peuple connaît l'Agriculture.
 pub fn found_city(
     commands: &mut Commands,
     settler: Entity,
+    habitants: u64,
     at: Hex,
     map: &WorldMap,
     existing: &[Hex],
@@ -506,7 +512,9 @@ pub fn found_city(
         .unwrap_or_else(|| format!("Ville {}", state.founded_cities + 1));
     state.founded_cities += 1;
     commands.entity(settler).despawn();
+    state.nomadisme.savoir_mut(crate::peuple::Peuple::JOUEUR).connue = true;
     let mut etat = CityState::new(name.clone());
+    etat.habitants = habitants;
     etat.noter(state.turn, rules::GenreEvenement::Fondation, format!("Fondation de {name}"), Some(at));
     let city = commands
         .spawn((City { state: etat, travail: Default::default() }, HexPos(at)))
@@ -686,7 +694,7 @@ fn end_turn(
     mut cues: ResMut<Cues>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
-    (idents, mut flux): (Query<&Ident>, ResMut<FluxDuTour>),
+    (idents, mut flux, peuples_des_villes): (Query<&Ident>, ResMut<FluxDuTour>, Query<(&HexPos, &Peuple), With<City>>),
 ) {
     if !std::mem::take(&mut requested.0) {
         return;
@@ -900,6 +908,10 @@ fn end_turn(
     }
     drop(list);
 
+    // 1b) Période nomade (`nomade.rs`) : chaque bande cueille autour d'elle, grandit ou maigrit,
+    // épuise ses cases et observe plantes et bêtes sauvages ; l'Agriculture avance
+    periode_nomade(map, &mut state, &mut log, &mut units, &peuples_des_villes);
+
     // 2) Unités : soins, PM restaurés, puis poursuite des ordres de déplacement.
     // Les unités jouent l'une après l'autre (une unité par case) ; les explorateurs évitent
     // les cibles déjà choisies par les autres.
@@ -990,6 +1002,56 @@ fn end_turn(
     // 6) Puis la faction hostile joue (système suivant)
     hostile_turn.0 = true;
     state.turn += 1;
+}
+
+/// Un tour de la période nomade pour les bandes du joueur (voir `end_turn`, étape 1b).
+fn periode_nomade(
+    map: &WorldMap,
+    state: &mut GameState,
+    log: &mut GameLog,
+    units: &mut Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
+    villes: &Query<(&HexPos, &Peuple), With<City>>,
+) {
+    use crate::nomade;
+    let peuple = Peuple::JOUEUR;
+    let mut cueillies = Vec::new();
+    for (entity, mut unit, pos) in units.iter_mut() {
+        if unit.0.kind != UnitKind::Bande {
+            continue;
+        }
+        let at = pos.0;
+        let membres = unit.0.membres;
+        let nourriture = nomade::nourriture_bande(map, at, membres, &state.nomadisme);
+        let v = nomade::variation_bande(membres, nourriture);
+        unit.0.membres = membres.saturating_add_signed(v);
+        if v < 0 {
+            log.notify(
+                Importance::Warning,
+                LogText::new().unit("La bande", entity, at).text(format!(
+                    " a faim ({} personnes de moins) : la cueillette s'épuise ici, menez-la plus loin.",
+                    rules::milliers(v.unsigned_abs())
+                )),
+            );
+        }
+        cueillies.extend(nomade::cases_cueillies(map, at));
+        // Observation et diffusion (villes d'autres peuples à portée, faction hostile exclue)
+        let vues = nomade::sortes_autour(map, at, nomade::RAYON_OBSERVATION);
+        let proches = nomade::sortes_autour(map, at, 1);
+        let agricoles = villes.iter().filter(|(p, pe)| **pe != peuple && **pe != Peuple::HOSTILE && map.distance(p.0, at) <= nomade::PORTEE_DIFFUSION).count();
+        let savoir = state.nomadisme.savoir_mut(peuple);
+        let deja = savoir.connue;
+        let apport = savoir.apport(vues, proches, agricoles);
+        if savoir.avancer(&apport, vues) {
+            log.notify(
+                Importance::Success,
+                LogText::new().text("Votre peuple a découvert l'Agriculture ! ").unit("La bande", entity, at).text(" peut fonder la première ville (touche B)."),
+            );
+        } else if !deja && !apport.nouvelles.is_empty() {
+            let noms: Vec<&str> = apport.nouvelles.iter().map(|s| s.nom()).collect();
+            log.notify(Importance::Info, LogText::new().unit("La bande", entity, at).text(format!(" observe à l'état sauvage : {} (Agriculture +{:.0}).", noms.join(", "), apport.decouverte)));
+        }
+    }
+    state.nomadisme.epuiser(&cueillies);
 }
 
 /// Nom d'une case pour le journal (« Prairie vallonnée »).

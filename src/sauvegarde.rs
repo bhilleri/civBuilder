@@ -105,6 +105,10 @@ pub struct Sauvegarde {
     pub gisements_connus: Vec<Hex>,
     #[serde(default)]
     pub prospectees: Vec<Hex>,
+    /// Période nomade : Agriculture des peuples, épuisement des cases (absente des sauvegardes
+    /// plus anciennes : le joueur y avait des colons, donc l'Agriculture).
+    #[serde(default)]
+    pub nomadisme: Option<crate::nomade::Nomadisme>,
 }
 
 impl Sauvegarde {
@@ -240,6 +244,7 @@ fn photographier(
         empreinte: empreinte_monde(map),
         tour: state.turn,
         tresors: state.tresors.clone(),
+        nomadisme: Some(state.nomadisme.clone()),
         villes_fondees: state.founded_cities,
         prochain_ident: prochain.0,
         hasard: hasard.clone(),
@@ -351,6 +356,11 @@ fn remettre_en_place(
     selection.0 = None;
     state.turn = s.tour;
     state.tresors = s.tresors.clone();
+    state.nomadisme = s.nomadisme.clone().unwrap_or_else(|| {
+        let mut n = crate::nomade::Nomadisme::default();
+        n.savoir_mut(Peuple::JOUEUR).connue = true;
+        n
+    });
     state.founded_cities = s.villes_fondees;
     *hasard = s.hasard.clone();
     prochain.0 = s.prochain_ident;
@@ -436,6 +446,12 @@ mod tests {
             config: crate::config_partie::ConfigPartie::default(),
             gisements_connus: vec![Hex::from_offset(5, 4)],
             prospectees: vec![Hex::from_offset(5, 4), Hex::from_offset(6, 4)],
+            nomadisme: Some({
+                let mut n = crate::nomade::Nomadisme::default();
+                n.savoir_mut(Peuple::JOUEUR).agriculture = 37.5;
+                n.epuiser(&[Hex::from_offset(2, 3)]);
+                n
+            }),
         }
     }
 
@@ -451,6 +467,7 @@ mod tests {
         assert_eq!(relue.tresors.get(Peuple::JOUEUR), 42);
         assert_eq!(relue.hasard, s.hasard);
         assert_eq!(relue.villes[0].etat.name, "Kaldra");
+        assert_eq!(relue.nomadisme, s.nomadisme, "Agriculture et épuisement des cases");
     }
 
     #[test]

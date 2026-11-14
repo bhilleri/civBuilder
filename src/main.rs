@@ -46,6 +46,7 @@ mod map;
 mod options;
 mod menu;
 mod mountains;
+mod nomade;
 mod mouths;
 mod pathfinding;
 mod peuple;

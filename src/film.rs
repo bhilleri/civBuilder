@@ -481,10 +481,11 @@ fn run_film(
                 return;
             }
             // Une ville au départ (pour l'issue « les habitants rejoignent la ville »)
-            let Some((settler, _, start)) = units.iter().find(|(_, u, _)| u.0.kind == UnitKind::Settler) else { return };
+            let Some((settler, bande, start)) = units.iter().find(|(_, u, _)| matches!(u.0.kind, UnitKind::Settler | UnitKind::Bande)) else { return };
+            let habitants = bande.0.habitants_emportes();
             let start = start.0;
             let existing: Vec<Hex> = cities.iter().map(|p| p.0).collect();
-            if let Err(e) = found_city(&mut commands, settler, start, m, &existing, &mut state, &mut territory) {
+            if let Err(e) = found_city(&mut commands, settler, habitants, start, m, &existing, &mut state, &mut territory) {
                 warn!("Tournage : pas de ville au départ ({e})");
             }
             let avoid: Vec<Hex> = sites.iter().map(|(_, p)| p.0).collect();

@@ -164,7 +164,8 @@ découverte, contact avec un peuple. Le journal hiérarchisé existant les porte
 - **Période nomade : l'agriculture est requise.** Le peuple commence nomade ; il ne peut fonder sa
   première ville qu'après avoir découvert l'agriculture (première technique du Néolithique), en
   errant et en observant plantes et animaux. Comment se représente le peuple nomade (une ou
-  plusieurs unités) reste à préciser (tâche 22).
+  plusieurs unités) reste à préciser (tâche 22). **Fait le 14/11** : une bande et son éclaireur,
+  départs équitables, Agriculture en 18 à 22 tours en errant, rattrapage (`conception-nomade.md`).
 - **Effectifs selon l'ère** : les unités grandissent en s'améliorant d'une ère à l'autre
   (`conception-combat.md`) ; les colons et les petites bandes du Néolithique restent compatibles
   avec des villes de quelques centaines d'habitants.

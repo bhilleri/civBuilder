@@ -155,6 +155,7 @@ pub const SPECS: &[Spec] = &[
     Spec { name: "ville forcer", args: &[AT[0], AT[1], ("colonne", Arg::Col, false), ("ligne", Arg::Row, false), ("travailleurs", Arg::Number, false)], help: "Force l'effectif d'une case de la ville (0 : la rend à l'intendant).", group: Group::Game },
     Spec { name: "amenagement", args: &[AT[0], AT[1], ("champ|legumineuses|paturage|maraichage|bois|exploitation|aucun", Arg::Text, false)], help: "Pose (ou retire) l'aménagement rural de la case, sans le construire (s'il est possible sur la case).", group: Group::Game },
     Spec { name: "ville population", args: &[AT[0], AT[1], ("palier", Arg::Number, false)], help: "Palier de population de la ville de la case (1 à 30) : ses habitants deviennent ceux du début du palier, son stade (hameau, bourg, ville) suit. Le territoire n'en dépend pas (il grandit par la culture).", group: Group::Game },
+    Spec { name: "agriculture", args: &[("points", Arg::Number, false)], help: "Points de l'Agriculture du joueur (0 à 100) : à 100, elle est connue et la bande nomade peut fonder sa ville. Voir le wiki, « Période nomade ».", group: Group::Game },
     Spec { name: "tour", args: &[("nombre", Arg::Number, true)], help: "Finit le tour (ou plusieurs), en attendant la fin des animations de chacun.", group: Group::Game },
     Spec { name: "aller", args: &AT, help: "Centre la vue sur la case.", group: Group::Camera },
     Spec { name: "vue", args: &[("2d|3d", Arg::View, false)], help: "Passe en vue 2D ou 3D.", group: Group::Camera },
@@ -321,6 +322,8 @@ pub enum Command {
     Amenagement(Hex, Option<crate::intendant::Amenagement>),
     Remove(Hex),
     Turns(u32),
+    /// Points de l'Agriculture du joueur.
+    Agriculture(f64),
     Info(Option<Hex>),
     /// Zone vérifiée (case et rayon), sinon toute la carte.
     Verify(Option<(Hex, i32)>),
@@ -566,6 +569,7 @@ pub fn parse(map: &WorldMap, line: &str) -> Result<Command, String> {
             Command::Amenagement(h, a)
         }
         "ville population" => Command::CitySet(at()?, CityChange::Population(number(args[2], "palier")?.round().clamp(1.0, crate::rules::PALIER_MAX as f32) as i32)),
+        "agriculture" => Command::Agriculture(f64::from(number(args[0], "points")?).clamp(0.0, crate::nomade::AGRICULTURE)),
         "tour" => Command::Turns(args.first().map(|n| number(n, "nombre")).transpose()?.map_or(1, |n| n.round().clamp(1.0, 100.0) as u32)),
         "pinceau" => Command::Brush((number(args[0], "rayon")?.round() as i32).clamp(0, BRUSH_MAX)),
         "annuler" => Command::Undo,
@@ -1194,6 +1198,8 @@ pub enum Effect {
     Amenagement(Hex, Option<crate::intendant::Amenagement>),
     Remove(Hex),
     Turns(u32),
+    /// Points de l'Agriculture du joueur.
+    Agriculture(f64),
     Goto(Hex),
     View(bool),
     Camera { distance: f32, yaw_deg: Option<f32> },
@@ -1487,6 +1493,7 @@ impl Session {
             Command::UnitSet(at, change) => Reply::effect(format!("OK unité de {} à modifier", coords(map, at)), Effect::UnitSet(at, change)),
             Command::Remove(at) => Reply::effect(format!("OK unités retirées de {}", coords(map, at)), Effect::Remove(at)),
             Command::Turns(n) => Reply::effect(format!("OK {n} tour(s) à jouer"), Effect::Turns(n)),
+            Command::Agriculture(p) => Reply::effect(format!("OK Agriculture à {p:.0} / {:.0}", crate::nomade::AGRICULTURE), Effect::Agriculture(p)),
             Command::Brush(r) => {
                 self.brush = r;
                 Reply::ok(vec![format!("OK pinceau={r} ({} case(s) par modification)", 3 * r * (r + 1) + 1)])

@@ -53,6 +53,9 @@ pub struct UnitState {
     /// Destination d'un ordre sur une case de fleuve avec pont : sur le pont (`Some(true)`) ou dans
     /// l'eau (`Some(false)`) ; `None` : selon le côté d'où l'on arrive.
     pub order_layer: Option<bool>,
+    /// Membres d'une bande nomade (0 pour les autres unités).
+    #[serde(default)]
+    pub membres: u64,
 }
 
 /// Marge tolérée sur le coût estimé d'un ordre avant de le suspendre : +50 %.
@@ -70,6 +73,11 @@ pub enum MoveOutcome {
 }
 
 impl UnitState {
+    /// Habitants qu'emporte l'unité pour fonder une ville : les membres d'une bande, sinon ceux d'un colon.
+    pub fn habitants_emportes(&self) -> u64 {
+        if self.kind == UnitKind::Bande { self.membres } else { HABITANTS_COLON }
+    }
+
     pub fn new(kind: UnitKind) -> Self {
         Self {
             kind,
@@ -90,6 +98,7 @@ impl UnitState {
             zoc_stopped: false,
             on_bridge: false,
             order_layer: None,
+            membres: if kind == UnitKind::Bande { crate::nomade::MEMBRES_BANDE } else { 0 },
         }
     }
 

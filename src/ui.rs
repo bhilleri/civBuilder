@@ -1191,6 +1191,7 @@ fn update_place_bar(
 fn update_selection_panel(
     selection: Res<Selection>,
     order: Res<OrderPath>,
+    (map, state, positions): (Res<GameMap>, Res<GameState>, Query<&HexPos>),
     units: Query<&Unit>,
     cities: Query<&City>,
     mut text: Single<&mut Text, With<SelectionText>>,
@@ -1211,6 +1212,11 @@ fn update_selection_panel(
             }
             if let Some(trait_text) = unit_traits(u.kind) {
                 s += &format!("\n{trait_text}");
+            }
+            if u.kind == UnitKind::Bande
+                && let Ok(p) = positions.get(e)
+            {
+                s += &format!("\n{}", crate::nomade::fiche(&map.0, &state.nomadisme, crate::peuple::Peuple::JOUEUR, p.0, u.membres));
             }
             if u.kind.can_charge() {
                 s += if u.moved_this_turn && u.moves_left > 0 {
@@ -1342,7 +1348,7 @@ fn update_hover_text(
     config: Res<crate::tooltip::TooltipConfig>,
     mut text: Single<&mut Text, With<HoverText>>,
     debug: Res<crate::game::DebugMode>,
-    (territory, amenagements, cities, gisements): (Res<crate::game::Territory>, Res<crate::game::Amenagements>, Query<(&City, &HexPos)>, Res<crate::game::Gisements>),
+    (territory, amenagements, cities, gisements, state): (Res<crate::game::Territory>, Res<crate::game::Amenagements>, Query<(&City, &HexPos)>, Res<crate::game::Gisements>, Res<GameState>),
 ) {
     use crate::tooltip::Info;
     let shows = |info: Info| config.shows(*layer, info);
@@ -1407,6 +1413,17 @@ fn update_hover_text(
             {
                 let exploite = if amenagements.0.get(&h) == Some(&crate::intendant::Amenagement::Exploitation) { ", exploité" } else { "" };
                 place.push(format!("gisement : {} ({}{exploite})", r.nom(), r.exploitation()));
+            }
+            // Période nomade : ce que la bande observerait ici, et l'épuisement de la cueillette
+            if land && !state.nomadisme.agriculture_connue(crate::peuple::Peuple::JOUEUR) {
+                let sauvages: Vec<&str> = crate::nomade::sortes_de(crate::nomade::sortes_sauvages(m, h)).iter().map(|s| s.nom()).collect();
+                if !sauvages.is_empty() {
+                    place.push(format!("à l'état sauvage : {}", sauvages.join(", ")));
+                }
+                let e = state.nomadisme.epuisement(h);
+                if e >= 0.05 {
+                    place.push(format!("cueillette épuisée à {:.0} %", e * 100.0));
+                }
             }
             if land {
                 if shows(Info::Climate)

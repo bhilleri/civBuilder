@@ -68,7 +68,39 @@ fn swatch((r, g, b): (f32, f32, f32)) -> Icon {
 
 /// Toutes les rubriques, dans l'ordre du menu.
 pub fn articles() -> Vec<Article> {
-    vec![terrain(), climate(), waters(), units(), mechanics(), cities(), villages(), barbarians()]
+    vec![terrain(), climate(), waters(), units(), mechanics(), nomades(), cities(), villages(), barbarians()]
+}
+
+fn nomades() -> Article {
+    use crate::nomade::*;
+    Article {
+        title: "Période nomade",
+        icon: "icons/bande.png",
+        blocks: vec![
+            p(format!(
+                "Chaque peuple commence nomade : une bande de {} chasseurs-cueilleurs et son éclaireur. Elle ne peut fonder sa première ville qu'après avoir découvert l'Agriculture, en errant et en observant les plantes et les bêtes sauvages qui se domestiquent. La ville fondée (touche B) reprend ses membres ; les villes suivantes se fondent avec des colons.",
+                crate::rules::milliers(MEMBRES_BANDE)
+            )),
+            h("Se nourrir"),
+            p(format!(
+                "Chaque tour, la bande cueille et chasse sur sa case et les six voisines (la cueillette de chaque case). Bien nourrie, elle grandit comme une ville ; affamée, elle perd des membres (pas en dessous de {PLANCHER_BANDE}). Les cases cueillies s'épuisent : chaque tour passé prend {:.0} % de ce qui leur reste, et elles repoussent de {:.0} % par tour (les trois quarts en un an). Au bout de quatre ou cinq tours au même endroit, la bande a faim : il faut bouger. L'infobulle des cases donne leur épuisement.",
+                PRELEVEMENT * 100.0,
+                REPOUSSE * 100.0
+            )),
+            h("Découvrir l'Agriculture"),
+            p(format!(
+                "Il faut réunir {AGRICULTURE:.0} points. Chaque tour, la bande en apprend {} d'elle-même, plus {} par sorte domesticable sur sa case ou une voisine ({SORTES_PROCHES_MAX} au plus). Chaque sorte vue pour la première fois (à {RAYON_OBSERVATION} cases) en donne {BONUS_SORTE_NOUVELLE:.0}. Les sortes domesticables : céréales et féculents (blé, orge, millet et sorgho, riz, tubercules), légumineuses, et bétail (bœufs, moutons et chèvres, porcs, rennes, lamas et chameaux). Les céréales sauvages poussent sur les terres ouvertes ; l'infobulle montre ce qui pousse sur chaque case. Une bande qui erre bien découvre l'Agriculture en 18 à 22 tours ; immobile, en 24 à 29, et affamée.",
+                crate::rules::decimal(APPORT_DE_BASE),
+                crate::rules::decimal(APPORT_PAR_SORTE_PROCHE)
+            )),
+            h("Un départ équitable"),
+            p(format!(
+                "Pour que les premiers et les derniers peuples à fonder ne soient séparés que de quelques tours, chacun part à portée ({RAYON_DEPART} cases) d'au moins {SORTES_DEPART} sortes domesticables, dont une céréale et une bête. Un peuple en retard rattrape les autres : chaque ville d'un peuple d'agriculteurs à {PORTEE_DIFFUSION} cases ou moins lui apprend {} points par tour ({} au plus), et une bande qui a erré plus longtemps a grandi : sa ville part plus peuplée.",
+                crate::rules::decimal(DIFFUSION_PAR_VILLE),
+                crate::rules::decimal(DIFFUSION_MAX)
+            )),
+        ],
+    }
 }
 
 /// Rubrique de la console, montrée seulement en mode debug ; construite à partir de la liste des
@@ -667,6 +699,10 @@ fn unit_traits(k: UnitKind) -> Vec<String> {
              Ne peut pas attaquer."
                 .to_string(),
         ),
+        UnitKind::Bande => traits.push(format!(
+            "Le peuple au début de la partie ({} personnes) : il erre, vit de la cueillette des cases autour de lui et observe les plantes et les bêtes sauvages. Une fois l'Agriculture découverte, il fonde la première ville (touche B), qui reprend ses membres. Ne se produit pas, ne peut pas attaquer. Voir « Période nomade ».",
+            crate::nomade::MEMBRES_BANDE
+        )),
         UnitKind::Scout => {
             traits.push("Unité militaire légère et peu coûteuse, sans zone de contrôle. Rapide et voit loin : idéale pour l'exploration automatique (touche E). Combat très faiblement.".into())
         }
@@ -827,7 +863,7 @@ fn cities() -> Article {
         blocks: vec![
             h("Fonder une ville"),
             p(format!(
-                "Un colon fonde une ville sur sa case (touche B), sur n'importe quel terrain franchissable, à {MIN_CITY_DISTANCE} \
+                "Un colon (au début de la partie, la bande nomade, une fois l'Agriculture découverte) fonde une ville sur sa case (touche B), sur n'importe quel terrain franchissable, à {MIN_CITY_DISTANCE} \
                  cases au moins d'une autre ville. Elle naît en hameau : quelques maisons, un grand toit et un mât à vos couleurs, sans \
                  enceinte. Elle devient bourg au palier 3, puis ville au palier 6, en ajoutant des bâtiments. Ses matériaux viennent du lieu, et \
                  elle s'adapte à la case : rien sur les rives, maisons dans le sens de la pente, ponton si l'eau est proche. Une ville \
@@ -932,7 +968,7 @@ fn cities() -> Article {
                par cause (naturelle, Peupler, maladies, famine). Le puits se construit dans la file (Construire, \
                « Constructions de la ville », 15 de production), sur le centre ; plus tard, il donnera aussi de l'eau."),
             p("Échanges entre vos villes : une ville qui manque d'une ressource (moins de 2 tours de sa demande) la reçoit d'une ville reliée qui en a au-delà de sa réserve (6 tours de sa demande). Celle-ci demande en échange, une unité pour une, ce qui lui manque et que l'autre a en trop ; sinon, elle donne. Deux villes sont reliées par une étape de 3 tours de trajet au plus, à pied (4 points par tour par les sentiers : plaine 1, forêt 2, marais 3, relief la moitié du coût des unités, 1 de plus pour une rivière, 2 pour un fleuve) ou en pirogue (fleuves : 0,5 point par case à la descente, 1 à la remontée ; lacs 0,5 ; côte 0,75 ; on charge et décharge dans les villes, 0,5 point chaque fois), et de ville en ville au-delà. Une étape porte 4 unités par tour à pied, 12 en pirogue. Le transport se paie en nature : 5 % de la charge par tour à pied, 2 % en pirogue ; en route, les fibres et le bois perdent 5 % par tour, les plantes 10 %. L'échange se fait s'il reste rentable : une unité vaut 2 pour une ville qui n'en a plus, 1 à 2 tours de stock, 0,5 à sa réserve, 0,1 au plafond ; ce qui arrive doit valoir plus que ce qui part. La demande la plus urgente passe d'abord. Quand une ressource n'arrive pas, l'onglet Ressources dit quelle ville en avait en trop et pourquoi elle n'a rien envoyé (trop loin, pas rentable, étapes pleines). Le tableau de bord des ressources (touche G) montre sur la carte les échanges du dernier tour : une flèche par étape, épaisse selon la quantité, ocre à pied, bleue en pirogue. La ville qui manque le plus est servie d'abord, par la plus proche. Au-delà de 12 tours de sa demande (20 unités pour une ressource qu'elle ne consomme pas encore), une ville perd ce qu'elle produit en trop. Les outils comptent comme une demande de silex. Les échanges du tour s'affichent dans le panneau « Gisements et ressources » de l'écran de la ville."),
-            p("Tableau de bord des ressources (bouton « Ressources », touche G) : un panneau à droite, qui laisse la carte                visible, donne pour tout le pays le stock de chaque ressource, ce qui est extrait et demandé par tour et la                part couverte (2 tours de demande en stock). Un clic sur une ressource ouvre son détail par ville (stock,                extrait, demande, échanges du tour) et sa carte de disponibilité : ses gisements connus et, sous chaque                ville, son état (en trop, suffit, manque). Le journal prévient quand une ville se met à manquer d'une                ressource et que vous pouvez agir : un gisement connu à 4 cases au plus à exploiter, ou une de vos villes                qui en a en trop sans être reliée."),
+            p("Tableau de bord des ressources (bouton « Ressources », touche G) : un panneau à droite, qui laisse la carte visible, donne pour tout le pays le stock de chaque ressource, ce qui est extrait et demandé par tour et la part couverte (2 tours de demande en stock). Un clic sur une ressource ouvre son détail par ville (stock, extrait, demande, échanges du tour) et sa carte de disponibilité : ses gisements connus et, sous chaque ville, son état (en trop, suffit, manque). Le journal prévient quand une ville se met à manquer d'une ressource et que vous pouvez agir : un gisement connu à 4 cases au plus à exploiter, ou une de vos villes qui en a en trop sans être reliée."),
             p("Le sanctuaire (40 de production, dans Construire), premier bâtiment de la ville, donne +1 de culture par \
                tour (la ville en produit alors 2). Bâti en pierre locale, il se dresse en mégalithe, moins cher (30), quand \
                la ville a 2 de pierre dure en stock : ils sont pris à son achèvement."),
@@ -1056,12 +1092,12 @@ fn cities() -> Article {
             )),
             h("Routes"),
             p(format!(
-                "Une ville trace des chemins, vers une autre ville ou n'importe quelle case connue, hors de son territoire                  aussi. « Chemin… » dans la construction (groupe Bâtiments) ferme l'écran et propose sur la carte le                  tracé le plus rapide une fois construit jusqu'à la case survolée (à temps égal, le moins cher) ; un clic                  fixe l'arrivée, chaque clic suivant ajoute un point de passage par où le tracé doit aller ; clic droit :                  retirer le dernier point ; Entrée : lancer. Le panneau en haut donne le coût, les tours de production et                  le temps d'un porteur sur ce tracé, avant et après. Le chemin se construit au fil de la production,                  tronçon par tronçon depuis la ville, et chaque tronçon sert dès qu'il est fait ; ceux qui ont déjà une                  route ne coûtent rien. Coût d'une case : {} de production × le biome (prairie, plaine, steppe, savane,                  désert 1 ; broussailles, savane arborée, toundra 1,5 ; forêt, taïga 2 ; jungle, marais, neige 3) × le                  relief (plat 1, collines 1,5, relief accidenté 2,5, montagne 4, 5 au-dessus de {} m) ; un tronçon                  coûte la moitié de chacune de ses deux cases. Une rivière se passe par une passerelle comprise ; un                  fleuve, par un pont que le chemin construit à son prix habituel. Améliorer une route coûtera la                  moitié de sa construction (routes de terre, puis pavées, avec la recherche).",
+                "Une ville trace des chemins, vers une autre ville ou n'importe quelle case connue, hors de son territoire aussi. « Chemin… » dans la construction (groupe Bâtiments) ferme l'écran et propose sur la carte le tracé le plus rapide une fois construit jusqu'à la case survolée (à temps égal, le moins cher) ; un clic fixe l'arrivée, chaque clic suivant ajoute un point de passage par où le tracé doit aller ; clic droit : retirer le dernier point ; Entrée : lancer. Le panneau en haut donne le coût, les tours de production et le temps d'un porteur sur ce tracé, avant et après. Le chemin se construit au fil de la production, tronçon par tronçon depuis la ville, et chaque tronçon sert dès qu'il est fait ; ceux qui ont déjà une route ne coûtent rien. Coût d'une case : {} de production × le biome (prairie, plaine, steppe, savane, désert 1 ; broussailles, savane arborée, toundra 1,5 ; forêt, taïga 2 ; jungle, marais, neige 3) × le relief (plat 1, collines 1,5, relief accidenté 2,5, montagne 4, 5 au-dessus de {} m) ; un tronçon coûte la moitié de chacune de ses deux cases. Une rivière se passe par une passerelle comprise ; un fleuve, par un pont que le chemin construit à son prix habituel. Améliorer une route coûtera la moitié de sa construction (routes de terre, puis pavées, avec la recherche).",
                 crate::routes::COUT_CASE,
                 crate::routes::HAUTE_MONTAGNE_M
             )),
             p(format!(
-                "Sur un chemin, une unité paie {} PM par case sur le plat, quel que soit le biome (forêt, marais,                  jungle compris), {} en collines, {} en relief accidenté et la moitié du coût d'une montagne ; une                  montée compte la moitié. En plaine, les unités ne vont pas plus vite (1 PM déjà), mais les porteurs                  des échanges vont deux fois plus vite (0,5 point par case) : le commerce y gagne partout. Un chemin                  sert à tout le monde, ennemis compris. La console en pose d'un coup (« route »).",
+                "Sur un chemin, une unité paie {} PM par case sur le plat, quel que soit le biome (forêt, marais, jungle compris), {} en collines, {} en relief accidenté et la moitié du coût d'une montagne ; une montée compte la moitié. En plaine, les unités ne vont pas plus vite (1 PM déjà), mais les porteurs des échanges vont deux fois plus vite (0,5 point par case) : le commerce y gagne partout. Un chemin sert à tout le monde, ennemis compris. La console en pose d'un coup (« route »).",
                 crate::map::ROUTE_PM,
                 crate::map::ROUTE_HILLS_PM,
                 crate::map::ROUTE_RUGGED_PM

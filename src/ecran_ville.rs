@@ -5008,7 +5008,7 @@ fn catalogue(l: &mut ChildSpawnerCommands, vl: &Ville, city: &City, cases: &[Cas
     // Unités
     if groupe_vu == GroupeCatalogue::Unites {
     groupe(l, "Unités : ajoutées à la fin de la file");
-    for k in crate::rules::UnitKind::ALL {
+    for k in crate::rules::UnitKind::ALL.into_iter().filter(|k| k.productible()) {
         let tours = rules::tours_restants(k.cost(), 0.0, prod).map_or("—".to_string(), |t| format!("{t} tour(s) seule"));
         let colon = if k == crate::rules::UnitKind::Settler { format!(" · emmène {} habitants", rules::milliers(rules::HABITANTS_COLON)) } else { String::new() };
         item(l, Element::Unite(k), k.name().into(), format!("{} production · {tours}{colon}", k.cost()), true, false);

@@ -127,6 +127,8 @@ pub fn group(kind: UnitKind) -> Vec<Vec2> {
     use UnitKind::*;
     match kind {
         Settler | Scout => vec![Vec2::ZERO],
+        // (la bande : une famille qui marche ensemble)
+        Bande => vec![Vec2::new(0.0, -2.8), Vec2::new(-4.0, 2.2), Vec2::new(4.0, 2.2)],
         LightCavalry | HeavyCavalry | HorseArcher => vec![Vec2::new(-3.4, 0.0), Vec2::new(3.4, 0.5)],
         _ => vec![Vec2::new(0.0, -2.8), Vec2::new(-4.0, 2.2), Vec2::new(4.0, 2.2)],
     }
@@ -146,6 +148,7 @@ pub fn spawn_figure(parent: &mut ChildSpawnerCommands, kit: &FigureKit, kind: Un
     let tunic = match kind {
         Settler => &kit.linen,
         Scout => &kit.forest,
+        Bande => &kit.leather,
         Militia => &kit.leather,
         HeavyWarrior | HeavyCavalry => &kit.dark_metal,
         _ => team,
@@ -166,7 +169,7 @@ pub fn spawn_figure(parent: &mut ChildSpawnerCommands, kit: &FigureKit, kind: Un
         }
         8.5
     } else {
-        part(&kit.legs, if matches!(kind, Settler | Scout) { &kit.leather } else { tunic }, at(0.0, 2.0, 0.0));
+        part(&kit.legs, if matches!(kind, Settler | Scout | Bande) { &kit.leather } else { tunic }, at(0.0, 2.0, 0.0));
         4.0
     };
     let wide = matches!(kind, HeavyWarrior | HeavyCavalry);
@@ -242,6 +245,11 @@ pub fn spawn_figure(parent: &mut ChildSpawnerCommands, kit: &FigureKit, kind: Un
             part(&kit.dog_tail, &kit.dog, at(x, 3.9, z - 2.9).with_rotation(tilt_x(-0.8)));
         }
         Militia => part(&kit.club, &kit.wood, at(-3.0, hand + 1.5, 0.8).with_rotation(Quat::from_rotation_z(0.3))),
+        Bande => {
+            // Chasseurs-cueilleurs : bâton de marche et ballot de peaux sur le dos
+            part(&kit.staff, &kit.wood, at(-3.0, 6.0, 0.6));
+            part(&kit.bundle, &kit.leather, at(0.0, seat + 4.0, -2.2));
+        }
         ShieldWarrior => {
             round_shield(&mut part);
             sword(&mut part);
