@@ -4282,9 +4282,13 @@ fn echanges_du_tour(g: &mut ChildSpawnerCommands, city: &City, partenaires: &[Pa
                     format!("{} : {} {} par tour{perte}{contre}", if x.recu { "reçu" } else { "donné" }, x.ressource.nom(), quantite(x.qte))
                 })
                 .collect();
-            if lignes.is_empty() {
+            let refus: Vec<String> = city.state.refus.iter().filter(|x| x.0 == p.nom).map(|(_, r, raison)| format!("{} : {}", capitale(r.nom()), raison_refus(*raison))).collect();
+            if lignes.is_empty() && refus.is_empty() {
                 let t = if p.reliee { "rien ce tour : aucune des deux n'a en trop ce qui manque à l'autre".to_string() } else { "trop loin : une ville entre les deux les relierait".to_string() };
                 b.spawn(texte(t, 12.0, charte::MUET));
+            }
+            for l in refus {
+                b.spawn(texte(format!("pas reçu · {l}"), 12.0, charte::ALERTE));
             }
             for l in lignes {
                 b.spawn(texte(l, 12.0, charte::DOUX));
@@ -4311,6 +4315,16 @@ fn effet_ressource(c: &rules::CityState, r: crate::gisements::Ressource) -> (Str
         Ressource::Silex | Ressource::PierreDure => ("outils : pas de case aménagée".into(), format!("cases aménagées +{:.0} %", rules::BONUS_OUTILS[0] * 100.0)),
         _ if let Some(rang) = r.luxe() => (format!("bien-être +{}", quantite(rang * couv)), format!("bien-être +{}", quantite(rang))),
         _ => ("pas encore d'usage".into(), "matériau des bâtiments à venir".into()),
+    }
+}
+
+/// Pourquoi une ville qui en avait en trop n'a rien envoyé, en mots.
+fn raison_refus(r: crate::echanges::Raison) -> String {
+    use crate::echanges::Raison;
+    match r {
+        Raison::TropLoin => format!("trop loin (étapes de plus de {} tours)", rules::decimal(crate::echanges::TOURS_TRAJET_MAX)),
+        Raison::PasRentable(part) => format!("pas rentable ({:.0} % arriverait)", part * 100.0),
+        Raison::EtapePleine => "étapes pleines ce tour".into(),
     }
 }
 
@@ -4357,7 +4371,10 @@ fn tableau_ressources(l: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVu
             (None, true) => format!("reçu {}", quantite(recu)),
             (None, false) if achats.iter().any(|a| a.gisement == Some(r)) => "gisement sur une case à acheter".into(),
             _ if c.ressource(r) >= 0.005 => format!("en stock {}", quantite(c.ressource(r))),
-            _ => "rien à portée".into(),
+            _ => match c.refus.iter().find(|x| x.1 == r) {
+                Some((ville, _, raison)) => format!("{ville} en a : {}", raison_refus(*raison)),
+                None => "rien à portée".into(),
+            },
         };
         let (actuel, max) = effet_ressource(c, r);
         let choisie = sujet == Some(Sujet::Ressource(r));

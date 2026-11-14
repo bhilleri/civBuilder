@@ -816,7 +816,7 @@ fn end_turn(
             })
             .collect();
         let reseau = crate::echanges::Reseau::new(villes.len(), |a, b| crate::echanges::etape(map, villes[a].centre, villes[b].centre));
-        let transferts = crate::echanges::echanger(&mut villes, &reseau);
+        let (transferts, refus) = crate::echanges::echanger_et_refus(&mut villes, &reseau);
         let noms: Vec<String> = list.iter().map(|(_, _, c)| c.state.name.clone()).collect();
         for (k, (_, _, city)) in list.iter_mut().enumerate() {
             city.state.ressources = villes[k].stock.to_vec();
@@ -839,6 +839,7 @@ fn end_turn(
                 }
             }
             city.state.transit = transit;
+            city.state.refus = refus.iter().filter(|x| x.vers == k).map(|x| (noms[x.de].clone(), x.ressource, x.raison)).collect();
         }
     }
     drop(list);

@@ -392,8 +392,14 @@ Décisions de Benjamin :
   plantes 148 / 192 / 217 et 162 / 225 / 251. Le sel va presque partout dans une grappe (seul le
   coût du transport le freine) ; les plantes ne vont loin que pour un manque grave. Calcul du réseau
   négligeable.
+- **Pourquoi une ressource n'arrive pas (14/11)** : `echanger_et_refus` note, pour chaque manque
+  resté sans réponse, les villes qui en avaient en trop et la raison (`Raison` : trop loin, pas
+  rentable avec la part qui arriverait, étapes pleines ce tour) ; `CityState::refus`. Écran : colonne
+  « Origine » du tableau des ressources (« Lyon en a : pas rentable (40 % arriverait) ») et ligne
+  « pas reçu » sous chaque ville de l'onglet Ressources. Test dans `un_echange_peu_rentable_ne_se_fait_pas`
+  et `une_etape_porte_ce_que_permet_son_moyen`.
 - Pas encore : ports et capacité des nœuds, carte thématique des flux, gain d'une ville de passage,
-  pourquoi une liaison ne se fait pas, saisons.
+  saisons.
 - Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
   qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 

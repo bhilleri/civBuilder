@@ -1075,6 +1075,10 @@ pub struct CityState {
     /// Ressources qui ont traversé la ville au dernier tour, d'une ville à une autre (relais).
     #[serde(default)]
     pub transit: Vec<(crate::gisements::Ressource, f64)>,
+    /// Manques du dernier tour restés sans réponse : quelle ville en avait en trop, et pourquoi elle
+    /// n'a rien envoyé.
+    #[serde(default)]
+    pub refus: Vec<(String, crate::gisements::Ressource, crate::echanges::Raison)>,
     /// Ressources extraites au dernier tour, par ressource.
     #[serde(default)]
     pub extrait_tour: Vec<f64>,
@@ -1187,7 +1191,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None, demande_outils_tour: 0.0, echanges: Vec::new(), transit: Vec::new(), extrait_tour: Vec::new() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None, demande_outils_tour: 0.0, echanges: Vec::new(), transit: Vec::new(), refus: Vec::new(), extrait_tour: Vec::new() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1514,6 +1518,7 @@ impl CityState {
             demande_outils_tour: self.demande_outils_tour,
             echanges: Vec::new(),
             transit: Vec::new(),
+            refus: Vec::new(),
             extrait_tour: Vec::new(),
         }
     }

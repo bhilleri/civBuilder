@@ -369,8 +369,36 @@ pub struct Transfert {
     pub contre: Option<(Ressource, f64)>,
 }
 
+/// Pourquoi une ville qui a en trop n'a pas comblé un manque.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Raison {
+    /// Pas de liaison : trop loin (aucune suite d'étapes de `TOURS_TRAJET_MAX` tours).
+    TropLoin,
+    /// Pas rentable : il n'arriverait que cette part, qui vaudrait moins que ce qui part.
+    PasRentable(f64),
+    /// Les étapes de la route ont déjà porté tout ce qu'elles pouvaient ce tour.
+    EtapePleine,
+}
+
+/// Un manque resté sans réponse : la ville `de` avait de la ressource en trop, mais n'a rien
+/// envoyé à `vers`, pour la `raison`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Refus {
+    pub de: usize,
+    pub vers: usize,
+    pub ressource: Ressource,
+    pub raison: Raison,
+}
+
 /// Les échanges du tour entre les villes du réseau : modifie les stocks et rend les transferts.
+#[cfg(test)]
 pub fn echanger(villes: &mut [VilleEchange], reseau: &Reseau) -> Vec<Transfert> {
+    echanger_et_refus(villes, reseau).0
+}
+
+/// Les échanges du tour, et pourquoi les manques restés sans réponse le sont (une ville qui avait
+/// en trop et n'a rien envoyé).
+pub fn echanger_et_refus(villes: &mut [VilleEchange], reseau: &Reseau) -> (Vec<Transfert>, Vec<Refus>) {
     let n = villes.len();
     // Charge restante de chaque étape ce tour (les deux sens ensemble)
     let mut restant: Vec<Vec<f64>> = (0..n).map(|a| (0..n).map(|b| reseau.etapes[a][b].map_or(0.0, |e| e.moyen.capacite())).collect()).collect();
@@ -388,8 +416,10 @@ pub fn echanger(villes: &mut [VilleEchange], reseau: &Reseau) -> Vec<Transfert> 
         tours(va, ra).total_cmp(&tours(vb, rb)).then(va.cmp(&vb)).then(ra.cmp(&rb))
     });
     let mut transferts = Vec::new();
+    let mut refus = Vec::new();
     for (vers, r) in demandes {
         let res = Ressource::TOUTES[r];
+        let mut ici: Vec<Refus> = (0..n).filter(|&d| d != vers && villes[d].surplus(r) > 1e-9 && reseau.liaisons[d][vers].is_none()).map(|de| Refus { de, vers, ressource: res, raison: Raison::TropLoin }).collect();
         // Donneuses : la part qui arrive la plus grande d'abord
         let mut donneuses: Vec<(usize, &Liaison, f64)> = (0..n)
             .filter(|&d| d != vers && villes[d].surplus(r) > 1e-9)
@@ -403,10 +433,14 @@ pub fn echanger(villes: &mut [VilleEchange], reseau: &Reseau) -> Vec<Transfert> 
             }
             // Rentable : ce qui arrive vaut plus chez la demandeuse que ce qui part chez la donneuse
             if garde * villes[vers].valeur(r) <= villes[de].valeur(r) {
+                ici.push(Refus { de, vers, ressource: res, raison: Raison::PasRentable(garde) });
                 continue;
             }
             let q = (manque / garde).min(villes[de].surplus(r)).min(capacite(&restant, &l.route));
             if q <= 1e-9 {
+                if capacite(&restant, &l.route) <= 1e-9 {
+                    ici.push(Refus { de, vers, ressource: res, raison: Raison::EtapePleine });
+                }
                 continue;
             }
             villes[de].stock[r] -= q;
@@ -440,8 +474,12 @@ pub fn echanger(villes: &mut [VilleEchange], reseau: &Reseau) -> Vec<Transfert> 
                 contre: contre.map(|(s, c, _)| (Ressource::TOUTES[s], c)),
             });
         }
+        // (les refus ne comptent que si le manque reste)
+        if villes[vers].manque(r) > 1e-9 {
+            refus.extend(ici);
+        }
     }
-    transferts
+    (transferts, refus)
 }
 
 /// Plafond du stock d'une ressource : `TOURS_PLAFOND` tours de la demande, ou
@@ -537,7 +575,9 @@ mod tests {
         v[2].stock[p] = 1.8;
         let reseau = a_pied(&v);
         assert!(proche(Reseau::part_arrivee(reseau.liaisons[0][2].as_ref().unwrap(), Ressource::Plantes), 0.4));
-        assert!(echanger(&mut v.clone(), &reseau).is_empty());
+        let (t, refus) = echanger_et_refus(&mut v.clone(), &reseau);
+        assert!(t.is_empty());
+        assert!(matches!(refus[..], [Refus { de: 0, vers: 2, raison: Raison::PasRentable(x), .. }] if proche(x, 0.4)), "{refus:?}");
         // Au plafond, le surplus serait perdu sur place : il part
         v[0].stock[p] = 12.0;
         assert!(!echanger(&mut v, &reseau).is_empty());
@@ -553,6 +593,14 @@ mod tests {
         let reseau = a_pied(&v);
         let t = echanger(&mut v, &reseau);
         assert!(proche(t.iter().map(|x| x.qte).sum::<f64>(), 4.0));
+        // Une troisième ville, trop loin, en avait aussi ; et l'étape est pleine
+        let mut v = vec![ville(0), ville(4), ville(60)];
+        v[0].stock[sel] = 50.0;
+        v[2].stock[sel] = 50.0;
+        v[1].demande[sel] = 5.0;
+        let reseau = a_pied(&v);
+        let (_, refus) = echanger_et_refus(&mut v, &reseau);
+        assert!(refus.iter().any(|x| x.de == 2 && x.raison == Raison::TropLoin));
         // En pirogue, 12
         let mut w = vec![ville(0), ville(4)];
         w[0].stock[sel] = 50.0;
