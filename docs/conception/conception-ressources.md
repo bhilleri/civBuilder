@@ -307,7 +307,7 @@ un designer d'interface et un développeur. Décisions de Benjamin :
 - **Fait le 13/11 (choix de Benjamin)** : trajet d'un **porteur à pied** (`PM_PORTEUR` = 4 points
   par tour, ceux d'un colon ; chemin le plus rapide `pathfinding::find_path` avec les coûts des
   unités : plaine 1, forêt 4, marais 6, relief et cours d'eau en plus) ; deux villes sont reliées à
-  **`TOURS_TRAJET_MAX` = 2 tours** au plus (8 cases de plaine, 2 de forêt), de proche en proche
+  **`TOURS_TRAJET_MAX` = 2 tours** au plus (porté à 3 le 14/11, plus bas), de proche en proche
   (`liaisons` : le trajet de réseau est la somme des étapes la plus courte). L'échange arrive dans le
   tour mais **perd une part par tour de trajet selon la ressource** (`perte_par_tour`) : rien pour
   la pierre (silex, obsidienne, pierre dure), l'ocre, les parures et le sel ; 5 % pour les fibres et
@@ -325,6 +325,8 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   8) ; une rivière se passe pour 1 point de plus, un fleuve pour 2 (gué, bac). Test
   `le_porteur_suit_les_sentiers`. Même scène (graine 777) : Marseille 2,2 tours, Lyon 2,5, Bordeaux
   2,6 (au lieu de 3,5, 5,0 et 5,2) : toujours juste au-delà des 2 tours.
+- **Liaisons à 3 tours de trajet (14/11, décision de Benjamin)** : `TOURS_TRAJET_MAX` = 3 (12 cases
+  de plaine, 6 de forêt) ; les trois villes de la scène sont reliées.
 - Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
   qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 

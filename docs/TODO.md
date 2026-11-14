@@ -360,7 +360,7 @@ relief, en-tête et frein de la v7, Population, Ressources, Histoire, graphique 
 de production retiré, rendement des cases, horizon et infobulles de décomposition faits le 13/11. Reste :
 infobulles des autres nombres (culture, bien-être, fiches). Verrou de case fait le 13/11 (Figer,
 Prioriser) ; **plus tard : évacuer / interdire une case** (guerre : pillage et risque). Temps de trajet
-des échanges fait le 13/11 (porteur à pied, 2 tours au plus, perte selon la ressource) ; le bonus de
+des échanges fait le 13/11 (porteur à pied par les sentiers, 3 tours au plus, perte selon la ressource) ; le bonus de
 l'eau reviendra avec les bateaux.
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :

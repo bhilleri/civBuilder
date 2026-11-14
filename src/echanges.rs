@@ -18,7 +18,7 @@ use crate::hex::Hex;
 /// Points de mouvement d'un porteur à pied par tour (ceux d'un colon).
 pub const PM_PORTEUR: u32 = 4;
 /// Trajet au plus d'une liaison entre deux villes (tours).
-pub const TOURS_TRAJET_MAX: f64 = 2.0;
+pub const TOURS_TRAJET_MAX: f64 = 3.0;
 /// Distance au-delà de laquelle aucun trajet ne tient en `TOURS_TRAJET_MAX` tours (cases ; une
 /// case coûte au moins 1 point).
 pub const CASES_MAX: i32 = (TOURS_TRAJET_MAX as i32) * PM_PORTEUR as i32;
@@ -213,7 +213,7 @@ mod tests {
         VilleEchange { centre: Hex::from_offset(col, 0), stock: [0.0; N_RESSOURCES], demande: [0.0; N_RESSOURCES] }
     }
 
-    /// Trajets en plaine (1 point par case) : reliées à 8 cases au plus.
+    /// Trajets en plaine (1 point par case) : reliées à 12 cases au plus.
     fn trajets(v: &[VilleEchange]) -> Vec<Vec<Option<f64>>> {
         liaisons(v.len(), |a, b| {
             let t = v[a].centre.distance(v[b].centre) as f64 / PM_PORTEUR as f64;
@@ -281,7 +281,10 @@ mod tests {
         let bande = Bande { couts: vec![1, 4, 4, 4, 4, 1], riviere: 5 };
         let (a, b) = (Hex::from_offset(0, 0), Hex::from_offset(5, 0));
         assert_eq!(trajet_a_pied(&bande, a, b), Some(2.5));
-        assert_eq!(tours_de_trajet(&bande, a, b), None, "plus de 2 tours : pas reliées");
+        assert_eq!(tours_de_trajet(&bande, a, b), Some(2.5), "3 tours au plus : reliées");
+        // Six cases de marais (3 points chacune) : 4,5 tours, pas reliées
+        let marais = Bande { couts: vec![1, 6, 6, 6, 6, 6, 6], riviere: 99 };
+        assert_eq!(tours_de_trajet(&marais, a, Hex::from_offset(6, 0)), None);
         // En plaine : 5 cases, 1,25 tour
         let plaine = Bande { couts: vec![1; 6], riviere: 99 };
         assert_eq!(tours_de_trajet(&plaine, a, b), Some(1.25));
