@@ -6,7 +6,7 @@
 //! réserve (`TOURS_RESERVE` tours). La ville qui donne tente d'obtenir en échange, une unité pour
 //! une, ce qui lui manque et que l'autre a en trop ; sinon, elle donne. La distance est un **temps
 //! de trajet** (décision de Benjamin, 13/11/2026) : celui d'un porteur à pied (`PM_PORTEUR` points
-//! de mouvement par tour, chemin le plus rapide avec les coûts des unités) ; deux villes sont
+//! de mouvement par tour, chemin le plus rapide avec des coûts de sentier, `Porteur`) ; deux villes sont
 //! reliées à `TOURS_TRAJET_MAX` tours au plus, et de proche en proche : tout un réseau partage (le
 //! trajet entre deux villes du réseau est la somme des étapes). La ville qui manque le plus est
 //! servie d'abord, par la ville la plus proche. L'échange arrive dans le tour, mais perd une part
@@ -57,8 +57,40 @@ pub fn tours_de_trajet(map: &impl crate::map::MoveCosts, a: Hex, b: Hex) -> Opti
 
 /// Trajet d'un porteur à pied entre deux cases (tours), quel qu'il soit (aucun : pas de chemin).
 pub fn trajet_a_pied(map: &impl crate::map::MoveCosts, a: Hex, b: Hex) -> Option<f64> {
-    let chemin = crate::pathfinding::find_path(map, a, b)?;
-    Some(crate::rules::path_cost(map, a, &chemin) as f64 / PM_PORTEUR as f64)
+    let porteur = Porteur(map);
+    let chemin = crate::pathfinding::find_path(&porteur, a, b)?;
+    Some(crate::rules::path_cost(&porteur, a, &chemin) as f64 / DEMI_POINTS as f64 / PM_PORTEUR as f64)
+}
+
+/// Les coûts d'un pas comptent en demi-points pour le porteur.
+const DEMI_POINTS: u32 = 2;
+
+/// Coûts d'un porteur à pied (décision de Benjamin, 14/11/2026 : des sentiers, pas les coûts de
+/// l'armée) : le terrain et le relief comptent la moitié de ceux des unités, 1 point au moins
+/// (plaine 1, forêt 2, marais 3, colline 1,5, montagne 4 à 8) ; une rivière se passe pour 1 point
+/// de plus, un fleuve pour 2 (gué, bac). En demi-points, pour rester entier.
+pub struct Porteur<M>(pub M);
+
+impl<M: crate::map::MoveCosts> crate::map::MoveCosts for Porteur<M> {
+    fn move_cost(&self, hex: Hex) -> Option<u32> {
+        self.0.move_cost(hex).map(|c| c.max(DEMI_POINTS))
+    }
+
+    fn step(&self, from: Hex, to: Hex) -> Option<crate::map::StepCost> {
+        let s = self.0.step(from, to)?;
+        let eau = match s.water {
+            0 => 0,
+            1..=4 => DEMI_POINTS,
+            _ => 2 * DEMI_POINTS,
+        };
+        // (un fleuve n'a que de l'eau : pas de terrain en plus)
+        let terrain = if s.terrain == 0 && eau > 0 { 0 } else { s.terrain.max(DEMI_POINTS) };
+        Some(crate::map::StepCost { terrain, water: eau, ..s })
+    }
+
+    fn wrap(&self) -> crate::hex::Wrap {
+        self.0.wrap()
+    }
 }
 
 /// Trajets entre les villes d'un réseau, de proche en proche (la somme des étapes la plus courte) ;
@@ -220,6 +252,39 @@ mod tests {
         assert!(t.iter().all(|x| x.perdu == 0.0), "le sel et l'ocre ne se perdent pas en route");
         assert_eq!(plafond(0.5), 6.0);
         assert_eq!(plafond(0.0), PLAFOND_SANS_DEMANDE);
+    }
+
+    /// Bande de cases sur une ligne : le coût de chaque colonne (forêt 4…), une rivière à franchir
+    /// avant la colonne `riviere`.
+    struct Bande {
+        couts: Vec<u32>,
+        riviere: i32,
+    }
+
+    impl crate::map::MoveCosts for Bande {
+        fn move_cost(&self, hex: Hex) -> Option<u32> {
+            let (c, l) = hex.to_offset();
+            (l == 0 && c >= 0).then(|| self.couts.get(c as usize).copied()).flatten()
+        }
+
+        fn step(&self, from: Hex, to: Hex) -> Option<crate::map::StepCost> {
+            let terrain = self.move_cost(to)?;
+            let water = if to.to_offset().0 == self.riviere && from.to_offset().0 == self.riviere - 1 { crate::map::RIVER_CROSSING_COST } else { 0 };
+            Some(crate::map::StepCost { terrain, water, ..Default::default() })
+        }
+    }
+
+    #[test]
+    fn le_porteur_suit_les_sentiers() {
+        // Quatre cases de forêt (4 PM chacune pour une unité) puis une plaine, une rivière avant la
+        // dernière : 4 × 2 + 1 + 1 = 10 points, 2,5 tours (une unité y mettrait 4 × 4 + 1 + 4 = 21 PM)
+        let bande = Bande { couts: vec![1, 4, 4, 4, 4, 1], riviere: 5 };
+        let (a, b) = (Hex::from_offset(0, 0), Hex::from_offset(5, 0));
+        assert_eq!(trajet_a_pied(&bande, a, b), Some(2.5));
+        assert_eq!(tours_de_trajet(&bande, a, b), None, "plus de 2 tours : pas reliées");
+        // En plaine : 5 cases, 1,25 tour
+        let plaine = Bande { couts: vec![1; 6], riviere: 99 };
+        assert_eq!(tours_de_trajet(&plaine, a, b), Some(1.25));
     }
 
     #[test]

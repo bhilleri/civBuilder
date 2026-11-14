@@ -317,8 +317,14 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   Ressources, couche Échanges) : trajet de chaque ville en tours, celui des villes non reliées
   aussi (« 3,5 tours de trajet (plus de 2) ») ; ce qui est perdu en route. Tests
   `la_demande_trouve_le_surplus_par_troc_ou_par_don`, `les_plantes_se_perdent_en_route`.
-  Constat à l'écran (graine 777, autour de Paris : forêt, taïga, fleuves) : des villes à 4, 5 et 6
-  cases sont à 5,2, 5,0 et 3,5 tours de trajet, aucune n'est reliée.
+  Constat à l'écran (graine 777, autour de Paris : forêt, taïga, fleuves) : avec les coûts des
+  unités, des villes à 4, 5 et 6 cases étaient à 5,2, 5,0 et 3,5 tours de trajet, aucune reliée.
+- **Coûts de porteur (14/11, décision de Benjamin)** : des sentiers, pas les coûts de l'armée
+  (doublés pour l'équilibre des combats) : `Porteur` compte le terrain et le relief pour la moitié
+  des coûts des unités, 1 point au moins (plaine 1, forêt 2, marais 3, colline 1,5, montagne 4 à
+  8) ; une rivière se passe pour 1 point de plus, un fleuve pour 2 (gué, bac). Test
+  `le_porteur_suit_les_sentiers`. Même scène (graine 777) : Marseille 2,2 tours, Lyon 2,5, Bordeaux
+  2,6 (au lieu de 3,5, 5,0 et 5,2) : toujours juste au-delà des 2 tours.
 - Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
   qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 
