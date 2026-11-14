@@ -815,8 +815,8 @@ fn end_turn(
                 crate::echanges::VilleEchange { centre: *center, stock, demande }
             })
             .collect();
-        let trajets = crate::echanges::liaisons(villes.len(), |a, b| crate::echanges::tours_de_trajet(map, villes[a].centre, villes[b].centre));
-        let transferts = crate::echanges::echanger(&mut villes, &trajets);
+        let reseau = crate::echanges::Reseau::new(villes.len(), |a, b| crate::echanges::etape(map, villes[a].centre, villes[b].centre));
+        let transferts = crate::echanges::echanger(&mut villes, &reseau);
         let noms: Vec<String> = list.iter().map(|(_, _, c)| c.state.name.clone()).collect();
         for (k, (_, _, city)) in list.iter_mut().enumerate() {
             city.state.ressources = villes[k].stock.to_vec();
@@ -825,9 +825,20 @@ fn end_turn(
                 .filter(|t| t.de == k || t.vers == k)
                 .map(|t| {
                     let recu = t.vers == k;
-                    rules::EchangeVu { ville: noms[if recu { t.de } else { t.vers }].clone(), ressource: t.ressource, qte: t.qte, recu, contre: t.contre, perdu: t.perdu, tours: t.tours }
+                    rules::EchangeVu { ville: noms[if recu { t.de } else { t.vers }].clone(), ressource: t.ressource, qte: t.qte, recu, contre: t.contre, perdu: t.perdu, paye: t.paye, tours: t.tours, tours_pirogue: t.tours_pirogue }
                 })
                 .collect();
+            // (les villes du milieu d'une route voient passer le transit)
+            let mut transit: Vec<(Ressource, f64)> = Vec::new();
+            for t in transferts.iter().filter(|t| t.route.len() > 2 && t.route[1..t.route.len() - 1].contains(&k)) {
+                for (r, q) in std::iter::once((t.ressource, t.qte)).chain(t.contre) {
+                    match transit.iter_mut().find(|x| x.0 == r) {
+                        Some(x) => x.1 += q,
+                        None => transit.push((r, q)),
+                    }
+                }
+            }
+            city.state.transit = transit;
         }
     }
     drop(list);
@@ -1051,7 +1062,7 @@ fn notifier_besoins(
     let mut villes: Vec<(Entity, &City, Hex)> = cities.iter().map(|(e, c, p)| (e, c, p.0)).collect();
     villes.sort_by_key(|(e, ..)| *e);
     // (trajets entre les villes, de proche en proche : calculés une fois)
-    let trajets = crate::echanges::liaisons(villes.len(), |a, b| crate::echanges::tours_de_trajet(m, villes[a].2, villes[b].2));
+    let reseau = crate::echanges::Reseau::new(villes.len(), |a, b| crate::echanges::etape(m, villes[a].2, villes[b].2));
     let mut maintenant = HashSet::new();
     for (i, (e, city, centre)) in villes.iter().enumerate() {
         let mut causes = Vec::new();
@@ -1068,7 +1079,7 @@ fn notifier_besoins(
                 .map(|&h| (m.distance(*centre, h), h))
                 .filter(|(d, _)| *d <= BESOIN_GISEMENT_CASES)
                 .min();
-            let isolee = villes.iter().enumerate().find(|(j, (f, autre, _))| f != e && autre.state.ressource(r) > crate::echanges::TOURS_RESERVE * autre.state.demande_echange(r) + 1e-9 && trajets[i][*j].is_none()).map(|(_, v)| v);
+            let isolee = villes.iter().enumerate().find(|(j, (f, autre, _))| f != e && autre.state.ressource(r) > crate::echanges::TOURS_RESERVE * autre.state.demande_echange(r) + 1e-9 && reseau.liaisons[i][*j].is_none()).map(|(_, v)| v);
             let piste = match (gisement, isolee) {
                 (Some((d, h)), _) => format!("gisement connu à {d} case{} ({}) : l'exploiter", if d > 1 { "s" } else { "" }, m.describe(h).to_lowercase()),
                 (None, Some((_, autre, _))) => format!("{} en a en trop, mais n'est pas reliée", autre.state.name),

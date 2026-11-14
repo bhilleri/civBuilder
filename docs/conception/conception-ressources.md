@@ -327,6 +327,73 @@ un designer d'interface et un développeur. Décisions de Benjamin :
   2,6 (au lieu de 3,5, 5,0 et 5,2) : toujours juste au-delà des 2 tours.
 - **Liaisons à 3 tours de trajet (14/11, décision de Benjamin)** : `TOURS_TRAJET_MAX` = 3 (12 cases
   de plaine, 6 de forêt) ; les trois villes de la scène sont reliées.
+
+### Transport : avis de quatre agents et décisions (Benjamin, 14/11/2026)
+Questions de Benjamin (capacité des ports, flux qui traverse une ville, passage terre-eau, capacité
+des transporteurs, capacité par case, relais, gain d'une ville de passage, commerce entre peuples),
+posées à un joueur de 4X, un game designer, un historien de l'économie et un concepteur de
+simulation. Ce qu'ils disent :
+- **Le bateau gagne par ce qu'il emporte**, pas par sa vitesse (Benjamin : « un porteur a une
+  capacité d'emport plus faible qu'un bateau ») ; ordres de grandeur (historien) : porteur 20-35 kg
+  et 20-25 km par jour ; pirogue monoxyle 0,3 à 2 t (La Marmotta, 5700 av. J.-C.) ; chaland 10-30 t ;
+  coût par tonne (Édit de Dioclétien) : mer 1, fleuve 5 à 10, terre 30 à 50. La rupture de charge
+  coûte en bras, en attente, en pertes et en entrepôt.
+- **Capacité par lien et par moyen**, jamais de transporteurs à gérer ni de capacité par case
+  (unanime) ; une route mixte vaut son tronçon le plus faible ; plus tard, seuls les goulets (ponts,
+  cols, gués) et les ports auront une limite.
+- **Passer de la terre à l'eau seulement dans les villes** (puis aux ports), au même coût partout
+  (sinon on contourne le malus) : la géographie (confluent, estuaire) prend de la valeur.
+- **Relais** : explicite ; le flux traverse la ville sans entrer dans son stock ; elle n'y gagne
+  rien sans bâtiment (relais, caravansérail : péage, plus tard). Un réseau sans limite faisait
+  traverser un continent au sel et à la pierre (concepteur de simulation).
+- **Entre peuples** (plus tard, avec l'IA) : au Néolithique, des dons et des trocs (prestige,
+  relations) ; ensuite le vendeur transporte, l'importateur prélève une douane, un pays traversé un
+  péage ; la fiche montre qui gagne quoi.
+- Autres : carte thématique des flux, pourquoi une route ne se fait pas, aperçu avant de construire,
+  saisons, sens du courant, priorité par ville ; vitesse du porteur (10 cases par mois en réalité, 4
+  dans le jeu : aller-retour et haltes).
+
+Décisions de Benjamin :
+- **Capacité fixe par étape** : 4 unités par tour à pied, 12 en pirogue (sans tenir compte de la
+  durée du trajet).
+- **Rupture de charge dans les villes seulement, 0,5 point** (charger, décharger).
+- **Pirogues ouvertes à toutes les villes dès le départ**, sur les fleuves (descendre 0,5 point par
+  case, remonter 1), les lacs (0,5) et la côte (0,75) ; ni la haute mer ni les rivières ; la
+  technologie Pirogue les réglera quand la recherche existera.
+- **Coût de transport en nature** : 5 % de la charge par tour à pied, 2 % en pirogue (elle porte plus
+  pour autant de bras) ; il remplace la portée maximale du réseau.
+- **Rentabilité selon l'offre et la demande** : en attendant les prix, une unité vaut, pour une
+  ville, 2 en manque total, 1 à 2 tours de stock, 0,5 à 6 tours, 0,1 au plafond (12 tours ; une
+  ressource qu'elle ne consomme pas aussi) ; l'échange se fait si ce qui arrive vaut plus chez celle
+  qui reçoit que ce qui part chez celle qui donne.
+- Le transit se voit dans la ville ; la demande la plus urgente passe d'abord, toutes ressources
+  confondues. Plus tard : ports à niveaux, péages, prix, douanes, montures, pillage sur les liens,
+  saisons ; jamais de capacité par case.
+
+### Fait le 14/11/2026 : transport (pirogues, capacité, coût, rentabilité)
+- `echanges.rs` : `Moyen` (à pied, en pirogue : `capacite`, `cout_par_tour`), `Etape` (liaison
+  directe ≤ 3 tours, la moins chère des deux : `etape`), `trajet_en_pirogue` (trait `Eaux` :
+  `WorldMap::entree`, sens du fleuve par `downstream` ; charger au départ et décharger à
+  l'arrivée, `TRANSBORDEMENT`), `Reseau` (étapes et liaison la moins chère entre chaque paire, de
+  ville en ville : route, trajet, dont en pirogue, coût), `valeur`, `echanger` (demandes les plus
+  urgentes d'abord, toutes ressources ; donneuses par part qui arrive ; rentabilité ; capacité
+  restante de chaque étape ; contrepartie elle aussi rentable et payée). `Transfert` : route, payé,
+  perdu, trajet. `CityState::transit` : ce qui a traversé la ville.
+- Écran (onglet Ressources) : trajet « dont X en pirogue, par une autre ville », ce qui est payé pour
+  le transport et perdu en route, le transit de la ville.
+- Tests : `la_pirogue_descend_vite_et_charge_en_ville`, `une_etape_porte_ce_que_permet_son_moyen`,
+  `un_echange_peu_rentable_ne_se_fait_pas`, `le_transit_passe_par_la_ville_du_milieu`,
+  `la_valeur_suit_le_stock`, et les tests d'avant mis à jour.
+- **Bilan `bilan_echanges`** (6 grappes de 10 villes à 4 cases au moins dans un rayon de 15 cases,
+  270 paires par graine) : graine 777 : 122 étapes à pied, 25 en pirogue ; 86 % des paires reliées,
+  89 liaisons avec de la pirogue ; trajet médian 2,5 tours, 90 % sous 5,6, au plus 11,6 ; graine 2 :
+  98 à pied, 54 en pirogue ; 97 % reliées, 142 avec de la pirogue ; médian 2,7, 90 % sous 5,5, au plus
+  8,0. Rentables selon la perte acceptée (45 / 70 / 95 %) : sel 228 / 232 / 232 et 261 / 261 / 261 ;
+  plantes 148 / 192 / 217 et 162 / 225 / 251. Le sel va presque partout dans une grappe (seul le
+  coût du transport le freine) ; les plantes ne vont loin que pour un manque grave. Calcul du réseau
+  négligeable.
+- Pas encore : ports et capacité des nœuds, carte thématique des flux, gain d'une ville de passage,
+  pourquoi une liaison ne se fait pas, saisons.
 - Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
   qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 

@@ -4206,15 +4206,27 @@ struct Partenaire {
     tours: Option<f64>,
     /// Trajet direct à pied, même trop long (villes proches non reliées).
     a_pied: Option<f64>,
+    /// Part du trajet faite en pirogue (tours).
+    pirogue: f64,
+    /// Villes traversées entre les deux.
+    relais: usize,
 }
 
 impl Partenaire {
     /// Le trajet en mots : tours de trajet, ou la distance en cases si elle n'est pas reliée.
     fn trajet(&self) -> String {
         match self.tours {
-            Some(t) => format!("{} tour{} de trajet", rules::decimal(t), if t >= 2.0 { "s" } else { "" }),
+            Some(t) => {
+                let eau = if self.pirogue > 0.005 { format!(", dont {} en pirogue", rules::decimal(self.pirogue)) } else { String::new() };
+                let relais = match self.relais {
+                    0 => String::new(),
+                    1 => ", par une autre ville".to_string(),
+                    n => format!(", par {n} autres villes"),
+                };
+                format!("{} tour{} de trajet{eau}{relais}", rules::decimal(t), if t >= 2.0 { "s" } else { "" })
+            }
             None => match self.a_pied {
-                Some(t) => format!("{} tours de trajet (plus de {})", rules::decimal(t), rules::decimal(crate::echanges::TOURS_TRAJET_MAX)),
+                Some(t) => format!("{} tours de trajet à pied (étape de plus de {})", rules::decimal(t), rules::decimal(crate::echanges::TOURS_TRAJET_MAX)),
                 None => format!("{} cases", self.distance),
             },
         }
@@ -4225,13 +4237,13 @@ impl Partenaire {
 fn partenaires(map: &crate::map::WorldMap, v: Entity, villes: &Query<(Entity, &City, &HexPos, &crate::peuple::Peuple)>) -> Vec<Partenaire> {
     let miennes: Vec<(Entity, &City, Hex)> = villes.iter().filter(|(_, _, _, p)| **p == crate::peuple::Peuple::JOUEUR).map(|(e, c, h, _)| (e, c, h.0)).collect();
     let Some(i) = miennes.iter().position(|(e, ..)| *e == v) else { return Vec::new() };
-    let trajets = crate::echanges::liaisons(miennes.len(), |a, b| crate::echanges::tours_de_trajet(map, miennes[a].2, miennes[b].2));
+    let reseau = crate::echanges::Reseau::new(miennes.len(), |a, b| crate::echanges::etape(map, miennes[a].2, miennes[b].2));
     let ici = miennes[i].2;
     let mut v: Vec<Partenaire> = miennes
         .iter()
         .enumerate()
         .filter(|(j, _)| *j != i)
-        .map(|(j, (_, c, h))| Partenaire { nom: c.state.name.clone(), centre: *h, distance: map.distance(ici, *h), reliee: trajets[i][j].is_some(), tours: trajets[i][j], a_pied: (trajets[i][j].is_none() && map.distance(ici, *h) <= 2 * crate::echanges::CASES_MAX).then(|| crate::echanges::trajet_a_pied(map, ici, *h)).flatten() })
+        .map(|(j, (_, c, h))| Partenaire { nom: c.state.name.clone(), centre: *h, distance: map.distance(ici, *h), reliee: reseau.liaisons[i][j].is_some(), tours: reseau.liaisons[i][j].as_ref().map(|l| l.tours), pirogue: reseau.liaisons[i][j].as_ref().map_or(0.0, |l| l.tours_pirogue), relais: reseau.liaisons[i][j].as_ref().map_or(0, |l| l.route.len().saturating_sub(2)), a_pied: (reseau.liaisons[i][j].is_none() && map.distance(ici, *h) <= 2 * crate::echanges::CASES_MAX).then(|| crate::echanges::trajet_a_pied(map, ici, *h)).flatten() })
         .collect();
     v.sort_by(|a, b| a.distance.cmp(&b.distance).then(a.nom.cmp(&b.nom)));
     v
@@ -4241,7 +4253,7 @@ fn partenaires(map: &crate::map::WorldMap, v: Entity, villes: &Query<(Entity, &C
 fn echanges_du_tour(g: &mut ChildSpawnerCommands, city: &City, partenaires: &[Partenaire]) {
     g.spawn(Node { column_gap: Val::Px(8.0), ..default() }).with_children(|t| {
         t.spawn((Node { flex_grow: 1.0, ..default() }, children![texte("ÉCHANGES DU TOUR", 11.5, charte::MUET)]));
-        t.spawn(texte(format!("reliées à {} tours de trajet au plus (porteurs à pied)", rules::decimal(crate::echanges::TOURS_TRAJET_MAX)), 11.5, charte::MUET));
+        t.spawn(texte(format!("étapes de {} tours au plus, à pied ou en pirogue", rules::decimal(crate::echanges::TOURS_TRAJET_MAX)), 11.5, charte::MUET));
     });
     if partenaires.is_empty() {
         g.spawn(texte("Aucune autre ville : les échanges viendront avec la deuxième.", 13.0, charte::MUET));
@@ -4259,7 +4271,14 @@ fn echanges_du_tour(g: &mut ChildSpawnerCommands, city: &City, partenaires: &[Pa
                 .filter(|x| x.ville == p.nom)
                 .map(|x| {
                     let contre = x.contre.map_or(" (don)".to_string(), |(r, q)| format!(" contre {} de {}", quantite(q), r.nom()));
-                    let perte = if x.perdu > 0.005 { format!(", dont {} perdu en route", quantite(x.perdu)) } else { String::new() };
+                    let mut frais = Vec::new();
+                    if x.paye > 0.005 {
+                        frais.push(format!("{} pour le transport", quantite(x.paye)));
+                    }
+                    if x.perdu > 0.005 {
+                        frais.push(format!("{} perdu en route", quantite(x.perdu)));
+                    }
+                    let perte = if frais.is_empty() { String::new() } else { format!(", dont {}", frais.join(" et ")) };
                     format!("{} : {} {} par tour{perte}{contre}", if x.recu { "reçu" } else { "donné" }, x.ressource.nom(), quantite(x.qte))
                 })
                 .collect();
@@ -4272,7 +4291,11 @@ fn echanges_du_tour(g: &mut ChildSpawnerCommands, city: &City, partenaires: &[Pa
             }
         });
     }
-    g.spawn(texte("Une ville qui manque d'une ressource la reçoit d'une ville reliée qui en a au-delà de sa réserve, par troc ou par don. En route, chaque tour de trajet coûte 5 % des fibres et du bois, 10 % des plantes ; la pierre et le sel ne se perdent pas. Ressources du pays : touche G (carte fermée).", 12.0, charte::MUET));
+    if !city.state.transit.is_empty() {
+        let liste: Vec<String> = city.state.transit.iter().map(|(r, q)| format!("{} {}", quantite(*q), r.nom())).collect();
+        g.spawn(texte(format!("En transit par la ville ce tour : {}.", liste.join(", ")), 12.5, charte::DOUX));
+    }
+    g.spawn(texte("Une ville qui manque d'une ressource la reçoit d'une ville reliée qui en a au-delà de sa réserve, par troc ou par don, de ville en ville si besoin. Le transport se paie en nature : 5 % de la charge par tour à pied, 2 % en pirogue (on charge et décharge dans les villes) ; en route, les fibres et le bois perdent 5 % par tour, les plantes 10 %. L'échange se fait s'il reste rentable : plus une ville manque, plus elle accepte de perte. Une étape porte 4 unités par tour à pied, 12 en pirogue. Ressources du pays : touche G (carte fermée).", 12.0, charte::MUET));
 }
 
 /// Effet d'une ressource pour la ville : (actuel, maximal), en mots.
@@ -4327,7 +4350,7 @@ fn tableau_ressources(l: &mut ChildSpawnerCommands, city: &City, cases: &[CaseVu
         let d = c.demande_echange(r);
         let couv = if d > 0.0 { c.couverture(r) } else { 0.0 };
         let gisement = cases.iter().find(|k| k.gisement == Some(r));
-        let recu: f64 = c.echanges.iter().filter(|x| x.ressource == r && x.recu).map(|x| x.qte - x.perdu).sum::<f64>() + 0.0;
+        let recu: f64 = c.echanges.iter().filter(|x| x.ressource == r && x.recu).map(|x| x.arrive()).sum::<f64>() + 0.0;
         let origine = match (gisement, recu > 0.0) {
             (Some(k), _) if k.amenagement == Some(Amenagement::Exploitation) => format!("extrait {}", quantite(c.extrait(r))),
             (Some(_), _) => "gisement non exploité".into(),
@@ -4405,7 +4428,7 @@ fn fiche_ressource(d: &mut ChildSpawnerCommands, r: crate::gisements::Ressource,
     ligne(d, "Au mieux", None, max, charte::OK);
     // Où en est la ville
     let dem = c.demande_echange(r);
-    let recu: f64 = c.echanges.iter().filter(|x| x.ressource == r && x.recu).map(|x| x.qte - x.perdu).sum::<f64>() + 0.0;
+    let recu: f64 = c.echanges.iter().filter(|x| x.ressource == r && x.recu).map(|x| x.arrive()).sum::<f64>() + 0.0;
     let stock = c.ressource(r);
     section(d, "OÙ J'EN SUIS");
     let note = match r {

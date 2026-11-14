@@ -1072,6 +1072,9 @@ pub struct CityState {
     /// Échanges du dernier tour avec les autres villes (reçu, donné, contrepartie).
     #[serde(default)]
     pub echanges: Vec<EchangeVu>,
+    /// Ressources qui ont traversé la ville au dernier tour, d'une ville à une autre (relais).
+    #[serde(default)]
+    pub transit: Vec<(crate::gisements::Ressource, f64)>,
     /// Ressources extraites au dernier tour, par ressource.
     #[serde(default)]
     pub extrait_tour: Vec<f64>,
@@ -1088,12 +1091,24 @@ pub struct EchangeVu {
     pub recu: bool,
     /// Contrepartie (ressource, quantité), dans l'autre sens ; aucune : un don.
     pub contre: Option<(crate::gisements::Ressource, f64)>,
-    /// Part de `qte` perdue en route.
+    /// Part de `qte` perdue en route (denrées fragiles).
     #[serde(default)]
     pub perdu: f64,
-    /// Trajet (tours).
+    /// Part de `qte` payée pour le transport (en nature).
+    #[serde(default)]
+    pub paye: f64,
+    /// Trajet (tours), dont en pirogue.
     #[serde(default)]
     pub tours: f64,
+    #[serde(default)]
+    pub tours_pirogue: f64,
+}
+
+impl EchangeVu {
+    /// Ce qui arrive au bout du trajet.
+    pub fn arrive(&self) -> f64 {
+        self.qte - self.paye - self.perdu
+    }
 }
 
 fn bien_etre_de_depart() -> f64 {
@@ -1172,7 +1187,7 @@ pub struct CityTurnReport {
 
 impl CityState {
     pub fn new(name: String) -> Self {
-        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None, demande_outils_tour: 0.0, echanges: Vec::new(), extrait_tour: Vec::new() }
+        Self { name, habitants: HABITANTS_COLON, file: Vec::new(), projet: None, tours_en_projet: 0, bridges: Vec::new(), fortified: false, consignes: Consignes::default(), historique: Default::default(), chronique: Vec::new(), en_famine: false, culture: 0.0, cases_gagnees: 0, bien_etre: BIEN_ETRE_NEUTRE, site: Site::default(), puits: false, insalubre: false, types_nourriture: 0, sortes_en_plus: 0, grenier: false, stock: Vec::new(), ressources: Vec::new(), couverture: Vec::new(), bonus_outils: 0.0, couverture_outils: 0.0, sanctuaire: None, demande_outils_tour: 0.0, echanges: Vec::new(), transit: Vec::new(), extrait_tour: Vec::new() }
     }
 
     /// Consommation : 2 nourriture par habitant.
@@ -1498,6 +1513,7 @@ impl CityState {
             sanctuaire: self.sanctuaire,
             demande_outils_tour: self.demande_outils_tour,
             echanges: Vec::new(),
+            transit: Vec::new(),
             extrait_tour: Vec::new(),
         }
     }

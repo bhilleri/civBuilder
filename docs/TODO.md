@@ -360,8 +360,10 @@ relief, en-tête et frein de la v7, Population, Ressources, Histoire, graphique 
 de production retiré, rendement des cases, horizon et infobulles de décomposition faits le 13/11. Reste :
 infobulles des nombres des fiches (culture, bien-être et salubrité faits le 14/11). Verrou de case fait le 13/11 (Figer,
 Prioriser) ; **plus tard : évacuer / interdire une case** (guerre : pillage et risque). Temps de trajet
-des échanges fait le 13/11 (porteur à pied par les sentiers, 3 tours au plus, perte selon la ressource) ; le bonus de
-l'eau reviendra avec les bateaux.
+des échanges fait le 13/11 (porteur à pied par les sentiers, 3 tours au plus, perte selon la ressource).
+**Transport fait le 14/11** (pirogues, capacité par étape, coût en nature, rentabilité, transit) ; suite de la tâche
+18 : ports et capacité des nœuds, carte thématique des flux, gain d'une ville de passage (relais, péage), pourquoi
+une liaison ne se fait pas, aperçu avant de construire, saisons et sens du courant, routes.
 Maquette v19 après deux revues par agents (11/11) : pile avec vue d'ensemble à la racine, objectif de
 nourriture et priorités, graphique passé et prévision, mode placement. **Monnaie : le denier** (option :
 nom tiré de la langue) : renommer « Économie » en deniers dans le code, l'interface et le wiki.
