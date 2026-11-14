@@ -429,6 +429,7 @@ impl Plugin for GamePlugin {
             .init_resource::<DebugMode>()
             .init_resource::<Territory>()
             .init_resource::<Amenagements>()
+            .init_resource::<FluxDuTour>()
             .init_resource::<Gisements>()
             .init_resource::<Selection>()
             .init_resource::<GameLog>()
@@ -656,6 +657,20 @@ pub fn assign_worked_tiles(map: &WorldMap, territory: &Territory, amenagements: 
     }
 }
 
+/// Une étape d'un échange du dernier tour : de quelle ville à quelle ville, quoi, combien, comment.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FluxEtape {
+    pub de: Hex,
+    pub vers: Hex,
+    pub ressource: crate::gisements::Ressource,
+    pub qte: f64,
+    pub moyen: crate::echanges::Moyen,
+}
+
+/// Les flux des échanges du dernier tour, étape par étape (carte des flux).
+#[derive(Resource, Default)]
+pub struct FluxDuTour(pub Vec<FluxEtape>);
+
 fn end_turn(
     mut commands: Commands,
     mut requested: ResMut<EndTurnRequested>,
@@ -671,7 +686,7 @@ fn end_turn(
     mut cues: ResMut<Cues>,
     mut cities: Query<(Entity, &HexPos, &mut City)>,
     mut units: Query<(Entity, &mut Unit, &mut HexPos), (Without<City>, Without<Hostile>)>,
-    idents: Query<&Ident>,
+    (idents, mut flux): (Query<&Ident>, ResMut<FluxDuTour>),
 ) {
     if !std::mem::take(&mut requested.0) {
         return;
@@ -817,6 +832,19 @@ fn end_turn(
             .collect();
         let reseau = crate::echanges::Reseau::new(villes.len(), |a, b| crate::echanges::etape(map, villes[a].centre, villes[b].centre));
         let (transferts, refus) = crate::echanges::echanger_et_refus(&mut villes, &reseau);
+        // Flux du tour, étape par étape (carte des flux du tableau de bord)
+        flux.0.clear();
+        for t in &transferts {
+            let sens = std::iter::once((t.ressource, t.qte, false)).chain(t.contre.map(|(r, q)| (r, q, true)));
+            for (ressource, qte, retour) in sens {
+                for w in t.route.windows(2) {
+                    let (a, b) = if retour { (w[1], w[0]) } else { (w[0], w[1]) };
+                    if let Some(e) = reseau.etapes[a][b] {
+                        flux.0.push(FluxEtape { de: villes[a].centre, vers: villes[b].centre, ressource, qte, moyen: e.moyen });
+                    }
+                }
+            }
+        }
         let noms: Vec<String> = list.iter().map(|(_, _, c)| c.state.name.clone()).collect();
         for (k, (_, _, city)) in list.iter_mut().enumerate() {
             city.state.ressources = villes[k].stock.to_vec();

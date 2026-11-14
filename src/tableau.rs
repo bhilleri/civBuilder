@@ -84,7 +84,7 @@ pub struct TableauPlugin;
 
 impl Plugin for TableauPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Tableau>().add_systems(Startup, creer_panneau).add_systems(Update, (commandes, remplir).chain());
+        app.init_resource::<Tableau>().add_systems(Startup, creer_panneau).add_systems(Update, (commandes, remplir, carte_des_flux).chain());
     }
 }
 
@@ -169,7 +169,9 @@ fn remplir(
     cities: Query<Ref<City>>,
     panneau: Single<(Entity, &mut Node), With<TableauPanneau>>,
     mut dernier: Local<Option<(bool, Option<Ressource>, u32)>>,
+    flux: Res<crate::game::FluxDuTour>,
 ) {
+    let flux_vides = flux.0.is_empty();
     let (panneau, mut node) = panneau.into_inner();
     let display = if tableau.ouvert { Display::Flex } else { Display::None };
     if node.display != display {
@@ -230,8 +232,36 @@ fn remplir(
                 p.spawn((Node { padding: UiRect::left(Val::Px(22.0)), ..default() }, children![texte(format!("Usage : {}. Sur la carte : ses gisements connus et l'état de chaque ville.", r.usage()), 11.5, MUET)]));
             }
         }
-        p.spawn((Node { margin: UiRect::top(Val::Px(4.0)), ..default() }, children![texte("Clic sur une ressource : le détail par ville et sa carte de disponibilité. « Couvert » : part de 2 tours de demande en stock. Une ville manque sous 2 tours de sa demande et partage au-delà de 6.", 11.5, MUET)]));
+        p.spawn((Node { margin: UiRect::top(Val::Px(4.0)), ..default() }, children![texte(format!("Clic sur une ressource : le détail par ville et sa carte de disponibilité. « Couvert » : part de 2 tours de demande en stock. Une ville manque sous 2 tours de sa demande et partage au-delà de 6. Sur la carte, les échanges du dernier tour{} : une flèche par étape, épaisse selon la quantité, ocre à pied, bleue en pirogue.", if flux_vides { " (aucun ce tour)" } else { "" }), 11.5, MUET)]));
     });
+}
+
+/// Couleur d'un flux selon son moyen : à pied (ocre), en pirogue (bleu).
+pub fn couleur_moyen(m: crate::echanges::Moyen) -> Color {
+    match m {
+        crate::echanges::Moyen::Pied => Color::srgb(0.93, 0.66, 0.30),
+        crate::echanges::Moyen::Pirogue => Color::srgb(0.38, 0.70, 1.0),
+    }
+}
+
+/// Carte des flux, tableau ouvert (carte du monde, écran de ville fermé) : les échanges du dernier
+/// tour, une flèche par étape et par moyen (de la ressource choisie, sinon toutes), épaisse selon
+/// la quantité.
+fn carte_des_flux(tableau: Res<Tableau>, ecran: Res<crate::ecran_ville::EcranVille>, flux: Res<crate::game::FluxDuTour>, mut carte: ResMut<crate::ville_carte::FluxCarte>) {
+    let mut fleches: Vec<crate::ville_carte::Fleche> = Vec::new();
+    if tableau.ouvert && !ecran.ouvert() {
+        let mut par_etape: Vec<(crate::hex::Hex, crate::hex::Hex, crate::echanges::Moyen, f64)> = Vec::new();
+        for f in flux.0.iter().filter(|f| tableau.choisie.is_none_or(|r| r == f.ressource)) {
+            match par_etape.iter_mut().find(|x| x.0 == f.de && x.1 == f.vers && x.2 == f.moyen) {
+                Some(x) => x.3 += f.qte,
+                None => par_etape.push((f.de, f.vers, f.moyen, f.qte)),
+            }
+        }
+        fleches = par_etape.into_iter().map(|(de, vers, moyen, q)| crate::ville_carte::Fleche { de, vers, couleur: couleur_moyen(moyen), epaisseur: (1.0 + q as f32 * 3.0).min(5.0), pointille: false }).collect();
+    }
+    if carte.0 != fleches {
+        carte.0 = fleches;
+    }
 }
 
 fn capitale(s: &str) -> String {

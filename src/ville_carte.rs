@@ -51,6 +51,39 @@ pub struct Fleche {
     pub pointille: bool,
 }
 
+/// Carte des flux du pays (tableau de bord des ressources) : une flèche par étape et par moyen,
+/// épaisse selon la quantité, écrite par le tableau de bord.
+#[derive(Resource, Default, PartialEq)]
+pub struct FluxCarte(pub Vec<Fleche>);
+
+/// Flux en 2D.
+fn flux_2d(flux: Res<FluxCarte>, mode: Res<ViewMode>, map: Res<GameMap>, mut gizmos: Gizmos) {
+    if mode.is_3d {
+        return;
+    }
+    let wrap = map.0.wrap();
+    for f in &flux.0 {
+        for (a, b) in segments_fleche(f, f.de, wrap) {
+            gizmos.line_2d(a, b, f.couleur);
+        }
+    }
+}
+
+/// Flux en 3D, posés sur le relief.
+fn flux_3d(flux: Res<FluxCarte>, mode: Res<ViewMode>, map: Res<GameMap>, relief: Option<Res<Relief>>, mut gizmos: Gizmos<Gizmos3d>) {
+    let Some(relief) = relief else { return };
+    if !mode.is_3d {
+        return;
+    }
+    let wrap = map.0.wrap();
+    for f in &flux.0 {
+        for (a, b) in segments_fleche(f, f.de, wrap) {
+            let n = ((b - a).length() / 8.0).ceil().max(1.0) as usize;
+            gizmos.linestrip((0..=n).map(|k| a.lerp(b, k as f32 / n as f32)).map(|p| relief.on_ground(p.x, p.y, LEVEE_3D + 3.0)), f.couleur);
+        }
+    }
+}
+
 /// Ce que la carte du monde montre de la ville ouverte (écrit par l'écran de la ville, seulement
 /// quand cela change).
 #[derive(Resource, Default, PartialEq)]
@@ -143,13 +176,14 @@ pub struct VilleCartePlugin;
 impl Plugin for VilleCartePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CoucheVille>()
+            .init_resource::<FluxCarte>()
             .init_resource::<SurvolVille>()
             .init_resource::<ZoneLibre>()
             .init_resource::<TailleCase>()
             .init_resource::<Vol>()
             .add_message::<CadrerVille>()
             .add_systems(Startup, creer_couches)
-            .add_systems(Update, (cadrer, voler, maillages, contours, contours_3d, mesurer_case).chain())
+            .add_systems(Update, (cadrer, voler, maillages, contours, contours_3d, flux_2d, flux_3d, mesurer_case).chain())
             .add_systems(PostUpdate, placer_etiquettes.after(bevy::camera::CameraUpdateSystems).before(bevy::ui::UiSystems::Prepare));
     }
 }

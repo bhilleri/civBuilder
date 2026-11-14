@@ -398,8 +398,16 @@ Décisions de Benjamin :
   « Origine » du tableau des ressources (« Lyon en a : pas rentable (40 % arriverait) ») et ligne
   « pas reçu » sous chaque ville de l'onglet Ressources. Test dans `un_echange_peu_rentable_ne_se_fait_pas`
   et `une_etape_porte_ce_que_permet_son_moyen`.
-- Pas encore : ports et capacité des nœuds, carte thématique des flux, gain d'une ville de passage,
-  saisons.
+- **Carte des flux (14/11)** : `game::FluxDuTour` garde les échanges du dernier tour étape par
+  étape (contreparties comprises, dans l'autre sens) ; tableau de bord ouvert (touche G, carte du
+  monde), `tableau::carte_des_flux` en fait une flèche par étape et par moyen, épaisse selon la
+  quantité, ocre à pied, bleue en pirogue (`ville_carte::FluxCarte`, 2D et 3D posée sur le relief) ;
+  la ressource choisie dans le tableau ne montre que ses flux. Limite : une flèche droite d'une ville
+  à l'autre, pas le chemin suivi (rivière, sentier). Pas vérifié à l'écran avec de vrais échanges
+  (graine 777 : pas de gisement autour de la capitale) ; le dessin est celui des flèches de la
+  couche Échanges.
+- Pas encore : ports et capacité des nœuds, gain d'une ville de passage, aperçu avant de construire,
+  saisons, flèches qui suivent le chemin.
 - Pas encore : opinion et faveur entre villes ; négociation avec les villages ; liste des villages
   qui ont la ressource sur la carte de disponibilité (avec leurs stocks, à venir).
 
